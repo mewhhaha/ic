@@ -5,7 +5,7 @@
 Build a small Interaction Calculus inspired compiler pipeline in Deno:
 
 ```txt
-IC -> Expr -> Mod -> WAT -> Wasm
+Ic -> Expr -> Mod -> WAT -> Wasm
 ```
 
 The project should stay simple and inspectable while it grows. Prefer small explicit compiler stages over clever abstractions.
@@ -44,7 +44,7 @@ Core HVM4 ideas we should preserve:
 - Variables are global: a variable can occur outside its binder's lexical scope.
 - Duplications and superpositions are dual constructs.
 - Dup/sup labels matter: equal labels annihilate, different labels commute.
-- The four central IC interactions are APP-LAM, DUP-SUP, APP-SUP, and DUP-LAM.
+- The four central Ic interactions are APP-LAM, DUP-SUP, APP-SUP, and DUP-LAM.
 - Practical constructs such as numbers, constructors, matching, and operations should be layered on top of that core rather than mixed into it.
 
 ## Style rules
@@ -70,13 +70,13 @@ src/expr.test.ts
 src/mod.test.ts
 ```
 
-When changing `IC.reduce`, add tests for the exact reduced IC shape when possible. Also cover the lowered `Expr` or emitted WAT when the reduced IC intentionally still contains duplications over plain values.
+When changing `Ic.reduce`, add tests for the exact reduced Ic shape when possible. Also cover the lowered `Expr` or emitted WAT when the reduced Ic intentionally still contains duplications over plain values.
 
 Use the local helpers in `src/assert.ts` instead of adding external test dependencies.
 
 ## Numeric literals
 
-Numeric literals must carry their value type in IC. Do not silently default source numbers to `i32` during lowering.
+Numeric literals must carry their value type in Ic. Do not silently default source numbers to `i32` during lowering.
 
 Prefer this shape:
 
@@ -97,7 +97,7 @@ Represent primitive operations as explicit primitive nodes, not as top-level tag
 Prefer this shape:
 
 ```ts
-{ tag: "prim", prim: "add", args: [left, right] }
+{ tag: "prim", prim: "i32.add", args: [left, right] }
 ```
 
 Do not represent each operation like this:
@@ -106,22 +106,22 @@ Do not represent each operation like this:
 { tag: "add", left, right }
 ```
 
-The primitive table owns metadata such as display text, arity, and typed Wasm instructions. This keeps the tree shape stable when adding more primitive functions.
+The `Prim` function owns metadata such as display text, arity, and typed Wasm instructions. This keeps the tree shape stable when adding more primitive functions.
 
-Check arity from the table when formatting, reducing, lowering, or emitting:
+Check arity through the bound `Prim` wrapper when formatting, reducing, lowering, or emitting:
 
 ```ts
-const expected = arity(expr.prim);
+const expected = Prim(expr.prim).arity();
 expect(expr.args.length === expected, "error message");
 ```
 
-Primitive reductions belong in `IC.reduce`, not only in `Expr.emit`. Numeric primitive calls can fold in IC, and primitive calls over superpositions should propagate by creating duplications for the other arguments.
+Primitive reductions belong in `Ic.reduce`, not only in `Expr.emit`. Numeric primitive calls can fold in Ic, and primitive calls over superpositions should propagate by creating duplications for the other arguments.
 
 Do not use an `isOp` style type guard to detect primitive names as tags.
 
-## IC reduction
+## Ic reduction
 
-Put Interaction Calculus rewrite rules in `IC.reduce` before lowering to `Expr`.
+Put Interaction Calculus rewrite rules in `Ic.reduce` before lowering to `Expr`.
 
 Start with the small core rules and keep each rule explicit. The first real interaction rule is APP-LAM:
 
@@ -190,47 +190,52 @@ Store module functions as a map keyed by function name. This makes export valida
 
 ## Pseudo traits
 
-Types can have ad-hoc pseudo traits attached to empty functions.
+Types can have ad-hoc pseudo traits attached to value-binding functions.
 
 Define shared pseudo-trait shapes in `src/trait.ts`:
 
 ```ts
 export type Format<self> = {
-  fmt: (value: self) => string;
+  fmt: (this: self) => string;
 };
 
 export type Emit<from, to> = {
-  emit: (value: from) => to;
+  emit: (this: from) => to;
 };
 
 export type Reduce<self> = {
-  reduce: (value: self) => self;
+  reduce: (this: self) => self;
 };
 ```
 
-Define the data type and an empty function with the same exported name:
+Define the data type and a function with the same exported name. The function takes the value and returns a temporary bound constructor so methods can be chained:
 
 ```ts
-export type IC =
+export type Ic =
   | { tag: "num"; type: ValType; value: number | bigint }
   | { tag: "var"; name: string };
 
-export function IC() {}
+export function Ic(ic: Ic): typeof Ic & Ic {
+  return Object.assign(Ic.bind(ic), {
+    fmt: Ic.fmt.bind(ic),
+    emit: Ic.emit.bind(ic),
+  }) as typeof Ic & Ic;
+}
 ```
 
 Attach methods directly to the function:
 
 ```ts
-IC.fmt = function fmt(ic: IC): string {
-  if (ic.tag === "num") {
-    return ic.value.toString() + ":" + ic.type;
+Ic.fmt = function (this: Ic): string {
+  if (this.tag === "num") {
+    return this.value.toString() + ":" + this.type;
   }
 
-  if (ic.tag === "var") {
-    return ic.name;
+  if (this.tag === "var") {
+    return this.name;
   }
 
-  ic satisfies never;
+  this satisfies never;
   throw new Error("panic");
 };
 ```
@@ -238,11 +243,18 @@ IC.fmt = function fmt(ic: IC): string {
 Place `satisfies` checks in the implementation file, immediately after the relevant pseudo-trait methods are assigned:
 
 ```ts
-IC.emit = function emit(ic: IC): Expr {
-  return lower(ic, new Map());
+Ic.emit = function (this: Ic): Expr {
+  return lower(this, new Map());
 };
 
-IC satisfies Format<IC> & Emit<IC, Expr>;
+Ic satisfies Format<Ic> & Emit<Ic, Expr>;
 ```
 
-Do not keep these checks in `main.ts`. Do not replace this pattern with object literals or constructor casts. The empty function is the namespace-like value, and traits are added to it ad hoc.
+Call trait methods through the bound wrapper:
+
+```ts
+const reduced = Ic(program).reduce();
+const wat = Expr(expr).emit();
+```
+
+Do not keep these checks in `main.ts`. Do not replace this pattern with object literals or classes. The function is the namespace-like value, and traits are added to it ad hoc.
