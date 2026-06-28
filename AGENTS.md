@@ -19,6 +19,26 @@ The project should stay simple and inspectable while it grows. Prefer small expl
 - Prefer explicit `if` blocks over compact expressions when the branch matters.
 - Keep semantic operations separate from concrete Wasm instructions.
 
+## Primitive operations
+
+Represent primitive operations as explicit primitive nodes, not as top-level tags.
+
+Prefer this shape:
+
+```ts
+{ tag: "prim", prim: "add", args: [left, right] }
+```
+
+Do not represent each operation like this:
+
+```ts
+{ tag: "add", left, right }
+```
+
+The primitive table owns metadata such as display text, arity, and typed Wasm instructions. This keeps the tree shape stable when adding more primitive functions.
+
+Check arity from the table when formatting, lowering, or emitting. Do not use an `isOp` style type guard to detect primitive names as tags.
+
 ## Pseudo traits
 
 Types can have ad-hoc pseudo traits attached to empty functions.
