@@ -3,7 +3,7 @@ import { Expr } from "./expr.ts";
 import { Ic, type Ic as IcNode } from "./ic.ts";
 import type { Func, Mod as ModNode } from "./mod.ts";
 import type { Prim, ValType } from "./op.ts";
-import { Emit, Typed, type Emit as EmitTrait } from "./trait.ts";
+import { Emit, type Emit as EmitTrait, Typed } from "./trait.ts";
 
 export type Term =
   | { tag: "num"; type: ValType; value: number | bigint }
