@@ -14,7 +14,7 @@ Deno.test("Mod.emit emits functions and exports", () => {
   };
 
   assertEquals(
-    Mod.emit(mod),
+    Mod(mod).emit(),
     '(module\n  (func $main (result i32)\n    i32.const 42\n  )\n  (export "main" (func $main))\n)',
   );
 });
@@ -25,7 +25,7 @@ Deno.test("Mod.emit rejects missing exports", () => {
     exports: ["main"],
   };
 
-  assertThrows(() => Mod.emit(mod), "Missing function for export: main");
+  assertThrows(() => Mod(mod).emit(), "Missing function for export: main");
 });
 
 Deno.test("Mod.emit rejects function key and name mismatches", () => {
@@ -40,5 +40,5 @@ Deno.test("Mod.emit rejects function key and name mismatches", () => {
     exports: ["main"],
   };
 
-  assertThrows(() => Mod.emit(mod), "Function key/name mismatch: main");
+  assertThrows(() => Mod(mod).emit(), "Function key/name mismatch: main");
 });

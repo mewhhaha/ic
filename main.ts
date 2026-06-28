@@ -1,14 +1,14 @@
-import { IC } from "./src/ic.ts";
+import { Ic } from "./src/ic.ts";
 import { Expr } from "./src/expr.ts";
 import { Mod } from "./src/mod.ts";
 
-const program: IC = {
+const program: Ic = {
   tag: "dup",
   label: "A",
   name: "r",
   expr: {
     tag: "prim",
-    prim: "add",
+    prim: "i32.add",
     args: [
       {
         tag: "sup",
@@ -26,7 +26,7 @@ const program: IC = {
   },
   body: {
     tag: "prim",
-    prim: "add",
+    prim: "i32.add",
     args: [
       { tag: "var", name: "r0" },
       { tag: "var", name: "r1" },
@@ -34,33 +34,33 @@ const program: IC = {
   },
 };
 
-const reduced = IC.reduce(program);
-const expr = IC.emit(program);
+const reduced = Ic(program).reduce();
+const expr = Ic(program).emit();
 
 const mod: Mod = {
   funcs: {
     main: {
       name: "main",
-      result: Expr.type(expr),
-      body: Expr.emit(expr),
+      result: Expr(expr).type(),
+      body: Expr(expr).emit(),
     },
   },
   exports: ["main"],
 };
 
-const watText = Mod.emit(mod);
+const watText = Mod(mod).emit();
 
 await Deno.mkdir("build", { recursive: true });
 await Deno.writeTextFile("build/out.wat", watText);
 
-console.log("IC:");
-console.log(IC.fmt(program));
+console.log("Ic:");
+console.log(Ic(program).fmt());
 
-console.log("Reduced IC:");
-console.log(IC.fmt(reduced));
+console.log("Reduced Ic:");
+console.log(Ic(reduced).fmt());
 
 console.log("Expr:");
-console.log(Expr.fmt(expr));
+console.log(Expr(expr).fmt());
 
 console.log("WAT:");
 console.log(watText);

@@ -1,16 +1,16 @@
 import { expect } from "./expect.ts";
 import { Expr, type Expr as ExprNode } from "./expr.ts";
-import { arity, type Prim, PRIMS, type ValType } from "./op.ts";
+import { Prim, type ValType } from "./op.ts";
 import type { Emit, Format, Reduce } from "./trait.ts";
 
-export type IC =
+export type Ic =
   | { tag: "num"; type: ValType; value: number | bigint }
   | { tag: "var"; name: string }
-  | { tag: "prim"; prim: Prim; args: IC[] }
-  | { tag: "lam"; name: string; body: IC }
-  | { tag: "app"; func: IC; arg: IC }
-  | { tag: "sup"; label: string; left: IC; right: IC }
-  | { tag: "dup"; label: string; name: string; expr: IC; body: IC };
+  | { tag: "prim"; prim: Prim; args: Ic[] }
+  | { tag: "lam"; name: string; body: Ic }
+  | { tag: "app"; func: Ic; arg: Ic }
+  | { tag: "sup"; label: string; left: Ic; right: Ic }
+  | { tag: "dup"; label: string; name: string; expr: Ic; body: Ic };
 
 type Ctx = {
   used: Set<string>;
@@ -19,9 +19,15 @@ type Ctx = {
   var: (prefix: string) => string;
 };
 
-export function IC() {}
+export function Ic(ic: Ic): typeof Ic & Ic {
+  return Object.assign(Ic.bind(ic), {
+    fmt: Ic.fmt.bind(ic),
+    reduce: Ic.reduce.bind(ic),
+    emit: Ic.emit.bind(ic),
+  }) as typeof Ic & Ic;
+}
 
-function arg(args: IC[], index: number): IC {
+function arg(args: Ic[], index: number): Ic {
   const value = args[index];
   expect(value, "Missing argument " + index);
   return value;
@@ -33,73 +39,73 @@ function exprArg(args: ExprNode[], index: number): ExprNode {
   return value;
 }
 
-IC.fmt = function fmt(ic: IC): string {
-  if (ic.tag === "num") {
-    return ic.value.toString() + ":" + ic.type;
+Ic.fmt = function (this: Ic): string {
+  if (this.tag === "num") {
+    return this.value.toString() + ":" + this.type;
   }
 
-  if (ic.tag === "var") {
-    return ic.name;
+  if (this.tag === "var") {
+    return this.name;
   }
 
-  if (ic.tag === "prim") {
-    const expected = arity(ic.prim);
+  if (this.tag === "prim") {
+    const expected = Prim(this.prim).arity();
     expect(
-      ic.args.length === expected,
-      "Primitive " + ic.prim + " expects " + expected + " arguments",
+      this.args.length === expected,
+      "Primitive " + this.prim + " expects " + expected + " arguments",
     );
 
-    const left = fmt(arg(ic.args, 0));
-    const op = PRIMS[ic.prim].fmt;
-    const right = fmt(arg(ic.args, 1));
+    const left = Ic(arg(this.args, 0)).fmt();
+    const op = Prim(this.prim).fmt();
+    const right = Ic(arg(this.args, 1)).fmt();
     return `${left} ${op} ${right}`;
   }
 
-  if (ic.tag === "lam") {
-    const body = fmt(ic.body);
-    return `λ${ic.name}. ${body}`;
+  if (this.tag === "lam") {
+    const body = Ic(this.body).fmt();
+    return `λ${this.name}. ${body}`;
   }
 
-  if (ic.tag === "app") {
-    const func = fmt(ic.func);
-    const arg = fmt(ic.arg);
+  if (this.tag === "app") {
+    const func = Ic(this.func).fmt();
+    const arg = Ic(this.arg).fmt();
     return `(${func})(${arg})`;
   }
 
-  if (ic.tag === "sup") {
-    const left = fmt(ic.left);
-    const right = fmt(ic.right);
-    return `&${ic.label}{${left}, ${right}}`;
+  if (this.tag === "sup") {
+    const left = Ic(this.left).fmt();
+    const right = Ic(this.right).fmt();
+    return `&${this.label}{${left}, ${right}}`;
   }
 
-  if (ic.tag === "dup") {
-    const expr = fmt(ic.expr);
-    const body = fmt(ic.body);
-    return `! ${ic.name} &${ic.label} = ${expr};\n${body}`;
+  if (this.tag === "dup") {
+    const expr = Ic(this.expr).fmt();
+    const body = Ic(this.body).fmt();
+    return `! ${this.name} &${this.label} = ${expr};\n${body}`;
   }
 
-  ic satisfies never;
+  this satisfies never;
   throw new Error("panic");
 };
 
-IC.reduce = function reduceRoot(ic: IC): IC {
-  const ctx = Ctx(ic);
-  return reduce(ic, ctx);
+Ic.reduce = function (this: Ic): Ic {
+  const ctx = Ctx(this);
+  return reduce(this, ctx);
 };
 
-IC.emit = function emit(ic: IC): ExprNode {
-  return lower(IC.reduce(ic), new Map());
+Ic.emit = function (this: Ic): ExprNode {
+  return lower(Ic(this).reduce(), new Map());
 };
 
-IC satisfies Format<IC> & Reduce<IC> & Emit<IC, ExprNode>;
+Ic satisfies Format<Ic> & Reduce<Ic> & Emit<Ic, ExprNode>;
 
-function reduce(ic: IC, ctx: Ctx): IC {
+function reduce(ic: Ic, ctx: Ctx): Ic {
   if (ic.tag === "num" || ic.tag === "var") {
     return ic;
   }
 
   if (ic.tag === "prim") {
-    const expected = arity(ic.prim);
+    const expected = Prim(ic.prim).arity();
     expect(
       ic.args.length === expected,
       "Primitive " + ic.prim + " expects " + expected + " arguments",
@@ -112,10 +118,10 @@ function reduce(ic: IC, ctx: Ctx): IC {
       expect(item, "Missing primitive argument " + index);
 
       if (item.tag === "sup") {
-        const leftArgs: IC[] = [];
-        const rightArgs: IC[] = [];
+        const leftArgs: Ic[] = [];
+        const rightArgs: Ic[] = [];
         const copyNames: string[] = [];
-        const copyExprs: IC[] = [];
+        const copyExprs: Ic[] = [];
 
         for (let pos = 0; pos < args.length; pos += 1) {
           const input = args[pos];
@@ -133,7 +139,7 @@ function reduce(ic: IC, ctx: Ctx): IC {
           }
         }
 
-        let body: IC = {
+        let body: Ic = {
           tag: "sup",
           label: item.label,
           left: { tag: "prim", prim: ic.prim, args: leftArgs },
@@ -168,13 +174,21 @@ function reduce(ic: IC, ctx: Ctx): IC {
         "Primitive numbers must have the same type",
       );
 
+      const primType = ic.prim.slice(0, 3);
+      expect(
+        primType === left.type,
+        "Primitive " + ic.prim + " cannot operate on " + left.type,
+      );
+
+      const op = ic.prim.slice(4);
+
       if (left.type === "i32") {
         const leftValue = left.value;
         const rightValue = right.value;
         expect(typeof leftValue === "number", "Expected i32 number");
         expect(typeof rightValue === "number", "Expected i32 number");
 
-        if (ic.prim === "add") {
+        if (op === "add") {
           return {
             tag: "num",
             type: "i32",
@@ -182,7 +196,7 @@ function reduce(ic: IC, ctx: Ctx): IC {
           };
         }
 
-        if (ic.prim === "sub") {
+        if (op === "sub") {
           return {
             tag: "num",
             type: "i32",
@@ -190,16 +204,13 @@ function reduce(ic: IC, ctx: Ctx): IC {
           };
         }
 
-        if (ic.prim === "mul") {
+        if (op === "mul") {
           return {
             tag: "num",
             type: "i32",
             value: Math.imul(leftValue, rightValue),
           };
         }
-
-        ic.prim satisfies never;
-        throw new Error("panic");
       }
 
       if (left.type === "i64") {
@@ -208,7 +219,7 @@ function reduce(ic: IC, ctx: Ctx): IC {
         expect(typeof leftValue === "bigint", "Expected i64 bigint");
         expect(typeof rightValue === "bigint", "Expected i64 bigint");
 
-        if (ic.prim === "add") {
+        if (op === "add") {
           return {
             tag: "num",
             type: "i64",
@@ -216,7 +227,7 @@ function reduce(ic: IC, ctx: Ctx): IC {
           };
         }
 
-        if (ic.prim === "sub") {
+        if (op === "sub") {
           return {
             tag: "num",
             type: "i64",
@@ -224,19 +235,15 @@ function reduce(ic: IC, ctx: Ctx): IC {
           };
         }
 
-        if (ic.prim === "mul") {
+        if (op === "mul") {
           return {
             tag: "num",
             type: "i64",
             value: BigInt.asIntN(64, leftValue * rightValue),
           };
         }
-
-        ic.prim satisfies never;
-        throw new Error("panic");
       }
 
-      left.type satisfies never;
       throw new Error("panic");
     }
 
@@ -318,13 +325,13 @@ function reduce(ic: IC, ctx: Ctx): IC {
 
       const leftName = ctx.name("a");
       const rightName = ctx.name("b");
-      const leftProjection: IC = {
+      const leftProjection: Ic = {
         tag: "sup",
         label: expr.label,
         left: { tag: "var", name: `${leftName}0` },
         right: { tag: "var", name: `${rightName}0` },
       };
-      const rightProjection: IC = {
+      const rightProjection: Ic = {
         tag: "sup",
         label: expr.label,
         left: { tag: "var", name: `${leftName}1` },
@@ -362,12 +369,12 @@ function reduce(ic: IC, ctx: Ctx): IC {
         right: { tag: "var", name: rightName },
       });
 
-      const leftFunc: IC = {
+      const leftFunc: Ic = {
         tag: "lam",
         name: leftName,
         body: { tag: "var", name: `${bodyName}0` },
       };
-      const rightFunc: IC = {
+      const rightFunc: Ic = {
         tag: "lam",
         name: rightName,
         body: { tag: "var", name: `${bodyName}1` },
@@ -401,7 +408,7 @@ function reduce(ic: IC, ctx: Ctx): IC {
   throw new Error("panic");
 }
 
-function Ctx(ic: IC): Ctx {
+function Ctx(ic: Ic): Ctx {
   const ctx: Ctx = {
     used: collectNames(ic),
     next: 0,
@@ -438,7 +445,7 @@ function Ctx(ic: IC): Ctx {
   return ctx;
 }
 
-function collectNames(ic: IC, out = new Set<string>()): Set<string> {
+function collectNames(ic: Ic, out = new Set<string>()): Set<string> {
   if (ic.tag === "num") {
     return out;
   }
@@ -487,7 +494,7 @@ function collectNames(ic: IC, out = new Set<string>()): Set<string> {
   throw new Error("panic");
 }
 
-function subst(ic: IC, name: string, value: IC): IC {
+function subst(ic: Ic, name: string, value: Ic): Ic {
   if (ic.tag === "num") {
     return ic;
   }
@@ -563,7 +570,7 @@ function subst(ic: IC, name: string, value: IC): IC {
   throw new Error("panic");
 }
 
-function lower(ic: IC, env: Map<string, ValType>): ExprNode {
+function lower(ic: Ic, env: Map<string, ValType>): ExprNode {
   if (ic.tag === "num") {
     return { tag: "num", type: ic.type, value: ic.value };
   }
@@ -575,17 +582,17 @@ function lower(ic: IC, env: Map<string, ValType>): ExprNode {
   }
 
   if (ic.tag === "prim") {
-    const expected = arity(ic.prim);
+    const expected = Prim(ic.prim).arity();
     expect(
       ic.args.length === expected,
       "Primitive " + ic.prim + " expects " + expected + " arguments",
     );
 
     const args = ic.args.map((item) => lower(item, env));
-    const type = Expr.type(exprArg(args, 0));
+    const type = Expr(exprArg(args, 0)).type();
 
     for (const item of args) {
-      const actual = Expr.type(item);
+      const actual = Expr(item).type();
       expect(actual === type, "Primitive operands must have the same type");
     }
 
@@ -611,7 +618,7 @@ function lower(ic: IC, env: Map<string, ValType>): ExprNode {
 
   if (ic.tag === "dup") {
     const value = lower(ic.expr, env);
-    const type = Expr.type(value);
+    const type = Expr(value).type();
     env = new Map(env);
 
     env.set(`${ic.name}0`, type);

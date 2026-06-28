@@ -9,11 +9,15 @@ export type Func = {
   body: Wat;
 };
 
-function Func() {}
+const Func = function Func(func: Func): typeof Func & Func {
+  return Object.assign(Func.bind(func), {
+    fmt: (Func as any).fmt.bind(func),
+  }) as unknown as typeof Func & Func;
+} as any;
 
-Func.fmt = function fmt(func: Func): Wat {
-  return `(func $${func.name} (result ${func.result})\n${
-    indent(func.body, 2)
+Func.fmt = function (this: Func): Wat {
+  return `(func $${this.name} (result ${this.result})\n${
+    indent(this.body, 2)
   }\n)`;
 };
 
@@ -24,25 +28,29 @@ export type Mod = {
   exports: string[];
 };
 
-export function Mod() {}
+export function Mod(mod: Mod): typeof Mod & Mod {
+  return Object.assign(Mod.bind(mod), {
+    emit: Mod.emit.bind(mod),
+  }) as typeof Mod & Mod;
+}
 
-Mod.emit = function emit(mod: Mod): Wat {
+Mod.emit = function (this: Mod): Wat {
   const parts = ["(module"];
   const funcs: Wat[] = [];
 
-  for (const name in mod.funcs) {
-    const func = mod.funcs[name];
+  for (const name in this.funcs) {
+    const func = this.funcs[name];
     expect(func, "Missing function: " + name);
     expect(func.name === name, "Function key/name mismatch: " + name);
-    funcs.push(Func.fmt(func));
+    funcs.push(Func(func).fmt());
   }
 
   if (funcs.length > 0) {
     parts.push(indent(funcs.join("\n\n"), 2));
   }
 
-  for (const name of mod.exports) {
-    expect(mod.funcs[name], "Missing function for export: " + name);
+  for (const name of this.exports) {
+    expect(this.funcs[name], "Missing function for export: " + name);
     parts.push(`  (export "${name}" (func $${name}))`);
   }
 

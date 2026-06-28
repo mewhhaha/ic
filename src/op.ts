@@ -3,8 +3,12 @@ import { Emit, Fn, Format } from "./trait.ts";
 export type ValType = "i32" | "i64";
 
 export type Prim = `${"i32" | "i64"}.${"sub" | "add" | "mul"}`;
-export function Prim(prim: Prim) {
-  return Prim.bind(prim);
+export function Prim(prim: Prim): typeof Prim & Prim {
+  return Object.assign(Prim.bind(prim), {
+    fmt: Prim.fmt.bind(prim),
+    arity: Prim.arity.bind(prim),
+    emit: Prim.emit.bind(prim),
+  }) as typeof Prim & Prim;
 }
 
 Prim.fmt = function fmt(this: Prim) {
