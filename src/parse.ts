@@ -1,6 +1,6 @@
 import { expect } from "./expect.ts";
 import type { Mod as ModNode } from "./mod.ts";
-import { Prim, type Prim as PrimNode, type ValType } from "./op.ts";
+import type { Prim as PrimNode, ValType } from "./op.ts";
 import { Surface, type Surface as SurfaceNode, type Term } from "./surface.ts";
 import type { Emit, Parse } from "./trait.ts";
 
