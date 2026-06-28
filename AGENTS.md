@@ -17,8 +17,8 @@ The project should stay simple and inspectable while it grows. Prefer small expl
 - Do not silently default when compiler information is missing.
 - If a binding, type, local, or lowering fact cannot be found, throw an error.
 - Prefer explicit `if` blocks over compact expressions when the branch matters.
-- Use `expect(condition, message)` directly at invariant sites.
-- Define `expect` as an assertion helper so TypeScript narrows after it succeeds.
+- Use `expect(value, message)` directly at invariant sites.
+- Define `expect` as an assertion helper for its first argument so TypeScript narrows after it succeeds.
 - Do not hide `expect` behind tiny wrapper helpers such as `expectType` or `expectArity`.
 - If a helper function only calls another function or performs one trivial lookup, inline it at the call site.
 - Keep semantic operations separate from concrete Wasm instructions.
