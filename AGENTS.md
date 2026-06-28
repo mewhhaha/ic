@@ -21,6 +21,22 @@ The project should stay simple and inspectable while it grows. Prefer small expl
 - Do not hide `expect` behind tiny wrapper helpers such as `expectType` or `expectArity`.
 - Keep semantic operations separate from concrete Wasm instructions.
 
+## Numeric literals
+
+Numeric literals must carry their value type in IC. Do not silently default source numbers to `i32` during lowering.
+
+Prefer this shape:
+
+```ts
+{ tag: "num", type: "i32", value: 21 }
+```
+
+Use `i64` explicitly for 64-bit literals:
+
+```ts
+{ tag: "num", type: "i64", value: 21n }
+```
+
 ## Primitive operations
 
 Represent primitive operations as explicit primitive nodes, not as top-level tags.
@@ -68,7 +84,7 @@ Define the data type and an empty function with the same exported name:
 
 ```ts
 export type IC =
-  | { tag: "num"; value: number }
+  | { tag: "num"; type: ValType; value: number | bigint }
   | { tag: "var"; name: string };
 
 export function IC() {}
@@ -79,7 +95,7 @@ Attach methods directly to the function:
 ```ts
 IC.fmt = function fmt(ic: IC): string {
   if (ic.tag === "num") {
-    return ic.value.toString();
+    return ic.value.toString() + ":" + ic.type;
   }
 
   if (ic.tag === "var") {

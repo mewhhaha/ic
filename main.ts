@@ -14,8 +14,8 @@ const program: IC = {
   tag: "prim",
   prim: "add",
   args: [
-    { tag: "num", value: 21 },
-    { tag: "num", value: 21 },
+    { tag: "num", type: "i32", value: 21 },
+    { tag: "num", type: "i32", value: 21 },
   ],
 };
 
