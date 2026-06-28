@@ -24,10 +24,6 @@ export function isOp(tag: string): tag is Op {
   return tag in OPS;
 }
 
-export function fmtOp(op: Op): string {
-  return OPS[op];
-}
-
 export function watOp(type: ValType, op: Op): string {
   return WAT_OPS[type][op];
 }
