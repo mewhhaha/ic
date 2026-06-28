@@ -1,5 +1,6 @@
+import { expect } from "./expect.ts";
 import { Expr, type Expr as ExprNode } from "./expr.ts";
-import { expectArity, PRIMS, type Prim, type ValType } from "./op.ts";
+import { arity, PRIMS, type Prim, type ValType } from "./op.ts";
 
 type PrimIC = { tag: "prim"; prim: Prim; args: IC[] };
 
@@ -41,7 +42,11 @@ IC.fmt = function fmt(ic: IC): string {
   }
 
   if (ic.tag === "prim") {
-    expectArity(ic.prim, ic.args);
+    const expected = arity(ic.prim);
+    expect(
+      ic.args.length === expected,
+      "Primitive " + ic.prim + " expects " + expected + " arguments",
+    );
 
     const left = fmt(arg(ic.args, 0));
     const op = PRIMS[ic.prim].fmt;
@@ -79,7 +84,11 @@ function lower(ic: IC, env: Map<string, ValType>): ExprNode {
   }
 
   if (ic.tag === "prim") {
-    expectArity(ic.prim, ic.args);
+    const expected = arity(ic.prim);
+    expect(
+      ic.args.length === expected,
+      "Primitive " + ic.prim + " expects " + expected + " arguments",
+    );
 
     const args = ic.args.map((item) => lower(item, env));
     const type = Expr.type(exprArg(args, 0));
