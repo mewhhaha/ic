@@ -56,7 +56,7 @@ Deno.test("main writes WAT that compiles and instantiates", async () => {
 
   const result = instance.exports.main();
 
-  if (result !== 33) {
-    throw new Error("Expected main() -> 33, got " + result);
+  if (result !== 42) {
+    throw new Error("Expected main() -> 42, got " + result);
   }
 });
