@@ -1,4 +1,5 @@
-import { expectArity, PRIMS, watPrim, type Prim, type ValType } from "./op.ts";
+import { expect } from "./expect.ts";
+import { arity, PRIMS, watPrim, type Prim, type ValType } from "./op.ts";
 
 export type Expr =
   | { tag: "num"; type: ValType; value: number | bigint }
@@ -18,10 +19,7 @@ Expr.type = function type(expr: Expr): ValType {
 
 function expectType(expr: Expr, expected: ValType): void {
   const actual = Expr.type(expr);
-
-  if (actual !== expected) {
-    throw new Error("Expected " + expected + ", got " + actual);
-  }
+  expect(actual === expected, "Expected " + expected + ", got " + actual);
 }
 
 function arg(args: Expr[], index: number): Expr {
@@ -79,7 +77,11 @@ function _emit(expr: Expr, env: Map<string, ValType>): string {
   }
 
   if (expr.tag === "prim") {
-    expectArity(expr.prim, expr.args);
+    const expected = arity(expr.prim);
+    expect(
+      expr.args.length === expected,
+      "Primitive " + expr.prim + " expects " + expected + " arguments",
+    );
 
     for (const item of expr.args) {
       expectType(item, expr.type);
@@ -130,7 +132,11 @@ Expr.fmt = function fmt(expr: Expr): string {
   }
 
   if (expr.tag === "prim") {
-    expectArity(expr.prim, expr.args);
+    const expected = arity(expr.prim);
+    expect(
+      expr.args.length === expected,
+      "Primitive " + expr.prim + " expects " + expected + " arguments",
+    );
 
     const left = fmt(arg(expr.args, 0));
     const op = PRIMS[expr.prim].fmt;
