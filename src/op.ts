@@ -1,38 +1,33 @@
+import { Emit, Fn, Format } from "./trait.ts";
+
 export type ValType = "i32" | "i64";
 
-export const PRIMS = {
-  add: {
-    fmt: "+",
-    arity: 2,
-    wat: {
-      i32: "i32.add",
-      i64: "i64.add",
-    },
-  },
-  sub: {
-    fmt: "-",
-    arity: 2,
-    wat: {
-      i32: "i32.sub",
-      i64: "i64.sub",
-    },
-  },
-  mul: {
-    fmt: "*",
-    arity: 2,
-    wat: {
-      i32: "i32.mul",
-      i64: "i64.mul",
-    },
-  },
-} as const;
-
-export type Prim = keyof typeof PRIMS;
-
-export function arity(prim: Prim): number {
-  return PRIMS[prim].arity;
+export type Prim = `${"i32" | "i64"}.${"sub" | "add" | "mul"}`;
+export function Prim(prim: Prim) {
+  return Prim.bind(prim);
 }
 
-export function watPrim(type: ValType, prim: Prim): string {
-  return PRIMS[prim].wat[type];
-}
+Prim.fmt = function fmt(this: Prim) {
+  switch (this) {
+    case "i64.add":
+    case "i32.add":
+      return "+";
+    case "i64.sub":
+    case "i32.sub":
+      return "-";
+    case "i64.mul":
+    case "i32.mul":
+      return "*";
+  }
+};
+Prim satisfies Format<Prim>;
+
+Prim.arity = function arity(this: Prim) {
+  return 2;
+};
+Prim satisfies Fn<Prim>;
+
+Prim.emit = function emit(this: Prim): string {
+  return this;
+};
+Prim satisfies Emit<Prim, string>;
