@@ -12,13 +12,13 @@ export function IC() {}
 
 function arg(args: IC[], index: number): IC {
   const value = args[index];
-  expect(value !== undefined, "Missing argument " + index);
+  expect(value, "Missing argument " + index);
   return value;
 }
 
 function exprArg(args: ExprNode[], index: number): ExprNode {
   const value = args[index];
-  expect(value !== undefined, "Missing argument " + index);
+  expect(value, "Missing argument " + index);
   return value;
 }
 
@@ -65,7 +65,7 @@ function lower(ic: IC, env: Map<string, ValType>): ExprNode {
 
   if (ic.tag === "var") {
     const type = env.get(ic.name);
-    expect(type !== undefined, "Unbound variable: " + ic.name);
+    expect(type, "Unbound variable: " + ic.name);
     return { tag: "var", type, name: ic.name };
   }
 
