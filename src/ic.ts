@@ -10,7 +10,8 @@ export type IC =
   | { tag: "lam"; name: string; body: IC }
   | { tag: "app"; func: IC; arg: IC }
   | { tag: "sup"; label: string; left: IC; right: IC }
-  | { tag: "dup"; label: string; name: string; expr: IC; body: IC };
+  | { tag: "dup"; label: string; name: string; expr: IC; body: IC }
+  | { tag: "era"; expr: IC; body: IC };
 
 type Ctx = {
   used: Set<string>;
@@ -69,6 +70,12 @@ IC.fmt = function fmt(ic: IC): string {
       const expr = fmt(ic.expr);
       const body = fmt(ic.body);
       return `! ${ic.name} &${ic.label} = ${expr};\n${body}`;
+    }
+
+    case "era": {
+      const expr = fmt(ic.expr);
+      const body = fmt(ic.body);
+      return `~ ${expr};\n${body}`;
     }
   }
 };
@@ -404,6 +411,54 @@ function reduce(ic: IC, ctx: Ctx): IC {
         body,
       };
     }
+
+    case "era": {
+      const expr = reduce(ic.expr, ctx);
+      const body = erase(expr, ic.body, ctx);
+      return reduce(body, ctx);
+    }
+  }
+}
+
+function erase(expr: IC, body: IC, ctx: Ctx): IC {
+  switch (expr.tag) {
+    case "num":
+    case "var":
+      return body;
+
+    case "prim":
+      return eraseMany(expr.args, body);
+
+    case "lam":
+      return { tag: "era", expr: expr.body, body };
+
+    case "app":
+      return eraseMany([expr.func, expr.arg], body);
+
+    case "sup":
+      return eraseMany([expr.left, expr.right], body);
+
+    case "dup": {
+      const left = { tag: "var", name: `${expr.name}0` } satisfies IC;
+      const right = { tag: "var", name: `${expr.name}1` } satisfies IC;
+      const next = eraseMany([left, right], expr.body);
+      return eraseMany([expr.expr, next], body);
+    }
+
+    case "era":
+      return eraseMany([expr.expr, expr.body], body);
+  }
+
+  function eraseMany(items: IC[], next: IC): IC {
+    let result = next;
+
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index];
+      expect(item, "Missing erasure item " + index);
+      result = { tag: "era", expr: item, body: result };
+    }
+
+    return result;
   }
 }
 
@@ -482,6 +537,11 @@ function collectNames(ic: IC, out = new Set<string>()): Set<string> {
       collectNames(ic.expr, out);
       collectNames(ic.body, out);
       return out;
+
+    case "era":
+      collectNames(ic.expr, out);
+      collectNames(ic.body, out);
+      return out;
   }
 }
 
@@ -551,6 +611,13 @@ function subst(ic: IC, name: string, value: IC): IC {
         body: subst(ic.body, name, value),
       };
     }
+
+    case "era":
+      return {
+        tag: "era",
+        expr: subst(ic.expr, name, value),
+        body: subst(ic.body, name, value),
+      };
   }
 }
 
@@ -620,6 +687,9 @@ function lower(ic: IC, env: Map<string, ValType>): ExprNode {
         body: rename(lower(ic.body, env), ic.name),
       };
     }
+
+    case "era":
+      throw new Error("Cannot lower erasure before reduction");
   }
 }
 
