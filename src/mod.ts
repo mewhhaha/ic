@@ -4,14 +4,15 @@ import type { Emit, Format } from "./trait.ts";
 import { indent, type Wat } from "./wat.ts";
 
 export type Func = {
+  name: string;
   result: ValType;
   body: Wat;
 };
 
 function Func() {}
 
-Func.fmt = function fmt(name: string, func: Func): Wat {
-  return `(func $${name} (result ${func.result})\n${indent(func.body, 2)}\n)`;
+Func.fmt = function fmt(func: Func): Wat {
+  return `(func $${func.name} (result ${func.result})\n${indent(func.body, 2)}\n)`;
 };
 
 Func satisfies Format<Func>;
@@ -25,12 +26,17 @@ export function Mod() {}
 
 Mod.emit = function emit(mod: Mod): Wat {
   const parts = ["(module"];
-  const funcs = Object.entries(mod.funcs)
-    .map(([name, func]) => Func.fmt(name, func))
-    .join("\n\n");
+  const funcs: Wat[] = [];
+
+  for (const name in mod.funcs) {
+    const func = mod.funcs[name];
+    expect(func, "Missing function: " + name);
+    expect(func.name === name, "Function key/name mismatch: " + name);
+    funcs.push(Func.fmt(func));
+  }
 
   if (funcs.length > 0) {
-    parts.push(indent(funcs, 2));
+    parts.push(indent(funcs.join("\n\n"), 2));
   }
 
   for (const name of mod.exports) {
