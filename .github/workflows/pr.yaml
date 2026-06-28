@@ -20,5 +20,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y wabt
 
+      - name: format
+        run: deno fmt --check *.ts src .github/workflows/*.yaml
+
+      - name: lint
+        run: deno lint
+
       - name: run tests
-        run: deno run --allow-read --allow-write --allow-run test.ts main.ts build/out.wat build/out.wasm
+        run: deno test --allow-read --allow-write --allow-run
