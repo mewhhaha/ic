@@ -1,6 +1,7 @@
 import { expect } from "./expect.ts";
 import { Expr, type Expr as ExprNode } from "./expr.ts";
 import { arity, PRIMS, type Prim, type ValType } from "./op.ts";
+import type { Emit, Format } from "./trait.ts";
 
 export type IC =
   | { tag: "num"; type: ValType; value: number | bigint }
@@ -57,6 +58,8 @@ IC.fmt = function fmt(ic: IC): string {
 IC.emit = function emit(ic: IC): ExprNode {
   return lower(ic, new Map());
 };
+
+IC satisfies Format<IC> & Emit<IC, ExprNode>;
 
 function lower(ic: IC, env: Map<string, ValType>): ExprNode {
   if (ic.tag === "num") {
