@@ -5,19 +5,36 @@ import { Mod } from "./src/mod.ts";
 const program: IC = {
   tag: "dup",
   label: "A",
-  name: "x",
+  name: "r",
   expr: {
-    tag: "sup",
-    label: "A",
-    left: { tag: "num", type: "i32", value: 40 },
-    right: { tag: "num", type: "i32", value: 2 },
+    tag: "app",
+    func: {
+      tag: "sup",
+      label: "A",
+      left: {
+        tag: "lam",
+        name: "x",
+        body: { tag: "var", name: "x" },
+      },
+      right: {
+        tag: "lam",
+        name: "y",
+        body: { tag: "var", name: "y" },
+      },
+    },
+    arg: {
+      tag: "sup",
+      label: "A",
+      left: { tag: "num", type: "i32", value: 40 },
+      right: { tag: "num", type: "i32", value: 2 },
+    },
   },
   body: {
     tag: "prim",
     prim: "add",
     args: [
-      { tag: "var", name: "x0" },
-      { tag: "var", name: "x1" },
+      { tag: "var", name: "r0" },
+      { tag: "var", name: "r1" },
     ],
   },
 };
