@@ -18,6 +18,7 @@ The project should stay simple and inspectable while it grows. Prefer small expl
 - If a binding, type, local, or lowering fact cannot be found, throw an error.
 - Prefer explicit `if` blocks over compact expressions when the branch matters.
 - Use `expect(condition, message)` directly at invariant sites.
+- Define `expect` as an assertion helper so TypeScript narrows after it succeeds.
 - Do not hide `expect` behind tiny wrapper helpers such as `expectType` or `expectArity`.
 - Keep semantic operations separate from concrete Wasm instructions.
 
@@ -75,6 +76,8 @@ Expr -> Mod -> WAT
 ```
 
 The module layer owns Wasm functions and exports. `Expr.emit` should emit only the function body instructions.
+
+Store module functions as a map keyed by function name. This makes export validation a direct lookup instead of a scan.
 
 ## Pseudo traits
 
