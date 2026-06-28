@@ -1,103 +1,62 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-run
 const decoder = new TextDecoder();
 
-function arg(index: number, fallback: string): string {
-  const value = Deno.args[index];
-
-  if (value === undefined) {
-    return fallback;
-  }
-
-  return value;
-}
-
-const mainFile = arg(0, "main.ts");
-const watFile = arg(1, "build/out.wat");
-const wasmFile = arg(2, "build/out.wasm");
-
-await Deno.mkdir("build", { recursive: true });
-
-function logError(label: string, bytes: Uint8Array) {
+function logError(label: string, bytes: Uint8Array): void {
   if (bytes.length > 0) {
     console.error(`${label}:\n${decoder.decode(bytes)}`);
   }
 }
 
-const runMain = await new Deno.Command(Deno.execPath(), {
-  args: ["run", "--allow-read", "--allow-write", mainFile],
-  stdout: "piped",
-  stderr: "piped",
-}).output();
+Deno.test("main writes WAT that compiles and instantiates", async () => {
+  const watFile = "build/out.wat";
+  const wasmFile = "build/out.wasm";
 
-if (!runMain.success) {
-  logError("main.ts failed", runMain.stderr);
-  Deno.exit(runMain.code);
-}
+  await Deno.mkdir("build", { recursive: true });
 
-const generatedWatFile = "build/out.wat";
+  const runMain = await new Deno.Command(Deno.execPath(), {
+    args: ["run", "--allow-read", "--allow-write", "main.ts"],
+    stdout: "piped",
+    stderr: "piped",
+  }).output();
 
-try {
-  await Deno.stat(generatedWatFile);
-} catch {
-  console.error(`main.ts did not write ${generatedWatFile}.`);
-  Deno.exit(1);
-}
-
-if (generatedWatFile !== watFile) {
-  await Deno.copyFile(generatedWatFile, watFile);
-}
-
-console.log(`wrote ${watFile}`);
-
-const compile = await new Deno.Command("wat2wasm", {
-  args: [watFile, "-o", wasmFile],
-  stdout: "piped",
-  stderr: "piped",
-}).output();
-
-if (compile.stderr.length > 0) {
-  logError("wat2wasm stderr", compile.stderr);
-}
-
-if (!compile.success) {
-  Deno.exit(compile.code);
-}
-
-console.log(`wrote ${wasmFile}`);
-
-const wasmBytes = await Deno.readFile(wasmFile);
-const { instance } = await WebAssembly.instantiate(wasmBytes, {});
-console.log("compiled wasm module and instantiated successfully");
-
-const exports = Object.entries(instance.exports).map(([name, value]) => ({
-  name,
-  type: typeof value,
-}));
-console.log("exports:", exports);
-
-if (
-  "_start" in instance.exports && typeof instance.exports._start === "function"
-) {
-  console.log("running _start()");
-  try {
-    (instance.exports._start as CallableFunction)();
-  } catch (error) {
-    console.error("error running _start", error);
-    Deno.exit(1);
+  if (!runMain.success) {
+    logError("main.ts failed", runMain.stderr);
+    throw new Error("main.ts failed");
   }
-} else if (
-  "main" in instance.exports && typeof instance.exports.main === "function"
-) {
-  console.log("running main()");
+
   try {
-    const result = (instance.exports.main as CallableFunction)();
-    if (typeof result !== "undefined") {
-      console.log("main() ->", result);
-    }
-  } catch (error) {
-    console.error("error running main", error);
-    Deno.exit(1);
+    await Deno.stat(watFile);
+  } catch {
+    throw new Error("main.ts did not write " + watFile);
   }
-} else {
-  console.log("no _start or main export to execute");
-}
+
+  const compile = await new Deno.Command("wat2wasm", {
+    args: [watFile, "-o", wasmFile],
+    stdout: "piped",
+    stderr: "piped",
+  }).output();
+
+  if (compile.stderr.length > 0) {
+    logError("wat2wasm stderr", compile.stderr);
+  }
+
+  if (!compile.success) {
+    throw new Error("wat2wasm failed");
+  }
+
+  const wasmBytes = await Deno.readFile(wasmFile);
+  const { instance } = await WebAssembly.instantiate(wasmBytes, {});
+
+  if (!("main" in instance.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const result = instance.exports.main();
+
+  if (result !== 33) {
+    throw new Error("Expected main() -> 33, got " + result);
+  }
+});
