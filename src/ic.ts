@@ -95,16 +95,16 @@ function lower(ic: IC, env: Map<string, ValType>): ExprNode {
   if (ic.tag === "dup") {
     const value = lower(ic.expr, env);
     const type = Expr.type(value);
-    const nextEnv = new Map(env);
+    env = new Map(env);
 
-    nextEnv.set(`${ic.name}0`, type);
-    nextEnv.set(`${ic.name}1`, type);
+    env.set(`${ic.name}0`, type);
+    env.set(`${ic.name}1`, type);
 
     return {
       tag: "let",
       name: ic.name,
       value,
-      body: rename(lower(ic.body, nextEnv), ic.name),
+      body: rename(lower(ic.body, env), ic.name),
     };
   }
 
