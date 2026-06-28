@@ -1,29 +1,51 @@
-import { isOp, OPS, type Op } from "./op.ts";
+import { fmtOp, watOp, type Op, type ValType } from "./op.ts";
 
-type BinaryExpr = { tag: Op; left: Expr; right: Expr };
+type BinaryExpr = {
+  tag: "bin";
+  type: ValType;
+  op: Op;
+  left: Expr;
+  right: Expr;
+};
 
 export type Expr =
-  | { tag: "num"; value: number }
-  | { tag: "var"; name: string }
+  | { tag: "num"; type: ValType; value: number | bigint }
+  | { tag: "var"; type: ValType; name: string }
   | BinaryExpr
   | { tag: "let"; name: string; value: Expr; body: Expr };
 
 export function Expr() {}
 
-// Collect all local variables into a set
-function collect(expr: Expr, out = new Set<string>()): Set<string> {
+Expr.type = function type(expr: Expr): ValType {
+  if (expr.tag === "let") {
+    return type(expr.body);
+  }
+
+  return expr.type;
+};
+
+function expectType(expr: Expr, expected: ValType): void {
+  const actual = Expr.type(expr);
+
+  if (actual !== expected) {
+    throw new Error("Expected " + expected + ", got " + actual);
+  }
+}
+
+// Collect all local variables into a map of local name to Wasm value type.
+function collect(expr: Expr, out = new Map<string, ValType>()): Map<string, ValType> {
   if (expr.tag === "num" || expr.tag === "var") {
     return out;
   }
 
-  if (isOp(expr.tag)) {
+  if (expr.tag === "bin") {
     collect(expr.left, out);
     collect(expr.right, out);
     return out;
   }
 
   if (expr.tag === "let") {
-    out.add(expr.name);
+    out.set(expr.name, Expr.type(expr.value));
     collect(expr.value, out);
     collect(expr.body, out);
     return out;
@@ -33,32 +55,40 @@ function collect(expr: Expr, out = new Set<string>()): Set<string> {
   throw new Error("panic");
 }
 
-function _emit(expr: Expr, env: Map<string, string>): string {
+function _emit(expr: Expr, env: Map<string, ValType>): string {
   if (expr.tag === "num") {
-    return "i32.const " + expr.value;
+    return expr.type + ".const " + expr.value.toString();
   }
 
   if (expr.tag === "var") {
-    const local = env.get(expr.name);
+    const type = env.get(expr.name);
 
-    if (local === undefined) {
+    if (type === undefined) {
       throw new Error("Unbound variable: " + expr.name);
     }
 
-    return "local.get $" + local;
+    if (type !== expr.type) {
+      throw new Error("Local $" + expr.name + " is " + type + ", got " + expr.type);
+    }
+
+    return "local.get $" + expr.name;
   }
 
-  if (isOp(expr.tag)) {
+  if (expr.tag === "bin") {
+    expectType(expr.left, expr.type);
+    expectType(expr.right, expr.type);
+
     return [
       _emit(expr.left, env),
       _emit(expr.right, env),
-      OPS[expr.tag].wat,
+      watOp(expr.type, expr.op),
     ].join("\n");
   }
 
   if (expr.tag === "let") {
+    const type = Expr.type(expr.value);
     const nextEnv = new Map(env);
-    nextEnv.set(expr.name, expr.name);
+    nextEnv.set(expr.name, type);
 
     return [
       _emit(expr.value, env),
@@ -73,7 +103,7 @@ function _emit(expr: Expr, env: Map<string, string>): string {
 
 Expr.emit = function emit(expr: Expr): string {
   const locals = [...collect(expr)]
-    .map((name) => `(local $${name} i32)`)
+    .map(([name, type]) => `(local $${name} ${type})`)
     .join("\n");
 
   const body = _emit(expr, new Map());
@@ -87,23 +117,24 @@ Expr.emit = function emit(expr: Expr): string {
 
 Expr.fmt = function fmt(expr: Expr): string {
   if (expr.tag === "num") {
-    return expr.value.toString();
+    return expr.value.toString() + ":" + expr.type;
   }
 
   if (expr.tag === "var") {
-    return expr.name;
+    return expr.name + ":" + expr.type;
   }
 
-  if (isOp(expr.tag)) {
+  if (expr.tag === "bin") {
     const left = fmt(expr.left);
     const right = fmt(expr.right);
-    return `(${left} ${OPS[expr.tag].fmt} ${right})`;
+    return `(${left} ${fmtOp(expr.op)}:${expr.type} ${right})`;
   }
 
   if (expr.tag === "let") {
+    const type = Expr.type(expr.value);
     const value = fmt(expr.value);
     const body = fmt(expr.body);
-    return `let ${expr.name} = ${value};\n${body}`;
+    return `let ${expr.name}:${type} = ${value};\n${body}`;
   }
 
   expr satisfies never;
