@@ -10,6 +10,43 @@ IC -> Expr -> Mod -> WAT -> Wasm
 
 The project should stay simple and inspectable while it grows. Prefer small explicit compiler stages over clever abstractions.
 
+## Theory background
+
+This project is inspired by HVM4 and should stay aligned with the theory it is based on.
+
+Primary implementation references:
+
+- HVM4 repository: https://github.com/HigherOrderCO/HVM4
+- HVM4 Interaction Calculus notes: https://github.com/HigherOrderCO/HVM4/blob/main/docs/theory/interaction_calculus.md
+- HVM4 core syntax: https://github.com/HigherOrderCO/HVM4/blob/main/docs/hvm/core.md
+- HVM4 memory layout: https://github.com/HigherOrderCO/HVM4/blob/main/docs/hvm/memory.md
+- HVM2 repository and paper entry point: https://github.com/HigherOrderCO/HVM
+- Bend, the high-level language targeting HVM: https://github.com/HigherOrderCO/Bend
+
+Theory roots to keep in mind:
+
+- Lambda Calculus: lambdas, applications, beta reduction, normal forms.
+- Optimal reduction: avoid duplicating shared work, especially under lambdas.
+- Interaction Nets: local graph rewriting with active pairs and strong confluence.
+- Lafont Interaction Combinators: a tiny universal interaction-net system based on erasure, duplication, and constructor/fan behavior.
+- HVM4 Interaction Calculus: extends lambda calculus with explicit duplications and superpositions.
+
+Useful papers / historical anchors:
+
+- Yves Lafont, "Interaction Nets", POPL 1990: https://doi.org/10.1145/96709.96718
+- Yves Lafont, "Interaction Combinators", Information and Computation 1997: https://doi.org/10.1006/inco.1997.2643
+- John Lamping, "An Algorithm for Optimal Lambda Calculus Reduction", POPL 1990.
+- Andrea Asperti and Stefano Guerrini, "The Optimal Implementation of Functional Programming Languages".
+
+Core HVM4 ideas we should preserve:
+
+- Variables are affine: each variable is used at most once.
+- Variables are global: a variable can occur outside its binder's lexical scope.
+- Duplications and superpositions are dual constructs.
+- Dup/sup labels matter: equal labels annihilate, different labels commute.
+- The four central IC interactions are APP-LAM, DUP-SUP, APP-SUP, and DUP-LAM.
+- Practical constructs such as numbers, constructors, matching, and operations should be layered on top of that core rather than mixed into it.
+
 ## Style rules
 
 - Do not use ternary expressions.
