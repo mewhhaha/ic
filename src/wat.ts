@@ -1,5 +1,3 @@
-import type { ValType } from "./op.ts";
-
 export type Wat = string;
 
 export function indent(text: string, spaces: number): string {
@@ -15,16 +13,4 @@ export function indent(text: string, spaces: number): string {
       return pad + line;
     })
     .join("\n");
-}
-
-export function main(body: Wat, result: ValType): Wat {
-  return `
-(module
-  (func $main (result ${result})
-${indent(body, 4)}
-  )
-
-  (export "main" (func $main))
-)
-`.trimStart();
 }

@@ -1,5 +1,5 @@
-export function expect(condition: boolean, message: string): asserts condition {
-  if (!condition) {
+export function expect(value: unknown, message: string): asserts value {
+  if (!value) {
     throw new Error(message);
   }
 }

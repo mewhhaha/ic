@@ -1,5 +1,6 @@
 import { expect } from "./expect.ts";
 import { arity, PRIMS, watPrim, type Prim, type ValType } from "./op.ts";
+import type { Emit, Format } from "./trait.ts";
 
 export type Expr =
   | { tag: "num"; type: ValType; value: number | bigint }
@@ -19,7 +20,7 @@ Expr.type = function type(expr: Expr): ValType {
 
 function arg(args: Expr[], index: number): Expr {
   const value = args[index];
-  expect(value !== undefined, "Missing argument " + index);
+  expect(value, "Missing argument " + index);
   return value;
 }
 
@@ -55,10 +56,7 @@ function _emit(expr: Expr, env: Map<string, ValType>): string {
 
   if (expr.tag === "var") {
     const type = env.get(expr.name);
-
-    if (type === undefined) {
-      throw new Error("Unbound variable: " + expr.name);
-    }
+    expect(type, "Unbound variable: " + expr.name);
 
     expect(
       type === expr.type,
@@ -147,3 +145,5 @@ Expr.fmt = function fmt(expr: Expr): string {
   expr satisfies never;
   throw new Error("panic");
 };
+
+Expr satisfies Format<Expr> & Emit<Expr, string>;

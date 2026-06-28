@@ -5,7 +5,7 @@
 Build a small Interaction Calculus inspired compiler pipeline in Deno:
 
 ```txt
-IC -> Expr -> WAT -> Wasm
+IC -> Expr -> Mod -> WAT -> Wasm
 ```
 
 The project should stay simple and inspectable while it grows. Prefer small explicit compiler stages over clever abstractions.
@@ -17,8 +17,10 @@ The project should stay simple and inspectable while it grows. Prefer small expl
 - Do not silently default when compiler information is missing.
 - If a binding, type, local, or lowering fact cannot be found, throw an error.
 - Prefer explicit `if` blocks over compact expressions when the branch matters.
-- Use `expect(condition, message)` directly at invariant sites.
+- Use `expect(value, message)` directly at invariant sites.
+- Define `expect` as an assertion helper for its first argument so TypeScript narrows after it succeeds.
 - Do not hide `expect` behind tiny wrapper helpers such as `expectType` or `expectArity`.
+- If a helper function only calls another function or performs one trivial lookup, inline it at the call site.
 - Keep semantic operations separate from concrete Wasm instructions.
 
 ## Numeric literals
@@ -64,18 +66,32 @@ expect(expr.args.length === expected, "error message");
 
 Do not use an `isOp` style type guard to detect primitive names as tags.
 
+## Module layer
+
+Keep `Expr` focused on computing one value. Do not put module, function, export, import, memory, or start-function structure into `Expr`.
+
+Use a separate `Mod` layer after `Expr`:
+
+```txt
+Expr -> Mod -> WAT
+```
+
+The module layer owns Wasm functions and exports. `Expr.emit` should emit only the function body instructions.
+
+Store module functions as a map keyed by function name. This makes export validation a direct lookup instead of a scan.
+
 ## Pseudo traits
 
 Types can have ad-hoc pseudo traits attached to empty functions.
 
-Define the trait shape as a type:
+Define shared pseudo-trait shapes in `src/trait.ts`:
 
 ```ts
-type Format<self> = {
+export type Format<self> = {
   fmt: (value: self) => string;
 };
 
-type Emit<from, to> = {
+export type Emit<from, to> = {
   emit: (value: from) => to;
 };
 ```
@@ -107,10 +123,14 @@ IC.fmt = function fmt(ic: IC): string {
 };
 ```
 
-Check the pseudo traits later with `satisfies`:
+Place `satisfies` checks in the implementation file, immediately after the relevant pseudo-trait methods are assigned:
 
 ```ts
+IC.emit = function emit(ic: IC): Expr {
+  return lower(ic, new Map());
+};
+
 IC satisfies Format<IC> & Emit<IC, Expr>;
 ```
 
-Do not replace this pattern with object literals or constructor casts. The empty function is the namespace-like value, and traits are added to it ad hoc.
+Do not keep these checks in `main.ts`. Do not replace this pattern with object literals or constructor casts. The empty function is the namespace-like value, and traits are added to it ad hoc.

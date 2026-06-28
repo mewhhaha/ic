@@ -1,6 +1,7 @@
 import { expect } from "./expect.ts";
 import { Expr, type Expr as ExprNode } from "./expr.ts";
 import { arity, PRIMS, type Prim, type ValType } from "./op.ts";
+import type { Emit, Format } from "./trait.ts";
 
 export type IC =
   | { tag: "num"; type: ValType; value: number | bigint }
@@ -12,13 +13,13 @@ export function IC() {}
 
 function arg(args: IC[], index: number): IC {
   const value = args[index];
-  expect(value !== undefined, "Missing argument " + index);
+  expect(value, "Missing argument " + index);
   return value;
 }
 
 function exprArg(args: ExprNode[], index: number): ExprNode {
   const value = args[index];
-  expect(value !== undefined, "Missing argument " + index);
+  expect(value, "Missing argument " + index);
   return value;
 }
 
@@ -58,6 +59,8 @@ IC.emit = function emit(ic: IC): ExprNode {
   return lower(ic, new Map());
 };
 
+IC satisfies Format<IC> & Emit<IC, ExprNode>;
+
 function lower(ic: IC, env: Map<string, ValType>): ExprNode {
   if (ic.tag === "num") {
     return { tag: "num", type: ic.type, value: ic.value };
@@ -65,7 +68,7 @@ function lower(ic: IC, env: Map<string, ValType>): ExprNode {
 
   if (ic.tag === "var") {
     const type = env.get(ic.name);
-    expect(type !== undefined, "Unbound variable: " + ic.name);
+    expect(type, "Unbound variable: " + ic.name);
     return { tag: "var", type, name: ic.name };
   }
 
