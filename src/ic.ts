@@ -3,7 +3,7 @@ import { Expr, type Expr as ExprNode } from "./expr.ts";
 import { arity, PRIMS, type Prim, type ValType } from "./op.ts";
 
 export type IC =
-  | { tag: "num"; value: number }
+  | { tag: "num"; type: ValType; value: number | bigint }
   | { tag: "var"; name: string }
   | { tag: "prim"; prim: Prim; args: IC[] }
   | { tag: "dup"; name: string; expr: IC; body: IC };
@@ -24,7 +24,7 @@ function exprArg(args: ExprNode[], index: number): ExprNode {
 
 IC.fmt = function fmt(ic: IC): string {
   if (ic.tag === "num") {
-    return ic.value.toString();
+    return ic.value.toString() + ":" + ic.type;
   }
 
   if (ic.tag === "var") {
@@ -60,7 +60,7 @@ IC.emit = function emit(ic: IC): ExprNode {
 
 function lower(ic: IC, env: Map<string, ValType>): ExprNode {
   if (ic.tag === "num") {
-    return { tag: "num", type: "i32", value: ic.value };
+    return { tag: "num", type: ic.type, value: ic.value };
   }
 
   if (ic.tag === "var") {
