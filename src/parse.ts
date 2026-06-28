@@ -357,7 +357,7 @@ class Parser {
       return { tag: "expr", value, exportedAs: name.text };
     }
 
-    if (this.match("fn")) {
+    if (this.check("fn")) {
       return this.fn(false);
     }
 
