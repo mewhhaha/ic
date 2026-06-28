@@ -1,0 +1,9 @@
+// Top-level let statements define module-level values.
+export let answer = 11i32 + 22i32;
+
+// Plain top-level expressions execute before the final expression.
+// Their result is unused, so Surface inserts explicit erasure.
+(fn x => x)(&Z{100i32, 200i32});
+
+// The final expression becomes the exported main function.
+answer;
