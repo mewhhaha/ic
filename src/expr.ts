@@ -1,16 +1,9 @@
 import { expectArity, PRIMS, watPrim, type Prim, type ValType } from "./op.ts";
 
-type PrimExpr = {
-  tag: "prim";
-  type: ValType;
-  prim: Prim;
-  args: Expr[];
-};
-
 export type Expr =
   | { tag: "num"; type: ValType; value: number | bigint }
   | { tag: "var"; type: ValType; name: string }
-  | PrimExpr
+  | { tag: "prim"; type: ValType; prim: Prim; args: Expr[] }
   | { tag: "let"; name: string; value: Expr; body: Expr };
 
 export function Expr() {}
