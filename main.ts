@@ -8,7 +8,7 @@ const program: IC = {
   name: "r",
   expr: {
     tag: "prim",
-    prim: "add",
+    prim: "i32.add",
     args: [
       {
         tag: "sup",
@@ -26,7 +26,7 @@ const program: IC = {
   },
   body: {
     tag: "prim",
-    prim: "add",
+    prim: "i32.add",
     args: [
       { tag: "var", name: "r0" },
       { tag: "var", name: "r1" },

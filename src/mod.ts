@@ -9,7 +9,7 @@ export type Func = {
   body: Wat;
 };
 
-function Func() {}
+export function Func() {}
 
 Func.fmt = function fmt(func: Func): Wat {
   return `(func $${func.name} (result ${func.result})\n${

@@ -15,7 +15,7 @@ function var_(name: string): ICNode {
 }
 
 function add(left: ICNode, right: ICNode): ICNode {
-  return { tag: "prim", prim: "add", args: [left, right] };
+  return { tag: "prim", prim: "i32.add", args: [left, right] };
 }
 
 function id(name: string): ICNode {
@@ -128,7 +128,7 @@ Deno.test("IC.reduce propagates primitive calls over superpositions", () => {
     name: "r",
     expr: {
       tag: "prim",
-      prim: "add",
+      prim: "i32.add",
       args: [
         { tag: "sup", label: "A", left: i32(1), right: i32(2) },
         { tag: "sup", label: "A", left: i32(10), right: i32(20) },
@@ -143,7 +143,7 @@ Deno.test("IC.reduce propagates primitive calls over superpositions", () => {
 Deno.test("IC.reduce folds i32 primitives with wrapping", () => {
   const program: ICNode = {
     tag: "prim",
-    prim: "add",
+    prim: "i32.add",
     args: [i32(2147483647), i32(1)],
   };
 
@@ -153,7 +153,7 @@ Deno.test("IC.reduce folds i32 primitives with wrapping", () => {
 Deno.test("IC.reduce folds i64 primitives with wrapping", () => {
   const program: ICNode = {
     tag: "prim",
-    prim: "mul",
+    prim: "i64.mul",
     args: [i64(3n), i64(7n)],
   };
 
