@@ -1,20 +1,21 @@
 import { expect } from "./expect.ts";
-import { Surface, type Surface as SurfaceNode, type Term } from "./surface.ts";
 import type { Mod as ModNode } from "./mod.ts";
-import { Prim, type Prim as PrimNode } from "./op.ts";
+import { Prim, type Prim as PrimNode, type ValType } from "./op.ts";
+import { Surface, type Surface as SurfaceNode, type Term } from "./surface.ts";
 import type { Emit, Parse } from "./trait.ts";
 
 type TokenKind =
   | "ident"
   | "num"
+  | "op"
+  | "intrinsic"
   | "let"
   | "export"
   | "fn"
+  | "infixl"
   | "arrow"
-  | "plus"
-  | "minus"
-  | "star"
   | "eq"
+  | "colon"
   | "semi"
   | "comma"
   | "lparen"
@@ -29,6 +30,10 @@ type Token = {
   text: string;
   line: number;
   column: number;
+};
+
+type Operator = {
+  precedence: number;
 };
 
 export type Source = string;
@@ -75,6 +80,8 @@ class Lexer {
         tokens.push(this.number());
       } else if (isIdentStart(char)) {
         tokens.push(this.ident());
+      } else if (char === "@") {
+        tokens.push(this.intrinsic());
       } else {
         tokens.push(this.symbol());
       }
@@ -172,7 +179,30 @@ class Lexer {
       return { kind: "fn", text, line, column };
     }
 
+    if (text === "infixl") {
+      return { kind: "infixl", text, line, column };
+    }
+
     return { kind: "ident", text, line, column };
+  }
+
+  private intrinsic(): Token {
+    const line = this.line;
+    const column = this.column;
+    let text = this.advance();
+
+    while (!this.done()) {
+      const char = this.peek();
+      expect(char, "Missing intrinsic character");
+
+      if (!isIdentPart(char) && char !== ".") {
+        break;
+      }
+
+      text += this.advance();
+    }
+
+    return { kind: "intrinsic", text, line, column };
   }
 
   private symbol(): Token {
@@ -185,20 +215,17 @@ class Lexer {
       return { kind: "arrow", text: "=>", line, column };
     }
 
-    if (char === "+") {
-      return { kind: "plus", text: char, line, column };
-    }
-
-    if (char === "-") {
-      return { kind: "minus", text: char, line, column };
-    }
-
-    if (char === "*") {
-      return { kind: "star", text: char, line, column };
+    if (char === "-" && this.peek() === ">") {
+      this.advance();
+      return { kind: "arrow", text: "->", line, column };
     }
 
     if (char === "=") {
       return { kind: "eq", text: char, line, column };
+    }
+
+    if (char === ":") {
+      return { kind: "colon", text: char, line, column };
     }
 
     if (char === ";") {
@@ -229,9 +256,30 @@ class Lexer {
       return { kind: "amp", text: char, line, column };
     }
 
+    if (isOperatorChar(char)) {
+      return this.operator(line, column, char);
+    }
+
     throw new Error(
       "Unexpected character " + char + " at " + line + ":" + column,
     );
+  }
+
+  private operator(line: number, column: number, first: string): Token {
+    let text = first;
+
+    while (!this.done()) {
+      const char = this.peek();
+      expect(char, "Missing operator character");
+
+      if (!isOperatorChar(char)) {
+        break;
+      }
+
+      text += this.advance();
+    }
+
+    return { kind: "op", text, line, column };
   }
 
   private advance(): string {
@@ -264,6 +312,7 @@ class Lexer {
 
 class Parser {
   private index = 0;
+  private operators = new Map<string, Operator>();
 
   constructor(private tokens: Token[]) {}
 
@@ -271,15 +320,28 @@ class Parser {
     const statements: SurfaceNode["statements"] = [];
 
     while (!this.check("eof")) {
-      statements.push(this.statement());
+      const statement = this.statement();
+
+      if (statement !== undefined) {
+        statements.push(statement);
+      }
     }
 
     this.consume("eof", "Expected end of input");
     return { statements };
   }
 
-  private statement(): SurfaceNode["statements"][number] {
+  private statement(): SurfaceNode["statements"][number] | undefined {
+    if (this.match("infixl")) {
+      this.infix();
+      return undefined;
+    }
+
     if (this.match("export")) {
+      if (this.check("fn")) {
+        return this.fn(true);
+      }
+
       if (this.match("let")) {
         const name = this.consume("ident", "Expected exported let name");
         this.consume("eq", "Expected = after exported let name");
@@ -295,6 +357,10 @@ class Parser {
       return { tag: "expr", value, exportedAs: name.text };
     }
 
+    if (this.match("fn")) {
+      return this.fn(false);
+    }
+
     if (this.match("let")) {
       const name = this.consume("ident", "Expected let name");
       this.consume("eq", "Expected = after let name");
@@ -306,6 +372,53 @@ class Parser {
     const value = this.expr();
     this.consume("semi", "Expected ; after expression");
     return { tag: "expr", value };
+  }
+
+  private infix(): void {
+    const precedence = this.consume("num", "Expected infix precedence");
+    const name = this.parenOperator();
+    this.consume("semi", "Expected ; after infix declaration");
+
+    this.operators.set(name, {
+      precedence: Number(precedence.text),
+    });
+  }
+
+  private fn(exported: boolean): SurfaceNode["statements"][number] | undefined {
+    this.consume("fn", "Expected fn");
+    const name = this.name();
+
+    if (this.match("colon")) {
+      this.signature();
+      this.consume("semi", "Expected ; after function signature");
+      return undefined;
+    }
+
+    const args: string[] = [];
+
+    while (!this.check("eq")) {
+      const arg = this.consume("ident", "Expected function argument");
+      args.push(arg.text);
+    }
+
+    this.consume("eq", "Expected = before function body");
+    const body = this.expr();
+    this.consume("semi", "Expected ; after function definition");
+
+    return {
+      tag: "let",
+      name,
+      value: lambda(args, body),
+      exported,
+    };
+  }
+
+  private signature(): void {
+    this.valueType();
+
+    while (this.match("arrow")) {
+      this.valueType();
+    }
   }
 
   private expr(): Term {
@@ -332,32 +445,32 @@ class Parser {
       return { tag: "lam", name: name.text, body: this.expr() };
     }
 
-    return this.add();
+    return this.infixExpr(0);
   }
 
-  private add(): Term {
-    let left = this.mul();
-
-    while (this.check("plus") || this.check("minus")) {
-      const op = this.advance();
-      const right = this.mul();
-
-      if (op.kind === "plus") {
-        left = { tag: "prim", prim: "i32.add", args: [left, right] };
-      } else {
-        left = { tag: "prim", prim: "i32.sub", args: [left, right] };
-      }
-    }
-
-    return left;
-  }
-
-  private mul(): Term {
+  private infixExpr(min: number): Term {
     let left = this.call();
 
-    while (this.match("star")) {
-      const right = this.call();
-      left = { tag: "prim", prim: "i32.mul", args: [left, right] };
+    while (this.check("op")) {
+      const token = this.peek();
+      const operator = this.operators.get(token.text);
+      expect(operator, "Operator " + token.text + " is not declared");
+
+      if (operator.precedence < min) {
+        break;
+      }
+
+      this.advance();
+      const right = this.infixExpr(operator.precedence + 1);
+      left = {
+        tag: "app",
+        func: {
+          tag: "app",
+          func: { tag: "var", name: token.text },
+          arg: left,
+        },
+        arg: right,
+      };
     }
 
     return left;
@@ -366,9 +479,8 @@ class Parser {
   private call(): Term {
     let func = this.primary();
 
-    while (this.match("lparen")) {
-      const arg = this.expr();
-      this.consume("rparen", "Expected ) after call argument");
+    while (this.startsPrimary()) {
+      const arg = this.primary();
       func = { tag: "app", func, arg };
     }
 
@@ -381,13 +493,11 @@ class Parser {
     }
 
     if (this.match("ident")) {
-      const name = this.previous();
+      return { tag: "var", name: this.previous().text };
+    }
 
-      if (isPrim(name.text) && this.check("lparen")) {
-        return this.primCall(name.text);
-      }
-
-      return { tag: "var", name: name.text };
+    if (this.match("intrinsic")) {
+      return this.intrinsic(this.previous());
     }
 
     if (this.match("amp")) {
@@ -401,6 +511,12 @@ class Parser {
     }
 
     if (this.match("lparen")) {
+      if (this.check("op")) {
+        const op = this.advance();
+        this.consume("rparen", "Expected ) after operator name");
+        return { tag: "var", name: op.text };
+      }
+
       const expr = this.expr();
       this.consume("rparen", "Expected ) after expression");
       return expr;
@@ -410,25 +526,41 @@ class Parser {
     throw this.error(token, "Expected expression");
   }
 
-  private primCall(prim: PrimNode): Term {
-    this.consume("lparen", "Expected ( after primitive name");
-    const args: Term[] = [];
+  private intrinsic(token: Token): Term {
+    const prim = intrinsicPrim(token);
+    const left = this.primary();
+    const right = this.primary();
+    return { tag: "prim", prim, args: [left, right] };
+  }
 
-    if (!this.check("rparen")) {
-      args.push(this.expr());
-
-      while (this.match("comma")) {
-        args.push(this.expr());
-      }
+  private name(): string {
+    if (this.match("ident")) {
+      return this.previous().text;
     }
 
-    this.consume("rparen", "Expected ) after primitive arguments");
-    const expected = Prim.arity(prim);
-    expect(
-      args.length === expected,
-      "Primitive " + prim + " expects " + expected + " arguments",
-    );
-    return { tag: "prim", prim, args };
+    return this.parenOperator();
+  }
+
+  private parenOperator(): string {
+    this.consume("lparen", "Expected ( before operator name");
+    const name = this.consume("op", "Expected operator name");
+    this.consume("rparen", "Expected ) after operator name");
+    return name.text;
+  }
+
+  private valueType(): ValType {
+    const token = this.consume("ident", "Expected value type");
+
+    if (token.text === "i32" || token.text === "i64") {
+      return token.text;
+    }
+
+    throw this.error(token, "Unknown value type " + token.text);
+  }
+
+  private startsPrimary(): boolean {
+    return this.check("num") || this.check("ident") ||
+      this.check("intrinsic") || this.check("amp") || this.check("lparen");
   }
 
   private match(kind: TokenKind): boolean {
@@ -479,6 +611,18 @@ class Parser {
   }
 }
 
+function lambda(args: string[], body: Term): Term {
+  let result = body;
+
+  for (let index = args.length - 1; index >= 0; index -= 1) {
+    const name = args[index];
+    expect(name, "Missing lambda argument " + index);
+    result = { tag: "lam", name, body: result };
+  }
+
+  return result;
+}
+
 function numberTerm(token: Token): Term {
   if (token.text.endsWith("i32")) {
     const value = token.text.slice(0, token.text.length - 3);
@@ -496,18 +640,35 @@ function numberTerm(token: Token): Term {
   );
 }
 
-function isPrim(text: string): text is PrimNode {
-  switch (text) {
-    case "i32.add":
-    case "i32.sub":
-    case "i32.mul":
-    case "i64.add":
-    case "i64.sub":
-    case "i64.mul":
-      return true;
+function intrinsicPrim(token: Token): PrimNode {
+  if (token.text === "@i32_add") {
+    return "i32.add";
   }
 
-  return false;
+  if (token.text === "@i32_sub") {
+    return "i32.sub";
+  }
+
+  if (token.text === "@i32_mul") {
+    return "i32.mul";
+  }
+
+  if (token.text === "@i64_add") {
+    return "i64.add";
+  }
+
+  if (token.text === "@i64_sub") {
+    return "i64.sub";
+  }
+
+  if (token.text === "@i64_mul") {
+    return "i64.mul";
+  }
+
+  throw new Error(
+    "Unknown compiler intrinsic " + token.text + " at " + token.line + ":" +
+      token.column,
+  );
 }
 
 function isDigit(char: string): boolean {
@@ -522,4 +683,9 @@ function isIdentStart(char: string): boolean {
 
 function isIdentPart(char: string): boolean {
   return isIdentStart(char) || isDigit(char);
+}
+
+function isOperatorChar(char: string): boolean {
+  return char === "+" || char === "-" || char === "*" || char === "/" ||
+    char === "%";
 }
