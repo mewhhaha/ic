@@ -1,9 +1,15 @@
-// Top-level let statements define module-level values.
-export let answer = 11i32 + 22i32;
+// Declare source-level operator syntax separately from implementation.
+infixl 4 (+);
 
-// Plain top-level expressions execute before the final expression.
-// Their result is unused, so Surface inserts explicit erasure.
-(fn x => x)(&Z{100i32, 200i32});
+// Signatures are source facts. They are parsed now and will become useful
+// once the frontend grows a real type checker.
+fn (+) : i32 -> i32 -> i32;
+fn (+) a b = @i32_add a b;
 
-// The final expression becomes the exported main function.
-answer;
+// Repeated source variables lower into explicit IC duplication.
+fn test : i32 -> i32;
+fn test x = x + x;
+
+// Export a concrete value, and also execute it as main.
+export let result = test 21i32;
+result;
