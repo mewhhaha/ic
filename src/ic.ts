@@ -12,6 +12,11 @@ export type IC =
   | { tag: "sup"; label: string; left: IC; right: IC }
   | { tag: "dup"; label: string; name: string; expr: IC; body: IC };
 
+type Fresh = {
+  used: Set<string>;
+  next: number;
+};
+
 export function IC() {}
 
 function arg(args: IC[], index: number): IC {
@@ -75,7 +80,22 @@ IC.fmt = function fmt(ic: IC): string {
   throw new Error("panic");
 };
 
-IC.reduce = function reduce(ic: IC): IC {
+IC.reduce = function reduceRoot(ic: IC): IC {
+  const fresh = {
+    used: collectNames(ic),
+    next: 0,
+  };
+
+  return reduce(ic, fresh);
+};
+
+IC.emit = function emit(ic: IC): ExprNode {
+  return lower(IC.reduce(ic), new Map());
+};
+
+IC satisfies Format<IC> & Reduce<IC> & Emit<IC, ExprNode>;
+
+function reduce(ic: IC, fresh: Fresh): IC {
   if (ic.tag === "num" || ic.tag === "var") {
     return ic;
   }
@@ -84,7 +104,7 @@ IC.reduce = function reduce(ic: IC): IC {
     return {
       tag: "prim",
       prim: ic.prim,
-      args: ic.args.map(reduce),
+      args: ic.args.map((item) => reduce(item, fresh)),
     };
   }
 
@@ -92,16 +112,40 @@ IC.reduce = function reduce(ic: IC): IC {
     return {
       tag: "lam",
       name: ic.name,
-      body: reduce(ic.body),
+      body: reduce(ic.body, fresh),
     };
   }
 
   if (ic.tag === "app") {
-    const func = reduce(ic.func);
-    const arg = reduce(ic.arg);
+    const func = reduce(ic.func, fresh);
+    const arg = reduce(ic.arg, fresh);
 
     if (func.tag === "lam") {
-      return reduce(subst(func.body, func.name, arg));
+      return reduce(subst(func.body, func.name, arg), fresh);
+    }
+
+    if (func.tag === "sup") {
+      const name = freshName("x", fresh);
+      return reduce({
+        tag: "dup",
+        label: func.label,
+        name,
+        expr: arg,
+        body: {
+          tag: "sup",
+          label: func.label,
+          left: {
+            tag: "app",
+            func: func.left,
+            arg: { tag: "var", name: `${name}0` },
+          },
+          right: {
+            tag: "app",
+            func: func.right,
+            arg: { tag: "var", name: `${name}1` },
+          },
+        },
+      }, fresh);
     }
 
     return {
@@ -115,14 +159,14 @@ IC.reduce = function reduce(ic: IC): IC {
     return {
       tag: "sup",
       label: ic.label,
-      left: reduce(ic.left),
-      right: reduce(ic.right),
+      left: reduce(ic.left, fresh),
+      right: reduce(ic.right, fresh),
     };
   }
 
   if (ic.tag === "dup") {
-    const expr = reduce(ic.expr);
-    const body = reduce(ic.body);
+    const expr = reduce(ic.expr, fresh);
+    const body = reduce(ic.body, fresh);
 
     if (expr.tag === "sup") {
       expect(
@@ -132,7 +176,7 @@ IC.reduce = function reduce(ic: IC): IC {
 
       const left = subst(body, `${ic.name}0`, expr.left);
       const right = subst(left, `${ic.name}1`, expr.right);
-      return reduce(right);
+      return reduce(right, fresh);
     }
 
     return {
@@ -146,13 +190,70 @@ IC.reduce = function reduce(ic: IC): IC {
 
   ic satisfies never;
   throw new Error("panic");
-};
+}
 
-IC.emit = function emit(ic: IC): ExprNode {
-  return lower(IC.reduce(ic), new Map());
-};
+function freshName(prefix: string, fresh: Fresh): string {
+  while (true) {
+    const name = "_" + prefix + fresh.next.toString();
+    fresh.next += 1;
 
-IC satisfies Format<IC> & Reduce<IC> & Emit<IC, ExprNode>;
+    if (!fresh.used.has(name) && !fresh.used.has(`${name}0`) && !fresh.used.has(`${name}1`)) {
+      fresh.used.add(name);
+      fresh.used.add(`${name}0`);
+      fresh.used.add(`${name}1`);
+      return name;
+    }
+  }
+}
+
+function collectNames(ic: IC, out = new Set<string>()): Set<string> {
+  if (ic.tag === "num") {
+    return out;
+  }
+
+  if (ic.tag === "var") {
+    out.add(ic.name);
+    return out;
+  }
+
+  if (ic.tag === "prim") {
+    for (const item of ic.args) {
+      collectNames(item, out);
+    }
+
+    return out;
+  }
+
+  if (ic.tag === "lam") {
+    out.add(ic.name);
+    collectNames(ic.body, out);
+    return out;
+  }
+
+  if (ic.tag === "app") {
+    collectNames(ic.func, out);
+    collectNames(ic.arg, out);
+    return out;
+  }
+
+  if (ic.tag === "sup") {
+    collectNames(ic.left, out);
+    collectNames(ic.right, out);
+    return out;
+  }
+
+  if (ic.tag === "dup") {
+    out.add(ic.name);
+    out.add(`${ic.name}0`);
+    out.add(`${ic.name}1`);
+    collectNames(ic.expr, out);
+    collectNames(ic.body, out);
+    return out;
+  }
+
+  ic satisfies never;
+  throw new Error("panic");
+}
 
 function subst(ic: IC, name: string, value: IC): IC {
   if (ic.tag === "num") {
