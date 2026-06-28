@@ -7,26 +7,27 @@ const program: IC = {
   label: "A",
   name: "r",
   expr: {
-    tag: "app",
-    func: {
+    tag: "dup",
+    label: "A",
+    name: "f",
+    expr: {
+      tag: "lam",
+      name: "x",
+      body: { tag: "var", name: "x" },
+    },
+    body: {
       tag: "sup",
       label: "A",
       left: {
-        tag: "lam",
-        name: "x",
-        body: { tag: "var", name: "x" },
+        tag: "app",
+        func: { tag: "var", name: "f0" },
+        arg: { tag: "num", type: "i32", value: 40 },
       },
       right: {
-        tag: "lam",
-        name: "y",
-        body: { tag: "var", name: "y" },
+        tag: "app",
+        func: { tag: "var", name: "f1" },
+        arg: { tag: "num", type: "i32", value: 2 },
       },
-    },
-    arg: {
-      tag: "sup",
-      label: "A",
-      left: { tag: "num", type: "i32", value: 40 },
-      right: { tag: "num", type: "i32", value: 2 },
     },
   },
   body: {
