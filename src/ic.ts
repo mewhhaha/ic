@@ -1,6 +1,6 @@
 import { expect } from "./expect.ts";
 import { Expr, type Expr as ExprNode } from "./expr.ts";
-import { arity, PRIMS, type Prim, type ValType } from "./op.ts";
+import { arity, type Prim, PRIMS, type ValType } from "./op.ts";
 import type { Emit, Format, Reduce } from "./trait.ts";
 
 export type IC =
