@@ -1,12 +1,14 @@
 import { expect } from "./expect.ts";
 import { Expr, type Expr as ExprNode } from "./expr.ts";
 import { arity, PRIMS, type Prim, type ValType } from "./op.ts";
-import type { Emit, Format } from "./trait.ts";
+import type { Emit, Format, Reduce } from "./trait.ts";
 
 export type IC =
   | { tag: "num"; type: ValType; value: number | bigint }
   | { tag: "var"; name: string }
   | { tag: "prim"; prim: Prim; args: IC[] }
+  | { tag: "lam"; name: string; body: IC }
+  | { tag: "app"; func: IC; arg: IC }
   | { tag: "dup"; name: string; expr: IC; body: IC };
 
 export function IC() {}
@@ -45,6 +47,17 @@ IC.fmt = function fmt(ic: IC): string {
     return `${left} ${op} ${right}`;
   }
 
+  if (ic.tag === "lam") {
+    const body = fmt(ic.body);
+    return `λ${ic.name}. ${body}`;
+  }
+
+  if (ic.tag === "app") {
+    const func = fmt(ic.func);
+    const arg = fmt(ic.arg);
+    return `(${func})(${arg})`;
+  }
+
   if (ic.tag === "dup") {
     const expr = fmt(ic.expr);
     const body = fmt(ic.body);
@@ -55,11 +68,114 @@ IC.fmt = function fmt(ic: IC): string {
   throw new Error("panic");
 };
 
-IC.emit = function emit(ic: IC): ExprNode {
-  return lower(ic, new Map());
+IC.reduce = function reduce(ic: IC): IC {
+  if (ic.tag === "num" || ic.tag === "var") {
+    return ic;
+  }
+
+  if (ic.tag === "prim") {
+    return {
+      tag: "prim",
+      prim: ic.prim,
+      args: ic.args.map(reduce),
+    };
+  }
+
+  if (ic.tag === "lam") {
+    return {
+      tag: "lam",
+      name: ic.name,
+      body: reduce(ic.body),
+    };
+  }
+
+  if (ic.tag === "app") {
+    const func = reduce(ic.func);
+    const arg = reduce(ic.arg);
+
+    if (func.tag === "lam") {
+      return reduce(subst(func.body, func.name, arg));
+    }
+
+    return {
+      tag: "app",
+      func,
+      arg,
+    };
+  }
+
+  if (ic.tag === "dup") {
+    return {
+      tag: "dup",
+      name: ic.name,
+      expr: reduce(ic.expr),
+      body: reduce(ic.body),
+    };
+  }
+
+  ic satisfies never;
+  throw new Error("panic");
 };
 
-IC satisfies Format<IC> & Emit<IC, ExprNode>;
+IC.emit = function emit(ic: IC): ExprNode {
+  return lower(IC.reduce(ic), new Map());
+};
+
+IC satisfies Format<IC> & Reduce<IC> & Emit<IC, ExprNode>;
+
+function subst(ic: IC, name: string, value: IC): IC {
+  if (ic.tag === "num") {
+    return ic;
+  }
+
+  if (ic.tag === "var") {
+    if (ic.name === name) {
+      return value;
+    }
+
+    return ic;
+  }
+
+  if (ic.tag === "prim") {
+    return {
+      tag: "prim",
+      prim: ic.prim,
+      args: ic.args.map((item) => subst(item, name, value)),
+    };
+  }
+
+  if (ic.tag === "lam") {
+    if (ic.name === name) {
+      return ic;
+    }
+
+    return {
+      tag: "lam",
+      name: ic.name,
+      body: subst(ic.body, name, value),
+    };
+  }
+
+  if (ic.tag === "app") {
+    return {
+      tag: "app",
+      func: subst(ic.func, name, value),
+      arg: subst(ic.arg, name, value),
+    };
+  }
+
+  if (ic.tag === "dup") {
+    return {
+      tag: "dup",
+      name: ic.name,
+      expr: subst(ic.expr, name, value),
+      body: subst(ic.body, name, value),
+    };
+  }
+
+  ic satisfies never;
+  throw new Error("panic");
+}
 
 function lower(ic: IC, env: Map<string, ValType>): ExprNode {
   if (ic.tag === "num") {
@@ -93,6 +209,14 @@ function lower(ic: IC, env: Map<string, ValType>): ExprNode {
       prim: ic.prim,
       args,
     };
+  }
+
+  if (ic.tag === "lam") {
+    throw new Error("Cannot lower lambda before reduction");
+  }
+
+  if (ic.tag === "app") {
+    throw new Error("Cannot lower application before reduction");
   }
 
   if (ic.tag === "dup") {
