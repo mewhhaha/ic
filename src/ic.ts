@@ -2,33 +2,23 @@ import { expect } from "./expect.ts";
 import { Expr, type Expr as ExprNode } from "./expr.ts";
 import { arity, PRIMS, type Prim, type ValType } from "./op.ts";
 
-type PrimIC = { tag: "prim"; prim: Prim; args: IC[] };
-
 export type IC =
   | { tag: "num"; value: number }
   | { tag: "var"; name: string }
-  | PrimIC
+  | { tag: "prim"; prim: Prim; args: IC[] }
   | { tag: "dup"; name: string; expr: IC; body: IC };
 
 export function IC() {}
 
 function arg(args: IC[], index: number): IC {
   const value = args[index];
-
-  if (value === undefined) {
-    throw new Error("Missing argument " + index);
-  }
-
+  expect(value !== undefined, "Missing argument " + index);
   return value;
 }
 
 function exprArg(args: ExprNode[], index: number): ExprNode {
   const value = args[index];
-
-  if (value === undefined) {
-    throw new Error("Missing argument " + index);
-  }
-
+  expect(value !== undefined, "Missing argument " + index);
   return value;
 }
 
@@ -75,11 +65,7 @@ function lower(ic: IC, env: Map<string, ValType>): ExprNode {
 
   if (ic.tag === "var") {
     const type = env.get(ic.name);
-
-    if (type === undefined) {
-      throw new Error("Unbound variable: " + ic.name);
-    }
-
+    expect(type !== undefined, "Unbound variable: " + ic.name);
     return { tag: "var", type, name: ic.name };
   }
 
@@ -94,9 +80,8 @@ function lower(ic: IC, env: Map<string, ValType>): ExprNode {
     const type = Expr.type(exprArg(args, 0));
 
     for (const item of args) {
-      if (Expr.type(item) !== type) {
-        throw new Error("Primitive operands must have the same type");
-      }
+      const actual = Expr.type(item);
+      expect(actual === type, "Primitive operands must have the same type");
     }
 
     return {
