@@ -7,11 +7,17 @@ export function indent(text: string, spaces: number): string {
 
   return text
     .split("\n")
-    .map((line) => line.length === 0 ? line : pad + line)
+    .map((line) => {
+      if (line.length === 0) {
+        return line;
+      }
+
+      return pad + line;
+    })
     .join("\n");
 }
 
-export function main(body: Wat, result: ValType = "i32"): Wat {
+export function main(body: Wat, result: ValType): Wat {
   return `
 (module
   (func $main (result ${result})
