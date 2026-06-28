@@ -33,7 +33,10 @@ Deno.test("Expr.fmt formats typed primitive expressions", () => {
 });
 
 Deno.test("Expr.emit emits typed primitive instructions", () => {
-  assertEquals(Expr.emit(add(num(1), num(2))), "i32.const 1\ni32.const 2\ni32.add");
+  assertEquals(
+    Expr.emit(add(num(1), num(2))),
+    "i32.const 1\ni32.const 2\ni32.add",
+  );
 });
 
 Deno.test("Expr.emit emits i64 primitive instructions", () => {
