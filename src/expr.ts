@@ -1,4 +1,4 @@
-import { fmtOp, watOp, type Op, type ValType } from "./op.ts";
+import { OPS, watOp, type Op, type ValType } from "./op.ts";
 
 type BinaryExpr = {
   tag: "bin";
@@ -126,8 +126,9 @@ Expr.fmt = function fmt(expr: Expr): string {
 
   if (expr.tag === "bin") {
     const left = fmt(expr.left);
+    const op = OPS[expr.op];
     const right = fmt(expr.right);
-    return `(${left} ${fmtOp(expr.op)}:${expr.type} ${right})`;
+    return `(${left} ${op}:${expr.type} ${right})`;
   }
 
   if (expr.tag === "let") {
