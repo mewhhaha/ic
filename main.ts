@@ -10,7 +10,14 @@ type Emit<from, to> = {
   emit: (value: from) => to;
 };
 
-const program: IC = { tag: "num", value: 42 };
+const program: IC = {
+  tag: "prim",
+  prim: "add",
+  args: [
+    { tag: "num", value: 21 },
+    { tag: "num", value: 21 },
+  ],
+};
 
 IC satisfies Format<IC> & Emit<IC, Expr>;
 const expr = IC.emit(program);
