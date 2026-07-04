@@ -8,6 +8,13 @@ export function lower_ic(ic: Ic): ExprNode {
   return lower(ic, new Map());
 }
 
+export function lower_ic_with_env(
+  ic: Ic,
+  env: Map<string, ValType>,
+): ExprNode {
+  return lower(ic, new Map(env));
+}
+
 function lower(ic: Ic, env: Map<string, ValType>): ExprNode {
   switch (ic.tag) {
     case "num":

@@ -1,4 +1,4 @@
-import { assert_equals, assert_throws } from "./assert.ts";
+import { assert_equals, assert_includes, assert_throws } from "./assert.ts";
 import { Expr } from "./expr.ts";
 import { Ic, type Ic as IcNode } from "./ic.ts";
 import { Data, Emit, Format, Reduce, Typed } from "./trait.ts";
@@ -83,6 +83,39 @@ Deno.test("Ic.fmt formats text literals", () => {
   assert_equals(Ic.reduce(program), program);
 });
 
+Deno.test("Ic.validate checks affine use and labels", () => {
+  const valid: IcNode = {
+    tag: "dup",
+    label: "A",
+    name: "x",
+    expr: var_("input"),
+    body: add(var_("x0"), var_("x1")),
+  };
+
+  assert_equals(Ic.validate(valid).ok, true);
+  Ic.assert_valid(valid);
+
+  const repeated = add(var_("input"), var_("input"));
+  const repeated_validation = Ic.validate(repeated);
+
+  assert_equals(repeated_validation.ok, false);
+  assert_throws(
+    () => Ic.assert_valid(repeated),
+    "Free variable used more than once: input",
+  );
+
+  assert_throws(
+    () =>
+      Ic.assert_valid({
+        tag: "sup",
+        label: "bad label",
+        left: i32(1),
+        right: i32(2),
+      }),
+    "Ic label cannot contain whitespace",
+  );
+});
+
 Deno.test("Ic.reduce applies APP-LAM", () => {
   const program: IcNode = {
     tag: "app",
@@ -92,6 +125,30 @@ Deno.test("Ic.reduce applies APP-LAM", () => {
 
   assert_equals(Ic.reduce(program), i32(42));
   assert_equals(Reduce.reduce(Ic, undefined, program), i32(42));
+});
+
+Deno.test("Ic.reduce_debug returns stats and graph snapshots", () => {
+  const program: IcNode = {
+    tag: "app",
+    func: { tag: "lam", name: "x", body: add(var_("x"), i32(1)) },
+    arg: i32(41),
+  };
+  const debug = Ic.reduce_debug(program);
+
+  assert_equals(debug.result, i32(42));
+  assert_equals(debug.stats.app_lam, 1);
+  assert_equals(debug.stats.prim_folds, 1);
+  assert_equals(debug.snapshots.length, 2);
+
+  const initial = debug.snapshots[0];
+
+  if (!initial) {
+    throw new Error("Missing initial graph snapshot");
+  }
+
+  if (!initial.text.includes(" = app(")) {
+    throw new Error("Expected initial graph snapshot to include root app");
+  }
 });
 
 Deno.test("Ic.reduce annihilates same-label DUP-SUP", () => {
@@ -399,6 +456,60 @@ Deno.test("Ic.emit lowers dynamic select to structured Expr if", () => {
       "end",
     ].join("\n"),
   );
+});
+
+Deno.test("Ic.wat bridges open numeric terms to function params", () => {
+  const wat = Ic.wat(add(var_("input"), i32(1)));
+
+  if (!wat.includes("(func $main (param $input i32) (result i32)")) {
+    throw new Error("Expected open Ic WAT to expose input param:\n" + wat);
+  }
+
+  if (!wat.includes("local.get $input")) {
+    throw new Error("Expected open Ic WAT to read input param:\n" + wat);
+  }
+
+  const repeated = Ic.wat({
+    tag: "dup",
+    label: "A",
+    name: "x",
+    expr: var_("input"),
+    body: add(var_("x0"), var_("x1")),
+  });
+
+  if (!repeated.includes("(param $input i32)")) {
+    throw new Error(
+      "Expected duplicated open input to be one param:\n" + repeated,
+    );
+  }
+
+  assert_throws(
+    () => Ic.wat(var_("input")),
+    "Cannot infer open Ic variable type: input",
+  );
+});
+
+Deno.test("Ic.wat lowers top-level recursive fixpoints to functions", () => {
+  const fib_body = select(
+    var_("n"),
+    add(
+      app(var_("fib"), sub(var_("n"), i32(1))),
+      app(var_("fib"), sub(var_("n"), i32(2))),
+    ),
+    lt(var_("n"), i32(2)),
+  );
+  const program: IcNode = {
+    tag: "fix",
+    name: "fib",
+    expr: { tag: "lam", name: "n", body: fib_body },
+    body: app(var_("fib"), var_("input")),
+  };
+  const wat = Ic.wat(program);
+
+  assert_includes(wat, "(func $fib (param $n i32) (result i32)");
+  assert_includes(wat, "(func $main (param $input i32) (result i32)");
+  assert_includes(wat, "if (result i32)");
+  assert_includes(wat, "call $fib");
 });
 
 Deno.test("Ic.reduce preserves trap primitives", () => {

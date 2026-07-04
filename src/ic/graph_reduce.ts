@@ -18,20 +18,67 @@ type GraphNode =
   | { tag: "era"; expr: Ref; body: Ref };
 
 type IcNum = Extract<Ic, { tag: "num" }>;
+export type IcReduceStats = {
+  steps: number;
+  allocs: number;
+  max_refs: number;
+  app_lam: number;
+  app_sup: number;
+  dup_sup_same: number;
+  dup_sup_diff: number;
+  dup_lam: number;
+  prim_folds: number;
+  prim_spreads: number;
+  select_folds: number;
+  select_dynamic: number;
+  erasures: number;
+};
+
+export type IcGraphSnapshot = {
+  label: string;
+  text: string;
+};
+
+export type IcReduceDebug = {
+  result: Ic;
+  stats: IcReduceStats;
+  snapshots: IcGraphSnapshot[];
+};
+
 type GraphCtx = {
   nodes: Map<Ref, GraphNode>;
   next_ref: number;
   used: Set<string>;
   next_name: number;
-  steps: number;
   max_steps: number;
+  stats: IcReduceStats;
 };
 
 export function reduce_ic_graph(ic: Ic): Ic {
+  return reduce_ic_graph_debug(ic).result;
+}
+
+export function reduce_ic_graph_debug(ic: Ic): IcReduceDebug {
   const ctx = create_ctx(ic);
   const root = from_ic(ctx, ic, new Map());
+  const initial = dump_graph(ctx, root);
   const reduced = reduce_ref(ctx, root);
-  return to_ic(ctx, reduced, new Set());
+  const reduced_graph = dump_graph(ctx, reduced);
+  const result = to_ic(ctx, reduced, new Set());
+  return {
+    result,
+    stats: { ...ctx.stats },
+    snapshots: [
+      { label: "initial", text: initial },
+      { label: "reduced", text: reduced_graph },
+    ],
+  };
+}
+
+export function dump_ic_graph(ic: Ic): string {
+  const ctx = create_ctx(ic);
+  const root = from_ic(ctx, ic, new Map());
+  return dump_graph(ctx, root);
 }
 
 function create_ctx(ic: Ic): GraphCtx {
@@ -40,8 +87,26 @@ function create_ctx(ic: Ic): GraphCtx {
     next_ref: 0,
     used: collect_names(ic),
     next_name: 0,
-    steps: 0,
     max_steps: 1_000_000,
+    stats: empty_stats(),
+  };
+}
+
+function empty_stats(): IcReduceStats {
+  return {
+    steps: 0,
+    allocs: 0,
+    max_refs: 0,
+    app_lam: 0,
+    app_sup: 0,
+    dup_sup_same: 0,
+    dup_sup_diff: 0,
+    dup_lam: 0,
+    prim_folds: 0,
+    prim_spreads: 0,
+    select_folds: 0,
+    select_dynamic: 0,
+    erasures: 0,
   };
 }
 
@@ -49,6 +114,12 @@ function alloc(ctx: GraphCtx, node: GraphNode): Ref {
   const ref = ctx.next_ref;
   ctx.next_ref += 1;
   ctx.nodes.set(ref, node);
+  ctx.stats.allocs += 1;
+
+  if (ctx.nodes.size > ctx.stats.max_refs) {
+    ctx.stats.max_refs = ctx.nodes.size;
+  }
+
   return ref;
 }
 
@@ -134,9 +205,9 @@ function from_ic(
 }
 
 function reduce_ref(ctx: GraphCtx, ref: Ref): Ref {
-  ctx.steps += 1;
+  ctx.stats.steps += 1;
   expect(
-    ctx.steps <= ctx.max_steps,
+    ctx.stats.steps <= ctx.max_steps,
     "Ic graph reduction step limit exceeded",
   );
 
@@ -216,6 +287,7 @@ function reduce_prim(
     expect(arg_node, "Missing primitive argument node " + index);
 
     if (arg_node.tag === "sup") {
+      ctx.stats.prim_spreads += 1;
       const spread = spread_prim(ctx, current.prim, args, index, arg_node);
       const reduced = reduce_ref(ctx, spread);
       return replace_ref(ctx, ref, reduced);
@@ -241,6 +313,7 @@ function reduce_prim(
   expect(right, "Missing primitive right argument");
 
   if (left.tag === "num" && right.tag === "num") {
+    ctx.stats.prim_folds += 1;
     const folded = fold_prim(
       current.prim,
       node_to_num(left),
@@ -271,6 +344,7 @@ function reduce_select(
   expect(cond_node, "Missing select condition node");
 
   if (cond_node.tag === "num") {
+    ctx.stats.select_folds += 1;
     expect(cond_node.type === "i32", "Select condition must be i32");
     const value = cond_node.value;
     expect(typeof value === "number", "Expected i32 select condition");
@@ -284,6 +358,7 @@ function reduce_select(
     return replace_ref(ctx, ref, result);
   }
 
+  ctx.stats.select_dynamic += 1;
   const then_value = reduce_ref(ctx, then_ref);
   const else_value = reduce_ref(ctx, else_ref);
   const args = [
@@ -307,12 +382,14 @@ function reduce_app(
   expect(func_node, "Missing application function");
 
   if (func_node.tag === "lam") {
+    ctx.stats.app_lam += 1;
     const body = subst(ctx, func_node.body, func_node.name, arg);
     const result = reduce_ref(ctx, body);
     return replace_ref(ctx, ref, result);
   }
 
   if (func_node.tag === "sup") {
+    ctx.stats.app_sup += 1;
     const name = fresh_name(ctx, "x");
     const left_arg = alloc(ctx, { tag: "var", name: name + "0" });
     const right_arg = alloc(ctx, { tag: "var", name: name + "1" });
@@ -363,6 +440,7 @@ function reduce_dup(
   }
 
   if (expr_node.tag === "lam") {
+    ctx.stats.dup_lam += 1;
     const result = reduce_dup_lam(ctx, current, expr_node);
     const reduced = reduce_ref(ctx, result);
     return replace_ref(ctx, ref, reduced);
@@ -412,6 +490,7 @@ function reduce_era(
   ref: Ref,
   current: Extract<GraphNode, { tag: "era" }>,
 ): Ref {
+  ctx.stats.erasures += 1;
   const expr = reduce_ref(ctx, current.expr);
   const body = erase(ctx, expr, current.body);
   const result = reduce_ref(ctx, body);
@@ -424,10 +503,12 @@ function reduce_dup_sup(
   sup: Extract<GraphNode, { tag: "sup" }>,
 ): Ref {
   if (sup.label === dup.label) {
+    ctx.stats.dup_sup_same += 1;
     const left = subst(ctx, dup.body, dup.name + "0", sup.left);
     return subst(ctx, left, dup.name + "1", sup.right);
   }
 
+  ctx.stats.dup_sup_diff += 1;
   const left_name = fresh_name(ctx, "a");
   const right_name = fresh_name(ctx, "b");
   const left_projection = alloc(ctx, {
@@ -1087,6 +1168,101 @@ function to_ic(ctx: GraphCtx, ref: Ref, visiting: Set<Ref>): Ic {
 
   visiting.delete(ref);
   return result;
+}
+
+function dump_graph(ctx: GraphCtx, root: Ref): string {
+  const refs: Ref[] = [];
+  const seen = new Set<Ref>();
+  const pending = [root];
+
+  while (pending.length > 0) {
+    const ref = pending.shift();
+    expect(ref !== undefined, "Missing pending graph ref");
+
+    if (seen.has(ref)) {
+      continue;
+    }
+
+    seen.add(ref);
+    refs.push(ref);
+    const node = ctx.nodes.get(ref);
+    expect(node, "Missing graph dump node");
+
+    for (const child of child_refs(node)) {
+      pending.push(child);
+    }
+  }
+
+  refs.sort((left, right) => left - right);
+  return refs.map((ref) => {
+    const node = ctx.nodes.get(ref);
+    expect(node, "Missing graph dump node");
+    return "#" + ref.toString() + " = " + dump_node(node);
+  }).join("\n");
+}
+
+function child_refs(node: GraphNode): Ref[] {
+  switch (node.tag) {
+    case "num":
+    case "text":
+    case "var":
+      return [];
+
+    case "prim":
+      return [...node.args];
+
+    case "lam":
+      return [node.body];
+
+    case "app":
+      return [node.func, node.arg];
+
+    case "sup":
+      return [node.left, node.right];
+
+    case "dup":
+      return [node.expr, node.body];
+
+    case "era":
+      return [node.expr, node.body];
+  }
+}
+
+function dump_node(node: GraphNode): string {
+  switch (node.tag) {
+    case "num":
+      return node.value.toString() + ":" + node.type;
+
+    case "text":
+      return Deno.inspect(node.value);
+
+    case "var":
+      return node.name;
+
+    case "prim":
+      return node.prim + "(" + node.args.map(dump_ref).join(", ") + ")";
+
+    case "lam":
+      return "λ" + node.name + ". " + dump_ref(node.body);
+
+    case "app":
+      return "app(" + dump_ref(node.func) + ", " + dump_ref(node.arg) + ")";
+
+    case "sup":
+      return "&" + node.label + "{" + dump_ref(node.left) + ", " +
+        dump_ref(node.right) + "}";
+
+    case "dup":
+      return "! " + node.name + " &" + node.label + " = " +
+        dump_ref(node.expr) + "; " + dump_ref(node.body);
+
+    case "era":
+      return "~ " + dump_ref(node.expr) + "; " + dump_ref(node.body);
+  }
+}
+
+function dump_ref(ref: Ref): string {
+  return "#" + ref.toString();
 }
 
 function fresh_name(ctx: GraphCtx, prefix: string): string {

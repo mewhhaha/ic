@@ -276,19 +276,32 @@ function indent(text: string): string {
   return text.split("\n").map((line) => "  " + line).join("\n");
 }
 
-Expr.emit = function (expr: Expr): string {
+export function emit_expr_with_env(
+  expr: Expr,
+  initial_env: Map<string, ValType>,
+): string {
   const text_layout = build_text_layout(expr);
-  const locals = [...collect(expr)]
+  const local_types = collect(expr);
+
+  for (const name of initial_env.keys()) {
+    local_types.delete(name);
+  }
+
+  const locals = [...local_types]
     .map(([name, type]) => `(local $${name} ${type})`)
     .join("\n");
 
-  const body = emit(expr, new Map(), text_layout);
+  const body = emit(expr, new Map(initial_env), text_layout);
 
   if (locals.length === 0) {
     return body;
   }
 
   return `${locals}\n${body}`;
+}
+
+Expr.emit = function (expr: Expr): string {
+  return emit_expr_with_env(expr, new Map());
 };
 
 Expr.fmt = function fmt(expr: Expr): string {

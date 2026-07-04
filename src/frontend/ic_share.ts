@@ -1,5 +1,6 @@
 import { expect } from "../expect.ts";
 import type { Ic as IcNode } from "../ic.ts";
+import { ic_share_label } from "../ic/labels.ts";
 
 type FreeNameCount = {
   name: string;
@@ -205,7 +206,7 @@ function create_share_plan(
       wrap(body: IcNode): IcNode {
         return {
           tag: "dup",
-          label: share_label(name, share_index),
+          label: ic_share_label(name, share_index),
           name: share_name,
           expr,
           body: right_plan.wrap(body),
@@ -215,11 +216,6 @@ function create_share_plan(
   }
 
   return create(value, uses);
-}
-
-function share_label(name: string, index: number): string {
-  return "share_" + name.replace(/[^A-Za-z0-9_]/g, "_") + "_" +
-    index.toString();
 }
 
 function replace_ic_name_with_leaves(

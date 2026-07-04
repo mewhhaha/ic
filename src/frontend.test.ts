@@ -195,6 +195,32 @@ fib(6)
   );
 });
 
+Deno.test("Source exposes Ic open-term WAT bridge", () => {
+  const wat = Source.ic_wat("input + 1");
+
+  assert_includes(wat, "(func $main (param $input i32) (result i32)");
+  assert_includes(wat, "local.get $input");
+});
+
+Deno.test("Source exposes recursive Ic WAT bridge", () => {
+  const wat = Source.ic_wat(`
+let rec fib = n => {
+  if n < 2 {
+    n
+  } else {
+    fib(n - 1) + fib(n - 2)
+  }
+}
+
+fib(input)
+`);
+
+  assert_includes(wat, "(func $fib#0 (param $n#0 i32) (result i32)");
+  assert_includes(wat, "(func $main (param $input i32) (result i32)");
+  assert_includes(wat, "if (result i32)");
+  assert_includes(wat, "call $fib#0");
+});
+
 Deno.test("Source lowers unknown dynamic if through numeric primitive context", () => {
   const direct = compile(`
 (if flag { a } else { b }) + 1

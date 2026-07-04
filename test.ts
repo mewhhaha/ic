@@ -197,6 +197,88 @@ choose(40i64)
   }
 });
 
+Deno.test("open Ic numeric input compiles through WAT to Wasm", async () => {
+  const doubled_wat = Ic.wat(Source.compile("input + input"));
+  const doubled = await instantiate_wat(doubled_wat, "open_ic_double", {});
+
+  if (!("main" in doubled.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof doubled.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const doubled_result = doubled.exports.main(21);
+
+  if (doubled_result !== 42) {
+    throw new Error(
+      "Expected open Ic main(21) -> 42, got " + doubled_result,
+    );
+  }
+
+  const branch_wat = Ic.wat(Source.compile(`
+if input {
+  40
+} else {
+  2
+}
+`));
+  const branch = await instantiate_wat(branch_wat, "open_ic_branch", {});
+
+  if (!("main" in branch.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof branch.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const then_result = branch.exports.main(1);
+  const else_result = branch.exports.main(0);
+
+  if (then_result !== 40) {
+    throw new Error("Expected open Ic main(1) -> 40, got " + then_result);
+  }
+
+  if (else_result !== 2) {
+    throw new Error("Expected open Ic main(0) -> 2, got " + else_result);
+  }
+});
+
+Deno.test("open recursive Ic fib compiles through WAT to Wasm", async () => {
+  const wat_text = Source.ic_wat(`
+let rec fib = n => {
+  if n < 2 {
+    n
+  } else {
+    fib(n - 1) + fib(n - 2)
+  }
+}
+
+fib(input)
+`);
+  const instance = await instantiate_wat(
+    wat_text,
+    "open_ic_recursive_fib",
+    {},
+  );
+
+  if (!("main" in instance.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const result = instance.exports.main(6);
+
+  if (result !== 8) {
+    throw new Error("Expected recursive Ic main(6) -> 8, got " + result);
+  }
+});
+
 Deno.test("frontend visible update closure compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_source(`
 let birthday = user => {

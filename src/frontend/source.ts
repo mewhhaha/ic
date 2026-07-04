@@ -1,5 +1,7 @@
 import type { Ic as IcNode } from "../ic.ts";
 import { Core, type Core as CoreNode } from "../core.ts";
+import { Ic } from "../ic.ts";
+import type { IcOpenOptions } from "../ic/open_term.ts";
 import { Mod, type Mod as ModNode } from "../mod.ts";
 import type { Emit, Format } from "../trait.ts";
 import type { Wat } from "../wat.ts";
@@ -43,6 +45,28 @@ Source.mod = function mod(input: string | SourceNode, name = "main"): ModNode {
 
 Source.wat = function wat(input: string | SourceNode, name = "main"): Wat {
   return Mod.emit(Source.mod(input, name));
+};
+
+Source.ic_mod = function ic_mod(
+  input: string | SourceNode,
+  options?: IcOpenOptions,
+): ModNode {
+  let source: SourceNode;
+
+  if (typeof input === "string") {
+    source = Source.parse(input);
+  } else {
+    source = input;
+  }
+
+  return Ic.mod(Source.emit(source), options);
+};
+
+Source.ic_wat = function ic_wat(
+  input: string | SourceNode,
+  options?: IcOpenOptions,
+): Wat {
+  return Mod.emit(Source.ic_mod(input, options));
 };
 
 Source.load = load_source;
