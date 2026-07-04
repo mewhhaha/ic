@@ -2,6 +2,7 @@ import type { Wat } from "../wat.ts";
 import type { CoreExpr, CoreStmt } from "./ast.ts";
 import { assigned_stmt_names } from "./assigned_names.ts";
 import {
+  is_stable_static_expr,
   stable_static_struct_value,
   stable_static_text_value,
 } from "./static_stability.ts";
@@ -30,7 +31,7 @@ export function merge_if_else_static_assignments<
   ctx extends StaticMergeCtx,
   emit_ctx extends ctx,
 >(
-  stmt: Extract<CoreStmt, { tag: "if_else_stmt" }>,
+  stmt: CoreStmt,
   cond: CoreExpr,
   then_statics: Map<string, CoreExpr>,
   else_statics: Map<string, CoreExpr>,
@@ -87,8 +88,8 @@ function merged_if_else_static_value<
   else_value: CoreExpr,
   hooks: StaticMergeHooks<ctx, emit_ctx>,
 ): CoreExpr | undefined {
-  const then_struct = stable_static_struct_value(then_value);
-  const else_struct = stable_static_struct_value(else_value);
+  const then_struct = mergeable_static_struct_value(then_value);
+  const else_struct = mergeable_static_struct_value(else_value);
 
   if (then_struct && else_struct) {
     expect_same_static_struct_fields(then_struct, else_struct);
@@ -129,6 +130,50 @@ function merged_if_else_static_value<
   }
 
   return undefined;
+}
+
+function mergeable_static_struct_value(
+  value: CoreExpr,
+): Extract<CoreExpr, { tag: "struct_value" }> | undefined {
+  const stable = stable_static_struct_value(value);
+
+  if (stable) {
+    return stable;
+  }
+
+  if (value.tag !== "struct_value") {
+    return undefined;
+  }
+
+  for (const field of value.fields) {
+    if (!is_mergeable_static_branch_expr(field.value)) {
+      return undefined;
+    }
+  }
+
+  return value;
+}
+
+function is_mergeable_static_branch_expr(expr: CoreExpr): boolean {
+  if (is_stable_static_expr(expr)) {
+    return true;
+  }
+
+  if (expr.tag === "var") {
+    return is_generated_temp_name(expr.name);
+  }
+
+  if (expr.tag === "if") {
+    return is_mergeable_static_branch_expr(expr.cond) &&
+      is_mergeable_static_branch_expr(expr.then_branch) &&
+      is_mergeable_static_branch_expr(expr.else_branch);
+  }
+
+  return false;
+}
+
+function is_generated_temp_name(name: string): boolean {
+  return name.startsWith("_") && name.includes("#");
 }
 
 function static_union_case_value(

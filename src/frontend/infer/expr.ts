@@ -1,11 +1,13 @@
-import type { Env, FrontExpr, FrontType } from "../ast.ts";
-import { lookup } from "../env.ts";
+import type { Binding, Env, FrontExpr, FrontType, Stmt } from "../ast.ts";
+import { assignment_type } from "../annotations.ts";
+import { clone_env, lookup, push_binding } from "../env.ts";
+import { lookup_type_field } from "../fields.ts";
 import {
   indexed_result_type_from_fields,
   indexed_type_fields_are_text,
 } from "../runtime_struct.ts";
 import { front_expr_is_static_shareable_text } from "../ownership.ts";
-import { common_if_type } from "./common.ts";
+import { common_if_type, front_type_for_type_name } from "./common.ts";
 import { infer_builtin_call_type, infer_prim_result_type } from "./prim.ts";
 import {
   infer_runtime_struct_field_type,
@@ -33,6 +35,14 @@ export function infer_front_expr(
       const binding = lookup(env, expr.name);
 
       if (binding) {
+        if (binding.type.tag === "unknown") {
+          const value_type = infer_binding_value_type(binding, hooks);
+
+          if (value_type) {
+            return value_type;
+          }
+        }
+
         return binding.type;
       }
 
@@ -86,6 +96,12 @@ export function infer_front_expr(
         return rec_call;
       }
 
+      const specialized_call = hooks.infer_specialized_app_type(expr, env);
+
+      if (specialized_call) {
+        return specialized_call;
+      }
+
       const builtin_call = infer_builtin_call_type(expr, env);
 
       if (builtin_call) {
@@ -96,16 +112,7 @@ export function infer_front_expr(
     }
 
     case "block":
-      if (expr.statements.length === 0) {
-        return { tag: "unknown" };
-      }
-
-      return infer_stmt_result_with(
-        expr.statements[expr.statements.length - 1],
-        env,
-        hooks,
-        infer_front_expr,
-      );
+      return infer_block_type(expr.statements, env, hooks);
 
     case "comptime":
       return infer_front_expr(expr.expr, env, hooks);
@@ -120,6 +127,10 @@ export function infer_front_expr(
 
       if (front_expr_is_static_shareable_text(expr.value, env, hooks)) {
         return { tag: "text" };
+      }
+
+      if (result_type.tag === "text") {
+        return result_type;
       }
 
       if (
@@ -143,6 +154,10 @@ export function infer_front_expr(
 
       if (front_expr_is_static_shareable_text(expr.body, env, hooks)) {
         return { tag: "text" };
+      }
+
+      if (result_type.tag === "text") {
+        return result_type;
       }
 
       if (
@@ -231,7 +246,9 @@ export function infer_front_expr(
     }
 
     case "if_let": {
-      const then_type = infer_front_expr(expr.then_branch, env, hooks);
+      const target_type = infer_front_expr(expr.target, env, hooks);
+      const then_env = infer_if_let_then_env(expr, target_type, env, hooks);
+      const then_type = infer_front_expr(expr.then_branch, then_env, hooks);
       const else_type = infer_front_expr(expr.else_branch, env, hooks);
       const result_type = common_if_type(
         expr.implicit_else,
@@ -365,8 +382,175 @@ export function infer_front_expr(
       return { tag: "union", case_name: expr.name };
     }
 
-    case "linear":
+    case "linear": {
+      const binding = lookup(env, expr.name);
+
+      if (binding) {
+        return binding.type;
+      }
+
+      return { tag: "unknown" };
+    }
+
     case "unsupported":
       return { tag: "unknown" };
   }
+}
+
+function infer_if_let_then_env(
+  expr: Extract<FrontExpr, { tag: "if_let" }>,
+  target_type: FrontType,
+  env: Env,
+  hooks: InferHooks,
+): Env {
+  if (target_type.tag !== "union_value") {
+    return env;
+  }
+
+  if (!expr.value_name) {
+    return env;
+  }
+
+  const matched = lookup_type_field(target_type.cases, expr.case_name);
+
+  if (!matched) {
+    return env;
+  }
+
+  if (matched.type_name === "Unit") {
+    return env;
+  }
+
+  const branch_env = clone_env(env);
+  push_binding(branch_env, {
+    name: expr.value_name,
+    ic_name: expr.value_name,
+    type: front_type_for_type_name(matched.type_name, branch_env, hooks),
+    is_const: false,
+    is_linear: false,
+    value: undefined,
+    value_env: undefined,
+  });
+  return branch_env;
+}
+
+function infer_binding_value_type(
+  binding: Binding,
+  hooks: InferHooks,
+): FrontType | undefined {
+  if (!binding.value || !binding.value_env) {
+    return undefined;
+  }
+
+  return infer_front_expr(binding.value, binding.value_env, hooks);
+}
+
+function infer_block_type(
+  statements: Stmt[],
+  env: Env,
+  hooks: InferHooks,
+): FrontType {
+  if (statements.length === 0) {
+    return { tag: "unknown" };
+  }
+
+  const local = clone_env(env);
+  let result: FrontType = { tag: "unknown" };
+
+  for (const stmt of statements) {
+    result = infer_stmt_result_with(stmt, local, hooks, infer_front_expr);
+    record_inferred_statement(stmt, result, local, hooks);
+
+    if (stmt.tag === "return") {
+      return result;
+    }
+  }
+
+  return result;
+}
+
+function record_inferred_statement(
+  stmt: Stmt,
+  value_type: FrontType,
+  env: Env,
+  hooks: InferHooks,
+): void {
+  if (stmt.tag === "bind") {
+    let type = value_type;
+
+    if (stmt.annotation) {
+      const annotation_type = hooks.resolve_annotation_type(
+        stmt.annotation,
+        env,
+      );
+
+      if (annotation_type) {
+        type = annotation_type;
+      }
+    }
+
+    push_inferred_binding(
+      stmt.name,
+      type,
+      stmt.kind === "const",
+      stmt.is_linear,
+      stmt.value,
+      env,
+    );
+    return;
+  }
+
+  if (stmt.tag === "assign") {
+    const previous = lookup(env, stmt.name);
+
+    if (!previous) {
+      return;
+    }
+
+    push_inferred_binding(
+      stmt.name,
+      assignment_type(previous.type, value_type, stmt.mode),
+      previous.is_const,
+      previous.is_linear,
+      stmt.value,
+      env,
+    );
+    return;
+  }
+
+  if (stmt.tag === "index_assign") {
+    const previous = lookup(env, stmt.name);
+
+    if (!previous) {
+      return;
+    }
+
+    push_inferred_binding(
+      stmt.name,
+      previous.type,
+      previous.is_const,
+      previous.is_linear,
+      undefined,
+      env,
+    );
+  }
+}
+
+function push_inferred_binding(
+  name: string,
+  type: FrontType,
+  is_const: boolean,
+  is_linear: boolean,
+  value: FrontExpr | undefined,
+  env: Env,
+): void {
+  push_binding(env, {
+    name,
+    ic_name: name,
+    type,
+    is_const,
+    is_linear,
+    value,
+    value_env: clone_env(env),
+  });
 }

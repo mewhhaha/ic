@@ -1,16 +1,19 @@
 import type { ValType } from "../../op.ts";
-import type { CoreExpr, CoreFnType } from "../ast.ts";
+import type { CoreExpr, CoreFnType, CoreStmt } from "../ast.ts";
 import type { DynamicUnionIf } from "../if_let.ts";
 import { static_block_result } from "../type_static.ts";
 
 export type ScratchFreeStaticValueHooks<ctx> = {
+  block_ctx?: (ctx: ctx) => ctx;
   closure_fn_type: (expr: CoreExpr, ctx: ctx) => CoreFnType | undefined;
+  collect_stmt_locals?: (stmt: CoreStmt, ctx: ctx) => void;
   core_expr_is_text: (expr: CoreExpr, ctx: ctx) => boolean;
   dynamic_union_if: (
     expr: CoreExpr,
     ctx: ctx,
   ) => DynamicUnionIf | undefined;
   expr_type: (expr: CoreExpr, ctx: ctx) => ValType;
+  frozen_local?: (name: string, ctx: ctx) => boolean;
   runtime_aggregate_type_expr: (
     expr: CoreExpr,
     ctx: ctx,
@@ -47,6 +50,22 @@ export function is_scratch_free_static_value_expr<ctx>(
 
   if (hooks.static_text_value(value, ctx)) {
     return true;
+  }
+
+  if (value.tag === "var" && hooks.frozen_local) {
+    if (hooks.frozen_local(value.name, ctx)) {
+      return true;
+    }
+  }
+
+  const block_result = scratch_free_block_result_with_ctx(value, ctx, hooks);
+
+  if (block_result) {
+    return is_scratch_free_static_value_expr(
+      block_result.expr,
+      block_result.ctx,
+      hooks,
+    );
   }
 
   const union_case = hooks.static_union_case(value, ctx);
@@ -129,6 +148,46 @@ export function is_scratch_free_static_value_expr<ctx>(
     case "unsupported":
       return false;
   }
+}
+
+function scratch_free_block_result_with_ctx<ctx>(
+  value: CoreExpr,
+  ctx: ctx,
+  hooks: ScratchFreeStaticValueHooks<ctx>,
+): { expr: CoreExpr; ctx: ctx } | undefined {
+  if (value.tag !== "block") {
+    return undefined;
+  }
+
+  if (!hooks.block_ctx || !hooks.collect_stmt_locals) {
+    return undefined;
+  }
+
+  const block_ctx = hooks.block_ctx(ctx);
+
+  for (let index = 0; index < value.statements.length; index += 1) {
+    const stmt = value.statements[index];
+
+    if (!stmt) {
+      throw new Error("Missing scratch-free block statement");
+    }
+
+    const is_final = index + 1 >= value.statements.length;
+
+    if (is_final) {
+      if (stmt.tag === "expr") {
+        return { expr: stmt.expr, ctx: block_ctx };
+      }
+
+      if (stmt.tag === "return") {
+        return { expr: stmt.value, ctx: block_ctx };
+      }
+    }
+
+    hooks.collect_stmt_locals(stmt, block_ctx);
+  }
+
+  return undefined;
 }
 
 function is_scratch_free_scalar_expr<ctx>(

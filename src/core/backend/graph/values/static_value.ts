@@ -1,6 +1,11 @@
 import type { CoreExpr } from "../../../ast.ts";
 import type { CoreEmitCtx as EmitCtx } from "../../../emit_ctx.ts";
-import type { StaticCtx, TempCtx } from "../../../local_collect.ts";
+import {
+  type CoreCtx,
+  create_core_block_ctx,
+  type StaticCtx,
+  type TempCtx,
+} from "../../../local_collect.ts";
 import type { CoreBackendGraphDeps } from "../../graph_deps.ts";
 import type { CoreBackendText } from "../../text/types.ts";
 import type { CoreBackendStaticCall } from "../../values/static_call/types.ts";
@@ -16,6 +21,7 @@ export function create_core_backend_values_static_value(
   get_text: () => CoreBackendText,
 ): CoreBackendStaticValue {
   return create_core_backend_static_value({
+    block_ctx: create_core_block_ctx,
     closure_fn_type: (expr: CoreExpr, ctx: StaticCtx) =>
       deps.closure().closure_fn_type(expr, ctx),
     collect_expr_locals: (expr: CoreExpr, ctx: TempCtx) => {
@@ -25,12 +31,16 @@ export function create_core_backend_values_static_value(
 
       deps.local_collect().collect_expr_locals(expr, ctx);
     },
+    collect_stmt_locals: (stmt, ctx) =>
+      deps.local_collect().collect_stmt_locals(stmt, ctx as CoreCtx),
     core_expr_is_text: (expr: CoreExpr, ctx: StaticCtx) =>
       get_text().core_expr_is_text(expr, ctx),
     dynamic_union_if: (expr: CoreExpr, ctx: StaticCtx) =>
       deps.union().dynamic_union_if(expr, ctx),
     emit_expr: (expr: CoreExpr, ctx: EmitCtx) =>
       deps.expr_emit().emit_expr(expr, ctx),
+    emit_stmt: (stmt, ctx, is_final) =>
+      deps.stmt_emit().emit_stmt(stmt, ctx, is_final),
     expr_type: (expr: CoreExpr, ctx: StaticCtx) =>
       deps.expr_type().expr_type(expr, ctx),
     runtime_union_type_expr: (expr: CoreExpr, ctx: StaticCtx) =>

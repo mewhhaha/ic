@@ -9,6 +9,7 @@ import type {
 import { assignment_type } from "./annotations.ts";
 import { capture_deferred_expr, capture_expr } from "./capture.ts";
 import { validate_const_expr } from "./constness.ts";
+import { unresolved_import_route } from "./diagnostic.ts";
 import { clone_env, lookup, push_binding } from "./env.ts";
 import { call_message } from "./fields.ts";
 import { same_type } from "./types.ts";
@@ -183,7 +184,7 @@ export function eval_front_block(
 
     if (stmt.tag === "import") {
       throw new Error(
-        "Cannot evaluate unresolved import; use Source.load or Source.compile_file",
+        "Cannot evaluate unresolved import; " + unresolved_import_route,
       );
     }
 
@@ -418,6 +419,13 @@ function is_simple_block_non_foldable_error(message: string): boolean {
   }
 
   if (message === "Module block has no result expression") {
+    return true;
+  }
+
+  if (
+    message.startsWith("Const parameter ") &&
+    message.includes(" requires compile-time argument")
+  ) {
     return true;
   }
 

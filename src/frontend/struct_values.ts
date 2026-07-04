@@ -8,7 +8,7 @@ import type {
   ResolvedFrontExpr,
   TypeField,
 } from "./ast.ts";
-import { clone_env, fresh, lookup } from "./env.ts";
+import { clone_env, fresh, lookup, push_binding } from "./env.ts";
 import {
   check_object_fields,
   is_object_type_expr,
@@ -32,6 +32,10 @@ export type StructValueHooks = {
   ) => FrontExpr | undefined;
   infer_expr: (expr: FrontExpr, env: Env) => FrontType;
   inline_deferred_const_call: (
+    expr: Extract<FrontExpr, { tag: "app" }>,
+    env: Env,
+  ) => ResolvedFrontExpr | undefined;
+  inline_runtime_call_expr: (
     expr: Extract<FrontExpr, { tag: "app" }>,
     env: Env,
   ) => ResolvedFrontExpr | undefined;
@@ -320,6 +324,12 @@ export function resolve_struct_value(
     if (specialized) {
       return resolve_struct_value(specialized.expr, specialized.env, hooks);
     }
+
+    const runtime = hooks.inline_runtime_call_expr(expr, env);
+
+    if (runtime) {
+      return resolve_struct_value(runtime.expr, runtime.env, hooks);
+    }
   }
 
   if (expr.tag === "block" && expr.statements.length === 1) {
@@ -336,6 +346,12 @@ export function resolve_struct_value(
   }
 
   if (expr.tag === "block") {
+    const block = resolve_struct_block_value(expr, env, hooks);
+
+    if (block) {
+      return block;
+    }
+
     const value = hooks.eval_simple_front_block(expr, env);
 
     if (value) {
@@ -389,6 +405,50 @@ export function resolve_struct_value(
 
   if (resolved) {
     return resolved;
+  }
+
+  return undefined;
+}
+
+function resolve_struct_block_value(
+  expr: Extract<FrontExpr, { tag: "block" }>,
+  env: Env,
+  hooks: StructValueHooks,
+): StructValueTarget | undefined {
+  if (expr.statements.length <= 1) {
+    return undefined;
+  }
+
+  const local = clone_env(env);
+
+  for (const stmt of expr.statements) {
+    if (stmt.tag === "bind") {
+      if (stmt.kind !== "let" || stmt.is_linear) {
+        return undefined;
+      }
+
+      const value_env = clone_env(local);
+      push_binding(local, {
+        name: stmt.name,
+        ic_name: stmt.name,
+        type: hooks.infer_expr(stmt.value, value_env),
+        is_const: false,
+        is_linear: false,
+        value: stmt.value,
+        value_env,
+      });
+      continue;
+    }
+
+    if (stmt.tag === "expr") {
+      return resolve_struct_value(stmt.expr, local, hooks);
+    }
+
+    if (stmt.tag === "return") {
+      return resolve_struct_value(stmt.value, local, hooks);
+    }
+
+    return undefined;
   }
 
   return undefined;

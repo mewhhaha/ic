@@ -12,6 +12,7 @@ export type Stmt =
     tag: "bind";
     kind: "let" | "const";
     name: string;
+    is_recursive?: boolean;
     is_linear: boolean;
     annotation: string | undefined;
     value: FrontExpr;
@@ -182,6 +183,7 @@ export type Binding = {
   is_linear: boolean;
   value: FrontExpr | undefined;
   value_env: Env | undefined;
+  is_deferred?: boolean;
 };
 
 export type Env = {

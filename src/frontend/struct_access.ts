@@ -13,7 +13,12 @@ import { lookup_field, lookup_type_field } from "./fields.ts";
 import { numeric_expr_type } from "./numeric.ts";
 import { indexed_result_type_from_fields } from "./runtime_struct.ts";
 import type { StructValueTarget } from "./struct_values.ts";
-import { front_type_name, val_type_from_type_name } from "./types.ts";
+import { lower_expr_as_front_type } from "./typed_lower.ts";
+import {
+  front_type_from_type_name,
+  front_type_name,
+  val_type_from_type_name,
+} from "./types.ts";
 
 export type StructAccessHooks = {
   infer_expr: (expr: FrontExpr, env: Env) => FrontType;
@@ -106,6 +111,18 @@ export function lower_expr_as_declared_type(
 
   if (!value_type && !is_text) {
     return hooks.lower_expr(expr, env);
+  }
+
+  if (expr.tag === "if_let") {
+    return lower_expr_as_front_type(
+      expr,
+      front_type_from_type_name(type_name),
+      env,
+      {
+        infer_expr: hooks.infer_expr,
+        lower_expr: hooks.lower_expr,
+      },
+    );
   }
 
   if (expr.tag !== "if") {

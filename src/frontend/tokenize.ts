@@ -96,6 +96,10 @@ export function tokenize(text: string): Token[] {
 
           if (escaped === "n") {
             value += "\n";
+          } else if (escaped === "t") {
+            value += "\t";
+          } else if (escaped === "r") {
+            value += "\r";
           } else if (escaped === '"' || escaped === "\\") {
             value += escaped;
           } else {

@@ -1,7 +1,8 @@
 import { expect } from "../expect.ts";
 import { Ic, type Ic as IcNode } from "../ic.ts";
-import type { Env, FrontExpr } from "./ast.ts";
-import { clone_env } from "./env.ts";
+import type { Prim } from "../op.ts";
+import type { Binding, Env, FrontExpr, Stmt } from "./ast.ts";
+import { clone_env, fresh, lookup, push_binding } from "./env.ts";
 import { structured_core_route } from "./diagnostic.ts";
 import {
   lower_app_expr,
@@ -14,9 +15,13 @@ import {
   lower_var_expr,
 } from "./expr_lower_binding.ts";
 import type { ExprLowerHooks } from "./expr_lower_types.ts";
-import { front_expr_is_static_shareable_text } from "./ownership.ts";
+import {
+  front_expr_is_static_shareable_text,
+  unwrap_ownership_wrapper_expr,
+} from "./ownership.ts";
 import { validate_rec_tail } from "./rec.ts";
 import { validate_const_expr } from "./constness.ts";
+import { lower_expr_as_front_type } from "./typed_lower.ts";
 
 export type { ExprLowerHooks } from "./expr_lower_types.ts";
 
@@ -34,7 +39,8 @@ export function lower_expr(
 
     case "type_name":
       throw new Error(
-        "Cannot lower type value to Ic frontend yet: " + expr.name,
+        "Compile-time type name cannot be emitted as an Ic result: " +
+          expr.name,
       );
 
     case "var":
@@ -46,6 +52,12 @@ export function lower_expr(
         const right_type = hooks.infer_expr(expr.right, env);
 
         if (left_type.tag === "text" && right_type.tag === "text") {
+          const identity = lower_text_identity_equality(expr, env, hooks);
+
+          if (identity) {
+            return identity;
+          }
+
           const left_text = hooks.visible_text_value(
             expr.left,
             env,
@@ -90,8 +102,8 @@ export function lower_expr(
         tag: "prim",
         prim,
         args: [
-          lower_expr(expr.left, env, hooks),
-          lower_expr(expr.right, env, hooks),
+          lower_numeric_primitive_operand(expr.left, prim, env, hooks),
+          lower_numeric_primitive_operand(expr.right, prim, env, hooks),
         ],
       };
     }
@@ -102,7 +114,8 @@ export function lower_expr(
     case "rec":
       validate_rec_tail(expr.body);
       throw new Error(
-        "Cannot lower rec to Ic frontend yet" + structured_core_route,
+        "Cannot lower rec function value to Ic frontend yet" +
+          structured_core_route,
       );
 
     case "app":
@@ -130,7 +143,7 @@ export function lower_expr(
       }
 
       throw new Error(
-        "Cannot lower borrow view with non-scalar result to Ic frontend yet" +
+        "Cannot lower borrow view result through pure Ic" +
           structured_core_route,
       );
     }
@@ -141,7 +154,7 @@ export function lower_expr(
       }
 
       throw new Error(
-        "Cannot lower freeze value with non-scalar result to Ic frontend yet" +
+        "Cannot lower freeze result through pure Ic" +
           structured_core_route,
       );
     }
@@ -152,7 +165,7 @@ export function lower_expr(
       }
 
       throw new Error(
-        "Cannot lower scratch block with non-scalar result to Ic frontend yet" +
+        "Cannot lower scratch result through pure Ic" +
           structured_core_route,
       );
     }
@@ -161,10 +174,14 @@ export function lower_expr(
       return lower_expr(expr.expr, expr.env, hooks);
 
     case "with":
-      throw new Error("Cannot lower with extension to Ic frontend yet");
+      throw new Error(
+        "Compile-time extension value cannot be emitted as an Ic result",
+      );
 
     case "struct_type":
-      throw new Error("Cannot lower struct type to Ic frontend yet");
+      throw new Error(
+        "Compile-time struct type cannot be emitted as an Ic result",
+      );
 
     case "struct_value":
       return hooks.lower_struct_value(expr, env);
@@ -177,7 +194,9 @@ export function lower_expr(
       );
 
     case "union_type":
-      throw new Error("Cannot lower union type to Ic frontend yet");
+      throw new Error(
+        "Compile-time union type cannot be emitted as an Ic result",
+      );
 
     case "if":
       return hooks.lower_if_expr(expr, env);
@@ -198,8 +217,203 @@ export function lower_expr(
       return lower_linear_expr(expr, env, hooks, lower_expr);
 
     case "unsupported":
-      throw new Error("Cannot lower " + expr.feature + " to Ic frontend yet");
+      throw new Error(
+        "Cannot lower " + expr.feature + " to Ic frontend yet" +
+          structured_core_route,
+      );
   }
+}
+
+function lower_text_identity_equality(
+  expr: Extract<FrontExpr, { tag: "prim" }>,
+  env: Env,
+  hooks: ExprLowerHooks,
+): IcNode | undefined {
+  const left_key = text_identity_key(expr.left, env, hooks, new Set());
+
+  if (!left_key) {
+    return undefined;
+  }
+
+  const right_key = text_identity_key(expr.right, env, hooks, new Set());
+
+  if (!right_key) {
+    return undefined;
+  }
+
+  if (left_key !== right_key) {
+    return undefined;
+  }
+
+  if (expr.prim === "i32.ne") {
+    return { tag: "num", type: "i32", value: 0 };
+  }
+
+  return { tag: "num", type: "i32", value: 1 };
+}
+
+function text_identity_key(
+  expr: FrontExpr,
+  env: Env,
+  hooks: ExprLowerHooks,
+  inline_bindings: Set<Binding>,
+): string | undefined {
+  let current = expr;
+  let current_env = env;
+
+  while (
+    current.tag === "captured" ||
+    current.tag === "borrow" ||
+    current.tag === "freeze" ||
+    current.tag === "scratch"
+  ) {
+    if (current.tag === "captured") {
+      current_env = current.env;
+      current = current.expr;
+      continue;
+    }
+
+    if (current.tag === "scratch") {
+      current = current.body;
+      continue;
+    }
+
+    current = current.value;
+  }
+
+  if (current.tag === "block") {
+    return text_identity_block_key(
+      current.statements,
+      current_env,
+      hooks,
+      inline_bindings,
+    );
+  }
+
+  if (current.tag === "app") {
+    const inlined = hooks.inline_runtime_call_expr(current, current_env);
+
+    if (!inlined) {
+      return undefined;
+    }
+
+    return text_identity_key(
+      inlined.expr,
+      inlined.env,
+      hooks,
+      inline_bindings,
+    );
+  }
+
+  if (current.tag !== "var") {
+    return undefined;
+  }
+
+  const binding = lookup(current_env, current.name);
+
+  if (!binding) {
+    return current.name;
+  }
+
+  if (inline_bindings.has(binding) && binding.value && !binding.is_linear) {
+    let value_env = current_env;
+
+    if (binding.value_env) {
+      value_env = binding.value_env;
+    }
+
+    return text_identity_key(binding.value, value_env, hooks, inline_bindings);
+  }
+
+  return binding.ic_name;
+}
+
+function text_identity_block_key(
+  stmts: Stmt[],
+  env: Env,
+  hooks: ExprLowerHooks,
+  inline_bindings: Set<Binding>,
+): string | undefined {
+  if (stmts.length === 0) {
+    return undefined;
+  }
+
+  const local = clone_env(env);
+  const last_index = stmts.length - 1;
+
+  for (let index = 0; index < last_index; index += 1) {
+    const stmt = stmts[index];
+    expect(stmt, "Missing text identity block statement " + index);
+
+    if (stmt.tag !== "bind") {
+      return undefined;
+    }
+
+    if (stmt.kind !== "let" || stmt.is_linear) {
+      return undefined;
+    }
+
+    const binding: Binding = {
+      name: stmt.name,
+      ic_name: fresh(local, stmt.name),
+      type: { tag: "unknown" },
+      is_const: false,
+      is_linear: false,
+      value: stmt.value,
+      value_env: clone_env(local),
+    };
+    push_binding(local, binding);
+    inline_bindings.add(binding);
+  }
+
+  const result = stmts[last_index];
+  expect(result, "Missing text identity block result");
+  const result_expr = text_identity_block_result_expr(result);
+
+  if (!result_expr) {
+    return undefined;
+  }
+
+  return text_identity_key(result_expr, local, hooks, inline_bindings);
+}
+
+function text_identity_block_result_expr(stmt: Stmt): FrontExpr | undefined {
+  if (stmt.tag === "expr") {
+    return stmt.expr;
+  }
+
+  if (stmt.tag === "return") {
+    return stmt.value;
+  }
+
+  return undefined;
+}
+
+function lower_numeric_primitive_operand(
+  expr: FrontExpr,
+  prim: Prim,
+  env: Env,
+  hooks: ExprLowerHooks,
+): IcNode {
+  return lower_expr_as_front_type(
+    unwrap_ownership_wrapper_expr(expr),
+    { tag: "int", type: numeric_primitive_operand_type(prim) },
+    env,
+    {
+      infer_expr: hooks.infer_expr,
+      lower_app_as_front_type: hooks.lower_app_as_front_type,
+      lower_expr: (value, value_env) => lower_expr(value, value_env, hooks),
+      resolve_annotation_type: hooks.resolve_annotation_type,
+    },
+  );
+}
+
+function numeric_primitive_operand_type(prim: Prim): "i32" | "i64" {
+  if (prim.startsWith("i64.")) {
+    return "i64";
+  }
+
+  return "i32";
 }
 
 function can_lower_ownership_wrapper_to_ic(
@@ -214,6 +428,10 @@ function can_lower_ownership_wrapper_to_ic(
   }
 
   if (front_expr_is_static_shareable_text(expr, env, hooks)) {
+    return true;
+  }
+
+  if (result_type.tag === "text") {
     return true;
   }
 

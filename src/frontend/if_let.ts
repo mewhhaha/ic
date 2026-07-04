@@ -1,19 +1,24 @@
 import { expect } from "../expect.ts";
 import type { Ic as IcNode } from "../ic.ts";
-import type { Env, FrontExpr, TypeField } from "./ast.ts";
+import type { Env, FrontExpr, FrontType, TypeField } from "./ast.ts";
 import { capture_expr } from "./capture.ts";
 import { clone_env, fresh, push_binding } from "./env.ts";
-import { structured_core_route } from "./diagnostic.ts";
+import {
+  dynamic_if_let_ic_route,
+  structured_core_route,
+} from "./diagnostic.ts";
 import { lookup_type_field } from "./fields.ts";
 import {
   bind_function_if_params,
   function_if_param_types,
   resolve_direct_lambda,
 } from "./function_if.ts";
+import { implicit_fallback_expr } from "./implicit_fallback.ts";
 import {
   common_if_let_type,
   infer_dynamic_union_if_cases,
   infer_if_let_then_type,
+  front_type_for_type_name,
   lower_if_let_else_branch,
   lower_if_let_handler,
   select_prim_for_if_let,
@@ -26,6 +31,7 @@ import {
 } from "./if_let_union_result.ts";
 import type { IfLetHooks, ResolvedUnionValue } from "./if_let_types.ts";
 import { lower_lambda_binding } from "./ic_share.ts";
+import { front_type_name } from "./types.ts";
 
 export {
   type DynamicUnionIfTarget,
@@ -70,10 +76,25 @@ export function lower_if_let(
 
   const branch_env = clone_env(env);
   const ic_name = fresh(branch_env, expr.value_name);
+  const target_type = hooks.infer_expr(expr.target, env);
+  let value_type = hooks.infer_expr(value, target.env);
+
+  if (target_type.tag === "union_value") {
+    const matched = lookup_type_field(target_type.cases, expr.case_name);
+
+    if (matched && matched.type_name !== "Unit") {
+      value_type = front_type_for_type_name(
+        matched.type_name,
+        branch_env,
+        hooks,
+      );
+    }
+  }
+
   push_binding(branch_env, {
     name: expr.value_name,
     ic_name,
-    type: hooks.infer_expr(value, target.env),
+    type: value_type,
     is_const: false,
     is_linear: false,
     value: undefined,
@@ -104,10 +125,7 @@ function lower_dynamic_if_let(
       return union_if;
     }
 
-    throw new Error(
-      "Cannot lower dynamic if let to Ic frontend yet" +
-        structured_core_route,
-    );
+    throw new Error(dynamic_if_let_ic_route);
   }
 
   const matched = lookup_type_field(target_type.cases, expr.case_name);
@@ -117,7 +135,24 @@ function lower_dynamic_if_let(
   }
 
   const then_type = infer_if_let_then_type(expr, target_type.cases, env, hooks);
-  const else_type = hooks.infer_expr(expr.else_branch, env);
+  let target_expr = expr;
+  let else_type = hooks.infer_expr(expr.else_branch, env);
+
+  if (expr.implicit_else) {
+    const fallback = implicit_fallback_expr(then_type, env, hooks);
+
+    if (!fallback) {
+      throw_no_else_if_let_implicit_fallback(then_type);
+    }
+
+    target_expr = {
+      ...expr,
+      else_branch: fallback,
+      implicit_else: undefined,
+    };
+    else_type = hooks.infer_expr(fallback, env);
+  }
+
   const branch_type = common_if_let_type(
     expr.implicit_else,
     then_type,
@@ -125,14 +160,18 @@ function lower_dynamic_if_let(
   );
 
   if (!branch_type) {
-    const dynamic_union_if = lower_dynamic_union_if_let(expr, env, hooks);
+    const dynamic_union_if = lower_dynamic_union_if_let(
+      target_expr,
+      env,
+      hooks,
+    );
 
     if (dynamic_union_if) {
       return dynamic_union_if;
     }
 
     const union_result = lower_dynamic_union_if_let_result_union(
-      expr,
+      target_expr,
       env,
       hooks,
     );
@@ -144,7 +183,7 @@ function lower_dynamic_if_let(
     throw new Error("If let branches must have the same type");
   }
 
-  const union_if = lower_dynamic_union_if_let(expr, env, hooks);
+  const union_if = lower_dynamic_union_if_let(target_expr, env, hooks);
 
   if (union_if) {
     return union_if;
@@ -154,11 +193,17 @@ function lower_dynamic_if_let(
 
   for (const union_case of target_type.cases) {
     handlers.push(
-      lower_if_let_handler(expr, union_case, target_type.cases, env, hooks),
+      lower_if_let_handler(
+        target_expr,
+        union_case,
+        target_type.cases,
+        env,
+        hooks,
+      ),
     );
   }
 
-  let result = hooks.lower_expr(expr.target, env);
+  let result = hooks.lower_expr(target_expr.target, env);
 
   for (const handler of handlers) {
     result = { tag: "app", func: result, arg: handler };
@@ -215,10 +260,25 @@ function lower_dynamic_union_if_let(
     env,
     hooks,
   );
+  let target_expr = expr;
+
+  if (expr.implicit_else) {
+    const fallback = implicit_fallback_expr(result_type, env, hooks);
+
+    if (!fallback) {
+      throw_no_else_if_let_implicit_fallback(result_type);
+    }
+
+    target_expr = {
+      ...expr,
+      else_branch: fallback,
+      implicit_else: undefined,
+    };
+  }
 
   if (result_type.tag === "fn") {
     const function_result = lower_dynamic_union_if_let_function(
-      expr,
+      target_expr,
       target,
       env,
       hooks,
@@ -227,11 +287,16 @@ function lower_dynamic_union_if_let(
     if (function_result) {
       return function_result;
     }
+
+    throw new Error(
+      "Cannot lower dynamic if let function branches with incompatible " +
+        "parameter shapes to Ic frontend" + structured_core_route,
+    );
   }
 
   if (result_type.tag !== "int" && result_type.tag !== "text") {
     const union_cases = infer_if_let_result_union_cases(
-      expr,
+      target_expr,
       cases,
       env,
       hooks,
@@ -239,7 +304,7 @@ function lower_dynamic_union_if_let(
 
     if (union_cases) {
       return lower_dynamic_union_if_let_union_value(
-        expr,
+        target_expr,
         target,
         cases,
         union_cases,
@@ -248,19 +313,24 @@ function lower_dynamic_union_if_let(
       );
     }
 
-    const struct_value = hooks.resolve_dynamic_if_let_struct_value(expr, env);
+    const struct_value = hooks.resolve_dynamic_if_let_struct_value(
+      target_expr,
+      env,
+    );
 
     if (struct_value) {
       return hooks.lower_struct_value(struct_value.expr, struct_value.env);
     }
 
     throw new Error(
-      "Cannot lower dynamic if let with non-scalar branches yet",
+      "Cannot lower dynamic if let branch result type " +
+        front_type_name(result_type) + " to Ic frontend" +
+        structured_core_route,
     );
   }
 
   const then_result = lower_dynamic_union_if_let_branch(
-    expr,
+    target_expr,
     target.expr.then_branch,
     target.env,
     cases,
@@ -273,7 +343,7 @@ function lower_dynamic_union_if_let(
   }
 
   const else_result = lower_dynamic_union_if_let_branch(
-    expr,
+    target_expr,
     target.expr.else_branch,
     target.env,
     cases,
@@ -290,7 +360,7 @@ function lower_dynamic_union_if_let(
     env,
   );
   const select_prim = select_prim_for_if_let(
-    expr,
+    target_expr,
     cases,
     env,
     hooks,
@@ -301,6 +371,16 @@ function lower_dynamic_union_if_let(
     prim: select_prim,
     args: [then_result, else_result, cond],
   };
+}
+
+function throw_no_else_if_let_implicit_fallback(
+  type: FrontType,
+): never {
+  throw new Error(
+    "No-else if let implicit fallback supports Int, I64, Text, " +
+      "struct, or union, got " +
+      front_type_name(type),
+  );
 }
 
 function lower_dynamic_union_if_let_branch(
@@ -366,10 +446,21 @@ function lower_resolved_if_let_branch(
 
   const branch_env = clone_env(env);
   const ic_name = fresh(branch_env, expr.value_name);
+  const matched = lookup_type_field(cases, target.expr.name);
+  let value_type = hooks.infer_expr(value, target.env);
+
+  if (matched && matched.type_name !== "Unit") {
+    value_type = front_type_for_type_name(
+      matched.type_name,
+      branch_env,
+      hooks,
+    );
+  }
+
   push_binding(branch_env, {
     name: expr.value_name,
     ic_name,
-    type: hooks.infer_expr(value, target.env),
+    type: value_type,
     is_const: false,
     is_linear: false,
     value: undefined,

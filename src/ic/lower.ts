@@ -96,6 +96,9 @@ function lower(ic: Ic, env: Map<string, ValType>): ExprNode {
 
     case "era":
       throw new Error("Cannot lower erasure before reduction");
+
+    case "fix":
+      throw new Error("Cannot lower recursive binding before reduction");
   }
 }
 

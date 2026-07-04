@@ -11,6 +11,7 @@ import {
   declare_runtime_text_index_assign_locals,
   runtime_text_index_assign_plan,
 } from "../runtime_text.ts";
+import { static_core_call_branch_value } from "../static_call.ts";
 import { static_function_value } from "../type_static.ts";
 import type { CoreCtx, CoreLocalCollectHooks } from "./types.ts";
 
@@ -53,6 +54,19 @@ export function collect_core_stmt_locals(
       }
 
       if (value.tag !== "lam") {
+        const branch_function_value = static_core_call_branch_value(
+          value,
+          ctx,
+          hooks,
+        );
+
+        if (branch_function_value) {
+          ctx.locals.delete(stmt.name);
+          ctx.statics.set(stmt.name, branch_function_value);
+          hooks.clear_core_local_facts(stmt.name, ctx);
+          return;
+        }
+
         const function_value = static_function_value(value, ctx);
 
         if (function_value) {

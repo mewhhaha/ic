@@ -68,6 +68,8 @@ function emit_lifted_closure_func<ctx extends CoreClosureEmitCtx>(
     const param = lift.lam.params[index];
     const type = lift.fn_type.params[index];
     const is_text = lift.fn_type.param_texts[index];
+    const struct_type = lift.fn_type.param_structs?.[index];
+    const union_type = lift.fn_type.param_unions?.[index];
     expect(param, "Missing lifted closure parameter " + index.toString());
     expect(type, "Missing lifted closure parameter type " + index.toString());
     expect(
@@ -84,8 +86,18 @@ function emit_lifted_closure_func<ctx extends CoreClosureEmitCtx>(
       text_locals.delete(param.name);
     }
 
-    union_locals.delete(param.name);
-    struct_locals.delete(param.name);
+    if (struct_type) {
+      struct_locals.set(param.name, struct_type);
+    } else {
+      struct_locals.delete(param.name);
+    }
+
+    if (union_type) {
+      union_locals.set(param.name, union_type);
+    } else {
+      union_locals.delete(param.name);
+    }
+
     if (frozen_locals) {
       frozen_locals.delete(param.name);
     }
@@ -172,10 +184,25 @@ function emit_lifted_closure_func<ctx extends CoreClosureEmitCtx>(
     }
   }
 
-  for (const param of lift.lam.params) {
+  for (let index = 0; index < lift.lam.params.length; index += 1) {
+    const param = lift.lam.params[index];
+    const struct_type = lift.fn_type.param_structs?.[index];
+    const union_type = lift.fn_type.param_unions?.[index];
+    expect(param, "Missing lifted closure body parameter " + index.toString());
     body_ctx.fn_types.delete(param.name);
-    body_ctx.struct_locals.delete(param.name);
-    body_ctx.union_locals.delete(param.name);
+
+    if (struct_type) {
+      body_ctx.struct_locals.set(param.name, struct_type);
+    } else {
+      body_ctx.struct_locals.delete(param.name);
+    }
+
+    if (union_type) {
+      body_ctx.union_locals.set(param.name, union_type);
+    } else {
+      body_ctx.union_locals.delete(param.name);
+    }
+
     if (body_ctx.frozen_locals) {
       body_ctx.frozen_locals.delete(param.name);
     }

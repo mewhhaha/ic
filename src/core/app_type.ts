@@ -7,8 +7,14 @@ import {
   type CoreHostImportCtx,
 } from "./host_import.ts";
 import { static_collection_item_type } from "./index_expr.ts";
+import {
+  static_core_call_branch_app,
+  type StaticCoreCallCtx,
+} from "./static_call.ts";
 
-export type CoreAppTypeHooks<ctx extends CoreHostImportCtx> = {
+export type CoreAppTypeHooks<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+> = {
   check_closure_call_args: (
     expr: Extract<CoreExpr, { tag: "app" }>,
     fn_type: CoreFnType,
@@ -63,7 +69,7 @@ export type CoreAppTypeHooks<ctx extends CoreHostImportCtx> = {
   ) => CoreExpr;
 };
 
-export function app_type<ctx extends CoreHostImportCtx>(
+export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
   expr: Extract<CoreExpr, { tag: "app" }>,
   ctx: ctx,
   hooks: CoreAppTypeHooks<ctx>,
@@ -168,6 +174,12 @@ export function app_type<ctx extends CoreHostImportCtx>(
 
   if (rec_target) {
     return hooks.rec_call_type(expr, rec_target, ctx);
+  }
+
+  const branch_static_call = static_core_call_branch_app(expr, ctx, hooks);
+
+  if (branch_static_call) {
+    return hooks.expr_type(branch_static_call, ctx);
   }
 
   const inlined = hooks.static_core_call_value(expr, ctx);

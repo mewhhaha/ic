@@ -213,6 +213,7 @@ function substitute_front_stmt(
         tag: "bind",
         kind: stmt.kind,
         name: stmt.name,
+        is_recursive: stmt.is_recursive,
         is_linear: stmt.is_linear,
         annotation: stmt.annotation,
         value: substitute_front_expr(stmt.value, replacements),

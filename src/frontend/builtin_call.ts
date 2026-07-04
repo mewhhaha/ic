@@ -15,6 +15,7 @@ import {
   concat_visible_text_values,
   slice_visible_text_value,
 } from "./text.ts";
+import { lower_expr_as_front_type } from "./typed_lower.ts";
 
 export type BuiltinCallHooks = {
   capture_expr: (expr: FrontExpr, env: Env) => FrontExpr;
@@ -189,6 +190,13 @@ function lower_len_builtin(
   expect(expr.args.length === 1, "len expects 1 argument");
   let collection = expr.args[0];
   expect(collection, "Missing len argument");
+
+  const direct_text_len = hooks.lower_text_len(collection, env, new Set());
+
+  if (direct_text_len) {
+    return direct_text_len;
+  }
+
   collection = normalize_text_read_collection(collection, env, hooks);
 
   const text_len = hooks.lower_text_len(collection, env, new Set());
@@ -204,6 +212,16 @@ function lower_len_builtin(
       tag: "prim",
       prim: "i32.load",
       args: [hooks.lower_expr(collection, env)],
+    };
+  }
+
+  if (collection_type.tag === "unknown" && collection.tag === "if_let") {
+    return {
+      tag: "prim",
+      prim: "i32.load",
+      args: [
+        lower_expr_as_front_type(collection, { tag: "text" }, env, hooks),
+      ],
     };
   }
 

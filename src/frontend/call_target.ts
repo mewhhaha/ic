@@ -94,6 +94,29 @@ function resolve_call_target_with_env_seen(
     }
   }
 
+  if (expr.tag === "block" && expr.statements.length === 2) {
+    const bind = expr.statements[0];
+    const result = expr.statements[1];
+    expect(bind, "Missing call target alias binding");
+    expect(result, "Missing call target alias result");
+
+    if (bind.tag === "bind" && bind.kind === "let" && !bind.is_linear) {
+      const result_expr = call_target_block_result_expr(result);
+
+      if (
+        result_expr && result_expr.tag === "var" &&
+        result_expr.name === bind.name
+      ) {
+        return resolve_call_target_with_env_seen(
+          bind.value,
+          clone_env(env),
+          seen,
+          hooks,
+        );
+      }
+    }
+  }
+
   if (expr.tag !== "var") {
     return undefined;
   }
@@ -133,6 +156,20 @@ function resolve_call_target_with_env_seen(
   }
 
   return { expr: binding.value, env: value_env };
+}
+
+function call_target_block_result_expr(
+  stmt: Extract<FrontExpr, { tag: "block" }>["statements"][number],
+): FrontExpr | undefined {
+  if (stmt.tag === "expr") {
+    return stmt.expr;
+  }
+
+  if (stmt.tag === "return") {
+    return stmt.value;
+  }
+
+  return undefined;
 }
 
 function resolve_dynamic_function_if_target_seen(

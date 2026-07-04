@@ -13,6 +13,47 @@ ownership/lifetime analysis complete for the supported source surface, and
 reject uncertain escapes with deterministic diagnostics instead of adding a GC
 fallback.
 
+Resolved memory/lifetime decision:
+
+- The active baseline is no-GC `core-3-nonweb`. Skipping GC is accepted only by
+  making ownership, lifetime, escape, borrow, promotion, and cleanup analysis
+  complete for the source shape being lowered.
+- Ordinary runtime heap values are `unique_heap` owners by default. They can be
+  moved, returned, transferred, frozen, dropped, or borrowed, but not
+  implicitly copied.
+- `borrow value` and `let view = borrow value` create lexical read-only
+  `borrow_view` values. They are runtime-free analysis facts; a live view blocks
+  owner mutation, move, freeze, transfer, return, and escaping capture.
+- `freeze value` consumes a unique owner and produces immutable
+  `frozen_shareable` storage. This is the explicit copy/share boundary for data
+  that must be duplicated or captured by reusable closures.
+- `scratch { ... }` is the ergonomic temporary-computation arena. It returns a
+  value, saves the scratch pointer on entry, resets on every exit edge, and is
+  not a hidden attached region.
+- A value can leave `scratch {}` only when it is scalar, already
+  `frozen_shareable`, explicitly frozen/promoted into persistent storage, or
+  proven scratch-free through every field, union payload, and closure capture.
+- Cleanup for source values and compiler-created temporaries is inserted from
+  static storage/lifetime facts. Valid outcomes are scratch reset, owner drop,
+  ownership transfer, explicit freeze/promotion, returned owner, or a
+  no-cleanup proof for scalar/frozen data.
+- Linear/path-sensitive analysis is storage-driven. It applies to source `!`
+  capabilities, `unique_heap` owners, active `borrow_view` barriers,
+  `scratch_backed` values, and ownership-bearing closure slots; scalar and
+  `frozen_shareable` values remain freely copyable.
+- Optional longer-lived regions are future explicit owner packages with tied
+  returned values, cleanup/drop facts, move/consume rules, ABI rules, and
+  host-boundary rules. They are not inferred from ordinary `scratch {}`.
+- There is no default GC or managed-storage repair task for `core-3-nonweb`.
+  If analysis is too broad, split the source shape into narrower proof fixtures,
+  reject deterministically before WAT emission, or defer it to an explicit
+  future region/managed-storage profile.
+- The active task queue is therefore analysis work, not collector selection.
+  Every memory-heavy feature must name its storage category, owner/lifetime
+  facts, borrow/view facts, scratch escape decision, freeze/promotion edge,
+  cleanup/drop/reset action, accepted proof fixture, and nearest rejected proof
+  fixture before codegen is broadened.
+
 Feature classification for this task set:
 
 - Baseline Wasm: structured control flow, locals, globals, tables, indirect
@@ -20,600 +61,1162 @@ Feature classification for this task set:
 - Source-language/static analysis: unique ownership, bounded borrows, frozen
   shareable values, scratchpad lifetimes, escape facts, promotion decisions, and
   cleanup insertion.
-- Future separate target only: Wasm-GC or managed fallback storage. It must not
-  change the default linear-memory semantics.
+- Future separate target only: named region owner packages, managed storage,
+  tracing GC, or Wasm-GC. They must not change the default linear-memory
+  semantics or make an unproven baseline case accepted.
 
-Latest scratchpad/GC decision:
+## Authoritative Memory/Lifetime Contract
 
-- The baseline does not include a "let the GC decide" path. Skipping GC is a
-  requirement for `core-3-nonweb`, not just an optimization.
-- This replaces any temporary GC-assisted acceptance path for hard scratchpad,
-  temporary, closure-capture, aggregate, union-payload, text, or host-boundary
-  cases. A collector can only appear later as an explicit managed backend
-  profile with its own Core representation, ABI rules, proof facts, and tests.
-- `scratch { ... }` is a value-returning scratchpad for temporary shareable
-  computation. It resets lexically and never returns a hidden live region.
-- A scratch result can leave only when it is scalar, already frozen/shareable,
+This section is the current source of truth for memory/lifetime work. Later
+sections may keep older research notes or detailed implementation history, but
+new task refinement should follow this contract when deciding what is accepted,
+rejected, or deferred.
+
+The chosen baseline is static proof, not GC. Keep `core-3-nonweb` unmanaged and
+skip GC only by making the ownership/lifetime analysis complete for each
+accepted source shape. A hard case is not accepted by letting a collector,
+hidden attached region, implicit promotion, or runtime-discovered cleanup decide
+later.
+
+This supersedes any older notes that treated GC as a fallback for scratchpad
+returns, compiler-created temporaries, closure environments, aggregate fields,
+union payloads, text buffers, host-boundary values, or cleanup insertion. If a
+case is too hard to prove, refine it into a smaller ownership/lifetime task,
+reject it before WAT emission with a named proof gap, or defer it to an explicit
+future region/managed-storage profile.
+
+Required storage categories:
+
+- `scalar_local`: copyable scalar values with no runtime cleanup.
+- `unique_heap`: ordinary owned runtime heap values.
+- `borrow_view`: read-only non-owning views tied to an owner lifetime.
+- `frozen_shareable`: immutable runtime values that can be duplicated freely.
+- `scratch_backed`: values tied to an active `scratch {}` lifetime.
+
+Required source model:
+
+- `borrow owner` and `let view = borrow owner` create lexical read-only views.
+  A live view blocks owner move, mutation, freeze, transfer, return, and
+  escaping capture.
+- `freeze owner` consumes a unique owner and produces immutable
+  `frozen_shareable` storage.
+- `scratch { ... }` is a lexical scratchpad with a value result. It saves a
+  scratch pointer on entry, resets on every exit edge, and never returns an
+  implicit attached region.
+- Values leaving `scratch {}` must be scalar, already frozen/shareable,
+  explicitly frozen/promoted into persistent storage, or proven scratch-free at
+  the value, field, payload, and closure-capture level.
+- Cleanup for scratch storage is the reset edge. Cleanup for unique owners and
+  lowering-created temporaries is inserted from static storage/lifetime facts;
+  a missing cleanup decision is a proof gap, not a reason to enable GC.
+- Optional longer-lived regions are not part of ordinary `scratch {}`. If they
+  are added later, they must be explicit owner packages with tied returned
+  values, cleanup/drop facts, move/consume rules, ABI rules, and host-boundary
+  rules.
+- Linear/path-sensitive analysis applies only to source `!` capabilities,
+  `unique_heap` owners, active `borrow_view` barriers, `scratch_backed` values,
+  and closure slots containing those values.
+
+Required task split:
+
+1. Storage fact inventory: give every non-scalar source value and
+   compiler-created temporary a storage class, owner id, lifetime id, origin,
+   escape decision, and cleanup/drop/reset decision.
+2. Borrow/view pass: implement lexical view lifetimes and owner barriers for
+   fields, branches, loops, closures, and host/import calls.
+3. Scratchpad lowering: emit saved-pointer reset edges for fallthrough,
+   `return`, `break`, and `continue`, then check the value result before reset.
+4. Scratch escape proof: split text, aggregate, union, closure, field, payload,
+   and capture shapes until each escape is proven scratch-free, explicitly
+   promoted/frozen, or rejected.
+5. Freeze and promotion: make every cross-lifetime share an explicit Core copy
+   edge, shaped by layout for text bytes, aggregate fields, union payloads, and
+   closure environment slots.
+6. Temporary cleanup: record cleanup/drop/transfer/no-cleanup facts for
+   lowering-created temporaries from aggregate materialization, text operations,
+   union payload construction, closure environment setup, host marshaling, and
+   promotion.
+7. Closure capture ownership: reusable closures may capture scalar or
+   frozen/shareable slots; unique, borrow, scratch-backed, capability, or
+   ownership-bearing slots require linear closure support or deterministic
+   rejection.
+8. Host/import contracts: continue bounded-borrow, frozen/shareable,
+   ownership-transfer, and host-returned-owner contracts through wrappers and
+   interprocedural static calls; reject unknown non-scalar boundaries.
+9. Future profiles: keep named arenas, attached-region return packages,
+   reusable allocators, destructors, tracing GC, managed storage, and Wasm-GC as
+   explicit future profiles with separate Core representation, ABI, proof
+   output, and tests.
+
+Required implementation order:
+
+1. Classify storage first. Before broadening codegen for a value shape, attach
+   `scalar_local`, `unique_heap`, `borrow_view`, `frozen_shareable`, or
+   `scratch_backed` facts to source values and lowering-created temporaries.
+2. Assign owner and lifetime ids next. This includes owner ids for unique
+   values, view lifetimes for borrows, scratch lifetime ids, frozen storage
+   origins, and closure-environment slot ownership.
+3. Run borrow/view barriers before move-like operations. A live view blocks
+   owner mutation, move, freeze, transfer, return, escaping capture, and unknown
+   host-boundary use until the lexical view lifetime ends.
+4. Lower `scratch {}` as saved-pointer plus reset edges before WAT emission.
+   The value result is checked before reset and must be scalar,
+   frozen/shareable, explicitly frozen/promoted, or proven scratch-free through
+   every reachable field, payload, and closure-capture slot.
+5. Emit freeze and promotion as explicit Core copy edges at the lifetime
+   boundary. The copy is shaped by layout for text bytes, aggregate fields,
+   union payloads, and closure environment slots.
+6. Insert cleanup from the same facts. Valid cleanup outcomes are scratch
+   reset, owner drop, ownership transfer, explicit freeze/promotion, return of
+   the owner, or a no-cleanup proof for scalar and frozen/shareable values.
+7. Run the final no-GC proof gate before both pure-Ic and structured Core/Wasm
+   emission. If any storage, lifetime, borrow, scratch result,
+   freeze/promotion, host-boundary, or cleanup row is missing, reject with a
+   named proof gap or defer to a future explicit region/managed-storage profile.
+
+Confirmed immediate backlog from this decision:
+
+1. Add proof fixtures for borrow/view barriers, including owner replacement,
+   mutation, freeze, transfer, return, closure capture, and host-boundary
+   rejections while a view is live.
+2. Finish `scratch {}` result analysis for scalar, frozen/shareable, explicit
+   promotion, text, aggregate, union payload, and closure-capture shapes.
+3. Broaden explicit `freeze` and scratch-to-persistent promotion copies across
+   runtime text, aggregates, unions, and first-class closure environments.
+4. Add cleanup/drop/transfer/no-cleanup rows for lowering-created temporaries
+   from text operations, aggregate materialization, union payload construction,
+   closure environment setup, host marshaling, and promotion.
+5. Make first-class closure storage per-slot: reusable only for scalar or
+   frozen/shareable captures; linear or rejected for unique, borrow,
+   scratch-backed, capability, or nested ownership-bearing captures.
+6. Extend host/import contracts for bounded borrows, frozen/shareable values,
+   ownership transfer, and host-returned owners through wrappers and
+   interprocedural static calls.
+7. Keep optional named regions, reusable allocators/destructors, tracing GC,
+   managed storage, and Wasm-GC in future explicit profiles, not as hidden
+   fallbacks for baseline proof gaps.
+
+Each slice is done only when it is accepted with proof rows and
+`managed_storage: "disabled"`, rejected before WAT emission with a named missing
+fact, or deferred to a future explicit profile.
+
+Latest decision update:
+
+- Treat the no-GC baseline as a required proof gate, not as an optimization
+  preference. A memory/lifetime feature is accepted only when the static
+  ownership analysis can prove its storage, lifetime, escape, borrow,
+  freeze/promotion, and cleanup facts.
+- If a supported shape is hard to analyze, split it into narrower tasks by
+  storage class and escape path until it is accepted with proof rows or rejected
+  with a deterministic diagnostic. Do not keep it accepted by letting GC,
+  hidden attached regions, implicit promotion, or runtime-discovered cleanup
+  decide later.
+- `scratch { ... }` remains a value-returning scratchpad for temporary
+  computation. It resets on all exit edges, and its result is checked before
+  reset. A result may escape only as scalar, already frozen/shareable,
+  explicitly frozen/promoted, or proven scratch-free through fields, payloads,
+  and closure captures.
+- Optional regions remain future explicit owner packages. A region-returning
+  value must carry the region owner and its cleanup/drop/move facts; ordinary
+  `scratch {}` never infers that package.
+- Linear analysis is storage-driven. It applies to source `!` capabilities,
+  unique owners, live borrow barriers, scratch-backed values, and
+  ownership-bearing closure slots, while scalar and frozen/shareable values stay
+  freely copyable.
+
+No-GC implementation refinement:
+
+- Accepted `core-3-nonweb` programs should not need a collector to repair
+  ownership, temporary cleanup, closure environments, aggregate fields, union
+  payloads, text buffers, or host-boundary values. The proof pass must make the
+  lifetime and cleanup decision before WAT emission.
+- Treat `scratch {}` as a share-friendly temporary arena only inside its
+  lexical body. It saves a pointer on entry, resets on every exit, and checks
+  the returned value before reset. Returning a value tied to scratch storage is
+  accepted only through scalarization, existing frozen/shareable ownership,
+  explicit freeze/promotion, or a transitive scratch-free proof.
+- Insert cleanup for source values and compiler-created temporaries from the
+  same ownership rows. A cleanup row can be a scratch reset, owner drop,
+  ownership transfer, freeze/promotion, or explicit no-cleanup decision for
+  scalar/frozen data. If none can be proven, the case stays open or rejects.
+- Keep optional longer-lived regions as a future explicit owner-package task.
+  A region package must carry a region owner, tied returned-value lifetimes,
+  cleanup/drop facts, move/consume rules, ABI rules, and host-boundary rules.
+  Ordinary `scratch {}` must not synthesize this package implicitly.
+- A future GC or managed-storage backend may exist, but only as a named target
+  profile with separate representation and tests. It is not an implementation
+  step for the default linear-memory backend.
+
+Final planning note:
+
+- There is no active GC implementation task for the default `core-3-nonweb`
+  backend. Skip GC by making the static ownership/lifetime analysis complete for
+  the accepted source surface.
+- Do not keep a case accepted by saying a future collector will clean up
+  scratch-backed values, source owners, lowering-created temporaries, closure
+  environments, aggregate fields, union payloads, text buffers, or host-boundary
+  values. Missing cleanup or escape proof means the slice is still open.
+- The only baseline outcomes are: accepted with proof rows and
+  `managed_storage: "disabled"`, rejected before WAT emission with a named proof
+  gap, or deferred to a future explicit region/managed-storage profile.
+- `scratch { ... }` remains a lexical scratchpad with a value result. It may be
+  used for share-friendly temporary computation, but its result must be scalar,
+  frozen/shareable, explicitly frozen/promoted, or proven scratch-free before
+  reset.
+- Optional longer-lived regions remain explicit future owner packages with tied
+  returned values, cleanup/drop facts, and move/consume rules. They are not
+  inferred from ordinary `scratch {}`.
+
+## Active Acceptance Gate
+
+The current baseline is analysis-complete no-GC lowering. A memory/lifetime
+slice is ready for WAT only when static proof has classified storage, lifetime,
+borrow/view state, scratch escape, freeze/promotion, host-boundary behavior when
+relevant, and cleanup/drop/reset behavior for every source value and
+compiler-created temporary it touches.
+
+When a case is hard, do not add a collector-backed fallback to make it accepted.
+Split it by storage category and escape shape until it becomes one of:
+
+- accepted with proof rows and `managed_storage: "disabled"`;
+- rejected before WAT emission with a diagnostic naming the missing proof edge;
+- deferred to a future explicit region or managed-storage profile.
+
+The active implementation model is unique-by-default runtime heap ownership,
+lexical `borrow`/view syntax for read-only non-owning access, explicit `freeze`
+for immutable shareable values, value-returning `scratch {}` scratchpads with
+saved-pointer reset, proof-driven cleanup insertion for source values and
+lowering-created temporaries, and storage-driven linear participation only for
+capabilities, unique owners, active borrow barriers, scratch-backed values, and
+ownership-bearing closure slots.
+
+Optional longer-lived regions remain useful future work, but only as explicit
+region-owner packages with tied return values, cleanup/drop facts, and
+move/consume rules. Ordinary `scratch {}` never returns a hidden live region,
+and GC is not the baseline tie-breaker for hard scratchpad, temporary, closure,
+aggregate, union, text, borrow, host-boundary, or cleanup cases.
+
+## Proof Fixture Shape
+
+Every remaining memory/lifetime implementation slice should add proof fixtures
+before broadening WAT emission. This is the concrete harness for the no-GC
+decision.
+
+Accepted fixtures must expose:
+
+- the source or Core snippet being accepted;
+- `target_profile: "core-3-nonweb"`;
+- `managed_storage: "disabled"`;
+- one row per non-scalar source value and lowering-created temporary, including
+  storage class, owner id, lifetime id, origin, escape decision, and
+  cleanup/drop/reset/transfer decision;
+- borrow/view rows for every lexical view, including owner, lifetime, and the
+  blocked operations while the view is live;
+- scratch rows for every `scratch {}` scope, including saved-pointer entry,
+  every reset edge, and the result decision before reset;
+- explicit `freeze` or promotion rows for values crossing a lifetime boundary
+  as immutable shareable data;
+- host/import boundary rows for non-scalar arguments or results; and
+- enough WAT or lowered-Core evidence to show that codegen consumes those rows
+  rather than inventing cleanup later.
+
+Rejected fixtures must name the first missing or invalid proof edge, such as
+active borrow, scratch-backed result, missing promotion, missing temporary
+cleanup, unsupported ownership-bearing closure capture, or unknown host/import
+boundary. They must reject before WAT emission.
+
+Deferred fixtures must name the future profile they need, such as explicit
+region-owner packages, reusable allocator/destructor support, tracing GC,
+managed storage, or Wasm-GC. A deferred fixture is not accepted by the baseline
+emitter.
+
+## First Proof Fixtures To Add
+
+Start implementation with these fixture groups. Each group should include the
+smallest accepted program that exposes the proof rows and the nearest rejected
+program that names the missing ownership/lifetime edge.
+
+1. Borrow/view barriers
+   - Accept a lexical read-only `borrow` used for scalar or frozen reads while
+     the owner remains live.
+   - Reject owner move, mutation, freeze, return, transfer, escaping capture, or
+     unknown host-boundary use while the borrow view is live.
+
+2. Scratchpad scalar and frozen results
+   - Accept `scratch { ... }` results that are scalar or already
+     `frozen_shareable`.
+   - Accept explicit `freeze` or promotion before scratch reset when the result
+     must outlive the scratchpad.
+   - Reject raw `scratch_backed` text, aggregate, union, or closure results
+     that would require a hidden attached region or collector.
+
+3. Aggregate and union scratch escapes
+   - Accept aggregate fields and union payloads only when every slot is scalar,
+     frozen/shareable, explicitly promoted, or proven scratch-free.
+   - Reject the first field, payload, or nested capture that still points into
+     scratch storage at the reset boundary.
+
+4. Lowering-created temporary cleanup
+   - Accept text, aggregate, union, closure-environment, host-marshaling, and
+     promotion temporaries only when each temporary has a lifetime end and a
+     cleanup, transfer, freeze, reset, drop, or no-cleanup row.
+   - Reject WAT emission when a temporary would rely on runtime-discovered
+     cleanup or GC.
+
+5. First-class closure storage
+   - Accept capture-free closures as code pointer/table-index values with no
+     heap environment.
+   - Accept reusable captured closures only with scalar or frozen/shareable
+     environment slots.
+   - Require linear closure support or reject when a closure captures a unique
+     owner, live borrow view, scratch-backed value, capability, or nested
+     ownership-bearing closure.
+
+6. Host/import ownership contracts
+   - Accept non-scalar host/import boundaries only with explicit
+     bounded-borrow, frozen/shareable, ownership-transfer, or host-returned
+     owner contracts.
+   - Reject unknown non-scalar boundaries before WAT emission.
+
+7. Future explicit region packages
+   - Defer longer-lived region returns until they have explicit region owner
+     values, tied returned lifetimes, cleanup/drop facts, move/consume rules,
+     ABI rules, and host-boundary rules.
+   - Do not infer this package from ordinary `scratch {}`.
+
+## Confirmed No-GC Implementation Queue
+
+This is the current task queue from the memory/lifetime decision. These are
+implementation tasks for the baseline, not open design choices.
+
+1. Proof-gate audit
+   - Audit every accepted source-to-Core/Wasm path that touches runtime memory.
+   - A path is accepted only when proof rows show storage class, owner/lifetime
+     ids, borrow/view state, scratch reset/result decision, freeze/promotion
+     edge, host-boundary contract when relevant, and cleanup/drop/transfer
+     behavior.
+   - Missing rows keep the case out of WAT emission until the proof exists or
+     the compiler rejects it deterministically.
+
+2. Ownership and borrow facts
+   - Keep runtime heap values `unique_heap` by default.
+   - Keep `borrow owner` and `let view = borrow owner` as lexical, read-only,
+     runtime-free views.
+   - A live view blocks owner mutation, move, transfer, freeze, return, and
+     escaping closure capture.
+
+3. Scratchpad result analysis
+   - Keep `scratch { ... }` as the ergonomic temporary scratchpad with a value
+     result and saved-pointer reset on every exit edge.
+   - Check the result before reset. Accept only scalar, already frozen,
+     explicitly frozen/promoted, or proven scratch-free values.
+   - Do not attach a hidden region to a scratch result.
+
+4. Freeze, promotion, and cleanup insertion
+   - Make `freeze` and scratch-to-persistent promotion explicit Core copy edges
+     before the lifetime boundary.
+   - Insert cleanup for source values and compiler-created temporaries from the
+     same storage/lifetime facts.
+   - Track temporaries from text work, aggregate materialization, union payload
+     construction, closure environment setup, host marshaling, and promotion.
+
+5. Storage-driven linear participation
+   - Apply path-sensitive linear analysis only to source `!` capabilities,
+     `unique_heap` owners, active `borrow_view` barriers, `scratch_backed`
+     values, and closure slots containing those values.
+   - Scalars and `frozen_shareable` values remain freely copyable/shareable.
+
+6. Future explicit regions and managed storage
+   - Optional longer-lived regions are future explicit owner packages with tied
+     return values, cleanup/drop facts, move/consume rules, ABI rules, and
+     host-boundary rules.
+   - GC, managed storage, and Wasm-GC stay outside the active `core-3-nonweb`
+     queue. If a supported shape is too hard, split it into a smaller proof
+     fixture or reject it before WAT emission.
+
+## Concrete Memory/Lifetime Tickets
+
+Track the selected memory model through these concrete tickets. Each ticket
+must land with accepted and rejected proof fixtures before WAT emission is
+broadened for that shape. The default answer to uncertain lifetime or cleanup
+cases is not GC; it is a smaller proof ticket, a deterministic pre-WAT
+rejection, or a future explicit region/managed-storage profile.
+
+For each ticket, the implementation harness should include:
+
+- a source or Core fixture that is accepted with `target_profile:
+  "core-3-nonweb"` and `managed_storage: "disabled"`;
+- visible proof rows for the storage/lifetime facts the emitter consumes;
+- the nearest rejected source or Core fixture with a diagnostic naming the
+  first missing or invalid proof edge; and
+- a WAT or lowered-Core check only after the proof rows exist.
+
+1. `memory_fact_inventory`
+   - Add a proof row for every non-scalar source value and lowering-created
+     temporary.
+   - Rows must include storage class, owner id, lifetime id, origin,
+     escape/result decision, and cleanup/drop/reset/transfer decision.
+   - Include temporaries from text concat/copy/slice, aggregate materialization,
+     union payload construction, closure environment setup, host marshaling,
+     and freeze/promotion copies.
+
+2. `borrow_view_barriers`
+   - Treat `borrow value` as a lexical read-only view with no runtime storage.
+   - While a view is live, reject owner mutation, move, transfer, freeze,
+     return, escaping closure capture, and unknown host/import passage.
+   - Cover direct owners, field views, union payload views, branch merges, loop
+     edges, and scratchpad scopes.
+
+3. `scratch_result_gate`
+   - Keep `scratch { ... }` as a value-returning scratchpad with saved-pointer
+     reset on fallthrough, `return`, `break`, and `continue`.
+   - Before reset, classify the result as scalar, `frozen_shareable`,
+     explicitly frozen/promoted, proven scratch-free, or rejected.
+   - Split escape fixtures by runtime `Text`, aggregate fields, union payloads,
+     first-class closure captures, and nested field/payload paths.
+
+4. `freeze_promotion_edges`
+   - Make `freeze value` consume a unique owner and create immutable
+     `frozen_shareable` storage.
+   - Make scratch-to-persistent promotion an explicit Core copy edge before the
+     scratch reset.
+   - Preserve frozen/shareable facts through fields, union payloads, and closure
+     environment slots so reusable closure captures remain copy-safe.
+
+5. `cleanup_insertion`
+   - Insert cleanup from proof facts for source owners and compiler-created
+     temporaries.
+   - Valid cleanup outcomes are scratch reset, owner drop, ownership transfer,
+     explicit freeze/promotion, or proven no-cleanup for scalar/frozen values.
+   - Missing cleanup facts must reject before WAT emission instead of selecting
+     managed storage.
+
+6. `storage_driven_linear`
+   - Apply exact-use/path-sensitive checks to source `!` capabilities,
+     `unique_heap` owners, live `borrow_view` barriers, `scratch_backed` values,
+     and closure slots containing ownership-bearing values.
+   - Keep scalar locals and `frozen_shareable` values copyable.
+   - First-class closures are reusable only when every captured slot is scalar
+     or frozen/shareable; owned, borrowed, scratch-backed, capability, or nested
+     ownership-bearing captures need linear closure support or rejection.
+
+7. `future_region_packages`
+   - Defer longer-lived regions to an explicit owner-package feature.
+   - A region package must carry the region owner, values tied to that owner,
+     cleanup/drop facts, move/consume rules, ABI rules, and host-boundary rules.
+   - Ordinary `scratch {}` must not infer this package, and GC is not a
+     fallback for scratch result uncertainty.
+
+## Immediate Task Split From Memory Decision
+
+Use this split when turning the no-GC decision into implementation work. The
+baseline goal is not to add a collector; it is to make each accepted memory
+shape statically explain itself.
+
+1. Storage fact inventory
+   - Audit every WAT-emitting path that can allocate, move, borrow, freeze,
+     return, drop, or transfer non-scalar data.
+   - Add or require proof rows for storage class, owner id, lifetime id, origin,
+     escape decision, and cleanup/drop/reset decision.
+   - Keep accepted fixtures visibly on `managed_storage: "disabled"`.
+
+2. Borrow/view lifetime pass
+   - Implement `borrow value` and `let view = borrow value` as lexical,
+     read-only, runtime-free views.
+   - Reject owner move, mutation, freeze, transfer, return, or escaping capture
+     while a view is live.
+   - Split field and payload views so a borrowed projection still protects the
+     containing owner.
+
+3. Scratchpad lowering and result gate
+   - Lower `scratch { ... }` to saved scratch pointer plus reset edges on
+     fallthrough, `return`, `break`, and `continue`.
+   - Check the value result before reset and accept only scalar,
+     `frozen_shareable`, explicitly frozen/promoted, or proven scratch-free
+     values.
+   - Reject any result that would need a hidden attached region or collector to
+     survive the reset.
+
+4. Explicit freeze and promotion
+   - Make `freeze value` consume a unique owner and produce immutable
+     shareable storage.
+   - Make scratch-to-persistent promotion an explicit Core copy edge before the
+     scratch reset.
+   - Split promotion fixtures by runtime text, aggregate, union payload,
+     closure environment, and nested field/payload shape.
+
+5. Temporary cleanup insertion
+   - Track compiler-created temporaries from text operations, aggregate
+     materialization, union payload construction, closure environment setup,
+     host marshaling, and promotion copies.
+   - Give each temporary a lifetime end and a cleanup, transfer, freeze, reset,
+     drop, or no-cleanup decision before WAT emission.
+   - Treat a missing temporary cleanup decision as a proof gap, not a reason to
+     introduce GC.
+
+6. Storage-driven linear analysis
+   - Reuse path-sensitive linear machinery for source `!` capabilities,
+     `unique_heap` owners, active `borrow_view` barriers, `scratch_backed`
+     values, and ownership-bearing closure slots.
+   - Do not run exact-use checks for scalar locals or `frozen_shareable` values.
+   - Make closure environments either reusable with scalar/frozen slots, linear
+     with owned slots, or rejected when borrow/scratch lifetimes cannot be
+     proven.
+
+7. Future-only region and managed profiles
+   - Keep optional longer-lived regions as explicit owner-package tasks with
+     tied returned values, cleanup/drop facts, move/consume rules, ABI rules,
+     and host-boundary rules.
+   - Keep managed storage, tracing GC, and Wasm-GC as separate target profiles
+     with their own Core representation and tests.
+   - Do not let those profiles act as hidden fallbacks for the baseline.
+
+## Current Decision Record
+
+This is the decision to preserve when refining the remaining memory tasks:
+
+- Use unique ownership for ordinary runtime heap values.
+- Use `borrow owner` / `let view = borrow owner` for read-only lexical views.
+- Use `freeze owner` to turn a unique owner into immutable shareable storage.
+- Use `scratch { ... }` as the ergonomic scratchpad for temporary shareable
+  computation. It returns a value, resets on every exit edge, and never attaches
+  a hidden live region to that value.
+- Treat scratchpads as temporary allocation scopes first, not general lifetime
+  regions. The efficient baseline shape is a saved scratch pointer on entry,
+  ordinary work inside the scope, and reset on all exits after the result has
+  been proven independent of scratch storage or explicitly promoted.
+- Insert cleanup/drop/reset decisions from static ownership and lifetime facts,
+  including compiler-created temporaries.
+- Apply path-sensitive linear analysis only to values whose storage or effect
+  role requires it: source `!` capabilities, `unique_heap` owners, active
+  `borrow_view` barriers, `scratch_backed` values, and ownership-bearing closure
+  slots.
+- Skip GC for the baseline. If analysis is not precise enough, split the case
+  until it becomes an accepted proof fixture, a deterministic rejection, or a
+  future explicit region/managed-storage profile.
+- The no-GC choice is conditional on this analysis being complete. A hard case
+  should create a narrower ownership/lifetime task; it should not stay accepted
+  by leaving cleanup, scratch escape, or temporary lifetime decisions to a
+  collector.
+- Do not open a baseline GC task for hard cleanup, scratch, borrow, aggregate,
+  union, text, host-boundary, or closure-capture cases. The baseline work is to
+  make the static proof precise enough, or to keep the unsupported shape
+  rejected before WAT emission.
+- Treat "analysis is complete enough" as the condition for accepting a baseline
+  slice. GC is not the tie-breaker for a difficult scratchpad, temporary,
+  borrow, closure, aggregate, union, text, or host-boundary case. When the
+  static proof is not complete, keep the task open, split it smaller, or reject
+  with a named proof gap.
+- Treat optional longer-lived regions as future explicit owner packages. A
+  returned value tied to a region must carry that region owner and its cleanup
+  facts; ordinary `scratch {}` results do not get this behavior implicitly.
+- A future region-return feature should return or carry the region owner
+  explicitly, with values tied to that owner. Dropping or consuming the owner is
+  what ends the region; this is separate from the MVP `scratch {}` reset model.
+
+Latest scratchpad/no-GC refinement:
+
+- `scratch { ... }` is the temporary-computation surface for the baseline. It
+  may allocate share-friendly temporary values, but it returns an ordinary value
+  and resets before that value can observe scratch-backed storage.
+- A value leaving `scratch {}` must be classified before reset as scalar,
+  already frozen/shareable, explicitly frozen/promoted into persistent storage,
+  proven scratch-free through every field/payload/capture slot, or rejected.
+- Do not use GC as the answer to hard scratchpad result analysis. If a result or
+  compiler-created temporary is hard to analyze, split the shape until it has a
+  proof row, reject it with a named missing edge, or defer it to an explicit
+  future region/managed-storage profile.
+- Cleanup insertion is proof-driven for source values and lowering-created
+  temporaries. Every temporary from aggregate materialization, text
+  copy/concat/slice work, union payload construction, closure environment setup,
+  host marshaling, or promotion must have a storage class, lifetime end, and
+  cleanup/transfer/no-cleanup decision before WAT emission.
+- Linear/path-sensitive analysis is applied only where storage or effects need
+  it: source `!` capabilities, `unique_heap` owners, live `borrow_view`
+  barriers, `scratch_backed` values, and closure slots that contain those
+  values. Scalars and `frozen_shareable` values remain freely copy/share.
+- Optional longer-lived regions remain future explicit owner packages. They are
+  not inferred from `scratch {}` and do not rescue an otherwise unsafe scratch
+  return in the default `core-3-nonweb` backend.
+
+No-GC proof obligation for every remaining memory slice:
+
+- Before broadening codegen, define the storage shape being accepted:
+  `scalar_local`, `unique_heap`, `borrow_view`, `frozen_shareable`, or
+  `scratch_backed`.
+- Prove the lifetime edge that makes cleanup possible. For source values this is
+  scope exit, move, transfer, freeze, return, or explicit drop; for
+  lowering-created temporaries this is the expression, branch, loop, call, or
+  scratchpad boundary that owns the temporary.
+- Insert cleanup from those facts, not from a later runtime fallback. Scratch
+  storage resets on the scratch lifetime end; unique heap values record drop or
+  transfer facts even while the first bump allocator lowers drops to no-op WAT;
+  frozen/shareable and scalar values require no cleanup.
+- A `scratch {}` result is checked before reset. It may escape only as a scalar,
+  already-frozen value, explicit promotion/freeze into persistent storage, or a
+  value proven scratch-free through fields and union payloads.
+- If any storage, lifetime, borrow/view, scratch escape, freeze/promotion,
+  host-boundary, or cleanup row is missing, the task is to split the source
+  shape smaller or reject deterministically before WAT emission. Do not make it
+  accepted by adding tracing GC, managed storage, hidden attached regions,
+  implicit promotion, or runtime-discovered cleanup to the baseline.
+
+## Chosen Memory Model Snapshot
+
+Use this as the short checklist when splitting implementation work:
+
+- Runtime heap values are unique by default. They can be moved, consumed,
+  borrowed, frozen, returned, or dropped, but not implicitly copied.
+- `borrow value` and `let view = borrow value` are the MVP borrow/view syntax.
+  They create read-only non-owning views with lexical lifetimes.
+- `freeze value` consumes a unique owner and produces immutable
+  `frozen_shareable` storage that can be duplicated freely.
+- `scratch { ... }` is the MVP region-like construct, but it is a lexical
+  scratchpad, not an attached region object. It has a value result, resets on
+  every exit edge, and does not keep a hidden live region after reset.
+- A `scratch {}` result can escape only when it is scalar, already frozen,
   explicitly promoted/frozen into persistent storage, or proven scratch-free at
   the value, field, and payload level.
-- Borrow/view syntax is the analysis aid for local lifetime reasoning:
-  `borrow owner` and `let view = borrow owner` create read-only, non-owning
-  views bounded by the owner lifetime.
-- Cleanup for compiler-created temporaries is inserted from the same ownership
-  and lifetime facts as source cleanup. Scratch temporaries reset with the
-  scratchpad, unique temporaries record drop points, and scalar/frozen
-  temporaries need no runtime cleanup.
-- If analysis is hard, refine the task by value category and escape shape until
-  it is accepted with proof facts or rejected with a deterministic diagnostic.
-  Do this refinement work as part of the implementation task instead of leaving
-  the case broad and accepting it by runtime cleanup. Named arenas,
-  attached-region return packages, managed storage, tracing GC, and Wasm-GC are
-  future explicit profiles with their own Core/ABI/proof work.
+- Optional longer-lived regions are future explicit owner packages. Values tied
+  to such a region must carry the region owner, lifetime facts, cleanup/drop
+  facts, move/consume rules, ABI rules, and host-boundary rules.
+- Cleanup is inserted from static facts for both source values and
+  compiler-created temporaries. Scratch-backed temporaries reset with the
+  scratchpad; unique heap temporaries record drop or transfer decisions; scalar
+  and frozen values require no runtime cleanup.
+- Linear/path-sensitive analysis is storage-driven. It applies to source `!`
+  capabilities, `unique_heap` owners, active `borrow_view` barriers,
+  `scratch_backed` values, and closure slots that contain those values. Plain
+  scalars and frozen/shareable values remain copy/share values.
+- The baseline deliberately skips GC. If a case is hard to analyze, split it
+  into a smaller accepted proof fixture, a deterministic rejection, or a future
+  explicit region/managed-storage profile.
 
-Implementation anchors from the research pass:
+## No-GC Efficiency Target
 
-- Language-to-Wasm lowering should pass through typed Core, keep ownership and
-  layout facts explicit, and validate the proof surface before WAT emission.
-- Region/arena allocation is appropriate for `scratch { ... }` because it gives
-  cheap temporary allocation and O(1) reset while keeping escape decisions in
-  the compiler.
-- Lifetime and escape analysis must run before storage selection; hard cases
-  become narrower accepted proof slices or rejected diagnostic slices, not
-  runtime-managed fallbacks.
-- Linear checks enforce ownership in typed Core while lowering values to
-  ordinary Wasm locals and linear-memory pointers.
-- Linear and unique values keep ordinary Wasm representations. Correctness comes
-  from typed-Core facts, path-sensitive validation, and a proof gate before WAT
-  emission.
-- Lifetime and escape analysis must classify returns, closure captures,
-  heap/global/module stores, branch merges, scratch returns, and host/import
-  calls before choosing storage.
-- Scratchpads are arena-style scopes: allocate from a bump pointer, reset on
-  every exit edge, and reject or explicitly promote any result that may point
-  into reset storage.
-- `freeze` is the builder/freeze reuse path. It consumes unique ownership and
-  produces immutable shareable storage; destructive reuse is only an internal
-  optimization when uniqueness proves no observable aliases.
-- Cleanup is elaborated from ownership facts, not discovered by code emission.
-  Scratch reset is real WAT, while unique drops can stay analysis-only until a
+This is the performance contract for the selected baseline. It is part of the
+task definition, not a later optimization pass.
+
+- `borrow owner` / `let view = borrow owner` should be analysis-only for the
+  MVP. A borrow emits no allocation, no copy, and no runtime reference count; it
+  only blocks owner operations until the lexical view lifetime ends.
+- `scratch { ... }` should compile to a saved scratch pointer on entry plus
+  reset edges on every exit that leaves the scratch lifetime. Normal scratch
+  cleanup should be O(1), independent of the number of temporary values created
+  inside the scope.
+- `freeze value` and scratch-to-persistent promotion are the only places where
+  copying is expected for immutable sharing across a lifetime boundary. The copy
+  is explicit in Core and should be shaped by the value layout: text bytes,
+  aggregate fields, union payloads, or closure environment slots.
+- `frozen_shareable` values are immutable runtime data and may be duplicated
+  freely after the freeze/promotion edge. They should not participate in
+  exact-use linear analysis.
+- `unique_heap` drops must be proof-visible at scope exit, replacement,
+  transfer, discard, and early exits. The first bump allocator may lower those
+  drops to no-op WAT, but reusable allocators and destructors will consume the
+  same drop facts later.
+- Compiler-created temporaries use the same storage and lifetime proof as source
+  values. Temporaries from text operations, aggregate materialization, union
+  payload construction, closure environment setup, host marshaling, and
+  promotion must have a cleanup or transfer edge before WAT emission.
+- If this static analysis cannot prove the supported shape, the baseline
+  response is to split the shape or reject before WAT emission. Do not accept
+  the program by adding a tracing GC, hidden attached region, implicit
+  promotion, runtime-discovered cleanup, or Wasm-GC fallback.
+
+## Analysis-Complete Gate
+
+Skipping GC is allowed only when the accepted slice is analysis-complete. Use
+this gate before marking any memory/lifetime task ready for WAT emission.
+
+A slice is analysis-complete when:
+
+- Every non-scalar source value and lowering-created temporary has a storage
+  class, owner id, lifetime id, and source/lowering origin.
+- Every borrow/view records the borrowed owner, lexical lifetime, and barriers
+  against move, mutation, freeze, transfer, return, and escaping capture.
+- Every `scratch {}` scope records entry, reset edges for all exits, and a
+  result decision before reset: scalar, frozen/shareable, explicitly
+  frozen/promoted, proven scratch-free, or rejected.
+- Every freeze or promotion is an explicit Core copy edge before a lifetime
+  boundary, not an implicit typechecker or WAT-emitter repair.
+- Every unique owner and ownership-bearing temporary has a drop, transfer,
+  replacement, freeze, return, or explicit no-cleanup decision.
+- Every host/import boundary for non-scalar data has an explicit bounded-borrow,
+  frozen/shareable, ownership-transfer, or host-returned owner contract.
+- The proof surface exposes `managed_storage: "disabled"` and enough rows for a
+  test to explain why WAT emission is safe without a collector.
+
+If any row is missing, the task remains active. The next step is to split the
+case by value shape or escape path, add the missing proof fact, add an explicit
+freeze/promotion edge, reject before WAT emission, or defer it to a future
+explicit region/managed-storage profile.
+
+## Current No-GC Work Order
+
+This is the implementation order for the memory/lifetime decision. It is a
+baseline `core-3-nonweb` plan, not a managed-storage plan.
+
+1. Build one ownership fact schema for accepted value shapes:
+   `unique_heap`, `borrow_view`, `frozen_shareable`, and `scratch_backed`.
+   Include owner ids, lifetime ids, source/lowering origin, escape decision,
+   and cleanup/drop/reset decision.
+2. Make `borrow value` / `let view = borrow value` lexical read-only views.
+   They should be runtime-free and block owner move, mutation, freeze,
+   ownership transfer, return, and escaping capture while live.
+3. Keep `scratch { ... }` as a value-returning scratchpad. Lower it with a saved
+   scratch pointer, reset every exit edge, and check the result before reset.
+   Accepted results are scalar, already frozen/shareable, explicitly
+   frozen/promoted, or proven scratch-free through fields, payloads, and
+   captures.
+4. Make `freeze` and scratch-to-persistent promotion explicit Core copy edges.
+   These are the intentional copy points for values that cross a lifetime
+   boundary as immutable shareable data.
+5. Insert cleanup for source values and lowering-created temporaries from the
+   same proof facts. Temporaries from text operations, aggregate
+   materialization, union payload construction, closure environments, host
+   marshaling, and promotion must have a lifetime end before WAT emission.
+6. Apply path-sensitive linear analysis only to storage/effect-bearing values:
+   source `!` capabilities, `unique_heap` owners, active `borrow_view`
+   barriers, `scratch_backed` values, and ownership-bearing closure slots.
+7. Leave optional longer-lived regions, attached region-owner return packages,
+   tracing GC, managed storage, and Wasm-GC as explicit future profiles. They
+   must not be used as fallback behavior for a baseline case whose proof rows
+   are missing.
+
+## Memory/Lifetime Implementation Slices
+
+Use these slices when turning the memory model into code. Each slice should add
+accepted proof fixtures, rejected diagnostics, and WAT-to-Wasm coverage only
+after the no-GC proof rows are visible.
+
+1. Ownership fact model
+   - Record storage class, owner id, lifetime id, source/lowering origin, and
+     cleanup decision for every non-scalar source value and compiler-created
+     temporary.
+   - Keep the storage set explicit: `scalar_local`, `unique_heap`,
+     `borrow_view`, `frozen_shareable`, and `scratch_backed`.
+   - Add proof assertions for the fact rows before broadening WAT emission.
+
+2. Borrow/view analysis
+   - Treat `borrow value` and `let view = borrow value` as read-only, non-owning
+     views with lexical lifetimes.
+   - While a view is live, reject owner move, mutation, freeze, transfer,
+     return, escaping closure capture, and unknown host-boundary use.
+   - Keep the MVP borrow runtime-free: no allocation, reference count, or copy.
+
+3. Scratchpad result gate
+   - Model `scratch { ... }` as a lexical scratchpad with a value result, saved
+     scratch pointer on entry, and reset edges on fallthrough, `return`,
+     `break`, and `continue`.
+   - Keep scratch allocation efficient: normal cleanup is the reset edge, not a
+     per-allocation walk or collector pass. Per-value cleanup is needed only for
+     values promoted, transferred, or moved out of the scratch lifetime.
+   - Check the result before reset. Accept only scalar, already frozen,
+     explicitly frozen/promoted, or field/payload-proven scratch-free results.
+   - Reject raw scratch-backed pointers that would require a hidden attached
+     region or a collector to remain valid.
+
+4. Freeze and promotion edges
+   - Make `freeze value` consume a unique owner and produce `frozen_shareable`
+     storage.
+   - Make scratch-to-persistent promotion an explicit Core copy edge before
+     scratch reset, shaped by the value layout: text bytes, aggregate fields,
+     union payloads, or closure environment slots.
+   - Split text, aggregate, union, and closure-environment promotion into
+     separate proof fixtures.
+
+5. Temporary cleanup and drops
+   - Track lowering-created temporaries by origin: text operation, aggregate
+     materialization, union payload construction, closure environment setup,
+     host marshaling, and promotion copy.
+   - Give each temporary a cleanup edge: scratch reset, unique-owner drop,
+     ownership transfer, explicit freeze/promotion, or no-cleanup for scalar and
+     frozen/shareable values.
+   - Treat missing temporary cleanup facts as a proof gap. The next step is to
+     split the temporary by origin and lifetime boundary, not to add GC-managed
+     cleanup to the baseline.
+   - Keep unique drops proof-visible even while the first bump allocator lowers
+     them to no-op WAT.
+
+6. Optional explicit regions
+   - Defer longer-lived regions until scratchpad proof is stable.
+   - Model future regions as explicit owner packages with tied returned values,
+     region ids, cleanup/drop facts, move/consume rules, ABI rules, and
+     host-boundary rules.
+   - Do not use regions, managed storage, tracing GC, or Wasm-GC as a fallback
+     for an otherwise unproven baseline scratch return.
+
+7. Managed storage profile deferral
+   - Keep GC and managed storage out of the active `core-3-nonweb` task queue.
+   - Do not start managed storage to make the current scratchpad, temporary
+     cleanup, closure capture, aggregate, union, text, borrow, or host-boundary
+     work easier. Finish the static proof slice first, reject it
+     deterministically, or mark it as a future explicit profile.
+   - Only add a managed profile after the no-GC baseline has a named rejection
+     or proof gap that cannot reasonably be addressed by smaller static analysis
+     slices.
+   - A managed profile needs its own Core representation, ABI, proof output,
+     host-boundary rules, tests, and target selection. It must not be a hidden
+     fallback inside the baseline emitter.
+
+## Historical Memory/Lifetime Notes
+
+This section is retained for status detail from the research and implementation
+pass. The authoritative contract near the top of this file wins if any older
+wording here is less specific.
+
+- The baseline remains `core-3-nonweb`: ordinary structured Wasm plus linear
+  memory. It skips GC by making the static analysis precise for the supported
+  source surface.
+- No-GC is now the acceptance rule for the default backend, not a later
+  optimization. If analysis cannot prove a memory/lifetime case, the task is to
+  narrow the case and add proof facts or a deterministic compiler rejection, not
+  to accept it through a collector.
+- This supersedes the earlier possible GC fallback for hard scratchpad,
+  temporary, closure-capture, aggregate, union-payload, text, and host-boundary
+  cases. Spend the baseline work on precise proof facts, explicit promotion, or
+  deterministic rejection before considering managed storage.
+- The implementation work should therefore improve the ownership/lifetime proof
+  until the supported case is accepted, or classify the case as rejected or a
+  future explicit profile. Do not add collector hooks, runtime-discovered
+  cleanup, or hidden managed storage as an intermediate baseline state.
+- Runtime heap values default to `unique_heap`. They can move, be consumed by an
+  ownership-transfer call, be borrowed, be frozen, be returned, or be dropped;
+  they are never implicitly copied.
+- `borrow owner` and `let view = borrow owner` are the MVP view syntax. A borrow
+  is read-only, non-owning, and bounded by the owner lifetime. While the view is
+  live, the owner cannot be moved, mutated, frozen, or consumed.
+- `scratch { ... }` is the MVP region-like surface: a lexical scratchpad for
+  temporary shareable computation with a value result. It resets on every exit
+  edge that leaves the scratch lifetime, including fallthrough, `return`,
+  `break`, and `continue`.
+- Sharing inside a scratchpad is ordinary immutable sharing for scalars,
+  frozen/shareable values, and values proven not to require exact ownership.
+  Unique, borrowed, scratch-backed, capability, or ownership-bearing closure
+  slots still participate in the same path-sensitive analysis as outside the
+  scratchpad.
+- A `scratch { ... }` result never keeps a hidden live region. It may escape
+  only when scalar, already `frozen_shareable`, explicitly frozen/promoted into
+  persistent storage, or proven scratch-free at the value, field, and payload
+  level.
+- Optional longer-lived regions are a later explicit feature, not a fallback for
+  scratch escapes. If added, a region return must be represented as an owner
+  package whose returned values are tied to that region owner, whose cleanup is
+  explicit when the owner is consumed or dropped, and whose movement
+  participates in ownership analysis.
+- `freeze value` consumes a unique owner and produces immutable
+  `frozen_shareable` storage. Scratch-to-persistent promotion is an explicit
+  Core edge emitted before scratch reset, not a typechecker or WAT-emitter
+  repair.
+- Cleanup is proof-driven. Source values and compiler-created temporaries both
+  need storage, lifetime, escape, and drop/reset facts before WAT emission.
+  Scratch reset emits real WAT; unique heap drops may stay no-op facts until a
   reusable allocator or destructor path exists.
-- Host/import boundaries need explicit bounded-borrow or ownership-transfer
-  contracts. Unknown non-scalar host calls are escaping by default.
+- Linear analysis is storage-driven. Apply path-sensitive exact-use or move
+  checking only to source `!` capabilities, `unique_heap` owners, active
+  `borrow_view` barriers, `scratch_backed` values, and closure slots containing
+  those values. Scalars and already-frozen values stay copy/share values.
+- Unknown host/import calls are escaping for non-scalar values unless their
+  signatures explicitly declare bounded-borrow, frozen/shareable, or
+  ownership-transfer behavior.
+- If a case cannot prove ownership, lifetime, borrow/view validity,
+  scratch-escape, freeze/promotion, host-boundary, and cleanup/drop/reset facts,
+  split it by value category and escape shape until it becomes an accepted proof
+  fixture, a rejected diagnostic fixture, or a deferred future profile.
+- Named arenas, attached-region return packages, reusable allocators,
+  destructors, tracing GC, managed storage, and Wasm-GC are future explicit
+  profiles. They must not make an uncertain `core-3-nonweb` program accepted.
 
-## Memory/Lifetime Decision Record
+Decision checkpoint for new memory work:
 
-These decisions are the source of truth for the remaining memory tasks:
+- The default answer to hard lifetime cases is "make the proof smaller and more
+  precise", not "let a collector decide". A supported slice must have static
+  storage, lifetime, escape, borrow, freeze/promotion, and cleanup facts before
+  WAT emission.
+- `scratch {}` remains the ergonomic temporary-computation surface. It may
+  allocate share-friendly temporary data inside the scope, but its result is an
+  ordinary value: scalar, frozen/shareable, explicitly promoted, proven
+  scratch-free, or rejected.
+- First-class closure storage follows the same contract. Closure environments
+  are classified as persistent `unique_heap`, `frozen_shareable`,
+  `scratch_backed`, or rejected; each captured slot carries its own ownership
+  and lifetime facts.
+- Any future GC, managed storage, named arena, or attached-region return design
+  must be a separate target/profile task with its own Core representation, ABI,
+  proof output, and tests.
 
-- Current locked update: implement the default `core-3-nonweb` backend with
-  static ownership and lifetime proofs, not GC. The selected model is
-  `unique_heap` runtime owners by default, lexical `borrow` views,
-  value-returning lexical `scratch { ... }` scratchpads, explicit
-  `freeze`/promotion into `frozen_shareable` storage, cleanup/drop/reset facts
-  for source values and lowering-created temporaries, and storage-driven linear
-  analysis for capabilities, unique owners, active borrow barriers,
-  scratch-backed values, and ownership-bearing closure slots.
-- A baseline case is accepted only when proof output contains storage class,
-  lifetime id, borrow/view validity, scratch escape decision, freeze/promotion
-  decision, host-boundary behavior when relevant, and cleanup/drop/reset facts
-  before WAT emission. Missing facts become a smaller accepted proof fixture, a
-  deterministic rejected diagnostic, or a deferred future profile.
-- `scratch { ... }` is a scratchpad, not an attached region. It has a return
-  value and resets on every exit edge. A returned value must be scalar,
+Current refinement from the scratchpad and lifetime discussion:
+
+- The baseline does not keep a "GC can decide later" escape hatch. If cleanup
+  insertion is hard, the next task is to expose the missing storage/lifetime row
+  or split the shape until it can be proven or rejected.
+- Cleanup for compiler-created temporaries is part of the same proof as cleanup
+  for source values. Temporaries created for text operations, aggregate
+  materialization, union payload construction, closure environments, host
+  marshaling, and promotion must have an owner/lifetime end before WAT emission.
+- `scratch { ... }` remains the ergonomic temporary-computation surface. It can
+  allocate share-friendly data while the scope is active, but the returned value
+  is checked before reset and cannot carry an implicit attached region.
+- Optional longer-lived regions remain useful future work only after the
+  scratchpad proof is stable. They must return explicit region-owner packages
+  with tied values and cleanup facts, rather than changing ordinary scratchpad
+  results.
+- Linear analysis is a tool for storage/effect-bearing values, not a global rule
+  for every value. It applies where exact ownership matters: capabilities,
+  unique owners, live borrow barriers, scratch-backed values, and closure slots
+  containing those values.
+
+Implementation rule for the selected baseline:
+
+- Start each memory/lifetime slice by classifying the value as `scalar_local`,
+  `unique_heap`, `borrow_view`, `frozen_shareable`, or `scratch_backed`.
+- Attach a lifetime id to every owner, borrow, scratch scope, closure
+  environment slot, host-returned owner, and lowering-created temporary that is
+  not purely scalar.
+- Check borrows as lexical read-only views. A live view blocks owner mutation,
+  move, transfer, freeze, return, and escaping capture until the view ends.
+- Check scratch results before reset. A result can leave only when it is scalar,
   frozen/shareable, explicitly promoted/frozen into persistent storage, or
-  proven scratch-free at the value, field, and payload level. Hidden attached
-  regions, implicit promotion, tracing GC, managed storage, and Wasm-GC are not
-  baseline rescue paths.
-- Latest locked update: the baseline skips GC by making the static ownership,
-  lifetime, borrow/view, scratch escape, freeze/promotion, host-boundary, and
-  cleanup analysis precise enough for the supported source surface. If a case
-  cannot expose those facts, the task is to split it into a smaller accepted
-  proof fixture, a deterministic rejected diagnostic, or a future explicit
-  profile. Do not add an interim GC, hidden attached region, implicit promotion,
-  or runtime-discovered cleanup path for `core-3-nonweb`.
-- Locked baseline decision: use a mixed static memory model with unique
-  ownership, lexical borrow/views, optional `scratch { ... }` scratchpads, and
-  frozen/shareable values. The `core-3-nonweb` backend skips GC by making the
-  static analysis precise enough for the supported source surface.
-- Acceptance gate: a baseline memory feature is accepted only when its storage
-  class, lifetime id, borrow/view validity, scratch escape, freeze/promotion,
-  host-boundary behavior, and cleanup/drop/reset facts are available before WAT
-  emission.
-- No "let the GC decide" acceptance path exists for the baseline. If ownership,
-  lifetime, borrow, scratch escape, freeze/promotion, temporary cleanup, or
-  host-boundary behavior cannot be proven, the compiler rejects before WAT
-  emission.
-- Task refinement rule: every hard memory case must be split into a narrower
-  accepted proof slice or a rejected diagnostic slice. Managed storage, tracing,
-  Wasm-GC, and attached-region return packages are future explicit profiles, not
-  interim baseline repairs.
-- The default target skips GC. If the compiler cannot prove ownership, lifetime,
-  borrow, scratch escape, promotion, temporary cleanup, or host-call behavior,
-  it rejects before WAT emission with a deterministic diagnostic.
-- Runtime heap values start as `unique_heap`. A unique value may be moved,
-  consumed, borrowed, frozen, returned, or dropped, but it is never implicitly
-  copied.
-- `borrow value` is the source-level view syntax. `let view = borrow value`
-  stores a non-owning, read-only view whose lifetime must be no longer than the
-  owner. While the view is live, the owner cannot be moved, mutated, frozen, or
-  consumed by another owning operation.
-- `freeze value` consumes a unique value and produces immutable
-  `frozen_shareable` storage. Frozen values may be duplicated, captured,
-  branch-merged, and returned.
-- `scratch { ... }` is the MVP region-like construct. It is a lexical scratchpad
-  for temporary work, has a value result, and resets on every exit that leaves
-  the scratch lifetime.
-- Returning from `scratch { ... }` does not attach or extend the scratch region.
-  A result may escape only when it is scalar, already frozen/shareable,
-  explicitly promoted/frozen into non-scratch storage, or proven scratch-free.
-- Cleanup is inserted from analysis facts. Scratch reset emits real WAT on
-  fallthrough, `return`, `break`, and `continue`; unique heap drops may remain
-  no-op bump-allocator facts in the first backend, but they must still exist in
-  the proof.
-- Compiler-created temporaries follow the same ownership and cleanup rules as
-  source values. The backend must not rely on WAT emission or a runtime
-  collector to discover temporary lifetimes.
-- Cleanup insertion is part of the proof, not a backend cleanup pass of last
-  resort. Source values, scratch temporaries, promotion temporaries, closure
-  environments, aggregate materialization, text copy loops, and union payload
-  construction all need storage, lifetime, escape, and cleanup facts before
-  codegen can accept them.
-- Optional named arenas or attached-region returns are future features. If they
-  are added, Core must represent a live region owner plus values tied to that
-  owner explicitly; ordinary `scratch { ... }` never smuggles an implicit live
-  region out of the reset boundary.
-- Cleanup for compiler-created temporaries is inserted from the same ownership
-  and lifetime facts as source cleanup. Scratch temporaries reset with the
-  scratchpad, unique temporaries record drop points, and scalar or frozen
-  temporaries need no runtime cleanup.
-- Linear capability tokens and ordinary unique heap owners can share
-  path-sensitive state machinery, but they are distinct concepts. Capabilities
-  are exactly-once effect tokens and cannot become frozen/shareable data.
-- Linear analysis is storage-driven, not a universal mode for all values. Apply
-  it to source `!` capabilities, `unique_heap` owners, `borrow_view` barriers,
-  `scratch_backed` values, and closure-environment slots that contain those
-  values. Scalars and already-frozen values remain copy/share values.
-- Unknown host/import calls are treated as escaping for non-scalar values unless
-  their signatures explicitly declare bounded-borrow or ownership-transfer
-  behavior.
+  proven scratch-free through every field and union payload.
+- Insert cleanup from the same facts that made the value accepted. Scratch
+  scopes reset on all exit edges; unique owners and ownership-bearing
+  temporaries record drop/transfer decisions even while the bump allocator
+  lowers those drops to no-op WAT.
+- If a proof row is missing, split the feature by storage category and escape
+  shape until it becomes an accepted proof fixture, a deterministic rejected
+  diagnostic, or an explicitly deferred future profile. Do not accept it by
+  adding hidden region attachment, implicit promotion, runtime-discovered
+  cleanup, tracing GC, managed storage, or Wasm-GC.
 
-The implementation consequence is that every accepted `core-3-nonweb` program
-must reach WAT with proof facts for storage class, lifetime id, escape edge,
-borrow/view validity, scratch reset edges, freeze/promotion edges, and
-drop/transfer decisions. Managed storage remains a separate future backend
-profile, not a fallback path inside these tasks.
+Per-slice execution checklist:
 
-If one of those proofs is hard to implement, split the case into a narrower
-accepted proof slice and a rejected diagnostic slice. Do not bridge the gap with
-baseline GC, implicit promotion, hidden attached regions, or "runtime decides"
-lifetime behavior.
+1. Classify storage and owner/lifetime ids for every source value and
+   lowering-created temporary.
+2. Check active borrows and view escapes before owner moves, mutation, freeze,
+   transfer, return, or closure capture.
+3. Check scratch results before reset and identify the exact field, payload, or
+   value edge for any scratch-backed escape.
+4. Emit explicit freeze/promotion copies before scratch reset when a value must
+   leave the scratch lifetime as persistent `frozen_shareable` storage.
+5. Record cleanup/drop/reset facts from the same proof data used by WAT
+   emission.
+6. Run the no-GC proof gate before module emission and assert
+   `managed_storage: "disabled"` for accepted baseline fixtures.
 
-Current concrete task split from this decision:
+Concrete task split from the latest memory decision:
 
-1. Proof gate audit: require `managed_storage: "disabled"` plus storage,
-   lifetime, borrow/view, escape, scratch reset, freeze/promotion,
-   host-boundary, and cleanup/drop/transfer facts before WAT emission.
-2. Unique ownership: classify runtime text, aggregate, union, and closure
-   environment pointers as `unique_heap` unless static/frozen/shareable or
-   scratch-backed facts apply.
-3. Borrow/views: support `borrow owner` and `let view = borrow owner` as
-   read-only, non-owning views tied to owner-bounded lexical lifetimes.
-4. Scratchpads: keep `scratch { ... }` as a lexical temporary arena with a value
-   result; reset it on fallthrough, `return`, `break`, and `continue`.
-5. Scratch escape: accept scratch results only when scalar, frozen/shareable,
-   explicitly promoted/frozen, or proven scratch-free at the value, field, and
-   payload level.
-6. Freeze/promotion: make `freeze` consume unique ownership, and make
-   scratch-to-persistent copies explicit Core edges before reset.
-7. Cleanup: insert cleanup/drop/reset facts for source values and
-   compiler-created aggregate, text, union, closure, and promotion temporaries.
-8. Storage-driven linear analysis: apply exact-use/move analysis only to
-   capabilities, `unique_heap`, active `borrow_view`, `scratch_backed`, and
-   closure slots containing those values.
-9. Deferred profiles: named arenas, attached-region return packages, reusable
-   allocators, destructors, tracing GC, managed storage, and Wasm-GC stay out of
-   the baseline and need separate Core/ABI/proof tasks.
+1. Ownership fact schema
 
-Locked no-GC analysis contract:
+   - Give every non-scalar runtime value an owner id, lifetime id, storage
+     class, and source/lowering origin.
+   - Represent `unique_heap`, `borrow_view`, `frozen_shareable`, and
+     `scratch_backed` with one proof vocabulary so mutation, closures, host
+     calls, temporaries, and final-result checks read the same facts.
+   - Treat scalar locals and frozen/shareable values as freely shareable; do not
+     run linear exact-use checks for them.
 
-- The selected baseline is static analysis, not a temporary GC-assisted mode.
-  `core-3-nonweb` stays on linear memory with `managed_storage: "disabled"`.
-- Skipping GC is allowed because the compiler must make the analysis precise
-  enough for every supported case before code generation. A case is supported
-  only when storage class, lifetime id, borrow/view validity, scratch escape,
-  freeze/promotion, host-boundary behavior, and cleanup/drop/reset facts are
-  available before WAT emission.
-- If the compiler can prove ownership, borrow validity, scratch escape,
-  freeze/promotion, host-boundary behavior, and cleanup for a case, implement
-  that case with proof fixtures before WAT emission.
-- If the proof is too broad, split the task by value category and escape shape
-  until it is either accepted with facts or rejected with a deterministic
-  diagnostic. Do not accept the case by adding tracing, Wasm-GC, hidden attached
-  regions, implicit promotion, or runtime-discovered cleanup.
-- `scratch { ... }` remains a lexical scratchpad with a value result. A result
-  never keeps the scratchpad alive implicitly; it must be scalar,
-  frozen/shareable, explicitly promoted, or proven scratch-free before reset.
-- Future named arenas or attached-region returns must be explicit owner packages
-  in Core, for example a live region owner plus values tied to that owner. They
-  are separate profile tasks, not a repair path for ordinary scratchpad returns.
+2. Borrow/view analysis
 
-This is also the task refinement rule for the remaining backlog: every
-ownership, borrow, scratch, freeze, cleanup, closure-capture, aggregate,
-union-payload, text, or host-boundary item should land as either an accepted
-proof fixture or a rejected diagnostic fixture. Managed storage is not an
-intermediate success state for `core-3-nonweb`.
+   - Keep the source syntax to `borrow owner` and `let view = borrow owner`.
+   - Track the view lifetime, the borrowed owner, and the lexical end point.
+   - Reject owner mutation, move, freeze, transfer, return, or escaping capture
+     while a view is live.
 
-The selected MVP memory model is therefore a mix of:
+3. Scratchpad elaboration
 
-- unique ownership for runtime heap values
-- lexical borrow/view syntax for read-only non-owning access
-- lexical `scratch { ... }` scratchpads for cheap temporary allocation and
-  sharing inside the scope
-- frozen/shareable values for immutable data that can cross branches, closures,
-  and scratchpad boundaries
-- storage-driven linear analysis for values whose representation makes copying
-  unsound
-- explicit cleanup/drop/reset facts for source values and compiler-created
-  temporaries
+   - Lower `scratch { ... }` to a lexical scratch lifetime with a saved pointer
+     on entry and reset edges on fallthrough, `return`, `break`, and `continue`.
+   - Allow temporary sharing inside the scratchpad only when the stored values
+     are scalar, frozen/shareable, or otherwise proven not to require exact
+     ownership.
+   - Preserve normal ownership checks inside the scratchpad for unique owners,
+     views, scratch-backed pointers, capabilities, and ownership-bearing closure
+     slots.
 
-This is not a general region system yet. A scratchpad may return a value, but
-the return must be scalar, frozen/shareable, explicitly promoted, or proven
-scratch-free before reset. If a future feature needs a value tied to a live
-region, that region must be an explicit returned owner package. The MVP should
-not infer attached regions from ordinary scratch returns.
+4. Scratch result checking
 
-GC remains out of the baseline task list. When a proof is hard, the task is to
-split the proof by value category and escape shape, then either implement the
-accepted slice or add a rejected diagnostic fixture. Do not add tracing,
-Wasm-GC, or "let the GC decide" behavior to make an uncertain `core-3-nonweb`
-program pass.
-
-## Final No-GC Implementation Roadmap
-
-The memory/lifetime backlog should now be implemented in this order. Each item
-must land with proof fixtures before broader feature work builds on it.
-
-1. Proof inventory and gate
-
-   - Keep `managed_storage: "disabled"` visible in the baseline proof surface.
-   - For every accepted WAT-emitting feature, prove storage class, lifetime id,
-     escape decision, borrow/view status, scratch reset edge, freeze/promotion
-     edge, host-boundary decision when relevant, and cleanup/drop/transfer
-     decision.
-   - If one fact is missing, reject before WAT emission and name the missing
-     edge.
-
-2. Unique ownership as the default heap rule
-
-   - Treat runtime text, aggregate, union, and closure-environment pointers as
-     `unique_heap` unless they are static/frozen/shareable or allocated inside a
-     `scratch {}` scope.
-   - Unique owners can move, be consumed by transfer, be borrowed, be frozen, be
-     returned, or be dropped. They cannot be implicitly copied.
-   - Replacement, discarded expression results, scope exits, and transfer calls
-     must all produce explicit drop/transfer facts.
-
-3. Borrow/view surface
-
-   - Keep MVP syntax to `borrow owner` and `let view = borrow owner`.
-   - Views are read-only and non-owning, tied to lexical lifetime ids, and block
-     owner mutation, move, freeze, and consuming transfer while live.
-   - Host calls may receive views only through explicit bounded-borrow import
-     contracts.
-
-4. Scratchpad surface
-
-   - Treat `scratch { ... }` as a lexical scratchpad for temporary, easily
-     shareable computation with a value result.
-   - Reset the scratch pointer on every exit edge that leaves the scratch
-     lifetime.
-   - A result may escape only when it is scalar, already frozen/shareable,
-     explicitly frozen/promoted into persistent storage, or proven scratch-free
-     at the value, field, and payload level.
-   - Do not attach a hidden live region to the result.
+   - Check the scratch result before reset.
+   - Accept only scalar results, already frozen/shareable results, explicitly
+     frozen/promoted results, or values proven scratch-free through every field
+     and union payload.
+   - Reject uncertain scratch-backed escapes with a diagnostic naming the field,
+     payload, or value edge that still depends on the reset scratch lifetime.
 
 5. Freeze and promotion
 
-   - `freeze value` consumes a unique owner and produces immutable
+   - Make `freeze value` consume a unique owner and produce immutable
      `frozen_shareable` storage.
-   - Scratch-to-persistent promotion is an explicit Core edge emitted before
-     scratch reset, not an implicit typechecker or WAT-emitter repair.
-   - Already-frozen values may stay idempotent; mutation through frozen values
-     stays rejected.
+   - Make scratch-to-persistent promotion an explicit Core copy edge before the
+     scratch reset.
+   - Split promotion support by value shape: runtime text, aggregate, union,
+     closure environment, and nested field/payload combinations.
 
-6. Cleanup for source values and lowering-created temporaries
+6. Cleanup for source values and temporaries
 
-   - Insert cleanup from ownership/lifetime facts, not as a late backend guess.
-   - Scratch-backed temporaries reset with their scratch scope.
-   - Unique temporaries from aggregate materialization, text copy/concat loops,
-     union payload construction, closure environment setup, and promotion record
-     drop facts even if the first bump allocator lowers those drops to no-ops.
-   - Scalar and frozen temporaries need no runtime cleanup.
+   - Insert drops/resets from proof-visible lifetime ends, including values
+     created by lowering.
+   - Track lowering-created temporaries for aggregate materialization, text
+     copy/concat/slice loops, union payload construction, closure environment
+     setup, and promotion copies.
+   - Keep unique-heap drops in the proof even when the first bump allocator
+     lowers them to no-op WAT.
 
-7. Storage-driven linear participation
+7. Linear participation
 
-   - Apply path-sensitive linear/unique analysis to source `!` capabilities,
+   - Reuse the path-sensitive state machinery for source `!` capabilities,
      `unique_heap` owners, active `borrow_view` barriers, `scratch_backed`
-     values, and closure-environment slots containing those values.
-   - Scalars and already-frozen values remain normal copy/share values.
-   - First-class closures that capture unique, borrow, scratch-backed, or
-     capability slots either become true linear closure values or reject before
-     WAT emission.
+     values, and closure slots containing those values.
+   - Do not make all ordinary values linear; participation is determined by
+     storage class or effect role.
 
-8. Future explicit profiles
+8. Future explicit regions
 
-   - Named arenas, attached-region return packages, reusable allocators,
-     destructors, tracing GC, managed storage, and Wasm-GC stay outside the
+   - Do not infer an attached region from `scratch {}`.
+   - If longer-lived regions are added later, make them explicit owner packages
+     with region ids, tied value lifetimes, cleanup/drop facts, move/consume
+     rules, ABI rules, and host-boundary rules.
+   - Keep managed GC, tracing GC, and Wasm-GC as separate future target
+     profiles, not baseline fallback behavior.
+
+9. Slice acceptance matrix
+
+   - Every memory/lifetime slice must close in one of three states: accepted
+     with proof facts, rejected before WAT emission with a named missing fact,
+     or deferred to a future explicit region/managed-storage profile.
+   - Accepted fixtures should assert `managed_storage: "disabled"` and expose
+     the storage class, lifetime id, borrow/view decision, scratch reset edge,
+     freeze/promotion edge, host-boundary decision when relevant, and
+     drop/cleanup/transfer decision.
+   - Rejected fixtures should fail before WAT emission and name the reason:
+     active borrow, moved owner, scratch-backed escape, unsupported promotion,
+     missing temporary cleanup, unknown host/import ownership, or unsupported
+     ownership-bearing closure capture.
+   - Deferred fixtures should stay documented as future profiles. Do not unblock
+     them by adding hidden attached regions, implicit promotion,
+     runtime-discovered cleanup, tracing GC, managed storage, or Wasm-GC to the
      baseline.
-   - If attached-region returns are added later, Core must return an explicit
-     live region owner plus values tied to that owner, with separate ABI,
-     lifetime, escape, and cleanup rules.
-   - These profiles must not make an uncertain `core-3-nonweb` baseline program
-     accepted.
 
-The immediate implementation queue is therefore the following concrete slices.
-Each slice needs one accepted fixture exposing proof facts and one rejected
-fixture for the nearest uncertain case:
+## Active Memory Implementation Tracks
 
-1. Proof inventory audit
+These are the concrete tracks for the remaining memory work. They are the active
+split for the no-GC baseline, not open research topics. Each track should land
+accepted proof fixtures and the nearest rejected diagnostic fixture before
+broader runtime features depend on it.
 
-   - Assert `managed_storage: "disabled"` in accepted proof output.
-   - Reject WAT emission when storage class, lifetime id, borrow/view status,
-     scratch escape, freeze/promotion, host-boundary, or cleanup/drop/reset
-     facts are missing.
+The selected mix is fixed for this queue: ordinary runtime owners are
+`unique_heap`, read-only views are lexical `borrow_view` facts, immutable
+shareable values are `frozen_shareable`, and scratchpad storage is
+`scratch_backed` until a result is proven scalar, frozen, explicitly promoted,
+or scratch-free. Linear/path-sensitive checks follow those storage facts; they
+do not apply to every ordinary value.
 
-2. Lowering-created temporary cleanup
+1. Proof inventory gate: keep `managed_storage: "disabled"` visible and reject
+   before WAT emission when required storage, lifetime, borrow, scratch,
+   freeze/promotion, host-boundary, or cleanup facts are missing. Every accepted
+   baseline fixture should be reviewable as "analysis complete"; no fixture
+   should depend on a future collector, hidden attached region, or WAT-emitter
+   cleanup inference to be sound.
+2. Lowering-created temporary cleanup: add cleanup/drop/reset facts for
+   aggregate materialization, text copy/concat/slice loops, union payload
+   construction, closure environment setup, and promotion temporaries.
+3. Field/payload scratch-escape proofs: accept scratch returns only when every
+   aggregate field or union payload is scalar, frozen/shareable, explicitly
+   promoted, or proven scratch-free.
+4. Explicit freeze and promotion copies: implement persistent copies for
+   scratch-backed text, aggregate, union, and closure shapes as each shape gains
+   proof facts. Promotion must be a Core edge before scratch reset.
+5. Borrow/view barriers: keep `borrow owner` and `let view = borrow owner` as
+   the MVP view syntax, and finish owner barriers for fields, loops, closures,
+   branch merges, and host-call boundaries.
+6. Closure capture ownership: reusable closures may capture scalar or
+   frozen/shareable slots. Captures of unique, borrow, scratch-backed, or
+   capability slots must either make the closure linear or reject before WAT
+   emission.
+7. Host/import transfer analysis: continue bounded-borrow, frozen/shareable,
+   ownership-transfer, and host-returned owner contracts through wrappers and
+   interprocedural static calls. Unknown non-scalar boundaries stay rejected.
+8. Deferred region/managed profile spec: keep optional longer-lived regions as
+   explicit future owner packages with tied return values, cleanup/drop facts,
+   move/consume rules, ABI rules, and host-boundary rules. This track may
+   collect requirements, but it must not make ordinary `scratch {}` return a
+   hidden attached region or make GC the fallback for an unproven baseline case.
 
-   - Cover aggregate materialization, text concat/copy loops, union payload
-     construction, closure environment setup, and promotion temporaries.
-   - Scratch-backed temporaries reset with the scratchpad; unique temporaries
-     record deterministic drop facts; scalar and frozen temporaries need no
-     cleanup.
+Future explicit region packages are not part of the active baseline queue. After
+scratchpads are stable, optional named regions can be designed as explicit owner
+packages with region ids, tied return values, cleanup/drop facts, ABI rules, and
+host-boundary rules. They do not make uncertain `scratch {}` results accepted by
+default; ordinary `scratch {}` never grows an attached region implicitly.
 
-3. Field and payload scratch-escape proofs
+Every track should keep the same triage shape: supported with proof facts,
+rejected before WAT emission with a named missing fact, or deferred to a future
+explicit region/managed-storage profile. Do not add a GC-backed accepted state
+for scratch escapes, temporary cleanup, closure captures, aggregate fields,
+union payloads, text buffers, or host boundaries.
 
-   - Accept static-shaped aggregate and union results from `scratch {}` only
-     when every returned field or payload is scalar, frozen/shareable,
-     explicitly promoted, or proven scratch-free.
-   - Reject heap-backed aggregate, union, text, or closure results that still
-     point into scratch storage.
+Task 12.2 is the detailed task split for this model. Runtime aggregate, union,
+text, closure, mutation, and capability tasks should only broaden when the same
+proof surface can accept or reject the new shape deterministically.
 
-4. Explicit freeze/promotion copies
+## First No-GC Fixture Backlog
 
-   - Make `freeze` consume a unique owner and produce `frozen_shareable`
-     storage.
-   - Emit scratch-to-persistent promotion before the scratch reset when a
-     supported value leaves the scratchpad.
-   - Reject unsupported aggregate, union, text, or closure promotion shapes with
-     a diagnostic that names the missing promotion edge.
+Use these as the first concrete fixtures when implementing the active tracks.
+Each item needs one accepted proof fixture and the nearest rejected diagnostic
+fixture before broader syntax depends on it.
 
-5. Borrow/view barriers
+1. Borrow/view barriers
+   - Accept a lexical `borrow owner` used only for reads inside the current
+     block, loop iteration, function call, or `scratch {}` body.
+   - Reject moving, returning, freezing, mutating, transferring, or escaping a
+     closure capture of the owner while the view is live.
+   - Include field/payload views, where borrowing `owner.field` or a union
+     payload still protects the containing owner edge.
 
-   - Keep `borrow owner` and `let view = borrow owner` tied to lexical lifetime
-     ids.
-   - Reject owner mutation, move, freeze, consuming host transfer, return, or
-     escaping closure capture while a borrow view is live.
+2. Scratch scalar and frozen returns
+   - Accept `scratch { scalar }` and `scratch { freeze owned_text }` with a
+     saved-pointer reset on every exit edge.
+   - Reject `scratch { owned_text }` when the result would still point into
+     scratch storage after reset.
+   - Prove that the result decision happens before reset, and that no hidden
+     attached region is returned.
 
-6. Closure capture ownership
+3. Scratch aggregate and union result gates
+   - Accept aggregates and union cases only when every reachable field or
+     payload is scalar, already frozen/shareable, explicitly promoted, or
+     proven scratch-free.
+   - Reject the first field or payload that is still `scratch_backed`, and name
+     that edge in the diagnostic.
+   - Split static-shaped aggregate, runtime aggregate, static union case, and
+     runtime union payload fixtures instead of trying to solve them as one
+     broad case.
 
-   - Accept scalar and frozen/shareable captures as reusable closure slots.
-   - Either linearize closures that capture `unique_heap`, `borrow_view`,
-     `scratch_backed`, or capability slots, or reject them before WAT emission
-     with a proof-gate issue.
+4. Lowering-created temporary cleanup
+   - Track temporaries from text concat/copy/slice, aggregate materialization,
+     union payload construction, closure environment allocation, host
+     marshaling, and promotion copies.
+   - Accept only when each temporary has a storage class, lifetime end, and
+     cleanup/drop/transfer/no-cleanup decision.
+   - Reject missing cleanup decisions before WAT emission; do not add a
+     collector-backed cleanup path.
 
-7. Deeper host/import transfer analysis
+5. First-class closure storage
+   - Represent a closure as code pointer or table index plus an optional
+     environment pointer.
+   - Classify each captured slot independently. Reusable closures may capture
+     scalar and `frozen_shareable` slots; captures of `unique_heap`,
+     `borrow_view`, `scratch_backed`, capability, or ownership-bearing slots
+     require a linear closure path or rejection.
+   - Add proof rows for environment storage, captured-slot ownership, transfer
+     or drop behavior, and any freeze/promotion edge needed to make a reusable
+     closure valid.
 
-   - Continue extending bounded-borrow and ownership-transfer contracts through
-     static aliases, branch-selected wrappers, and interprocedural static calls.
-   - Unknown non-scalar host/import calls remain escaping and reject unless
-     their contract is explicit.
-
-GC is skipped because the compiler is expected to prove or reject each supported
-case before codegen. If a slice cannot be proved in that form, split it again by
-value category and escape shape rather than adding a managed fallback.
-
-Latest refinement from the scratchpad and GC decision:
-
-- Keep the baseline as `core-3-nonweb` with `managed_storage: "disabled"`. The
-  implementation task is to prove ownership, lifetime, borrow, scratch-escape,
-  freeze/promotion, and cleanup facts for supported programs.
-- Do not add an interim "let the GC decide" path. When analysis is incomplete,
-  add a smaller accepted fixture with the needed facts or a rejected fixture
-  with a deterministic diagnostic.
-- Treat `scratch { ... }` as a scratchpad with a value result, not as an
-  escaping region object. A returned value must be scalar, frozen/shareable,
-  explicitly promoted, or proven scratch-free before the scratch pointer reset.
-- Keep future attached-region returns explicit. If a region outlives a block,
-  Core must return a live region owner plus values tied to that owner; ordinary
-  `scratch {}` must not infer that package.
-- Use borrow views to make lifetime analysis local and predictable:
-  `borrow owner` and `let view = borrow owner` are read-only, non-owning, and
-  bounded by the owner lifetime.
-- Insert cleanup for lowering-created temporaries from the same facts as source
-  values. Scratch temporaries reset with their scratch scope, and unique
-  temporaries record drop points even when the first bump allocator lowers them
-  to no-ops.
-
-Closed MVP decisions:
-
-- Memory is handled by compiler facts first: storage class, lexical lifetime id,
-  escape edge, borrow/view validity, scratch reset edge, freeze/promotion edge,
-  and drop/transfer decision. WAT emission is not responsible for discovering
-  those facts.
-- Efficient baseline lowering means scalar locals for copy values, O(1)
-  scratchpad reset for temporary arena data, immutable sharing for frozen
-  values, and explicit drop facts for unique heap owners. The first bump
-  allocator may lower unique drops to no-ops, but the drop plan still exists.
-- `scratch { ... }` is the MVP temporary region surface. It has a return value,
-  but returning never keeps the scratchpad alive implicitly. Escaping scratch
-  data must be scalarized, frozen/promoted to persistent storage, proven
-  scratch-free, or rejected.
-- Optional named regions and attached-region returns are later features. If
-  added, they must return an explicit live region owner plus values tied to that
-  owner. They are not inferred from ordinary `scratch { ... }`.
-- Borrow/view syntax stays simple for the MVP: `borrow owner` and
-  `let view = borrow owner`. Views are read-only, non-owning, and bounded by the
-  owner lifetime; active views block owner mutation, move, freeze, or consuming
-  transfer.
-- Linear participation is storage-driven. Track source `!` capabilities,
-  `unique_heap` owners, active `borrow_view` barriers, `scratch_backed` values,
-  and closure slots containing those values. Do not force scalar locals or
-  already-frozen values through exactly-once capability rules.
-- Compiler-created temporaries use the same cleanup machinery as source values.
-  Scratch temporaries reset with their scratchpad; unique heap temporaries get
-  drop facts; scalar and frozen temporaries need no runtime cleanup.
-- Do not add GC, Wasm-GC, tracing, or "let the runtime decide" behavior to the
-  baseline task queue. If a proof is missing, split the case into a smaller
-  accepted proof fixture or a rejected diagnostic fixture.
-
-Current execution order for the no-GC memory model:
-
-1. Lock the proof gate first.
-
-   - Keep `managed_storage: "disabled"` in the baseline proof surface.
-   - Every accepted fixture must expose the facts the WAT emitter depends on.
-   - Every unsupported or uncertain fixture must reject before WAT emission.
-
-2. Make storage facts complete for accepted runtime values.
-
-   - Classify allocations and lowering-created temporaries as `scalar_local`,
-     `unique_heap`, `borrow_view`, `frozen_shareable`, `scratch_backed`, or
-     rejected with a reason.
-   - Preserve layout/type facts alongside storage facts for runtime aggregate,
-     union, text, and closure values.
-
-3. Treat `borrow owner` and `let view = borrow owner` as the only MVP view
-   syntax.
-
-   - Views are non-owning, read-only, and tied to lexical lifetime ids.
-   - While a view is live, the owner cannot be moved, mutated, frozen, or
-     consumed.
-   - Passing a view across a host/import boundary requires an explicit
-     bounded-borrow contract.
-
-4. Treat `scratch { ... }` as the only MVP region-like construct.
-
-   - It is a scratchpad for temporary shareable computation and has a value
-     result.
-   - It resets on every exit that leaves the scratch lifetime.
-   - A result may escape only when scalar, frozen/shareable, explicitly
-     promoted/frozen, or proven scratch-free at the value and field level.
-   - If the proof is hard or missing, reject. Do not attach the scratchpad to
-     the result and do not select GC.
-   - The implemented proof targets include static-shaped aggregates, static
-     union cases, and dynamic static-union `if` results whose condition and case
-     payloads are scratch-free. Heap-backed returns need explicit
-     promotion/freeze or a field-level scratch-free proof.
-
-5. Implement `freeze` and promotion as explicit Core facts.
-
-   - `freeze` consumes `unique_heap` ownership and produces immutable
-     `frozen_shareable` storage.
-   - Freezing a scratch-backed escaping value emits a persistent non-scratch
-     copy before scratch reset.
-   - Already-frozen values keep `freeze` idempotent; mutation through frozen
-     values remains rejected.
-
-6. Insert cleanup from ownership/lifetime facts.
-
-   - Scratch reset emits real WAT.
-   - Unique heap drops remain proof/drop-plan facts while the first bump
-     allocator lowers them to no-ops.
-   - Lowering-created temporaries get the same cleanup/drop/reset treatment as
-     source values.
-
-7. Keep scratchpad returns lexical.
-
-   - Returning from `scratch {}` never keeps the scratchpad alive.
-   - Values tied to scratch storage must be frozen/promoted, proven
-     scratch-free, or rejected before reset.
-   - Later attached-region returns must be explicit owner packages in Core.
-
-8. Defer named arenas, attached-region return packages, reusable allocators,
-   destructors, managed GC, and Wasm-GC until the baseline proof surface is
-   stable.
-
-The task split below is now the concrete plan for the no-GC baseline. It is not
-a research placeholder: implement the proof/storage/lifetime/borrow/scratch/
-freeze/drop slices first, then expand runtime aggregate, union, text, closure,
-and mutation features only when the same proof surface can accept or reject the
-new behavior deterministically.
-
-Latest implementation tickets from the memory decision:
-
-- Proof gate first: keep `managed_storage: "disabled"` and require storage
-  class, lifetime id, borrow/view status, escape decision, scratch reset edge,
-  freeze/promotion edge, host-boundary decision when relevant, and
-  cleanup/drop/transfer decision before WAT emission.
-- Unique ownership by default: runtime heap text, aggregate, union, and closure
-  values are `unique_heap` unless they are static/frozen or allocated in a
-  scratchpad. They can move, borrow, freeze, transfer, return, or drop, but they
-  cannot be implicitly copied.
-- Borrow/view syntax: keep the MVP surface to `borrow owner` and
-  `let view = borrow owner`. Views are read-only, non-owning, bounded by the
-  owner lifetime, and block owner move, mutation, freeze, and consuming transfer
-  while active.
-- Scratchpads: `scratch { ... }` is a lexical temporary arena with a value
-  result. It resets on fallthrough, `return`, `break`, and `continue`; returning
-  does not attach a live region to the result. Escaping values must be scalar,
-  frozen/shareable, explicitly promoted/frozen, or proven scratch-free at the
-  field and payload level.
-- Freeze and promotion: `freeze` consumes unique ownership and produces
-  immutable shareable storage. Scratch-to-persistent promotion is an explicit
-  Core edge before reset, never an implicit repair in the typechecker or WAT
-  emitter.
-- Cleanup for temporaries: compiler-created aggregate materialization, text
-  copy/concat loops, union payload construction, closure environment setup, and
-  promotion temporaries use the same cleanup/drop/reset facts as source values.
-- Linear participation: apply path-sensitive linear/unique analysis to source
-  `!` capabilities, `unique_heap` owners, active `borrow_view` barriers,
-  `scratch_backed` values, and closure slots containing those values. Scalars
-  and already-frozen values remain copy/share values.
-- Future regions: named arenas and attached-region returns are explicit future
-  owner-package profiles. They need their own Core representation, ABI,
-  lifetime, escape, and cleanup rules, and must not be inferred from ordinary
-  `scratch {}` returns.
-- No GC fallback: if one of these facts is missing, split the case by value
-  category and escape shape into an accepted proof fixture, a rejected
-  diagnostic fixture, or a deferred future profile. Do not accept the baseline
-  case by adding tracing, Wasm-GC, hidden attached regions, implicit promotion,
-  or runtime-discovered cleanup.
-
-MVP task contract:
-
-- First make the static proof gate complete for supported programs.
-- Then extend allocation and mutation only when the required proof facts already
-  exist or can be added in the same slice.
-- Do not add tracing GC, Wasm-GC, reference-counting, or "runtime decides"
-  lifetime behavior to unblock the baseline backend.
-- Treat every missing ownership, lifetime, borrow, scratch escape,
-  freeze/promotion, host-boundary, or temporary-cleanup fact as a compiler
-  diagnostic before WAT emission.
-- Keep `scratch { ... }` as a scratchpad with a return value. It is useful for
-  temporary shareable computation, but returning from it never keeps the
-  scratchpad alive.
-- If a later feature needs values tied to an escaping region, add an explicit
-  region-owner value and separate tasks for its ABI, ownership facts, and
-  cleanup rules.
-
-No-GC triage rule:
-
-- Every memory/lifetime item must land in exactly one baseline state: accepted
-  with proof facts, rejected with a deterministic diagnostic, or deferred to a
-  future explicit profile.
-- Accepted proof facts must include storage class, lifetime id, borrow/view
-  validity, scratch escape decision, freeze/promotion decision, host-boundary
-  behavior when relevant, and cleanup/drop/reset decisions for source values and
-  lowering-created temporaries.
-- Rejected diagnostics should name the missing proof edge, for example unknown
-  host escape, active borrow, scratch-backed result escape, unsupported
-  promotion, or missing temporary cleanup.
-- Deferred profiles include named arenas, attached-region return packages,
-  reusable allocators, destructors, managed GC, and Wasm-GC. They must not make
-  an uncertain `core-3-nonweb` program accepted.
-- If a proof is too broad, split by value category and escape shape before
-  implementation: scalar, static aggregate, static union case, dynamic
-  static-union `if`, runtime heap aggregate, runtime union payload, runtime
-  text, closure environment, or host boundary.
+6. Host/import boundaries
+   - Accept only explicit bounded-borrow, frozen/shareable, ownership-transfer,
+     or host-returned-owner contracts for non-scalar values.
+   - Reject unknown non-scalar host calls, direct unique owners passed to
+     bounded-borrow-only imports, borrowed views passed to transfer imports, and
+     scratch-backed values whose lifetime cannot cross the boundary.
+   - Keep the host contract visible in proof output before WAT emission.
 
 ## Current Agreed Memory Task Split
 
@@ -636,6 +1239,13 @@ Task status from the latest memory decision:
   explicit region/managed-storage profile.
 - Not part of the baseline: hidden attached-region returns, implicit promotion,
   tracing GC, Wasm-GC, managed fallback storage, or runtime-discovered cleanup.
+- Future optional regions must be refined as their own profile: explicit region
+  owner values, explicit value-to-region ties, explicit cleanup, and linear
+  movement of the region owner. They do not change ordinary `scratch {}`
+  returns.
+- The borrow/view, scratchpad, freeze/promotion, and cleanup decisions are
+  implementation tasks now, not pending design choices. The remaining design
+  work is only how broad each accepted slice is before it is split.
 
 Definition of done for each memory/lifetime slice:
 
@@ -654,6 +1264,9 @@ Locked task refinement from the latest memory decision:
 
 - Implement the baseline without GC by making the analysis precise enough for
   the supported source surface.
+- Treat "skip GC if the analysis can be made proper" as the active baseline
+  rule. The implementation task is to expose the missing static proof facts, not
+  to keep a collector-backed acceptance path open while the proof is incomplete.
 - Keep `scratch { ... }` as a value-returning scratchpad. It is useful for
   temporary shareable computation, but it never returns a hidden live region.
 - Any value leaving a scratchpad must be scalar, already frozen/shareable,
@@ -666,6 +1279,9 @@ Locked task refinement from the latest memory decision:
   same ownership/lifetime facts. Scratch-backed values reset with the scratch
   scope; unique heap values record drop facts; scalar and frozen values need no
   runtime cleanup.
+- Temporary cleanup is inserted from known lifetime ends. If the lifetime end or
+  selected storage class is unknown, the baseline task is to add the missing
+  fact or reject before WAT emission, not to defer cleanup to GC.
 - Apply linear/path-sensitive analysis only where the storage class or effect
   role requires it: source `!` capabilities, `unique_heap` owners, active
   `borrow_view` barriers, `scratch_backed` values, and closure slots containing
@@ -677,6 +1293,10 @@ Locked task refinement from the latest memory decision:
   land either an accepted proof fixture or a rejected diagnostic fixture. Do not
   accept the baseline case through GC, hidden region attachment, implicit
   promotion, or runtime-discovered cleanup.
+- Only open a GC/managed-storage task after the case has been explicitly
+  classified as a future profile with its own Core representation, ABI,
+  ownership proof surface, and tests. Such a task must not change the
+  `core-3-nonweb` acceptance matrix.
 
 Current implementation status for that split:
 
@@ -780,7 +1400,8 @@ Current implementation status for that split:
      views. Direct use-after-transfer validation rejects later use of a
      transferred owner before WAT emission. Unknown non-scalar imports still
      reject before WAT emission. Host-returned owner result contracts are
-     implemented for Core imports.
+     implemented for Core imports, and invalid owner-result ABI shapes now
+     reject through `Core.proof(...)` before module emission.
    - Source-level contract declarations are implemented for scalar numeric ABI
      values, Text ownership contracts, explicit non-Text pointer owner reasons,
      and user-defined aggregate/union type-value owner references. Remaining
@@ -842,6 +1463,21 @@ Use these as the next reviewable implementation slices. Each slice needs an
 accepted proof fixture or a rejected diagnostic fixture before it is considered
 done.
 
+Latest refinement rule:
+
+- These are defined implementation tasks, not open research tasks. The selected
+  baseline is no-GC because the analysis must become complete for the supported
+  surface.
+- If a slice is still too broad, split it by storage shape and escape path:
+  runtime text, runtime aggregate, runtime union payload, closure environment,
+  host/import boundary, source owner cleanup, or lowering-created temporary.
+- Close each split slice in exactly one state: accepted with proof rows,
+  rejected before WAT emission with a named missing edge, or deferred to a
+  future explicit region/managed-storage profile.
+- Do not create an intermediate accepted state that relies on hidden attached
+  regions, implicit promotion, runtime-discovered cleanup, tracing GC, managed
+  storage, or Wasm-GC.
+
 Current queue from the latest no-GC decision:
 
 1. Audit the proof gate against every currently accepted `Core.emit(...)`,
@@ -873,6 +1509,9 @@ Current queue from the latest no-GC decision:
 8. Defer named arenas, attached-region returns, reusable allocators,
    destructors, tracing GC, managed storage, and Wasm-GC to explicit future
    profiles with separate Core representation, ABI, proof output, and tests.
+   Those profiles can be designed after the no-GC baseline is proven for the
+   supported surface; they should not be used to accept a current uncertain
+   lifetime, scratch, borrow, closure-capture, or temporary-cleanup case.
 
 9. Baseline no-GC proof audit
 
@@ -891,6 +1530,28 @@ Current queue from the latest no-GC decision:
    - Keep `managed_storage: "disabled"` in every accepted baseline fixture. If
      the proof is hard, split the case by value category and escape shape
      instead of enabling a GC or hidden attached region.
+   - Implemented scoped static-call proof scanning for cleanup and freeze edges.
+     A helper call whose body contains `scratch { ... freeze ... }` now reports
+     the same final `frozen_heap` result, scratch reset, and freeze proof edge
+     as the direct expression form before WAT emission.
+   - Implemented closure-body scratch cleanup proof scanning. A stored closure
+     whose body contains `scratch { ... }` now reports the scratch reset and
+     scratch-return cleanup facts through `Core.cleanup(...)` and
+     `Core.proof(...)` before lifted closure WAT emission.
+   - Implemented closure-body freeze proof scanning for runtime closure values.
+     Runtime-selected closures whose bodies return `scratch { freeze ... }` now
+     report both branch-local freeze edges as well as scratch cleanup facts.
+     Direct statically callable helper bindings are skipped at definition time
+     so their scoped static-call sites own the proof rows without duplication.
+   - Implemented scoped static-call allocation proof scanning. Helper calls with
+     statement-scoped bodies now report the body allocation facts at the
+     specialized call site, while direct helper definitions that do not allocate
+     first-class closure environments no longer record synthetic closure
+     allocation facts.
+   - Implemented matching scoped static-call drop proof scanning. Inlined
+     helpers with statement-scoped bodies keep real body drop facts, but no
+     longer record synthetic helper closure scope-exit drops when no closure
+     environment is emitted.
 
 10. Scratch-backed aggregate/union alias promotion
 
@@ -928,6 +1589,14 @@ Current queue from the latest no-GC decision:
       now merges compatible static union-case assignments, keeps generated
       branch temporaries visible outside the branch, and preserves payload facts
       through scratch freeze and matching.
+    - Implemented branch-assigned existing runtime aggregate aliases in scratch
+      freeze:
+      `let existing: user_type = user_type { ... }; if flag { existing = user_type { ... } } else { existing = user_type { ... } }; scratch { let temp = existing; freeze temp }`
+      now merges compatible static-shaped aggregate assignments whose fields
+      have been captured into compiler-generated locals, preserves those
+      per-field branch facts through scratch freeze, records the persistent
+      aggregate/text freeze-copy proof rows, and compiles through WAT-to-Wasm
+      after scratch reset.
     - Dynamic range/text collection loops that carry static aggregate/union
       compiler facts, including aliases to those facts, now reject
       deterministically instead of treating a loop-body static assignment as an
@@ -935,9 +1604,22 @@ Current queue from the latest no-GC decision:
       proof, and emission entry points. Loop-carried existing aggregate/union
       promotion remains pending until the loop-runs/last-iteration value and
       cleanup facts can be represented explicitly.
+    - Implemented static scratch block setup emission for static aggregate/union
+      returns. Multi-statement `scratch {}` blocks whose final value is a static
+      aggregate or union constructor now preserve block-local frozen runtime
+      captures, emit the setup under scratch reset tracking, and compile through
+      WAT-to-Wasm without retaining scratch pointers.
+    - Implemented block-local static aggregate/union alias returns through
+      scratch. Generated field/payload capture locals now preserve frozen facts,
+      so shapes like
+      `scratch { let name: Text = freeze append(...); let temp: user_type = user_type { name: name, ... }; temp }`
+      and the matching union-case alias form prove their returned
+      aggregate/union fields are scratch-free, keep managed storage disabled,
+      emit scratch reset, and compile through WAT-to-Wasm.
     - Remaining alias work: broader existing aggregate/union owner copies across
-      more complex multi-step assignment, branch, and loop shapes, plus
-      field-sensitive scratch-free proofs for returned heap-backed values.
+      more complex multi-step assignment and loop shapes, branch combinations
+      beyond compatible aggregate/union assignments, plus field-sensitive
+      scratch-free proofs for returned heap-backed values.
     - Distinguish this from the already implemented direct constructor case,
       where `scratch { freeze user_type { ... } }` can materialize directly on
       persistent heap storage before reset.
@@ -957,6 +1639,11 @@ Current queue from the latest no-GC decision:
       aggregate and union returns: when a field or payload may reference reset
       scratch storage, the type/proof diagnostic names the offending field or
       payload path instead of only reporting the outer aggregate/union pointer.
+    - Scratch reset proof rows now carry the same field/payload rejection detail
+      as type and emission analysis. Unsafe returns such as
+      `scratch { user_type { name: append(...) } }` now report the offending
+      `field name` in `Core.proof(...)` before WAT emission instead of only
+      reporting the outer `unique_heap runtime_aggregate` scratch escape.
 
 12. Lowering-created temporary cleanup
 
@@ -975,6 +1662,25 @@ Current queue from the latest no-GC decision:
       emitted for the same expression. The same drop fact is recorded when a
       static aggregate fact is used as an expression and materialized into a
       runtime aggregate pointer before being discarded.
+    - Added the matching proof fixture for discarded runtime union
+      materialization. A temporary `result_type.ok(value)` expression in a
+      closure body now has proof-visible persistent runtime-union allocation
+      facts and an ownerless `discarded_expr` drop fact before WAT emission.
+    - Implemented the bound runtime union owner cleanup slice. A binding such as
+      `let result: result_type = result_type.ok(value)` now records the
+      persistent runtime-union allocation fact that matches its `scope_exit`
+      drop fact, while untyped shorthand union facts remain ownerless static
+      values.
+    - Added proof inventory coverage for runtime text temporaries. Discarded
+      `append(...)` and `slice(...)` results and bound runtime `Text` owners
+      produced by either operation now assert `managed_storage: "disabled"`,
+      persistent `unique_heap text` allocation facts, and the matching
+      `discarded_expr` or `scope_exit` drop facts before WAT emission.
+    - Added closure-environment cleanup proof coverage for bound, discarded, and
+      scalar-capturing closure values. `Core.proof(...)` now has fixtures
+      showing persistent `unique_heap closure` allocation facts, allowed scalar
+      capture ownership, and the matching `scope_exit` or `discarded_expr` drop
+      facts before WAT emission.
 
 13. Host/import ownership contracts
 
@@ -1026,6 +1732,43 @@ Current queue from the latest no-GC decision:
       arguments. A wrapper such as `let send = msg => host_take(msg)` now
       records the caller's owner as a `host_transfer`, removes it from the drop
       plan, and rejects later use of that owner before WAT emission.
+    - Implemented the matching wrapper-aware bounded-borrow proof slice for
+      source-level host imports. Expression-bodied and simple block-bodied
+      wrappers such as `let read = msg => host_read(msg)` now preserve the
+      underlying `bounded_borrow` host-boundary edge through `Core.proof(...)`;
+      calls with `borrow message` are accepted and calls with direct
+      `unique_heap Text` owners reject before WAT emission.
+    - Implemented the local view wrapper slice for annotated bounded-borrow
+      wrappers. A wrapper such as
+      `let read = (msg: Text) => { let view = borrow msg; host_read(view) }` now
+      records the underlying `bounded_borrow` host-boundary edge for
+      `read(message)`, while a local alias without `borrow` still rejects a
+      direct `unique_heap Text` owner before WAT emission.
+    - Implemented the recursive bounded-borrow wrapper slice for statically
+      bound `rec` wrapper values, for example
+      `let read = rec (msg: Text) => host_read(msg)`. Calls with
+      `borrow message` now preserve the underlying `bounded_borrow` edge, while
+      direct unique-owner calls still reject before WAT emission.
+    - Implemented the branch-selected bounded-borrow wrapper slice for annotated
+      closure branches, for example
+      `let read = if flag { (msg: Text) => host_read(msg) } else { (msg: Text) => host_read(msg) }`.
+      The proof records a bounded-borrow edge for each possible branch when the
+      call uses `borrow message`, and records deterministic rejections for each
+      branch when the call passes the direct unique owner. Branch target
+      scanning now binds call arguments against each branch's own parameter
+      names, so alpha-renamed branches such as `message` on one side and `text`
+      on the other preserve bounded-borrow host-boundary facts.
+    - Implemented the higher-order bounded-borrow wrapper slice for const
+      function parameters. A helper such as
+      `let relay = (const f, msg: Text) => f(borrow msg)` can receive a
+      statically bound bounded-borrow wrapper like `read`, preserve the
+      underlying `bounded_borrow` host-boundary edge, and compile through WAT;
+      the same relay without `borrow` still rejects a direct unique owner.
+    - Implemented the local static-function alias slice for higher-order
+      bounded-borrow wrappers. A helper such as
+      `let relay = (const f, msg: Text) => { let g = f; g(borrow msg) }` now
+      keeps `g` visible to borrow analysis and host-boundary proof scanning, and
+      the matching `g(msg)` shape rejects the direct unique owner.
     - Implemented the next wrapper-transfer slice for top-level block-bodied
       lambda wrappers whose body is a single transfer expression or return. A
       wrapper such as `let send = msg => { host_take(msg) }` now records the
@@ -1050,6 +1793,13 @@ Current queue from the latest no-GC decision:
       temporary transfer in validation, records an ownerless `host_transfer`
       drop-plan step for the temporary unique value, and compiles through
       WAT-to-Wasm.
+    - Implemented expression-bodied temporary transfer wrappers with annotated
+      parameters. A wrapper such as
+      `let send = (msg: Text) => host_take(append(msg, "!"))` now seeds the
+      static transfer scan with the wrapper's parameter text fact, records the
+      appended temporary as an ownerless `host_transfer`, preserves the
+      unannotated `msg => host_take(msg)` caller-context fallback, and compiles
+      through WAT-to-Wasm.
     - Implemented the broader non-variable wrapper argument proof gate. Static
       wrapper transfer validation now checks the aliased argument ownership
       before recording a synthetic transfer: branch-created runtime text
@@ -1085,6 +1835,12 @@ Current queue from the latest no-GC decision:
       recorded under `static_call/g`, use-after-transfer rejects before WAT
       emission, and WAT-to-Wasm coverage exercises the alias wrapper through the
       host import.
+    - Generic wrapper templates with `const` function parameters are no longer
+      scanned as ordinary runtime closure bodies by drop planning. Transfer
+      validation now scopes lambda and `rec` bodies through the same annotated
+      closure-body context used by transfer-target scanning, so captured runtime
+      `Text` index assignment and higher-order wrapper transfer checks both pass
+      through the no-GC proof gate before WAT emission.
     - Remaining work: deeper interprocedural transfer analysis for dynamic or
       more general higher-order wrappers and truly self-recursive transfer
       shapes, plus any future scratch-backed promotion policy that intentionally
@@ -1118,14 +1874,19 @@ Current queue from the latest no-GC decision:
       runtime aggregate pointer, runtime union pointer, and closure-pointer
       capture paths. These now report allowed capture decisions instead of
       generic reserved unique captures, and stored runtime union pointer
-      captures round-trip through WAT-to-Wasm `call_indirect`.
+      captures round-trip through WAT-to-Wasm `call_indirect`. Runtime aggregate
+      pointer captures now also have type and WAT assertions for `call_indirect`
+      plus captured field loads, so every current `unique_heap` reason is either
+      explicitly accepted (`runtime_aggregate`, `runtime_union`, `closure`) or
+      rejected (`text`) by the closure ownership proof gate.
     - Implemented a generic proof-gate check for reserved closure-capture
       decisions. Any capture slot reported as reserved now rejects before WAT
       emission, including future non-text `unique_heap` capture classes that are
       not explicitly allowed.
-    - Remaining work: make any other non-text `unique_heap` capture classes
-      either explicitly accepted through reusable/frozen proof facts or real
-      linear closure values once linear closure calls are implemented.
+    - Remaining work: future `unique_heap` capture classes must either be
+      explicitly accepted through reusable/frozen proof facts or rejected by the
+      generic reserved-capture gate until real linear closure values are
+      implemented.
 
 15. Future explicit region package design
 
@@ -1140,6 +1901,10 @@ Current queue from the latest no-GC decision:
       rules.
 
 ## Memory Direction
+
+This section is retained as explanatory background. The authoritative contract
+and active implementation tracks above win if an older note below is less
+specific.
 
 The baseline memory model is:
 
@@ -1616,6 +2381,9 @@ Acceptance tests:
 - Direct and block-local runtime text scratch freeze records a scratch
   allocation, persistent promotion allocation, and frozen scratch return without
   enabling managed storage.
+- Scoped static-call runtime text scratch freeze records the final frozen
+  result, scratch reset, and freeze proof edge instead of relying only on
+  emitted WAT.
 - Returning a value that may point into reset scratch storage rejects unless an
   explicit promotion or `freeze` happened first.
 - Unsupported non-text scratch temporary promotion remains rejected until the
@@ -1797,8 +2565,8 @@ fixture must reject before WAT emission.
 
 1. Add compile-target routing and diagnostics.
 2. Lock the analysis-first baseline memory policy: unique by default, lexical
-   borrows, explicit `freeze`, lexical `scratch {}` regions, and deterministic
-   rejection when escape analysis is uncertain.
+   borrows, explicit `freeze`, lexical `scratch {}` scratchpads, and
+   deterministic rejection when escape analysis is uncertain.
 3. Define ownership facts, lifetime scopes, escape analysis, and drop/reset
    elaboration.
 4. Implement borrow/view checking on top of lexical lifetime scopes.
@@ -1863,6 +2631,12 @@ should not be forced through Ic.
 - `Source.mod` and `Source.wat` expose the structured Core/Wasm route for source
   text or parsed source. `Source.wat` emits a full WAT module through the
   existing `Core.mod` and `Mod.emit` path.
+- `Source.core_file`, `Source.mod_file`, and `Source.wat_file` now expose the
+  same structured route for file-backed programs after import resolution, while
+  `Source.compile_file` remains the strict pure-Ic file helper.
+- Unresolved import diagnostics now point to the file-loading API surface:
+  `Source.load`, `Source.compile_file`, `Source.core_file`, `Source.mod_file`,
+  and `Source.wat_file`.
 - Source-level annotated dynamic tail recursion now compiles through
   `Source.wat`; the host-boundary proof pass recognizes internal `rec(...)` tail
   calls and no longer records them as unknown host/import calls.
@@ -1892,6 +2666,15 @@ compiler-created temporaries, and storage-driven linear participation. When a
 case is hard to analyze, split it by value category and escape shape instead of
 adding GC, hidden attached regions, implicit promotion, or runtime-discovered
 cleanup to the baseline.
+
+Latest no-GC refinement: skipping GC is allowed only because the accepted
+baseline surface is statically proven. Each hard memory case should start as a
+proof task, not a runtime-management task: classify storage, attach lifetime
+ids, prove borrow/view validity, prove scratch escape before reset, plan
+freeze/promotion if needed, and insert cleanup/drop/reset decisions from those
+facts. If any row is missing, split the case more narrowly or reject before WAT
+emission. Do not keep the case accepted by adding a collector, hidden attached
+region, implicit promotion, or WAT-emitter cleanup inference.
 
 ### Implementation
 
@@ -2017,6 +2800,22 @@ Split the feature into small vertical slices:
    - Track allocation-site facts for source values and lowering-created
      temporaries: storage class, source type, lifetime id, escape edge, and
      cleanup/drop behavior.
+   - Treat the checklist as the baseline substitute for GC. A memory feature is
+     accepted only when the proof inventory is complete enough that no runtime
+     collector, hidden region, or WAT-emitter cleanup inference is needed.
+   - Require these proof rows before WAT emission for every accepted non-scalar
+     memory slice: storage/lifetime, borrow/view, scratch escape/reset,
+     freeze/promotion, drop/cleanup, and host-boundary when the value crosses an
+     import/export edge.
+   - Include lowering-created temporaries in the same inventory as source
+     values. Text copy loops, aggregate materialization, union payload
+     construction, closure environment setup, and promotion copies are not
+     allowed to rely on "temporary enough" reasoning unless they have explicit
+     lifetime and cleanup facts.
+   - If any proof row is missing, split the source shape by storage class and
+     escape edge until it can be accepted with facts, rejected with a named
+     diagnostic, or deferred to a separate future region/managed-storage
+     profile.
    - Track owner state for `unique_heap` values. A unique value can be moved,
      consumed, borrowed, frozen, or dropped, but not implicitly copied.
    - Track active borrows so owner move, mutation, and `freeze` are rejected
@@ -2032,6 +2831,26 @@ Split the feature into small vertical slices:
      must expose the facts later WAT emission uses; rejected fixtures must
      assert a deterministic diagnostic and must not fall back to managed
      storage.
+
+10. No-GC hard-case refinement loop
+
+- Start broad features as an inventory of smaller value categories: scalar,
+  frozen/static value, runtime text, runtime aggregate, runtime union payload,
+  closure environment, scratch-backed temporary, and host boundary.
+- For each category, first add either an accepted proof fixture or the nearest
+  deterministic rejected diagnostic. Do not start by adding a collector-backed
+  accepted path.
+- Keep scratchpads lexical. A result does not carry a hidden live region; it
+  must be scalar, frozen/shareable, explicitly promoted, or proven scratch-free
+  before reset.
+- Keep future explicit regions separate from scratchpads. A future region
+  package must have a region owner, tied values, move/consume rules,
+  cleanup/drop facts, ABI rules, and host-boundary rules before it accepts cases
+  the baseline rejects.
+- Treat compiler-created temporaries like source values. Aggregate
+  materialization, text copy loops, union payload construction, closure
+  environment setup, and promotion copies all need proof-visible cleanup or a
+  rejected diagnostic.
 
 ### Likely Modules
 
@@ -2321,8 +3140,14 @@ Break the remaining work into these implementation slices:
    - Plain non-stored borrows inside loop bodies still end at the loop
      iteration/body boundary, so owner mutation after the loop is allowed when
      no borrow view escapes the body.
-   - Remaining follow-up: add path-sensitive `break`/`continue` merge rules for
-     borrow views carried out through future richer loop/region state.
+   - Implemented first path-sensitive loop-control precision: borrow/view,
+     closure-capture, and field-owner alias scans stop after definite sequence
+     exits (`return`, `break`, `continue`, and `if/else` bodies where both arms
+     exit). A borrow assigned before `break` is still treated as possibly live
+     after the loop; a borrow or field alias syntactically after an
+     unconditional loop-control edge no longer poisons the parent scope.
+   - Remaining follow-up: carry path-specific borrow-view facts through future
+     richer loop/region state beyond the current definite sequence-exit model.
 
 3. Field and aggregate owner barriers
 
@@ -2399,10 +3224,15 @@ Break the remaining work into these implementation slices:
      wrapper definitions are implemented, including temporary unique expression
      arguments that transfer without a source owner name. Higher-order const
      function wrapper calls are implemented for direct calls and local
-     static-function aliases inside the wrapper body. Deeper interprocedural
-     transfer analysis remains pending for dynamic higher-order wrappers,
-     self-recursive transfer shapes, and broader non-variable-argument wrapper
-     shapes.
+     static-function aliases inside the wrapper body. Branch-selected
+     higher-order const-function wrappers now also preserve local
+     static-function aliases and temporary transfer arguments in each possible
+     branch. Ordinary branch-selected closures without `const` parameters stay
+     runtime/first-class values so aggregate materialization, closure tables,
+     and runtime closure tests keep their existing representation. Deeper
+     interprocedural transfer analysis remains pending for dynamic higher-order
+     wrappers, self-recursive transfer shapes, and broader non-variable-argument
+     wrapper shapes.
    - Direct use-after-transfer diagnostics are implemented in the Core transfer
      validator: after a host/import transfer consumes a named owner, later
      direct use of that owner rejects before WAT emission unless the name is
@@ -2519,22 +3349,44 @@ Break the remaining work into these implementation slices:
      selected result freezes runtime `Text` emit a persistent copy before
      scratch reset, record the scratch temporary and persistent promotion
      allocation facts, and leave managed storage disabled.
+   - Implemented the statement-level dynamic `if let` scratch-text assignment
+     slice: a scratch-local `Text` can be overwritten inside matching `if let`
+     payload branches and frozen after the statements. Drop scanning now updates
+     local facts while walking closure/block statement lists, so the matched
+     payload keeps its `Text` fact in assignment ownership analysis. `if let`
+     emission now advances generated temp counters across emitted branches,
+     keeping local declarations and WAT temp names aligned through the later
+     freeze-copy.
    - Implemented the first direct aggregate/union scratch-freeze slice:
      `scratch { freeze user_type { ... } }` and
      `scratch { freeze result_type.ok(...) }` materialize the direct constructor
      on persistent heap storage while the scratch reset is active, record
      allowed aggregate/union freeze edges, keep aggregate/union facts visible
      after the reset, and round-trip through WAT-to-Wasm.
-   - Implemented the first alias-based aggregate promotion:
-     `scratch { let temp = user_type { ... }; freeze temp }` now copies the
-     known-layout aggregate into persistent frozen storage before reset. The
-     proof records the scratch field temporaries, persistent aggregate
-     destination, persistent `Text` field copies, and allowed
-     `unique_heap runtime_aggregate` freeze edge. WAT-to-Wasm coverage reads the
-     promoted aggregate after scratch reset.
-   - Implemented the first alias-based runtime union promotion:
-     `scratch { let temp = result_type.ok(...); freeze temp }` now copies
-     scalar/`Text`/`Unit`, union-pointer, and supported aggregate-pointer
+  - Implemented the first alias-based aggregate promotion:
+    `scratch { let temp = user_type { ... }; freeze temp }` now copies the
+    known-layout aggregate into persistent frozen storage before reset. The
+    proof records the scratch field temporaries, persistent aggregate
+    destination, persistent `Text` field copies, and allowed
+    `unique_heap runtime_aggregate` freeze edge. WAT-to-Wasm coverage reads the
+    promoted aggregate after scratch reset.
+  - Branch-shaped scratch aggregate promotion now reaches WAT-to-Wasm through
+    static function calls with unannotated scalar branch parameters. A shape
+    such as `scratch { let temp: user_type = if flag { user_type { ... } } else
+    { user_type { ... } }; freeze temp }` emits the branch-selected persistent
+    aggregate/text copies before scratch reset, and text-layout scanning binds
+    unannotated closure parameters as `i32` placeholders so static function
+    body scanning can collect text literals without treating the branch
+    parameter as an unbound local.
+  - Branch-assigned scratch aggregate and union promotion now have WAT-to-Wasm
+    coverage. Shapes such as `scratch { let temp: user_type = ...; if flag {
+    temp = user_type { ... } } else { temp = user_type { ... } }; freeze temp }`
+    and the equivalent `result_type.ok/err(...)` union assignment copy the
+    selected aggregate fields or union payload into persistent frozen storage
+    before scratch reset.
+  - Implemented the first alias-based runtime union promotion:
+    `scratch { let temp = result_type.ok(...); freeze temp }` now copies
+    scalar/`Text`/`Unit`, union-pointer, and supported aggregate-pointer
      payload aliases into persistent frozen storage before reset. The proof
      records the scratch source union, persistent union destination, persistent
      nested union or aggregate payload destination, persistent `Text`
@@ -2544,15 +3396,15 @@ Break the remaining work into these implementation slices:
    - Implemented static-shaped existing aggregate alias planning, so previously
      bound aggregate facts can be frozen through a scratch-local alias without
      failing static-value planning on the alias variable.
-   - Remaining follow-up: emit immutable heap copy/promotion for broader
-     existing aggregate/union owners across branch/loop/assignment shapes; add
-     broader scratch-backed closure shapes beyond direct, block-local, and
-     branch-selected persistent closure freeze; broaden scratch-backed text
-     shapes; track the resulting frozen storage facts through Core
-     typing/emission; then add conditional cleanup/destructor emission for
-     optional consumption paths. Deep closure-capture ownership checks for
-     linear or ownership-bearing capture slots remain part of the first-class
-     linear closure task.
+  - Remaining follow-up: emit immutable heap copy/promotion for broader
+    existing aggregate/union owners across dynamic loop-carried shapes and
+    broader union branch payload shapes; add broader scratch-backed closure shapes beyond
+    direct, block-local, and branch-selected persistent closure freeze; broaden
+    scratch-backed text shapes; track the resulting frozen storage facts through
+    Core typing/emission; then add conditional cleanup/destructor emission for
+    optional consumption paths. Deep closure-capture ownership checks for
+    linear or ownership-bearing capture slots remain part of the first-class
+    linear closure task.
    - Keep promotion as a visible Core fact with source owner, destination
      storage class, lifetime id, and cleanup/drop decision. Do not let a later
      pass infer promotion only because an escape would otherwise fail.
@@ -2642,10 +3494,55 @@ Break the remaining work into these implementation slices:
   materialization paths, or declared host imports now produces
   `Cannot emit core app expression yet` from `Core.proof(...)` and
   `Core.check_proof(...)` instead of throwing from Core type inference first.
+- Implemented the builtin app proof refinement for unknown `len(...)` and
+  `get(...)` collection targets. Final and non-final calls such as `len(x)` or
+  `get(x, 0)` where `x` has no collection/text facts now reject through
+  `Core.proof(...)` and `Core.check_proof(...)` with builtin-specific proof
+  diagnostics for unknown `len` and `get` collection targets. `Core.type(...)`
+  keeps the matching type-query diagnostics.
 - Implemented the final-expression type-value proof slice. Direct or named
   type-level Core values preserved by `Source.core(...)` now produce
   `Cannot emit core type value expression yet` from `Core.proof(...)` and
   `Core.check_proof(...)` instead of throwing from Core type inference first.
+- Implemented the runtime-position type-value proof slice. Type-level Core
+  expressions used as runtime expression statements or runtime `let` values now
+  reject through `Core.proof(...)` before local collection, type inference, or
+  WAT emission; `const` type-value bindings remain valid static compiler facts.
+- Implemented the unsupported `index_assign` target proof slice. Assignments
+  such as `xs[0] = value` now reject through `Core.proof(...)` when `xs` is not
+  a static aggregate binding, runtime text local, or runtime aggregate local,
+  instead of reaching the generic Core statement emitter fallback.
+- Implemented the direct unsupported runtime expression proof slice. Direct
+  runtime-position `linear`, `rec`, `comptime`, `with`, and `struct_update`
+  expressions now reject through `Core.proof(...)` before type inference or WAT
+  emission, while static projection paths such as `(user { age: 41 }).age`
+  remain accepted as compiler facts.
+- Implemented the early-analysis unsupported proof slice. Context collection and
+  borrow/drop probing now map preserved unsupported shapes such as unbound
+  `index_assign`, non-final unknown `field`/`index` expressions, and preserved
+  `comptime` `let`/assignment values into `Core.proof(...)`
+  `unsupported_codegen` issues instead of throwing before the proof object
+  exists.
+- Implemented the final-statement and bare-lambda unsupported proof slice. Final
+  unsupported statements such as unknown `collection_loop` or `if_let_stmt`
+  shapes now scan into `Core.proof(...)` before final-result extraction, and
+  bare runtime `lam` expressions now reject as
+  `Cannot emit core lam expression yet` instead of surfacing a Core type-probing
+  failure.
+- Implemented the runtime binding and outside-loop control unsupported proof
+  slice. Runtime `let`/assignment values containing preserved `with`,
+  `unsupported`, or non-static `struct_update` expressions now reject through
+  `Core.proof(...)` instead of recursing or throwing from local collection, and
+  top-level `break`/`continue` now reject before the statement emitter.
+- Implemented the closure captured-assignment unsupported proof slice. A stored
+  closure that assigns to a captured value in a shape outside the supported
+  same-type scalar, runtime `Text` byte, runtime aggregate scalar/`Text`, or
+  static aggregate rebuild cases now produces an `unsupported_codegen` proof
+  issue before closure lifting or module emission.
+- Fixed same-type static struct-update assignment. A source update such as
+  `user = user { age: 41 }` now stores the rebuilt static struct fact instead of
+  a self-referential update expression in drop/proof analysis, so proofing and
+  emission no longer recurse indefinitely.
 - `Core.emit(...)` and `Core.mod(...)` now run `Core.check_proof(...)` before
   WAT/module artifact emission. `Core.type(...)` remains a type-query surface
   and is not the WAT emission gate.
@@ -2792,6 +3689,16 @@ loops only work for special cases.
   explicitly frozen/promoted or proven scratch-free at the returned-field level.
   Promotion/freeze codegen and reusable allocator/destructor cleanup integration
   remain pending.
+- Nested static aggregate aliases inside a scratch-returned aggregate are now
+  covered as a rejected proof fixture. The current planner must not accept that
+  shape by materializing a hidden runtime aggregate pointer; a future accepted
+  slice needs structural nested planning that keeps local collection, proof, and
+  WAT emission in sync.
+- The rejected nested-alias fixture now reaches `Core.proof(...)` as a proof row
+  instead of throwing during proof-local collection. Proof-only collection
+  preserves annotated struct/union facts long enough for cleanup to report the
+  scratch-return rejection; normal typing and emission still reject the unsafe
+  scratch return.
 
 ## Task 12.4: Runtime Indexing And Collection Facts
 
@@ -2866,6 +3773,10 @@ element_type: ValType or aggregate/union fact
   `view = borrow name` can be read after the loop while the collection owner
   remains live, and later mutation of that owner rejects through the normal
   borrowed-owner barrier.
+- Runtime aggregate-backed collection loops now have explicit loop-control
+  coverage: `continue` skips the current unrolled field body, `break` exits the
+  collection loop, scalar carried locals remain valid, and the WAT-to-Wasm
+  fixture covers the behavior.
 - Unknown collections without facts still reject, and heterogeneous non-text
   runtime aggregate fields reuse the existing item-type mismatch diagnostic
   before WAT emission.
@@ -2925,15 +3836,18 @@ store emission.
   union/aggregate type checks before WAT emission. Static/frozen-shareable text
   bindings now remain immutable static data and reject indexed mutation with a
   deterministic frozen/shareable binding diagnostic. Frozen unique-heap store
-  facts beyond the current freeze-promotion reservation, arrays, slices, and
-  reusable allocator/destructor cleanup remain follow-up work. Active borrow
-  views already block mutation of the borrowed runtime aggregate owner through
-  the existing borrow gate.
+  attempts over runtime aggregate pointers now map into the no-GC proof gate
+  with the same frozen/shareable binding diagnostic before module emission.
+  Frozen unique-heap store codegen beyond deterministic rejection, arrays,
+  slices, and reusable allocator/destructor cleanup remain follow-up work.
+  Active borrow views already block mutation of the borrowed runtime aggregate
+  owner through the existing borrow gate.
 - Tests cover Core WAT shape, WAT-to-Wasm mutation behavior, dynamic
   out-of-bounds traps, captured scalar and `Text` mutation through inline and
   first-class closures, borrowed-owner mutation rejection, frozen/shareable
-  static text mutation rejection, and deterministic rejection for text/scalar
-  mismatches and mixed dynamic text/scalar target fields.
+  static text mutation rejection, proof-gated frozen runtime aggregate mutation
+  rejection, and deterministic rejection for text/scalar mismatches and mixed
+  dynamic text/scalar target fields.
 
 ## Task 12.6: Dynamic `if let` Through Structured Core
 
@@ -2986,6 +3900,20 @@ The Ic frontend supports several typed/direct union-if shapes. Unknown dynamic
   annotated closure branch can establish the function type for an unannotated
   branch. WAT-to-Wasm coverage now validates both matching and fallback
   stored-runtime-union cases through `call_indirect`.
+- Implemented implicit `Text` fallback for no-else Core `if` and dynamic
+  `if_let` expressions. Text fact analysis now treats the synthetic fallback as
+  an empty text value only when the selected branch is proven text, WAT emission
+  emits the real empty-text pointer instead of raw `i32.const 0`, and text
+  layout registers the empty literal only for expressions that need it.
+  WAT-to-Wasm coverage validates no-else `Text` fallback for plain `if` and
+  typed runtime-union `if let` expressions.
+- Implemented the matching static annotated union-case fallback slice. The
+  drop/proof local-collection shortcut now applies binding annotations before
+  deciding that a runtime binding is static, so typed shorthand union cases keep
+  their `type_expr` in proof/drop contexts. A non-matching no-else static
+  `if let` over a `Text` payload can now materialize the empty-text fallback and
+  compile through WAT-to-Wasm, while the existing `I64` implicit-zero fallback
+  guard stays covered.
 
 ## Task 12.7: Runtime Union Payload Generalization
 
@@ -3043,11 +3971,59 @@ remain reserved.
   runtime union pointer matching, aggregate payload field loads, nested union
   payloads, union-valued aggregate fields, and frontend dynamic union struct
   payload lowering.
-- Remaining follow-up: attach precise ownership/drop/freeze facts to unique
-  aggregate payload transfers from existing owners, implement
-  scratch-to-persistent promotion for escaping scratch-backed payloads, and
-  generalize beyond struct/union pointer payload shapes only when the proof gate
-  can validate the facts.
+- Implemented the first direct named-owner payload transfer slice. When a
+  runtime union case stores an existing `unique_heap runtime_aggregate` or
+  `unique_heap runtime_union` owner as a pointer payload, `Core.proof(...)`
+  records a transfer edge such as `union_case.ok`, removes the moved owner from
+  scope-exit drops, and rejects direct use of that owner after the transfer
+  before WAT emission.
+- Implemented the simple alias payload-transfer slice. If `let alias = owner`
+  names a unique aggregate/union owner and `alias` is stored into a runtime
+  union pointer payload, transfer validation resolves the edge back to the
+  original owner. Later use through either the alias or the original name
+  rejects before WAT emission, while the accepted no-use case still compiles.
+- Implemented the first static-wrapper payload-transfer slice. Top-level
+  statically bound helper calls with aggregate or union parameter annotations
+  now enter a closure-body proof context that carries aggregate/union parameter
+  facts. A helper such as `wrap(payload: user_type) => result_type.ok(payload)`
+  records the caller owner transfer at the static-call site, removes the moved
+  owner from drops, rejects use-after-transfer, and compiles when the moved
+  owner is not reused.
+- Implemented the branch-selected static-wrapper payload-transfer slice.
+  Branch-valued wrappers with aggregate/union parameter annotations now lower as
+  static-call branches for union payload construction. Each possible branch
+  records its own caller-owner transfer, moved owners are removed from drops,
+  direct and alias use-after-transfer reject before WAT emission, and ordinary
+  scalar branch closures remain runtime/first-class values.
+- Implemented the higher-order static-wrapper payload-transfer slice. Helpers
+  with `const` function parameters now preserve aggregate/union payload
+  transfers through direct calls, block-local static-function aliases such as
+  `let g = f`, and branch-valued higher-order helpers. Scoped static-call union
+  recognition enters helper bodies with statement scope, so each possible nested
+  wrapper call records the caller-owner transfer and use-after-transfer rejects
+  before WAT emission.
+- Implemented the branch-assigned payload-transfer slice where both arms assign
+  a runtime union case with a moved aggregate/union pointer payload to the same
+  result. The branch merge now preserves the generated payload aggregate/union
+  facts, `if let` payload binders inherit those facts, `Core.proof(...)` records
+  one `union_case.*` transfer per branch, WAT emission can read the matched
+  payload fields, and use-after-transfer rejects before module emission.
+- Implemented the one-sided branch-transfer proof gate. A branch that moves an
+  owner into a runtime union payload on only some paths now rejects before WAT
+  emission with a deterministic conditional-cleanup diagnostic instead of being
+  accepted without a drop fact for the path where the owner remains live.
+- Implemented the loop transfer proof gate for collection-loop payload moves. A
+  loop body that moves an owner into a runtime union payload now rejects with
+  the same conditional-cleanup diagnostic until loop execution, carried-owner,
+  and zero-iteration cleanup/drop facts exist. Dynamic range loops carrying
+  static aggregate/union facts already reject earlier in the loop-carried fact
+  gate.
+- Remaining follow-up: broaden one-sided branch and loop payload moves only
+  after explicit conditional cleanup/drop facts exist; then continue through
+  dynamic wrappers; add precise freeze/copy facts for payloads that should be
+  shared instead of moved; implement scratch-to-persistent promotion for
+  escaping scratch-backed payloads; and generalize beyond struct/union pointer
+  payload shapes only when the proof gate can validate the facts.
 
 ## Task 12.8: Runtime Text/String Operations
 
@@ -3116,6 +4092,15 @@ subset. Broader text operations need allocation and byte-copy loops.
   `i32.select` expressions over branch-local static text comparisons, while
   runtime `Text` equality still rejects with a structured Core/Wasm route
   diagnostic.
+- The pure Ic frontend also folds the strict runtime text identity case:
+  annotated `Text` parameters or bindings comparing the same resolved binding
+  lower `value == value` to `1:i32` and `value != value` to `0:i32`. This now
+  includes transparent `borrow`/`freeze`/`scratch` wrappers and simple
+  block-local `let` aliases inside returned scratch/block values, plus
+  inlineable helpers that return the same runtime `Text` binding through those
+  transparent wrappers. General runtime `Text` equality still uses the
+  structured Core/Wasm byte-compare path, including helpers that allocate or
+  transform runtime text before comparison.
 - Text-valued `if let` expressions over statically known union cases and dynamic
   union-if targets with visible branch payloads preserve visible text facts
   through bindings, so later `len`, indexing, equality, and slice-style
@@ -3135,10 +4120,10 @@ subset. Broader text operations need allocation and byte-copy loops.
   proof records runtime append as a `persistent_unique_heap` /
   `unique_heap text` / `runtime_text` allocation with managed storage disabled.
 - Runtime text operation temporaries now have proof-locked drop coverage for the
-  current no-op bump allocator path: discarded append temporaries emit
-  `discarded_expr` drop facts, bound runtime text temporaries emit `scope_exit`
-  drop facts, and the append proof fixture exposes both slice and append owner
-  drops with managed storage disabled.
+  current no-op bump allocator path: discarded append/slice temporaries emit
+  `discarded_expr` drop facts, bound append/slice runtime text temporaries emit
+  `scope_exit` drop facts, and the append proof fixture exposes both slice and
+  append owner drops with managed storage disabled.
 - Persistent runtime text `freeze` now reuses the consumed unique text buffer as
   frozen/shareable storage, exposes an allowed `freeze` proof edge, rejects
   mutation through the frozen runtime text binding, and supports direct,
@@ -3151,6 +4136,47 @@ subset. Broader text operations need allocation and byte-copy loops.
   `scratch { freeze append(...) }` and
   `scratch { let temp = append(...); freeze temp }`, and records one promotion
   edge per frozen `if` branch when the scratch result is selected by a branch.
+- Scratch runtime `Text` promotion now also preserves text/layout facts through
+  annotated local aliases, so
+  `scratch { let temp: Text = append(...); let alias: Text = temp; freeze alias }`
+  reaches the same no-GC proof surface and WAT-to-Wasm path as direct bound
+  scratch promotion.
+- Block-local runtime `Text` results now carry the same facts through scratch
+  promotion, so
+  `scratch { let temp: Text = { let inner: Text = append(...); inner }; freeze temp }`
+  records the scratch allocation, persistent freeze allocation, and no-GC proof
+  edge before WAT emission.
+- Annotated scratch-frozen runtime `Text` results now preserve the same text
+  facts through Core annotation checking and later local collection, so
+  `let result: Text = scratch { let temp: Text = append(...); freeze temp }` can
+  be used by later `len(result)` and compiles through WAT-to-Wasm. The same
+  annotated shape without `freeze` still rejects before emission because
+  scratch-backed unique text cannot leave the scratch scope.
+- Branch-selected and branch-assigned scratch-local runtime `Text` promotion now
+  has explicit proof and WAT-to-Wasm coverage. Shapes such as
+  `scratch { let temp: Text = if flag { append(...) } else { append(...) }; freeze temp }`
+  and
+  `scratch { let temp: Text = append(...); if flag { temp = append(...) } else { temp = append(...) }; freeze temp }`
+  record scratch-backed branch allocations, a persistent freeze allocation, and
+  assignment replacement drop facts where the branch overwrites a scratch-local
+  owner.
+- Dynamic `if let` assignment inside scratch-local union promotion now preserves
+  the matched payload facts and merges the assigned static union value with the
+  unchanged fallthrough value. A shape such as
+  `scratch { let temp: result_type = result_type.err(...); if let .some(name) = maybe { temp = result_type.ok(append(name, ...)) }; freeze temp }`
+  compiles through WAT-to-Wasm and verifies both the matched `ok(Text)` branch
+  and the unchanged fallback branch after scratch reset.
+- Loop-assigned scratch-local runtime `Text` promotion now has explicit proof
+  and WAT-to-Wasm coverage. A shape such as
+  `scratch { let temp: Text = append(...); for i in 0..count { temp = append(...) }; freeze temp }`
+  records scratch-backed loop allocations, the persistent freeze allocation, the
+  loop-scope drop row for the carried text owner, and preserves both
+  zero-iteration and one-iteration results.
+- Collection-loop-assigned scratch-local runtime `Text` promotion now has proof
+  and WAT-to-Wasm coverage for runtime aggregate collection facts. Static
+  collection local collection now scans the body once per emitted field, so
+  helper locals introduced by unrolled body text operations and the later
+  scratch-to-persistent freeze copy are declared before WAT emission.
 - Remaining follow-up: broader scratch-backed escaping text promotion/freeze and
   reusable allocator/destructor cleanup beyond the current no-op bump drop
   facts.
@@ -3192,6 +4218,25 @@ lowering. A Wasm ABI is needed before lowering them generally.
 - A narrowed capability object exposes only passed methods.
 - Missing host method facts produce deterministic errors.
 
+### Implementation Status
+
+- Implemented the first explicit-import ABI slice. A method call on a linear
+  receiver rewrites through `Source.core` when the method name has a matching
+  `host_import`; `io = io.print("hello")` becomes `io = print(!io, "hello")` and
+  emits a stable imported Wasm function call.
+- Structured `Source.core`/`Source.wat` now run the existing frontend linear
+  validation prepass, so discarding the returned capability still rejects with
+  the same linear diagnostic as the Ic path.
+- Core `linear` expressions now type and emit as consuming reads of the
+  corresponding local. Exact-use checking remains a frontend/source validation
+  responsibility.
+- Missing imported method facts are now proof-visible. A linear receiver method
+  call without a matching `host_import`, including inside a lambda body, records
+  `Missing host capability method: receiver.method` before WAT emission.
+- Remaining follow-up: runtime capability objects with method tables, capability
+  narrowing facts through object fields, and non-scalar or ownership-bearing
+  capability tokens beyond the scalar import-threading slice.
+
 ## Task 12.10: First-Class Linear Closure Captures
 
 ### Problem
@@ -3204,12 +4249,19 @@ snapshot values that may be duplicated or called more than once.
 
 - Represent a stored closure as a function/table target plus an environment
   pointer and an environment layout fact.
+- Classify the closure environment allocation before WAT emission. Persistent
+  reusable closure environments start as `unique_heap` unless frozen; closure
+  environments allocated inside `scratch {}` are `scratch_backed` and cannot
+  escape unless frozen, promoted, or proven scratch-free.
 - Mark each environment slot with ownership and lifetime facts. Frozen captures
   may be shared, unique captures move into the environment, borrow captures are
   valid only while the borrow lifetime outlives the closure value, and
   scratch-backed captures require a non-escaping proof.
 - Distinguish reusable closure values from linear closure values in Core facts
   before WAT emission.
+- Record cleanup/drop facts for closure environment owners and lowering-created
+  closure temporaries. The first bump allocator may lower persistent closure
+  drops to no-op WAT, but the proof still needs the drop edge.
 - Mark closures that capture linear values as linear closure values.
 - A linear closure call must consume the closure exactly once.
 - Store captured linear values in the closure environment without exposing copy
@@ -3220,6 +4272,46 @@ snapshot values that may be duplicated or called more than once.
 - A closure may capture a frozen value freely, may borrow only within the borrow
   lifetime, and may capture a unique value only if the closure itself becomes
   linear.
+
+First-class closure storage should be split into these concrete proof/codegen
+slices:
+
+1. Environment layout
+
+   - Store the function-table index plus capture slots in linear memory.
+   - Record slot offsets, value types, source capture names, and callable
+     signature facts before WAT emission.
+
+2. Environment storage class
+
+   - Classify each environment as persistent `unique_heap`, persistent
+     `frozen_shareable`, `scratch_backed`, or rejected.
+   - A scratch-backed closure may leave `scratch {}` only by explicit freeze or
+     promotion, or by a proof that the closure cannot escape the scratch
+     lifetime.
+
+3. Capture-slot ownership
+
+   - Classify each slot independently as scalar, frozen/shareable, unique,
+     borrow-view, scratch-backed, capability, or nested closure.
+   - Reusable closures may freely capture only scalar and frozen/shareable
+     slots. Unique, borrow, scratch-backed, capability, or ownership-bearing
+     closure slots require linear closure support or a deterministic rejection.
+
+4. Call and alias behavior
+
+   - Reusable closure values may be copied only when all captured slots are
+     reusable.
+   - Linear closure values must be consumed exactly once, including through
+     aliases, branches, `if let` closure selections, and higher-order calls.
+
+5. Cleanup and proof gate
+
+   - Record allocation, capture ownership, transfer/freeze decisions, and
+     environment drop facts for bound, discarded, returned, and branch-selected
+     closures.
+   - Keep closure environment cleanup proof-visible even while the first bump
+     allocator lowers persistent drops to no-op WAT.
 
 ### Likely Modules
 
@@ -3238,6 +4330,92 @@ snapshot values that may be duplicated or called more than once.
 - Non-linear closure tests continue to use ordinary reusable closure values.
 - Capturing a scratch-backed value is rejected unless the closure cannot escape
   the scratchpad.
+
+### Implementation Status
+
+- Implemented the first Core/Wasm first-class linear capability-closure slice: a
+  closure value with a linear `!io: I32` parameter can be selected through a
+  runtime closure-valued branch, stored as a closure pointer, and called exactly
+  once through `call_indirect`.
+- Nested non-escaping closures inside that first-class closure body can consume
+  the linear parameter through an import-backed method call, for example
+  `let print_once = () => io.print("hello"); io = print_once()`.
+- Implemented the first source `!` capture validation slice for stored closures:
+  `let print_once = () => io.print("hello"); io = print_once()` is accepted, but
+  a second call through the same binding, a call through an alias to that
+  binding, or a branch where only one side consumes that closure rejects before
+  Core/WAT emission.
+- Branch-selected stored closures that capture the same source `!` value are now
+  accepted when both branches resolve to compatible closure parameter shapes.
+  The selected closure lowers through the existing closure pointer and
+  `call_indirect` path, text literals from both branches are included in data
+  layout, and duplicate or alias calls after consumption still reject before
+  Core/WAT emission.
+- Compatible branch-selected closures may use different parameter names. The
+  frontend now alpha-renames both branch bodies into fresh shared parameter
+  names before validating the captured source `!` consumption, so pure Ic and
+  Core/WAT closure paths do not require branch-local parameter names to match
+  textually.
+- Closure-valued `if let` expressions that select scalar closures can now
+  participate in the same source `!` validation path. Static union cases can
+  lower through the pure Ic route, and runtime-union-pointer `if let` closure
+  branches can lower through the existing Core closure table and `call_indirect`
+  path when the captured linear value and payload are scalar.
+- Closure-valued `if let` branches over dynamic static-union `Text` payloads now
+  preserve payload text facts and host import contracts through local
+  collection, so lifted closures can call bounded-borrow host imports with
+  `borrow value` and compile through WAT-to-Wasm.
+- Closure-valued `if let` branches over stored runtime-union-pointer `Text`
+  payloads now preserve the selected payload through allocation/proof scanning,
+  so the lifted closure can capture `borrow value`, emit the runtime union tag
+  and payload loads, and call the bounded-borrow host import through
+  WAT-to-Wasm.
+- The text-layout pass now scans static/const function bodies when those
+  function values are used at runtime as closure pointers, so text literals
+  inside nested closure bodies get data segments before WAT emission.
+- Recursive stored closures in the source `!` capture validation path now reject
+  with a deterministic diagnostic that names the recursive closure binding. The
+  shape stays reserved until linear closure ownership supports recursive
+  self-calls explicitly.
+- Branch-selected stored closures that capture a source `!` value now compare
+  parameter annotations with the shared frontend annotation compatibility rule.
+  Equivalent scalar annotations such as `Int` and `I32` no longer make the
+  source `!` closure validator miss a valid one-shot call path.
+- The pure Ic source `!` closure validator now also treats non-builtin
+  annotations as potentially compatible so user-defined type aliases such as
+  `user_type` and `user_alias` do not hide a valid one-shot consumption path.
+  The actual dynamic-function compatibility check still rejects unrelated
+  user-defined types before Ic lowering.
+- Explicit linear expressions now infer the type of their binding when that type
+  is known, so annotated source `!` values can participate in dynamic Ic branch
+  selection. Pure Ic coverage includes dynamic `if` branches that consume the
+  same linear value on both paths, return/fallthrough branches that consume a
+  linear value exactly once per path, one-shot captured closures called across
+  return/fallthrough paths, and dynamic `if let` closure selection with a
+  captured source `!` value.
+- Structured Core closure function types now carry user-defined aggregate and
+  union parameter metadata through `param_structs` and `param_unions`.
+  Branch-selected closures that use alias-equivalent annotations such as
+  `user_type` / `user_alias` or `result_type` / `result_alias` can be returned
+  as first-class closure values, called through `call_indirect`, and validated
+  against aggregate or union arguments before WAT emission.
+- Frozen/shareable closure-capture proof coverage now includes full
+  `Core.proof(...)` fixtures for frozen runtime `Text` and frozen runtime union
+  captures, not only the standalone `Core.closure_ownership(...)` plan. Frozen
+  aggregate `Text` field projections now preserve frozen/shareable ownership on
+  the generated field temp, so reusable closures can capture those projected
+  fields through the same allowed capture decision.
+- Scratch-backed closure-capture proof coverage now accepts the narrow
+  non-escaping direct-call shape inside `scratch {}`. A lambda immediately
+  called inside the scratchpad may capture a scratch-backed `Text` value when
+  the lambda body contains no nested closure value and the scratch result is
+  scalar. Stored, returned, frozen, or branch-selected scratch-backed closure
+  captures still reject until linear/scratch closure ownership is implemented.
+- Remaining follow-up: true closure-environment slots that move source `!`
+  values into heap-stored closure environments beyond non-escaping
+  branch-selected call paths, broader ownership-bearing aggregate/union closure
+  parameter shapes beyond copy/share-safe pointers, and scratch-backed capture
+  proofs.
 
 ## Task 12.11: Broader Structured-Core/Wasm Cleanup
 
@@ -3272,6 +4450,211 @@ specific after the tasks above land.
   diagnostic.
 - Full format, typecheck, and test suite pass.
 
+### Implementation Status
+
+- Linear-effect functions that cannot lower through the strict pure-Ic frontend
+  now report the structured Core/Wasm route in the same diagnostic as other
+  Ic-only limitations. The behavior remains rejected on `Source.compile`, but
+  callers are pointed to `Source.core`, `Source.mod`, or `Source.wat` when the
+  feature needs the structured path.
+- Dynamic `if let` expressions with non-scalar branch results that remain
+  outside the strict pure-Ic frontend now use the same structured-route
+  diagnostic. Existing scalar/Text-pointer and supported closure/union/struct
+  shapes still lower through Ic.
+- Dynamic `if let` expressions can now use later result context before falling
+  back to the non-scalar branch diagnostic. Annotated `Text` bindings and
+  direct `len(...)`, `get(...)`, and byte-index calls provide `Text` context,
+  and declared struct field projection provides scalar field context. These
+  lower untyped dynamic union-if targets when the selected branches are Ic-safe
+  under that result type.
+- Dynamic `if let` function branch failures now distinguish incompatible
+  parameter shapes from generic non-scalar branch results. The rejection still
+  points to the structured Core/Wasm route, but the primary diagnostic now names
+  the unsupported function-branch shape.
+- No-else `if` and `if let` expressions now explain unsupported implicit
+  fallbacks by inferred branch type. Supported fallbacks now include `Int`,
+  `I64`, `Text`, structs whose fields all have fallback values, and unions with
+  an Ic-safe `Unit` or fallbackable payload case. Unsupported branch results
+  still produce a deterministic fallback diagnostic instead of a generic "cannot
+  lower yet" error.
+- Dynamic `if` expressions whose branch type is outside the Ic-selectable set
+  now name the inferred branch type, for example `Type`, instead of reporting a
+  generic non-`i32` branch error.
+- The remaining dynamic union-if binding fallback now reports a union-specific
+  pure-Ic diagnostic and points to the structured Core/Wasm route, rather than
+  reusing the old generic dynamic-`if` branch wording.
+- Static `rec` calls with pure linear parameters now lower through the pure Ic
+  route when exact-use validation succeeds. Tail-recursive `rec(!state, ...)`
+  calls resolve the consumed linear argument back to the carried value during
+  static unrolling, while missing `!` or branch-mismatched consumption rejects
+  with the shared linear diagnostics.
+- Static `rec` bodies that contain `break` or `continue` now keep the
+  rec-specific pure-Ic rejection but also include the structured Core/Wasm
+  route, matching the rest of the unsupported-rec diagnostics.
+- Compile-time-only final expressions now reject with compile-time-specific
+  pure-Ic diagnostics: builtin type names, bound type names, struct types, union
+  types, and extension values explain that they cannot be emitted as Ic results
+  instead of using the older generic "cannot lower yet" wording or runtime-name
+  casing errors.
+- Untyped dynamic `if let` targets now reject with a target-specific pure-Ic
+  diagnostic that says the Ic route needs a typed union target, while still
+  pointing to `Source.core`, `Source.mod`, or `Source.wat` for structured
+  Core/Wasm lowering. Expression, statement, and static-rec lowering share the
+  same diagnostic.
+- `borrow`, `freeze`, and `scratch` wrappers whose result cannot be proven
+  pure-Ic lowerable now reject with wrapper-specific pure-Ic diagnostics instead
+  of the older "non-scalar result" wording. The accepted Ic erasure path still
+  covers scalars, statically shareable text, runtime `Text`, structs, unions,
+  and pure closures.
+- Static range-loop bodies that need dynamic break/continue state but then bind
+  a value without an Ic-safe fallback now keep the feature-specific rejection
+  and also point callers to `Source.core`, `Source.mod`, or `Source.wat`, where
+  the original structured loop can be preserved.
+- Explicit linear-value syntax with no matching binding now rejects as an
+  unbound linear value, naming the missing source name, instead of using the
+  broader pure-Ic lowering limitation.
+- Static `rec` bodies and nested rec-result blocks that produce no value now
+  reject with missing-result diagnostics instead of the broader generic
+  unsupported-rec message, while still pointing to the structured Core/Wasm
+  route.
+- Static `rec` definitions used as values, instead of called through the
+  static-rec lowering path, now reject with a rec-function-value diagnostic
+  rather than the broader generic unsupported-rec message.
+- Dynamic pure-Ic function branches now accept matching linear parameter shapes.
+  Both branch lambdas are validated with the existing linear-use checker, their
+  branch environments bind the shared parameter as linear, and mismatched
+  linear/non-linear branch parameters still reject as incompatible.
+- Untyped no-payload shorthand union cases now have explicit regression coverage
+  for the existing inferred `Unit` case lowering, and the unreachable generic
+  pure-Ic "union case yet" fallback was removed from that path. Internal
+  visible-text byte-index fallbacks are also classified as normalized-text
+  invariants rather than source-level unsupported features.
+- Parser-reserved unsupported AST nodes now use the same strict Ic diagnostic
+  shape as other Ic-only limitations, including the structured Core/Wasm route.
+  The excluded grammar-family regression now proves the formatted unsupported
+  node and the route-bearing lowering diagnostic for classes, traits, macros,
+  runtime instance search, inheritance, and `where` clauses.
+- Unresolved field calls now report a method-call-specific pure-Ic diagnostic
+  instead of the generic field-access fallback. Function-valued fields that can
+  lower still flow through normal field lowering; unsupported capability-style
+  method calls such as `io.print("hello")` point to the structured Core/Wasm
+  route.
+- Unknown index update and unknown index access rejections now name the indexed
+  target before the structured Core/Wasm route, so unsupported memory-backed
+  shapes such as `buf[i] = x` and `buf[i]` no longer fail with only a generic
+  route suffix.
+- Unknown collection-loop rejections now name the collection expression before
+  the structured Core/Wasm route, and the dynamic-range fixture now asserts the
+  primary `for end` diagnostic as well as the route suffix.
+- Static range-loop dynamic break/continue expansion now accepts an unused
+  function-valued local binding whose lambda body has an unknown result type,
+  such as `let f = x => x`, by deferring the synthesized function-valued
+  fallback branch instead of forcing immediate dynamic-function lowering. The
+  defer predicate stays narrow: ordinary dynamic function branches with
+  lowerable scalar, text, struct, or union bodies continue to lower directly to
+  Ic lambdas. Calls through the deferred loop-local function now inline the
+  selected branch body before Ic lowering, including static-true aliases of the
+  dynamic loop-control flag, so identity-style calls no longer leave unreduced
+  `f#...` applications in the generated Ic graph.
+- Statically expandable nested range and collection loops after dynamic
+  break/continue state now lower on the pure Ic route. The nested loop body is
+  expanded through the normal static-loop expander and wrapped in the current
+  loop-step guard, so work after a dynamic break or continue is skipped while
+  inner loop-local control remains scoped to the nested loop.
+- `const` bindings after dynamic break/continue state now lower through the same
+  guarded fallback path as runtime `let` bindings when their value shape is
+  Ic-safe. The generated binding is intentionally emitted as a runtime `let`,
+  because the binding is path-dependent and cannot remain an unconditional
+  compile-time fact.
+- Typed struct and union block-alias bindings after dynamic break/continue
+  state now lower through the expected-type aggregate path when the direct
+  dynamic-`if` route reports generic aggregate branches. Regression coverage
+  includes guarded loop bindings whose block-local alias selects between
+  `borrow` and simple `scratch {}` branch values before later field projection
+  or `if let` union consumption.
+- The guarded skipped-step path now also handles unannotated shorthand
+  union-result bindings whose result comes from an implicit no-else `if let`.
+  Union inference binds the matched payload before inferring the result case
+  table, verifies that an implicit fallback can be built, and then lets the
+  loop expander synthesize the skipped-step union fallback before later handler
+  consumption.
+- General `if let` expression inference now binds the matched payload before
+  inferring the then branch when the target has a known union case table. The
+  skipped-step fallback path uses that to lower unannotated direct payload
+  results such as `Text` and struct values after dynamic loop control.
+- Block-final no-else `if`/`if let` conditionals with value-producing branch
+  blocks now parse as final expressions rather than statement-only blocks, and
+  expected-type `if let` lowering backs off from direct unknown-fallback
+  failures so nested payload selections can lower through typed handlers.
+- The same guarded skipped-step path now normalizes simple block-local function
+  aliases before constructing a path-dependent function value. Direct-lambda
+  resolution accepts `{ let id = x => x; id }` style blocks, captures the lambda
+  with the block-local environment, and keeps later calls from lowering to
+  unresolved `f#...` Ic applications.
+- Guarded skipped-step function aliases now also support simple non-linear
+  block-local captures. The resolver treats the block prefix as an inline
+  captured environment, including static-loop value snapshots, so closures such
+  as `{ let offset = i + 1; let add = x => x + offset; add }` and
+  `{ let offset = i + 1; return x => x + offset }` stay on the pure Ic route
+  instead of falling back to structured Core solely because the block has a local
+  captured value.
+- Unknown dynamic `if` values can now be deferred through unannotated runtime
+  bindings until a later pure-Ic consumer supplies a concrete context. Numeric
+  primitive operands lower deferred `Int`/`I64` branch values through typed
+  selects, `len(...)` lowers deferred text branches through the existing text
+  pointer path, and runtime struct field projection can project scalar/Text
+  fields from deferred branch-selected struct values. Untyped final uses still
+  keep the original dynamic-if diagnostic, and incompatible function-branch
+  diagnostics remain owned by the dynamic function branch checker.
+- Dynamic static-loop skipped-step bindings now use that same deferred-context
+  model when their immediate binding type is still unknown. The loop expander
+  wraps the executed value in an implicit-fallback guard and lets later typed
+  consumers prove the fallback as `Int`, `I64`, `Text`, or a typed union
+  `if let` text result. This keeps unannotated numeric and text bindings after
+  dynamic `break`/`continue` on the pure Ic route while untyped final uses still
+  reject.
+- Static-rec local bindings now also preserve unknown dynamic `if`/`if let`
+  values as deferred bindings. Rec primitive operands provide `Int`/`I64`
+  context, and rec-local `len(...)` provides `Text` context, allowing
+  statically unrolled rec bodies to lower those unannotated locals through pure
+  Ic without defaulting unknown branch values.
+- Direct static-rec text results now receive caller context from text consumers.
+  `len(...)`, `get(...)`, and byte-index syntax call the typed static-rec app
+  route with `Text` context before reporting collection/index fallback
+  diagnostics, so direct rec text results no longer require an intermediate
+  annotated binding.
+- Direct text consumers now also pass `Text` context through safe inlineable
+  non-rec helper calls. Unannotated identity-style helpers and simple callable
+  block aliases can feed `len(...)`, `get(...)`, and byte-index syntax as text
+  pointers, while arithmetic helper bodies such as `value + 1` still reject
+  with the normal collection diagnostic instead of becoming `load(value + 1)`.
+- Call-only runtime lambda bindings can now defer immediate Ic lowering when
+  the only blocker is an untyped dynamic branch that a later inline call can
+  lower with caller-supplied `Text` context. Direct `len(choose(flag))`,
+  `get(choose(flag), index)`, and `choose(flag)[index]` work for helpers whose
+  body returns a text branch, while escaping or data-aliasing the helper still
+  keeps the original dynamic-branch rejection.
+- The call-only text-helper path also covers no-else dynamic text branches.
+  Direct text consumers now provide the `Text` context needed to synthesize the
+  empty fallback for `flag => if flag { input }`, but no-else numeric helper
+  bodies and non-call uses remain rejected instead of guessing a type.
+- Non-`Text` typed consumers now share an app-as-type hook that tries
+  static-rec first, then inlineable non-rec helper calls. This lets numeric
+  operands, annotated struct bindings, and annotated union bindings lower
+  call-only dynamic-branch helpers through the caller-provided expected type
+  instead of leaking free helper applications into Ic. `Text` stays on the
+  stricter text-consumer proof path.
+- Runtime struct type resolution now uses the same inlineable helper app-result
+  inference. Direct text consumers over helper-built struct fields, including
+  nested fields, can infer declared `Text` field types and lower through the
+  existing runtime text pointer path; mixed non-struct helper branches still
+  reject instead of inventing field facts.
+- Direct `if let` results over inlineable helper-built unions now preserve
+  struct-payload field facts through later projection. This covers scalar
+  payload fields, `Text` payload fields consumed by `len`, and `Text` payload
+  fields consumed by `get`, while numeric/struct result mismatches continue to
+  reject before collection lowering.
+
 ## Locked Defaults
 
 - Dynamic loops, memory-backed aggregates, and effectful capabilities remain
@@ -3282,19 +4665,134 @@ specific after the tasks above land.
 - `freeze expr` consumes a unique value and produces immutable shareable data.
 - `scratch { ... }` is a temporary arena scope with a return value, not a
   general ownership container.
-- Optional region-like scopes should be modeled as scratch/arena lifetimes with
-  explicit return-value escape facts, not as implicit GC-managed storage.
-- Scratch-backed values cannot escape unless proven scratch-free or explicitly
-  frozen/promoted.
-- If scratch escape analysis is hard or uncertain, reject. Do not add a GC
-  fallback to the default backend.
+- Scratch-backed values cannot escape unless they are scalar, already
+  frozen/shareable, proven scratch-free, or explicitly frozen/promoted before
+  the scratch reset.
+- Optional longer-lived regions are future explicit owner packages. Returned
+  values tied to such a region must carry the region owner, lifetime facts,
+  cleanup/drop facts, and move/consume rules; ordinary `scratch {}` does not
+  grow an attached live region.
+- If scratch escape analysis, temporary cleanup, or region lifetime analysis is
+  hard or uncertain, split the case into smaller proof fixtures or reject before
+  WAT emission. Do not add a GC fallback to the default backend.
 - Cleanup for lowering-created temporaries must be inserted from ownership and
   lifetime facts before WAT emission.
-- A future Wasm-GC backend may use managed GC values, but that is a separate
-  target from the baseline linear-memory backend.
+- Do not create a baseline collector task to rescue hard analysis cases. Split
+  broad memory work by storage class and escape path until each slice is
+  accepted with proof rows, rejected with a named missing fact, or deferred to
+  an explicit future region/managed-storage profile.
+- The active proof work is unique ownership, lexical borrow/views,
+  frozen/shareable values, value-returning scratchpads with reset,
+  storage-driven linear participation, and cleanup insertion for source values
+  plus compiler-created temporaries.
+- A future managed-storage or Wasm-GC backend may use collector-managed values,
+  but that is a separate explicit target from the baseline linear-memory
+  backend.
 - Scratch pointer reset must be emitted on every structured exit edge.
 - Unique heap drop points should be computed even if the initial bump allocator
   makes them runtime no-ops.
 - The first capability ABI should use direct Wasm imports per method.
 - Keep the hybrid aggregate model: scalarize static/known aggregates and
   allocate only runtime/escaping aggregates.
+
+## Latest Memory/Lifetime Task Update
+
+The selected baseline is now fixed as static no-GC analysis for
+`core-3-nonweb`. Do not add a collector task to make uncertain scratch,
+temporary, aggregate, union, text, closure, borrow, or host-boundary cases work.
+If a case is hard, split it into a narrower proof fixture, reject it before WAT
+emission with a named missing fact, or defer it to a future explicit
+region/managed-storage profile.
+
+The implementation work should be tracked as these concrete slices:
+
+1. `ownership_fact_inventory`
+   - Classify every non-scalar source value and lowering-created temporary as
+     `unique_heap`, `borrow_view`, `frozen_shareable`, or `scratch_backed`
+     unless it is a `scalar_local`.
+   - Record owner id, lifetime id, origin, escape decision, and
+     cleanup/drop/reset/transfer decision.
+   - Thread the same rows through text buffers, aggregate fields, union
+     payloads, closure environment slots, host-boundary marshaling, and
+     compiler-created helper temporaries.
+   - Add an audit fixture for each currently accepted WAT-emitting memory
+     feature before broadening codegen.
+
+2. `borrow_view_lifetimes`
+   - Keep `borrow value` and `let view = borrow value` as runtime-free lexical
+     views.
+   - Reject owner move, mutation, freeze, transfer, return, escaping capture,
+     or unknown host-boundary use while a view is live.
+   - End view lifetimes at explicit block, function-call, loop-iteration, and
+     scratchpad boundaries only when no escaping reference remains.
+   - Preserve borrowed field and payload projections as views tied to the
+     original owner, not as independent owners.
+
+3. `scratch_result_proofs`
+   - Lower `scratch { ... }` as saved-pointer plus reset on every exit edge.
+   - Check the return value before reset. Accept only scalar,
+     `frozen_shareable`, explicitly frozen/promoted, or transitively
+     scratch-free results.
+   - Reject raw scratch-backed text, aggregate, union payload, or closure
+     environment escapes.
+   - Prove scratch-freeness recursively through returned fields, union
+     payloads, nested closures, and block-local aliases.
+   - Treat `scratch {}` as the share-friendly temporary computation tool for
+     the MVP; do not model it as an attached region that keeps allocations
+     alive after reset.
+
+4. `freeze_and_promotion_edges`
+   - Make `freeze value` the explicit boundary from unique ownership to
+     immutable shareable storage.
+   - Make scratch-to-persistent promotion an explicit Core copy before the
+     scratch reset.
+   - Allow frozen/shareable values to be copied freely after the edge; require
+     unique or scratch-backed values to prove the edge before sharing or
+     escaping.
+   - Keep promotion visible in proof rows even when an optimization can later
+     reuse storage.
+
+5. `temporary_cleanup_rows`
+   - Insert cleanup/drop/reset/transfer/no-cleanup rows for source values and
+     compiler-created temporaries before WAT emission.
+   - Cover text operations, aggregate materialization, union payload
+     construction, closure environment setup, host marshaling, and promotion
+     copies.
+   - Insert cleanup for temporaries from ownership facts during Core
+     elaboration, not as a late WAT-emitter guess.
+   - If cleanup is hard to prove, split the case by temporary origin and escape
+     shape or reject before WAT emission.
+
+6. `storage_driven_linear_analysis`
+   - Reuse exact-use/path-sensitive machinery for source `!` capabilities,
+     unique owners, active borrow barriers, scratch-backed values, and
+     ownership-bearing closure slots.
+   - Keep scalar locals and frozen/shareable values freely copyable.
+   - Apply linear participation because of storage/effect facts, not because
+     every non-scalar value is globally linear.
+   - Keep capability tokens unique and non-freezable; ordinary data can become
+     shareable only through explicit frozen/shareable facts.
+
+7. `future_region_owner_packages`
+   - Keep longer-lived regions out of ordinary `scratch {}`.
+   - A future region feature must return or carry an explicit region owner with
+     tied value lifetimes, cleanup/drop facts, move/consume rules, ABI rules,
+     and host-boundary rules.
+   - Model optional regions as explicit owner packages separate from the
+     baseline scratchpad feature. Values tied to the region may escape only by
+     moving with that owner package or by freezing/promoting out of it.
+
+8. `no_gc_wat_gate`
+   - Add a final pre-WAT proof gate for `core-3-nonweb` that requires
+     `managed_storage: "disabled"` plus complete storage, lifetime, escape,
+     borrow, freeze/promotion, and cleanup rows.
+   - Reject missing proof rows with diagnostics that name the first missing
+     edge, such as active borrow, scratch-backed return, missing promotion,
+     unknown host-boundary ownership, or missing temporary cleanup.
+   - Keep tracing GC, Wasm-GC, reusable arenas, and managed storage as future
+     explicit profiles only. They must not repair baseline proof gaps.
+
+Every slice above should land with one accepted proof fixture that keeps
+`managed_storage: "disabled"` visible, one nearby rejected fixture that names
+the first missing proof edge, and no broadened WAT emission until those fixtures
+exist.

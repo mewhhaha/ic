@@ -9,6 +9,7 @@ import {
   emit_scoped_static_core_call as emit_scoped_static_core_call_with_hooks,
   scoped_static_core_call_fn_type as scoped_static_core_call_fn_type_with_hooks,
   scoped_static_core_call_type as scoped_static_core_call_type_with_hooks,
+  scoped_static_core_call_value as scoped_static_core_call_value_with_hooks,
   type StaticCoreCallHooks,
 } from "../../../static_call.ts";
 import type { CoreBackendStaticCall } from "./types.ts";
@@ -19,6 +20,7 @@ export type CoreBackendStaticCallScoped = Pick<
   | "emit_scoped_static_core_call"
   | "scoped_static_core_call_fn_type"
   | "scoped_static_core_call_type"
+  | "scoped_static_core_call_value"
 >;
 
 export function create_core_backend_static_call_scoped(
@@ -76,10 +78,24 @@ export function create_core_backend_static_call_scoped(
     );
   }
 
+  function scoped_static_core_call_value(
+    expr: Extract<CoreExpr, { tag: "app" }>,
+    target: Extract<CoreExpr, { tag: "lam" }>,
+    ctx: StaticCtx,
+  ): { value: CoreExpr; ctx: CoreCtx } {
+    return scoped_static_core_call_value_with_hooks(
+      expr,
+      target,
+      ctx,
+      hooks,
+    );
+  }
+
   return {
     collect_scoped_static_core_call_locals,
     emit_scoped_static_core_call,
     scoped_static_core_call_fn_type,
     scoped_static_core_call_type,
+    scoped_static_core_call_value,
   };
 }

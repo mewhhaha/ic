@@ -151,7 +151,7 @@ export type CoreLocalCollectHooks = {
   ) => expr is Extract<CoreExpr, { tag: "app" }>;
   is_static_value_expr: (expr: CoreExpr, ctx: StaticCtx) => boolean;
   merge_if_else_static_assignments: (
-    stmt: Extract<CoreStmt, { tag: "if_else_stmt" }>,
+    stmt: CoreStmt,
     cond: CoreExpr,
     then_statics: Map<string, CoreExpr>,
     else_statics: Map<string, CoreExpr>,

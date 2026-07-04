@@ -7,7 +7,7 @@ import type {
   ResolvedFrontExpr,
   TypeField,
 } from "./ast.ts";
-import { clone_env, fresh, lookup } from "./env.ts";
+import { clone_env, fresh, lookup, push_binding } from "./env.ts";
 import { is_object_type_expr, lookup_type_field } from "./fields.ts";
 import { lower_lambda_binding } from "./ic_share.ts";
 import {
@@ -39,6 +39,11 @@ export type UnionValueHooks = UnionCallInlineHooks & {
   ) => ResolvedFrontExpr | undefined;
 };
 
+type UnionValueTarget = {
+  expr: Extract<FrontExpr, { tag: "union_case" }>;
+  env: Env;
+};
+
 export function lower_union_case_value(
   expr: Extract<FrontExpr, { tag: "union_case" }>,
   env: Env,
@@ -49,20 +54,7 @@ export function lower_union_case_value(
   if (!type_expr) {
     const field = infer_untyped_union_case(expr, env, hooks);
 
-    if (field) {
-      type_expr = { tag: "union_type", cases: [field] };
-    } else if (expr.value) {
-      type_expr = {
-        tag: "union_type",
-        cases: [{ name: expr.name, type_name: "unknown" }],
-      };
-    }
-  }
-
-  if (!type_expr) {
-    throw new Error(
-      "Cannot lower union case to Ic frontend yet: " + expr.name,
-    );
+    type_expr = { tag: "union_type", cases: [field] };
   }
 
   const union_type = resolve_union_type_value(type_expr, env, hooks);
@@ -124,7 +116,7 @@ export function resolve_union_value(
   expr: FrontExpr,
   env: Env,
   hooks: UnionValueHooks,
-): { expr: Extract<FrontExpr, { tag: "union_case" }>; env: Env } | undefined {
+): UnionValueTarget | undefined {
   if (expr.tag === "captured") {
     return resolve_union_value(expr.expr, expr.env, hooks);
   }
@@ -169,6 +161,12 @@ export function resolve_union_value(
   }
 
   if (expr.tag === "block") {
+    const block = resolve_union_block_value(expr, env, hooks);
+
+    if (block) {
+      return block;
+    }
+
     const value = hooks.eval_simple_front_block(expr, env);
 
     if (value) {
@@ -177,6 +175,16 @@ export function resolve_union_value(
   }
 
   if (expr.tag === "field") {
+    const constructor = resolve_union_constructor_call({
+      tag: "app",
+      func: expr,
+      args: [],
+    }, env, hooks);
+
+    if (constructor) {
+      return constructor;
+    }
+
     const field = hooks.resolve_struct_field_expr(expr, env);
 
     if (!field) {
@@ -221,11 +229,82 @@ export function resolve_union_value(
   return resolve_union_value(binding.value, value_env, hooks);
 }
 
+function resolve_union_block_value(
+  expr: Extract<FrontExpr, { tag: "block" }>,
+  env: Env,
+  hooks: UnionValueHooks,
+): UnionValueTarget | undefined {
+  if (expr.statements.length <= 1) {
+    return undefined;
+  }
+
+  const local = clone_env(env);
+
+  for (let index = 0; index < expr.statements.length; index += 1) {
+    const stmt = expr.statements[index];
+    expect(stmt, "Missing union block statement " + index);
+
+    if (stmt.tag === "bind") {
+      if (stmt.kind !== "let" || stmt.is_linear) {
+        return undefined;
+      }
+
+      const value_env = clone_env(local);
+      push_binding(local, {
+        name: stmt.name,
+        ic_name: stmt.name,
+        type: hooks.infer_expr(stmt.value, value_env),
+        is_const: false,
+        is_linear: false,
+        value: stmt.value,
+        value_env,
+      });
+      continue;
+    }
+
+    if (stmt.tag === "expr") {
+      if (index !== expr.statements.length - 1) {
+        return undefined;
+      }
+
+      if (!can_resolve_union_block_result_alias(stmt.expr)) {
+        return undefined;
+      }
+
+      return resolve_union_value(stmt.expr, local, hooks);
+    }
+
+    if (stmt.tag === "return") {
+      if (index !== expr.statements.length - 1) {
+        return undefined;
+      }
+
+      if (!can_resolve_union_block_result_alias(stmt.value)) {
+        return undefined;
+      }
+
+      return resolve_union_value(stmt.value, local, hooks);
+    }
+
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function can_resolve_union_block_result_alias(expr: FrontExpr): boolean {
+  if (expr.tag === "var" || expr.tag === "field" || expr.tag === "index") {
+    return true;
+  }
+
+  return false;
+}
+
 export function infer_untyped_union_case(
   expr: Extract<FrontExpr, { tag: "union_case" }>,
   env: Env,
   hooks: UnionValueHooks,
-): TypeField | undefined {
+): TypeField {
   if (!expr.value) {
     return { name: expr.name, type_name: "Unit" };
   }

@@ -16,6 +16,7 @@ export function create_core_backend_values_struct(
     runtime_aggregate_type_expr: (expr: CoreExpr, ctx: StaticCtx) =>
       runtime_aggregate_type_expr_for_static_collection(expr, ctx, deps),
     static_core_call_value: static_call.static_core_call_value,
+    static_core_call_target: static_call.static_core_call_target,
   });
 }
 

@@ -1,12 +1,6 @@
 import { expect } from "../expect.ts";
 import type { Ic as IcNode } from "../ic.ts";
-import type {
-  Env,
-  FrontExpr,
-  FrontType,
-  Source as SourceNode,
-  Stmt,
-} from "./ast.ts";
+import type { Env, FrontExpr, Source as SourceNode, Stmt } from "./ast.ts";
 import { assignment_type } from "./annotations.ts";
 import { create_frontend_expression_hooks } from "./lower_expression_hooks_adapter.ts";
 import { capture_const_ref, capture_expr } from "./capture.ts";
@@ -36,7 +30,12 @@ import { create_frontend_text_lower } from "./lower_text_adapter.ts";
 import { create_frontend_program_hooks } from "./lower_program_hooks_adapter.ts";
 import { apply_index_assignment } from "./index_assignment.ts";
 import type { FrontPrepareHooks } from "./prepare.ts";
-import { infer_static_rec_app_type, lower_static_rec_app } from "./rec.ts";
+import {
+  infer_static_rec_app_type,
+  lower_static_rec_app,
+  lower_static_rec_app_as_front_type,
+} from "./rec.ts";
+import { create_frontend_app_type } from "./lower_app_type_adapter.ts";
 import { create_frontend_runtime_struct } from "./lower_runtime_struct_adapter.ts";
 import type { StatementLowerHooks } from "./stmt.ts";
 import {
@@ -80,6 +79,7 @@ const {
   check_dynamic_function_if_args,
   eval_const_call,
   infer_call_union_result_type,
+  infer_specialized_app_type,
   inline_deferred_const_call,
   inline_runtime_call_expr,
   inline_specialized_call_expr,
@@ -152,6 +152,28 @@ const {
   resolve_static_i32_expr,
 } = frontend_static_expr;
 
+const {
+  infer_app_result_type: infer_frontend_app_result_type,
+  lower_app_as_front_type: lower_frontend_app_as_front_type,
+} = create_frontend_app_type({
+  infer_expr,
+  infer_specialized_app_type,
+  infer_static_rec_app_type: (expr, env) =>
+    infer_static_rec_app_type(expr, env, static_rec_hooks),
+  inline_runtime_call_expr,
+  inline_specialized_call_expr,
+  lower_expr,
+  lower_static_rec_app_as_front_type: (expr, type, env) =>
+    lower_static_rec_app_as_front_type(
+      expr,
+      type,
+      env,
+      static_rec_hooks,
+    ),
+  resolve_annotation_type: (annotation, env) =>
+    resolve_annotation_type(annotation, env),
+});
+
 const frontend_text_lower = create_frontend_text_lower({
   can_lower_dynamic_union_if_as_value: (expr, env) =>
     can_lower_dynamic_union_if_as_value(expr, env),
@@ -162,7 +184,10 @@ const frontend_text_lower = create_frontend_text_lower({
   inline_runtime_call_expr,
   inline_specialized_call_expr,
   lookup,
+  lower_app_as_front_type: lower_frontend_app_as_front_type,
   lower_expr,
+  resolve_annotation_type: (annotation, env) =>
+    resolve_annotation_type(annotation, env),
   resolve_index_expr,
   resolve_static_i32_expr,
   resolve_struct_field_expr,
@@ -183,6 +208,9 @@ const {
 const frontend_static_loop = create_frontend_static_loop({
   eval_i32_expr,
   infer_expr,
+  infer_union_cases,
+  resolve_annotation_type: (annotation, env) =>
+    resolve_annotation_type(annotation, env),
   resolve_static_i32_expr,
   resolve_runtime_struct_type: (expr, env) =>
     resolve_runtime_struct_type(expr, env),
@@ -243,6 +271,8 @@ const union_infer_hooks = {
   inline_runtime_call_expr,
   inline_specialized_call_expr,
   resolve_dynamic_union_if_target,
+  resolve_annotation_type: (annotation, env) =>
+    resolve_annotation_type(annotation, env),
   resolve_union_type_value,
   resolve_union_value,
 } satisfies UnionInferHooks;
@@ -275,6 +305,7 @@ const struct_value_hooks = {
   eval_simple_front_block,
   infer_expr,
   inline_deferred_const_call,
+  inline_runtime_call_expr,
   inline_specialized_call_expr,
   lower_expr_as_declared_type,
   lower_expr,
@@ -314,7 +345,10 @@ const {
 
 const frontend_runtime_struct = create_frontend_runtime_struct({
   fresh,
+  infer_expr,
   lower_expr,
+  resolve_app_result_type: (expr, env) =>
+    infer_frontend_app_result_type(expr, env),
   resolve_annotation_type,
   resolve_struct_value_type_fields,
 });
@@ -365,6 +399,7 @@ const frontend_expression_hooks = create_frontend_expression_hooks({
   infer_expr,
   infer_union_cases,
   inline_deferred_const_call,
+  inline_runtime_call_expr,
   inline_specialized_call_expr,
   lookup,
   lower_dynamic_index_access,
@@ -379,6 +414,7 @@ const frontend_expression_hooks = create_frontend_expression_hooks({
   lower_runtime_struct_index_access: (object, index, env) =>
     lower_runtime_struct_index_access(object, index, env),
   lower_runtime_text_byte_index,
+  lower_app_as_front_type: lower_frontend_app_as_front_type,
   lower_specialized_app,
   lower_static_rec_app: (expr, env) =>
     lower_static_rec_app(expr, env, static_rec_hooks),
@@ -442,11 +478,14 @@ const frontend_program_hooks = create_frontend_program_hooks({
   infer_dynamic_if_let_cases,
   infer_dynamic_union_if_cases,
   infer_union_cases,
+  infer_specialized_app_type,
   infer_static_rec_app_type: (expr, env) =>
     infer_static_rec_app_type(expr, env, static_rec_hooks),
   infer_expr,
   inline_deferred_const_call,
   is_deferred_frontend_value,
+  lower_app_as_front_type: lower_frontend_app_as_front_type,
+  lower_dynamic_union_if,
   lower_expr,
   maybe_struct_type_value: (expr: FrontExpr, env: Env) =>
     maybe_struct_type_value(expr, env, struct_value_hooks),
@@ -509,6 +548,8 @@ const static_rec_hooks = create_frontend_static_rec_hooks({
   resolve_annotation_type,
   resolve_index_expr,
   resolve_static_i32_expr,
+  resolve_struct_type_value: (expr, env) =>
+    resolve_struct_type_value(expr, env, struct_value_hooks),
   resolve_struct_field_expr,
   resolve_union_value,
   same_type,

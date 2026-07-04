@@ -1,25 +1,32 @@
 import type { ValType } from "../../../../op.ts";
 import type { Wat } from "../../../../wat.ts";
-import type { CoreExpr, CoreFnType } from "../../../ast.ts";
+import type { CoreExpr, CoreFnType, CoreStmt } from "../../../ast.ts";
 import type { CoreEmitCtx } from "../../../emit_ctx.ts";
 import type { DynamicUnionIf } from "../../../if_let.ts";
-import type { StaticCtx, TempCtx } from "../../../local_collect.ts";
+import type { CoreCtx, StaticCtx, TempCtx } from "../../../local_collect.ts";
 import type { StaticValuePlan } from "../../../static_values.ts";
 import type { StaticStructIfBranches } from "../../../struct_static.ts";
 import type { StaticTextIfBranches } from "../../../text_static.ts";
 
 export type CoreBackendStaticValueApi = {
+  block_ctx: (ctx: StaticCtx) => StaticCtx;
   closure_fn_type: (
     expr: CoreExpr,
     ctx: StaticCtx,
   ) => CoreFnType | undefined;
   collect_expr_locals: (expr: CoreExpr, ctx: TempCtx) => void;
+  collect_stmt_locals: (stmt: CoreStmt, ctx: CoreCtx) => void;
   core_expr_is_text: (expr: CoreExpr, ctx: StaticCtx) => boolean;
   dynamic_union_if: (
     expr: CoreExpr,
     ctx: StaticCtx,
   ) => DynamicUnionIf | undefined;
   emit_expr: (expr: CoreExpr, ctx: CoreEmitCtx) => Wat;
+  emit_stmt: (
+    stmt: CoreStmt,
+    ctx: CoreEmitCtx,
+    is_final: boolean,
+  ) => Wat;
   expr_type: (expr: CoreExpr, ctx: StaticCtx) => ValType;
   runtime_union_type_expr: (
     expr: CoreExpr,

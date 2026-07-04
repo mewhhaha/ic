@@ -10,6 +10,7 @@ import type {
 } from "./closure_runtime.ts";
 import { align_to, val_type_align, val_type_size } from "./memory.ts";
 import { same_runtime_aggregate_type_expr } from "./runtime_aggregate.ts";
+import { same_runtime_union_type_expr } from "./runtime_union.ts";
 import { clone_core_host_imports } from "./host_import.ts";
 
 export function ensure_lifted_closure<ctx extends CoreClosureEmitCtx>(
@@ -159,12 +160,24 @@ function same_closure_fn_type(left: CoreFnType, right: CoreFnType): boolean {
     const right_param = right.params[index];
     const left_text = left.param_texts[index];
     const right_text = right.param_texts[index];
+    const left_struct = left.param_structs?.[index];
+    const right_struct = right.param_structs?.[index];
+    const left_union = left.param_unions?.[index];
+    const right_union = right.param_unions?.[index];
 
     if (left_param !== right_param) {
       return false;
     }
 
     if (left_text !== right_text) {
+      return false;
+    }
+
+    if (!same_runtime_aggregate_type_expr(left_struct, right_struct)) {
+      return false;
+    }
+
+    if (!same_runtime_union_type_expr(left_union, right_union)) {
       return false;
     }
   }

@@ -2059,6 +2059,81 @@ user.age + len(user.name)
         annotated_scratch_free_result,
     );
   }
+
+  const block_setup_scratch_free_wat = wat_from_core_source(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+let user: user_type = scratch {
+  let temp: Text = freeze append("Ada", "!")
+  user_type { age: 40, name: temp }
+}
+user.age + len(user.name)
+`);
+  const block_setup_scratch_free_instance = await instantiate_wat(
+    block_setup_scratch_free_wat,
+    "core_block_setup_scratch_free_static_aggregate",
+    {},
+  );
+
+  if (!("main" in block_setup_scratch_free_instance.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (
+    typeof block_setup_scratch_free_instance.exports.main !== "function"
+  ) {
+    throw new Error("main export is not a function");
+  }
+
+  const block_setup_scratch_free_result = block_setup_scratch_free_instance
+    .exports.main();
+
+  if (block_setup_scratch_free_result !== 44) {
+    throw new Error(
+      "Expected block setup scratch-free main() -> 44, got " +
+        block_setup_scratch_free_result,
+    );
+  }
+
+  const block_alias_scratch_free_wat = wat_from_core_source(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+let user: user_type = scratch {
+  let name: Text = freeze append("Ada", "!")
+  let temp: user_type = user_type { age: 40, name: name }
+  temp
+}
+user.age + len(user.name)
+`);
+  const block_alias_scratch_free_instance = await instantiate_wat(
+    block_alias_scratch_free_wat,
+    "core_block_alias_scratch_free_static_aggregate",
+    {},
+  );
+
+  if (!("main" in block_alias_scratch_free_instance.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (
+    typeof block_alias_scratch_free_instance.exports.main !== "function"
+  ) {
+    throw new Error("main export is not a function");
+  }
+
+  const block_alias_scratch_free_result = block_alias_scratch_free_instance
+    .exports.main();
+
+  if (block_alias_scratch_free_result !== 44) {
+    throw new Error(
+      "Expected block alias scratch-free main() -> 44, got " +
+        block_alias_scratch_free_result,
+    );
+  }
 });
 
 Deno.test("core dynamic aggregate index expression compiles through WAT to Wasm", async () => {
@@ -2216,6 +2291,66 @@ total + user.bonus
 
   if (nested_result !== 32) {
     throw new Error("Expected nested main() -> 32, got " + nested_result);
+  }
+
+  const control_wat = wat_from_core_source(`
+const pair_type = struct {
+  first: Int,
+  second: Int
+}
+
+let flag = 1
+let make = if flag {
+  (first: Int, second: Int) => pair_type {
+    first: first,
+    second: second
+  }
+} else {
+  (first: Int, second: Int) => pair_type {
+    first: second,
+    second: first
+  }
+}
+
+let pair: pair_type = make(10, 31)
+let total = 0
+
+for index, value in pair {
+  if index == 0 {
+    continue
+  }
+
+  total = total + value
+
+  if index == 1 {
+    break
+  }
+
+  total = total + 100
+}
+
+total
+`);
+  const control_instance = await instantiate_wat(
+    control_wat,
+    "core_runtime_aggregate_collection_control",
+    {},
+  );
+
+  if (!("main" in control_instance.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof control_instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const control_result = control_instance.exports.main();
+
+  if (control_result !== 31) {
+    throw new Error(
+      "Expected control main() -> 31, got " + control_result,
+    );
   }
 });
 
@@ -3111,6 +3246,54 @@ len(user.name) + user.age
     throw new Error(
       "Expected existing alias scratch frozen main() -> 43, got " +
         existing_alias_scratch_frozen_result,
+    );
+  }
+
+  const branch_assignment_scratch_frozen_wat = wat_from_core_source(`
+const user_type = struct {
+  name: Text,
+  age: Int
+}
+
+let flag = 1
+let start = 0
+let prefix: Text = slice("Ada", start, 1)
+let existing: user_type = user_type { name: append(prefix, "da"), age: 40 }
+if flag {
+  existing = user_type { name: append(prefix, "!"), age: 41 }
+} else {
+  existing = user_type { name: append(prefix, "?"), age: 42 }
+}
+let user: user_type = scratch {
+  let temp = existing
+  freeze temp
+}
+
+len(user.name) + user.age
+`);
+  const branch_assignment_scratch_frozen_instance = await instantiate_wat(
+    branch_assignment_scratch_frozen_wat,
+    "core_runtime_aggregate_branch_assignment_scratch_freeze",
+    {},
+  );
+
+  if (!("main" in branch_assignment_scratch_frozen_instance.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (
+    typeof branch_assignment_scratch_frozen_instance.exports.main !== "function"
+  ) {
+    throw new Error("main export is not a function");
+  }
+
+  const branch_assignment_scratch_frozen_result =
+    branch_assignment_scratch_frozen_instance.exports.main();
+
+  if (branch_assignment_scratch_frozen_result !== 43) {
+    throw new Error(
+      "Expected branch assignment scratch frozen main() -> 43, got " +
+        branch_assignment_scratch_frozen_result,
     );
   }
 
@@ -4814,6 +4997,77 @@ if let .ok(x) = value { x + 1 } else { 0 }
     );
   }
 
+  const scratch_union_block_setup_wat = wat_from_core_source(`
+const result_type = union {
+  ok: Text,
+  err: Int
+}
+let result: result_type = scratch {
+  let temp: Text = freeze append("Ada", "!")
+  result_type.ok(temp)
+}
+if let .ok(value) = result { len(value) } else { 0 }
+`);
+  const scratch_union_block_setup_instance = await instantiate_wat(
+    scratch_union_block_setup_wat,
+    "core_scratch_static_union_block_setup",
+    {},
+  );
+
+  if (!("main" in scratch_union_block_setup_instance.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof scratch_union_block_setup_instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const scratch_union_block_setup_result = scratch_union_block_setup_instance
+    .exports.main();
+
+  if (scratch_union_block_setup_result !== 4) {
+    throw new Error(
+      "Expected scratch union block setup main() -> 4, got " +
+        scratch_union_block_setup_result,
+    );
+  }
+
+  const scratch_union_block_alias_wat = wat_from_core_source(`
+const result_type = union {
+  ok: Text,
+  err: Int
+}
+let result: result_type = scratch {
+  let name: Text = freeze append("Ada", "!")
+  let temp: result_type = result_type.ok(name)
+  temp
+}
+if let .ok(value) = result { len(value) } else { 0 }
+`);
+  const scratch_union_block_alias_instance = await instantiate_wat(
+    scratch_union_block_alias_wat,
+    "core_scratch_static_union_block_alias",
+    {},
+  );
+
+  if (!("main" in scratch_union_block_alias_instance.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof scratch_union_block_alias_instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const scratch_union_block_alias_result = scratch_union_block_alias_instance
+    .exports.main();
+
+  if (scratch_union_block_alias_result !== 4) {
+    throw new Error(
+      "Expected scratch union block alias main() -> 4, got " +
+        scratch_union_block_alias_result,
+    );
+  }
+
   const scratch_dynamic_union_wat = wat_from_core_source(`
 const result_type = union {
   ok: Int,
@@ -4971,6 +5225,71 @@ value
 
   if (wide_fallback_result !== 0n) {
     throw new Error("Expected main() -> 0n, got " + wide_fallback_result);
+  }
+
+  const text_if_fallback_wat = wat_from_core_source(`
+let flag = 0
+let selected: Text = if flag {
+  "Ada"
+}
+
+len(selected)
+`);
+  const text_if_fallback = await instantiate_wat(
+    text_if_fallback_wat,
+    "core_static_text_if_implicit_fallback",
+    {},
+  );
+
+  if (!("main" in text_if_fallback.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof text_if_fallback.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const text_if_fallback_result = text_if_fallback.exports.main();
+
+  if (text_if_fallback_result !== 0) {
+    throw new Error(
+      "Expected main() -> 0, got " + text_if_fallback_result,
+    );
+  }
+
+  const text_if_let_fallback_wat = wat_from_core_source(`
+const result_type = union {
+  ok: Text,
+  err: Text
+}
+
+let result: result_type = .err("no")
+let selected: Text = if let .ok(value) = result {
+  value
+}
+
+len(selected)
+`);
+  const text_if_let_fallback = await instantiate_wat(
+    text_if_let_fallback_wat,
+    "core_static_text_if_let_implicit_fallback",
+    {},
+  );
+
+  if (!("main" in text_if_let_fallback.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof text_if_let_fallback.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const text_if_let_fallback_result = text_if_let_fallback.exports.main();
+
+  if (text_if_let_fallback_result !== 0) {
+    throw new Error(
+      "Expected main() -> 0, got " + text_if_let_fallback_result,
+    );
   }
 });
 
@@ -5171,6 +5490,45 @@ selected
 
   if (typed_wide_result !== 0n) {
     throw new Error("Expected main() -> 0n, got " + typed_wide_result);
+  }
+
+  const typed_text_wat = wat_from_core_source(`
+let input = 0
+const result_type = union {
+  ok: Text,
+  err: Text
+}
+
+let result: result_type = if input {
+  .ok("Ada")
+} else {
+  .err("Grace")
+}
+
+let selected: Text = if let .ok(value) = result {
+  value
+}
+
+len(selected)
+`);
+  const typed_text = await instantiate_wat(
+    typed_text_wat,
+    "core_dynamic_typed_text_union_if_let_implicit_fallback",
+    {},
+  );
+
+  if (!("main" in typed_text.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof typed_text.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const typed_text_result = typed_text.exports.main();
+
+  if (typed_text_result !== 0) {
+    throw new Error("Expected main() -> 0, got " + typed_text_result);
   }
 
   const const_call_wat = wat_from_core_source(`
@@ -6157,6 +6515,495 @@ host_read(borrow message)
   }
 });
 
+Deno.test("frontend host capability method compiles through WAT to Wasm", async () => {
+  const wat = wat_from_core_source(`
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+io = io.print("hello")
+io
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "frontend_host_capability_method",
+    {
+      env: {
+        print(token: number, ptr: number): number {
+          if (ptr < 0) {
+            throw new Error("expected text pointer");
+          }
+
+          return token + 41;
+        },
+      },
+    },
+  );
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const result = instance.exports.main();
+
+  if (result !== 42) {
+    throw new Error("Expected main() -> 42, got " + result);
+  }
+});
+
+Deno.test(
+  "frontend captured linear capability closure compiles through WAT to Wasm",
+  async () => {
+    const wat = wat_from_core_source(`
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let print_once = () => io.print("hello")
+io = print_once()
+io
+`);
+    let calls = 0;
+    const instance = await instantiate_wat(
+      wat,
+      "frontend_captured_linear_capability_closure",
+      {
+        env: {
+          print(token: number, ptr: number): number {
+            if (ptr < 0) {
+              throw new Error("expected text pointer");
+            }
+
+            calls = calls + 1;
+            return token + 41;
+          },
+        },
+      },
+    );
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    const result = instance.exports.main();
+
+    if (result !== 42) {
+      throw new Error("Expected main() -> 42, got " + result);
+    }
+
+    if (calls !== 1) {
+      throw new Error("Expected one host print call");
+    }
+  },
+);
+
+Deno.test(
+  "frontend branch-selected linear capability closure compiles through WAT to Wasm",
+  async () => {
+    const wat = wat_from_core_source(`
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let flag = 0
+let print_once = if flag {
+  () => io.print("hello")
+} else {
+  () => io.print("world")
+}
+io = print_once()
+io
+`);
+    let calls = 0;
+    let printed = "";
+    let memory: WebAssembly.Memory | undefined;
+    const instance = await instantiate_wat(
+      wat,
+      "frontend_branch_selected_linear_capability_closure",
+      {
+        env: {
+          print(token: number, ptr: number): number {
+            if (ptr < 0) {
+              throw new Error("expected text pointer");
+            }
+
+            if (!memory) {
+              throw new Error("memory export is not available");
+            }
+
+            const view = new DataView(memory.buffer);
+            const length = view.getUint32(ptr, true);
+            const bytes = new Uint8Array(memory.buffer, ptr + 4, length);
+            printed = decoder.decode(bytes);
+            calls = calls + 1;
+            return token + 41;
+          },
+        },
+      },
+    );
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    if (!("memory" in instance.exports)) {
+      throw new Error("Missing memory export");
+    }
+
+    if (!(instance.exports.memory instanceof WebAssembly.Memory)) {
+      throw new Error("memory export is not a WebAssembly.Memory");
+    }
+
+    memory = instance.exports.memory;
+    const result = instance.exports.main();
+
+    if (result !== 42) {
+      throw new Error("Expected main() -> 42, got " + result);
+    }
+
+    if (calls !== 1) {
+      throw new Error("Expected one host print call");
+    }
+
+    if (printed !== "world") {
+      throw new Error("Expected selected branch to print world");
+    }
+  },
+);
+
+Deno.test(
+  "frontend branch-selected linear closure alpha-renames params through WAT to Wasm",
+  async () => {
+    const wat = wat_from_core_source(`
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let flag = 0
+let print_once = if flag {
+  (message: Text) => io.print(borrow message)
+} else {
+  (text: Text) => io.print(borrow text)
+}
+io = print_once("world")
+io
+`);
+    let calls = 0;
+    let printed = "";
+    let memory: WebAssembly.Memory | undefined;
+    const instance = await instantiate_wat(
+      wat,
+      "frontend_branch_selected_linear_closure_alpha_params",
+      {
+        env: {
+          print(token: number, ptr: number): number {
+            if (ptr < 0) {
+              throw new Error("expected text pointer");
+            }
+
+            if (!memory) {
+              throw new Error("memory export is not available");
+            }
+
+            const view = new DataView(memory.buffer);
+            const length = view.getUint32(ptr, true);
+            const bytes = new Uint8Array(memory.buffer, ptr + 4, length);
+            printed = decoder.decode(bytes);
+            calls = calls + 1;
+            return token + 41;
+          },
+        },
+      },
+    );
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    if (!("memory" in instance.exports)) {
+      throw new Error("Missing memory export");
+    }
+
+    if (!(instance.exports.memory instanceof WebAssembly.Memory)) {
+      throw new Error("memory export is not a WebAssembly.Memory");
+    }
+
+    memory = instance.exports.memory;
+    const result = instance.exports.main();
+
+    if (result !== 42) {
+      throw new Error("Expected main() -> 42, got " + result);
+    }
+
+    if (calls !== 1) {
+      throw new Error("Expected one host print call");
+    }
+
+    if (printed !== "world") {
+      throw new Error("Expected selected branch to print world");
+    }
+  },
+);
+
+Deno.test(
+  "frontend if-let linear closure compiles through WAT to Wasm",
+  async () => {
+    const wat = wat_from_core_source(`
+let flag = 1
+const result_type = union {
+  ok: Int,
+  err: Int
+}
+
+let !base: I32 = 1
+let result: result_type = if flag {
+  .ok(40)
+} else {
+  .err(1)
+}
+
+let f = if let .ok(value) = result {
+  () => !base + value + 1
+} else {
+  () => !base + 1
+}
+
+base = f()
+base
+`);
+    const instance = await instantiate_wat(
+      wat,
+      "frontend_if_let_linear_closure",
+      {},
+    );
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    const result = instance.exports.main();
+
+    if (result !== 42) {
+      throw new Error("Expected main() -> 42, got " + result);
+    }
+  },
+);
+
+Deno.test(
+  "frontend if-let Text payload linear closure compiles through WAT to Wasm",
+  async () => {
+    const wat = wat_from_core_source(`
+const result_type = union {
+  ok: Text,
+  err: Text
+}
+
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let flag = 1
+let result: result_type = if flag {
+  result_type.ok("world")
+} else {
+  result_type.err("fallback")
+}
+let print_once = if let .ok(value) = result {
+  () => io.print(borrow value)
+} else {
+  () => io.print("fallback")
+}
+io = print_once()
+io
+`);
+    let calls = 0;
+    let printed = "";
+    let memory: WebAssembly.Memory | undefined;
+    const instance = await instantiate_wat(
+      wat,
+      "frontend_if_let_text_payload_linear_closure",
+      {
+        env: {
+          print(token: number, ptr: number): number {
+            if (ptr < 0) {
+              throw new Error("expected text pointer");
+            }
+
+            if (!memory) {
+              throw new Error("memory export is not available");
+            }
+
+            const view = new DataView(memory.buffer);
+            const length = view.getUint32(ptr, true);
+            const bytes = new Uint8Array(memory.buffer, ptr + 4, length);
+            printed = decoder.decode(bytes);
+            calls = calls + 1;
+            return token + 41;
+          },
+        },
+      },
+    );
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    if (!("memory" in instance.exports)) {
+      throw new Error("Missing memory export");
+    }
+
+    if (!(instance.exports.memory instanceof WebAssembly.Memory)) {
+      throw new Error("memory export is not a WebAssembly.Memory");
+    }
+
+    memory = instance.exports.memory;
+    const result = instance.exports.main();
+
+    if (result !== 42) {
+      throw new Error("Expected main() -> 42, got " + result);
+    }
+
+    if (calls !== 1) {
+      throw new Error("Expected one host print call");
+    }
+
+    if (printed !== "world") {
+      throw new Error("Expected matched payload to print world");
+    }
+  },
+);
+
+Deno.test(
+  "frontend runtime-union Text payload closure compiles through WAT to Wasm",
+  async () => {
+    const wat = wat_from_core_source(`
+const result_type = union {
+  ok: Text,
+  err: Unit
+}
+
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let flag = 1
+let make = if flag {
+  (x: Text) => result_type.ok(x)
+} else {
+  (x: Text) => result_type.err()
+}
+let result: result_type = make("world")
+let print_once = if let .ok(value) = result {
+  () => io.print(borrow value)
+} else {
+  () => io.print("fallback")
+}
+io = print_once()
+io
+`);
+    let calls = 0;
+    let printed = "";
+    let memory: WebAssembly.Memory | undefined;
+    const instance = await instantiate_wat(
+      wat,
+      "frontend_runtime_union_text_payload_closure",
+      {
+        env: {
+          print(token: number, ptr: number): number {
+            if (ptr < 0) {
+              throw new Error("expected text pointer");
+            }
+
+            if (!memory) {
+              throw new Error("memory export is not available");
+            }
+
+            const view = new DataView(memory.buffer);
+            const length = view.getUint32(ptr, true);
+            const bytes = new Uint8Array(memory.buffer, ptr + 4, length);
+            printed = decoder.decode(bytes);
+            calls = calls + 1;
+            return token + 41;
+          },
+        },
+      },
+    );
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    if (!("memory" in instance.exports)) {
+      throw new Error("Missing memory export");
+    }
+
+    if (!(instance.exports.memory instanceof WebAssembly.Memory)) {
+      throw new Error("memory export is not a WebAssembly.Memory");
+    }
+
+    memory = instance.exports.memory;
+    const result = instance.exports.main();
+
+    if (result !== 42) {
+      throw new Error("Expected main() -> 42, got " + result);
+    }
+
+    if (calls !== 1) {
+      throw new Error("Expected one host print call");
+    }
+
+    if (printed !== "world") {
+      throw new Error("Expected runtime union payload to print world");
+    }
+  },
+);
+
+Deno.test(
+  "frontend first-class linear capability closure compiles through WAT to Wasm",
+  async () => {
+    const wat = wat_from_core_source(`
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+const main = (!io: I32) => {
+  let print_once = () => io.print("hello")
+  io = print_once()
+  io
+}
+
+let flag = 1
+let run = if flag { main } else { main }
+let !io: I32 = 1
+io = run(!io)
+io
+`);
+    let calls = 0;
+    const instance = await instantiate_wat(
+      wat,
+      "frontend_first_class_linear_capability_closure",
+      {
+        env: {
+          print(token: number, ptr: number): number {
+            if (ptr < 0) {
+              throw new Error("expected text pointer");
+            }
+
+            calls = calls + 1;
+            return token + 41;
+          },
+        },
+      },
+    );
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    const result = instance.exports.main();
+
+    if (result !== 42) {
+      throw new Error("Expected main() -> 42, got " + result);
+    }
+
+    if (calls !== 1) {
+      throw new Error("Expected one host print call");
+    }
+  },
+);
+
 Deno.test("core bounded-borrow host import compiles through WAT to Wasm", async () => {
   const core: CoreNode = {
     tag: "program",
@@ -6519,6 +7366,41 @@ send(append("he", "llo"))
   }
 });
 
+Deno.test("core expression temporary ownership-transfer wrapper compiles through WAT to Wasm", async () => {
+  const wat = wat_from_core_source(`
+host_import host_take from "env.take" (ownership_transfer Text) => I32
+
+let send = (msg: Text) => host_take(append(msg, "!"))
+let message: Text = append("he", "llo")
+send(message)
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "core_expression_temporary_ownership_transfer_wrapper",
+    {
+      env: {
+        take(ptr: number): number {
+          if (ptr <= 0) {
+            throw new Error("expected non-zero transferred text pointer");
+          }
+
+          return 44;
+        },
+      },
+    },
+  );
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const result = instance.exports.main();
+
+  if (result !== 44) {
+    throw new Error("Expected main() -> 44, got " + result);
+  }
+});
+
 Deno.test("core branch temporary ownership-transfer wrapper argument compiles through WAT to Wasm", async () => {
   const wat = wat_from_core_source(`
 host_import host_take from "env.take" (ownership_transfer Text) => I32
@@ -6665,6 +7547,42 @@ relay(send, message)
   }
 });
 
+Deno.test("core higher-order expression temporary ownership-transfer wrapper compiles through WAT to Wasm", async () => {
+  const wat = wat_from_core_source(`
+host_import host_take from "env.take" (ownership_transfer Text) => I32
+
+let send = (msg: Text) => host_take(msg)
+let relay = (const f, msg: Text) => f(append(msg, "!"))
+let message: Text = append("he", "llo")
+relay(send, message)
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "core_higher_order_expression_temporary_ownership_transfer_wrapper",
+    {
+      env: {
+        take(ptr: number): number {
+          if (ptr <= 0) {
+            throw new Error("expected non-zero transferred text pointer");
+          }
+
+          return 47;
+        },
+      },
+    },
+  );
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const result = instance.exports.main();
+
+  if (result !== 47) {
+    throw new Error("Expected main() -> 47, got " + result);
+  }
+});
+
 Deno.test("core higher-order alias ownership-transfer wrapper compiles through WAT to Wasm", async () => {
   const wat = wat_from_core_source(`
 host_import host_take from "env.take" (ownership_transfer Text) => I32
@@ -6701,6 +7619,53 @@ relay(send, message)
 
   if (result !== 46) {
     throw new Error("Expected main() -> 46, got " + result);
+  }
+});
+
+Deno.test("core branch higher-order alias temporary ownership-transfer wrapper compiles through WAT to Wasm", async () => {
+  const wat = wat_from_core_source(`
+host_import host_take from "env.take" (ownership_transfer Text) => I32
+
+let send = (msg: Text) => host_take(msg)
+let flag = 1
+let relay = if flag {
+  (const f, msg: Text) => {
+    let g = f
+    g(append(msg, "!"))
+  }
+} else {
+  (const f, msg: Text) => {
+    let g = f
+    g(append(msg, "?"))
+  }
+}
+let message: Text = append("he", "llo")
+relay(send, message)
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "core_branch_higher_order_alias_temporary_ownership_transfer_wrapper",
+    {
+      env: {
+        take(ptr: number): number {
+          if (ptr <= 0) {
+            throw new Error("expected non-zero transferred text pointer");
+          }
+
+          return 48;
+        },
+      },
+    },
+  );
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const result = instance.exports.main();
+
+  if (result !== 48) {
+    throw new Error("Expected main() -> 48, got " + result);
   }
 });
 
@@ -7246,6 +8211,179 @@ freeze_suffix("hi")
   }
 });
 
+Deno.test("frontend alias scratch runtime text freeze compiles through WAT to Wasm", async () => {
+  const wat_text = wat_from_core_source(`
+let freeze_suffix = (value: Text) => {
+  scratch {
+    let temp: Text = append(value, "!")
+    let alias: Text = temp
+    freeze alias
+  }
+}
+
+freeze_suffix("hi")
+`);
+  const instance = await instantiate_wat(
+    wat_text,
+    "frontend_alias_scratch_runtime_text_freeze",
+    {},
+  );
+
+  if (!("memory" in instance.exports)) {
+    throw new Error("Missing memory export");
+  }
+
+  if (!(instance.exports.memory instanceof WebAssembly.Memory)) {
+    throw new Error("memory export is not a WebAssembly.Memory");
+  }
+
+  if (!("main" in instance.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const result = instance.exports.main();
+
+  if (typeof result !== "number") {
+    throw new Error("Expected main() to return a text pointer");
+  }
+
+  const memory = instance.exports.memory;
+  const bytes = new Uint8Array(memory.buffer, result, 7);
+
+  if (bytes[0] !== 3) {
+    throw new Error(
+      "Expected alias scratch-frozen text length byte 0 -> 3, got " +
+        bytes[0],
+    );
+  }
+
+  if (bytes[4] !== 104) {
+    throw new Error(
+      "Expected alias scratch-frozen text byte 0 -> 104, got " + bytes[4],
+    );
+  }
+
+  if (bytes[5] !== 105) {
+    throw new Error(
+      "Expected alias scratch-frozen text byte 1 -> 105, got " + bytes[5],
+    );
+  }
+
+  if (bytes[6] !== 33) {
+    throw new Error(
+      "Expected alias scratch-frozen text byte 2 -> 33, got " + bytes[6],
+    );
+  }
+});
+
+Deno.test("frontend annotated scratch runtime text freeze compiles through WAT to Wasm", async () => {
+  const wat_text = wat_from_core_source(`
+let freeze_suffix = (value: Text) => {
+  let result: Text = scratch {
+    let temp: Text = append(value, "!")
+    freeze temp
+  }
+  len(result)
+}
+
+freeze_suffix("hi")
+`);
+  const instance = await instantiate_wat(
+    wat_text,
+    "frontend_annotated_scratch_runtime_text_freeze",
+    {},
+  );
+
+  if (!("main" in instance.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const result = instance.exports.main();
+
+  if (result !== 3) {
+    throw new Error("Expected main() -> 3, got " + result);
+  }
+});
+
+Deno.test("frontend block scratch runtime text freeze compiles through WAT to Wasm", async () => {
+  const wat_text = wat_from_core_source(`
+let freeze_suffix = (value: Text) => {
+  scratch {
+    let temp: Text = {
+      let inner: Text = append(value, "!")
+      inner
+    }
+    freeze temp
+  }
+}
+
+freeze_suffix("hi")
+`);
+  const instance = await instantiate_wat(
+    wat_text,
+    "frontend_block_scratch_runtime_text_freeze",
+    {},
+  );
+
+  if (!("memory" in instance.exports)) {
+    throw new Error("Missing memory export");
+  }
+
+  if (!(instance.exports.memory instanceof WebAssembly.Memory)) {
+    throw new Error("memory export is not a WebAssembly.Memory");
+  }
+
+  if (!("main" in instance.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const result = instance.exports.main();
+
+  if (typeof result !== "number") {
+    throw new Error("Expected main() to return a text pointer");
+  }
+
+  const memory = instance.exports.memory;
+  const bytes = new Uint8Array(memory.buffer, result, 7);
+
+  if (bytes[0] !== 3) {
+    throw new Error(
+      "Expected block scratch-frozen text length byte 0 -> 3, got " +
+        bytes[0],
+    );
+  }
+
+  if (bytes[4] !== 104) {
+    throw new Error(
+      "Expected block scratch-frozen text byte 0 -> 104, got " + bytes[4],
+    );
+  }
+
+  if (bytes[5] !== 105) {
+    throw new Error(
+      "Expected block scratch-frozen text byte 1 -> 105, got " + bytes[5],
+    );
+  }
+
+  if (bytes[6] !== 33) {
+    throw new Error(
+      "Expected block scratch-frozen text byte 2 -> 33, got " + bytes[6],
+    );
+  }
+});
+
 Deno.test("frontend helper scratch runtime text freeze compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
 let add_bang = (value: Text) => {
@@ -7407,6 +8545,576 @@ freeze_suffix(${flag}, "hi")
   );
 });
 
+Deno.test("frontend branch scratch aggregate freeze compiles through WAT to Wasm", async () => {
+  async function check_branch(
+    flag: number,
+    expected: number,
+    name: string,
+  ): Promise<void> {
+    const wat_text = wat_from_core_source(`
+const user_type = struct {
+  name: Text,
+  age: Int
+}
+
+let read_user = flag => {
+  let user: user_type = scratch {
+    let temp: user_type = if flag {
+      user_type {
+        name: append("A", "da"),
+        age: 1
+      }
+    } else {
+      user_type {
+        name: append("Gr", "ace"),
+        age: 2
+      }
+    }
+
+    freeze temp
+  }
+
+  len(user.name) + user.age
+}
+
+read_user(${flag})
+`);
+    const instance = await instantiate_wat(
+      wat_text,
+      name,
+      {},
+    );
+
+    if (!("main" in instance.exports)) {
+      throw new Error("Missing main export");
+    }
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    const result = instance.exports.main();
+
+    if (result !== expected) {
+      throw new Error(
+        "Expected branch scratch-frozen aggregate result " +
+          expected.toString() + ", got " + String(result),
+      );
+    }
+  }
+
+  await check_branch(
+    1,
+    4,
+    "frontend_branch_scratch_aggregate_freeze_then",
+  );
+  await check_branch(
+    0,
+    7,
+    "frontend_branch_scratch_aggregate_freeze_else",
+  );
+});
+
+Deno.test("frontend branch-assigned scratch aggregate freeze compiles through WAT to Wasm", async () => {
+  async function check_branch(
+    flag: number,
+    expected: number,
+    name: string,
+  ): Promise<void> {
+    const wat_text = wat_from_core_source(`
+const user_type = struct {
+  name: Text,
+  age: Int
+}
+
+let read_user = flag => {
+  let user: user_type = scratch {
+    let temp: user_type = user_type {
+      name: append("n", "o"),
+      age: 0
+    }
+
+    if flag {
+      temp = user_type {
+        name: append("A", "da"),
+        age: 1
+      }
+    } else {
+      temp = user_type {
+        name: append("Gr", "ace"),
+        age: 2
+      }
+    }
+
+    freeze temp
+  }
+
+  len(user.name) + user.age
+}
+
+read_user(${flag})
+`);
+    const instance = await instantiate_wat(
+      wat_text,
+      name,
+      {},
+    );
+
+    if (!("main" in instance.exports)) {
+      throw new Error("Missing main export");
+    }
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    const result = instance.exports.main();
+
+    if (result !== expected) {
+      throw new Error(
+        "Expected branch-assigned scratch-frozen aggregate result " +
+          expected.toString() + ", got " + String(result),
+      );
+    }
+  }
+
+  await check_branch(
+    1,
+    4,
+    "frontend_branch_assigned_scratch_aggregate_freeze_then",
+  );
+  await check_branch(
+    0,
+    7,
+    "frontend_branch_assigned_scratch_aggregate_freeze_else",
+  );
+});
+
+Deno.test("frontend branch-assigned scratch union freeze compiles through WAT to Wasm", async () => {
+  async function check_branch(
+    flag: number,
+    expected: number,
+    name: string,
+  ): Promise<void> {
+    const wat_text = wat_from_core_source(`
+const result_type = union {
+  ok: Text,
+  err: Text
+}
+
+let read_result = flag => {
+  let result: result_type = scratch {
+    let temp: result_type = result_type.err(append("n", "o"))
+
+    if flag {
+      temp = result_type.ok(append("A", "da"))
+    } else {
+      temp = result_type.err(append("Gr", "ace"))
+    }
+
+    freeze temp
+  }
+
+  if let .ok(value) = result {
+    len(value)
+  } else {
+    0
+  }
+}
+
+read_result(${flag})
+`);
+    const instance = await instantiate_wat(
+      wat_text,
+      name,
+      {},
+    );
+
+    if (!("main" in instance.exports)) {
+      throw new Error("Missing main export");
+    }
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    const result = instance.exports.main();
+
+    if (result !== expected) {
+      throw new Error(
+        "Expected branch-assigned scratch-frozen union result " +
+          expected.toString() + ", got " + String(result),
+      );
+    }
+  }
+
+  await check_branch(
+    1,
+    3,
+    "frontend_branch_assigned_scratch_union_freeze_then",
+  );
+  await check_branch(
+    0,
+    0,
+    "frontend_branch_assigned_scratch_union_freeze_else",
+  );
+});
+
+Deno.test("frontend branch-assigned scratch runtime text freeze compiles through WAT to Wasm", async () => {
+  async function check_branch(
+    flag: number,
+    expected_suffix: number,
+    name: string,
+  ): Promise<void> {
+    const wat_text = wat_from_core_source(`
+let freeze_suffix = (flag: Int, value: Text) => {
+  scratch {
+    let temp: Text = append(value, ".")
+    if flag {
+      temp = append(value, "!")
+    } else {
+      temp = append(value, "?")
+    }
+    freeze temp
+  }
+}
+
+freeze_suffix(${flag}, "hi")
+`);
+    const instance = await instantiate_wat(
+      wat_text,
+      name,
+      {},
+    );
+
+    if (!("memory" in instance.exports)) {
+      throw new Error("Missing memory export");
+    }
+
+    if (!(instance.exports.memory instanceof WebAssembly.Memory)) {
+      throw new Error("memory export is not a WebAssembly.Memory");
+    }
+
+    if (!("main" in instance.exports)) {
+      throw new Error("Missing main export");
+    }
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    const result = instance.exports.main();
+
+    if (typeof result !== "number") {
+      throw new Error(
+        "Expected branch-assigned main() to return a text pointer",
+      );
+    }
+
+    const memory = instance.exports.memory;
+    const bytes = new Uint8Array(memory.buffer, result, 7);
+
+    if (bytes[0] !== 3) {
+      throw new Error(
+        "Expected branch-assigned scratch-frozen text length byte 0 -> 3, got " +
+          bytes[0],
+      );
+    }
+
+    if (bytes[4] !== 104) {
+      throw new Error(
+        "Expected branch-assigned scratch-frozen text byte 0 -> 104, got " +
+          bytes[4],
+      );
+    }
+
+    if (bytes[5] !== 105) {
+      throw new Error(
+        "Expected branch-assigned scratch-frozen text byte 1 -> 105, got " +
+          bytes[5],
+      );
+    }
+
+    if (bytes[6] !== expected_suffix) {
+      throw new Error(
+        "Expected branch-assigned scratch-frozen text byte 2 -> " +
+          expected_suffix.toString() + ", got " + bytes[6],
+      );
+    }
+  }
+
+  await check_branch(
+    1,
+    33,
+    "frontend_branch_assigned_scratch_runtime_text_freeze_then",
+  );
+  await check_branch(
+    0,
+    63,
+    "frontend_branch_assigned_scratch_runtime_text_freeze_else",
+  );
+});
+
+Deno.test("frontend optional branch scratch runtime text freeze compiles through WAT to Wasm", async () => {
+  async function check_branch(
+    flag: number,
+    expected_first: number,
+    expected_second: number,
+    name: string,
+  ): Promise<void> {
+    const wat_text = wat_from_core_source(`
+let freeze_suffix = flag => {
+  scratch {
+    let temp: Text = append("n", "o")
+    if flag {
+      temp = append("h", "i")
+    }
+    freeze temp
+  }
+}
+
+freeze_suffix(${flag})
+`);
+    const instance = await instantiate_wat(
+      wat_text,
+      name,
+      {},
+    );
+
+    if (!("memory" in instance.exports)) {
+      throw new Error("Missing memory export");
+    }
+
+    if (!(instance.exports.memory instanceof WebAssembly.Memory)) {
+      throw new Error("memory export is not a WebAssembly.Memory");
+    }
+
+    if (!("main" in instance.exports)) {
+      throw new Error("Missing main export");
+    }
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    const result = instance.exports.main();
+
+    if (typeof result !== "number") {
+      throw new Error("Expected optional branch main() to return text pointer");
+    }
+
+    const memory = instance.exports.memory;
+    const bytes = new Uint8Array(memory.buffer, result, 6);
+
+    if (bytes[0] !== 2) {
+      throw new Error(
+        "Expected optional branch scratch-frozen text length byte 0 -> 2, got " +
+          bytes[0],
+      );
+    }
+
+    if (bytes[4] !== expected_first) {
+      throw new Error(
+        "Expected optional branch scratch-frozen text byte 0 -> " +
+          expected_first.toString() + ", got " + bytes[4],
+      );
+    }
+
+    if (bytes[5] !== expected_second) {
+      throw new Error(
+        "Expected optional branch scratch-frozen text byte 1 -> " +
+          expected_second.toString() + ", got " + bytes[5],
+      );
+    }
+  }
+
+  await check_branch(
+    1,
+    104,
+    105,
+    "frontend_optional_branch_scratch_runtime_text_freeze_then",
+  );
+  await check_branch(
+    0,
+    110,
+    111,
+    "frontend_optional_branch_scratch_runtime_text_freeze_fallback",
+  );
+});
+
+Deno.test("frontend loop-assigned scratch runtime text freeze compiles through WAT to Wasm", async () => {
+  async function check_loop(
+    count: number,
+    expected_suffix: number,
+    name: string,
+  ): Promise<void> {
+    const wat_text = wat_from_core_source(`
+let freeze_suffix = (count: Int, value: Text) => {
+  scratch {
+    let temp: Text = append(value, ".")
+    for i in 0..count {
+      temp = append(value, "!")
+    }
+    freeze temp
+  }
+}
+
+freeze_suffix(${count}, "hi")
+`);
+    const instance = await instantiate_wat(
+      wat_text,
+      name,
+      {},
+    );
+
+    if (!("memory" in instance.exports)) {
+      throw new Error("Missing memory export");
+    }
+
+    if (!(instance.exports.memory instanceof WebAssembly.Memory)) {
+      throw new Error("memory export is not a WebAssembly.Memory");
+    }
+
+    if (!("main" in instance.exports)) {
+      throw new Error("Missing main export");
+    }
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    const result = instance.exports.main();
+
+    if (typeof result !== "number") {
+      throw new Error("Expected loop-assigned main() to return a text pointer");
+    }
+
+    const memory = instance.exports.memory;
+    const bytes = new Uint8Array(memory.buffer, result, 7);
+
+    if (bytes[0] !== 3) {
+      throw new Error(
+        "Expected loop-assigned scratch-frozen text length byte 0 -> 3, got " +
+          bytes[0],
+      );
+    }
+
+    if (bytes[4] !== 104) {
+      throw new Error(
+        "Expected loop-assigned scratch-frozen text byte 0 -> 104, got " +
+          bytes[4],
+      );
+    }
+
+    if (bytes[5] !== 105) {
+      throw new Error(
+        "Expected loop-assigned scratch-frozen text byte 1 -> 105, got " +
+          bytes[5],
+      );
+    }
+
+    if (bytes[6] !== expected_suffix) {
+      throw new Error(
+        "Expected loop-assigned scratch-frozen text byte 2 -> " +
+          expected_suffix.toString() + ", got " + bytes[6],
+      );
+    }
+  }
+
+  await check_loop(
+    0,
+    46,
+    "frontend_loop_assigned_scratch_runtime_text_freeze_zero",
+  );
+  await check_loop(
+    1,
+    33,
+    "frontend_loop_assigned_scratch_runtime_text_freeze_one",
+  );
+});
+
+Deno.test("frontend collection-loop-assigned scratch runtime text freeze compiles through WAT to Wasm", async () => {
+  const wat_text = wat_from_core_source(`
+const xs_type = struct {
+  first: Int,
+  second: Int
+}
+
+let freeze_suffix = (value: Text) => {
+  let xs: xs_type = xs_type { first: 1, second: 2 }
+  scratch {
+    let temp: Text = append(value, ".")
+    for x in xs {
+      temp = append(value, "!")
+    }
+    freeze temp
+  }
+}
+
+freeze_suffix("hi")
+`);
+  const instance = await instantiate_wat(
+    wat_text,
+    "frontend_collection_loop_assigned_scratch_runtime_text_freeze",
+    {},
+  );
+
+  if (!("memory" in instance.exports)) {
+    throw new Error("Missing memory export");
+  }
+
+  if (!(instance.exports.memory instanceof WebAssembly.Memory)) {
+    throw new Error("memory export is not a WebAssembly.Memory");
+  }
+
+  if (!("main" in instance.exports)) {
+    throw new Error("Missing main export");
+  }
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("main export is not a function");
+  }
+
+  const result = instance.exports.main();
+
+  if (typeof result !== "number") {
+    throw new Error(
+      "Expected collection-loop-assigned main() to return a text pointer",
+    );
+  }
+
+  const memory = instance.exports.memory;
+  const bytes = new Uint8Array(memory.buffer, result, 7);
+
+  if (bytes[0] !== 3) {
+    throw new Error(
+      "Expected collection-loop-assigned scratch-frozen text length byte 0 -> 3, got " +
+        bytes[0],
+    );
+  }
+
+  if (bytes[4] !== 104) {
+    throw new Error(
+      "Expected collection-loop-assigned scratch-frozen text byte 0 -> 104, got " +
+        bytes[4],
+    );
+  }
+
+  if (bytes[5] !== 105) {
+    throw new Error(
+      "Expected collection-loop-assigned scratch-frozen text byte 1 -> 105, got " +
+        bytes[5],
+    );
+  }
+
+  if (bytes[6] !== 33) {
+    throw new Error(
+      "Expected collection-loop-assigned scratch-frozen text byte 2 -> 33, got " +
+        bytes[6],
+    );
+  }
+});
+
 Deno.test("frontend if let scratch runtime text freeze compiles through WAT to Wasm", async () => {
   async function check_branch(
     flag: number,
@@ -7512,6 +9220,194 @@ freeze_result(${flag})
     111,
     63,
     "frontend_if_let_scratch_runtime_text_freeze_else",
+  );
+});
+
+Deno.test("frontend if-let-assigned scratch runtime text freeze compiles through WAT to Wasm", async () => {
+  async function check_branch(
+    flag: number,
+    expected_first: number,
+    expected_second: number,
+    expected_suffix: number,
+    name: string,
+  ): Promise<void> {
+    const wat_text = wat_from_core_source(`
+const result_type = union {
+  ok: Text,
+  err: Text
+}
+
+let freeze_result = (flag: Int) => {
+  let result: result_type = if flag {
+    .ok("hi")
+  } else {
+    .err("no")
+  }
+
+  scratch {
+    let temp: Text = append("no", ".")
+    if let .ok(value) = result {
+      temp = append(value, "!")
+    }
+    if let .err(value) = result {
+      temp = append(value, "?")
+    }
+    freeze temp
+  }
+}
+
+freeze_result(${flag})
+`);
+    const instance = await instantiate_wat(
+      wat_text,
+      name,
+      {},
+    );
+
+    if (!("memory" in instance.exports)) {
+      throw new Error("Missing memory export");
+    }
+
+    if (!(instance.exports.memory instanceof WebAssembly.Memory)) {
+      throw new Error("memory export is not a WebAssembly.Memory");
+    }
+
+    if (!("main" in instance.exports)) {
+      throw new Error("Missing main export");
+    }
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    const result = instance.exports.main();
+
+    if (typeof result !== "number") {
+      throw new Error("Expected if-let-assigned main() to return text pointer");
+    }
+
+    const memory = instance.exports.memory;
+    const bytes = new Uint8Array(memory.buffer, result, 7);
+
+    if (bytes[0] !== 3) {
+      throw new Error(
+        "Expected if-let-assigned scratch-frozen text length byte 0 -> 3, got " +
+          bytes[0],
+      );
+    }
+
+    if (bytes[4] !== expected_first) {
+      throw new Error(
+        "Expected if-let-assigned scratch-frozen text byte 0 -> " +
+          expected_first.toString() + ", got " + bytes[4],
+      );
+    }
+
+    if (bytes[5] !== expected_second) {
+      throw new Error(
+        "Expected if-let-assigned scratch-frozen text byte 1 -> " +
+          expected_second.toString() + ", got " + bytes[5],
+      );
+    }
+
+    if (bytes[6] !== expected_suffix) {
+      throw new Error(
+        "Expected if-let-assigned scratch-frozen text byte 2 -> " +
+          expected_suffix.toString() + ", got " + bytes[6],
+      );
+    }
+  }
+
+  await check_branch(
+    1,
+    104,
+    105,
+    33,
+    "frontend_if_let_assigned_scratch_runtime_text_freeze_then",
+  );
+  await check_branch(
+    0,
+    110,
+    111,
+    63,
+    "frontend_if_let_assigned_scratch_runtime_text_freeze_else",
+  );
+});
+
+Deno.test("frontend if-let-assigned scratch union freeze compiles through WAT to Wasm", async () => {
+  async function check_branch(
+    flag: number,
+    expected: number,
+    name: string,
+  ): Promise<void> {
+    const wat_text = wat_from_core_source(`
+const option_type = union {
+  some: Text,
+  none: Unit
+}
+
+const result_type = union {
+  ok: Text,
+  err: Text
+}
+
+let read_result = (flag: Int) => {
+  let maybe: option_type = if flag {
+    option_type.some("Ada")
+  } else {
+    option_type.none()
+  }
+
+  let result: result_type = scratch {
+    let temp: result_type = result_type.err(append("n", "o"))
+    if let .some(name) = maybe {
+      temp = result_type.ok(append(name, "!"))
+    }
+    freeze temp
+  }
+
+  if let .ok(value) = result {
+    len(value)
+  } else {
+    0
+  }
+}
+
+read_result(${flag})
+`);
+    const instance = await instantiate_wat(
+      wat_text,
+      name,
+      {},
+    );
+
+    if (!("main" in instance.exports)) {
+      throw new Error("Missing main export");
+    }
+
+    if (typeof instance.exports.main !== "function") {
+      throw new Error("main export is not a function");
+    }
+
+    const result = instance.exports.main();
+
+    if (result !== expected) {
+      throw new Error(
+        "Expected if-let-assigned scratch union main() -> " +
+          expected.toString() + ", got " + result,
+      );
+    }
+  }
+
+  await check_branch(
+    1,
+    4,
+    "frontend_if_let_assigned_scratch_union_freeze_some",
+  );
+  await check_branch(
+    0,
+    0,
+    "frontend_if_let_assigned_scratch_union_freeze_none",
   );
 });
 

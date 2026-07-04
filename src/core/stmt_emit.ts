@@ -4,6 +4,10 @@ import type { Wat } from "../wat.ts";
 import type { CoreExpr, CoreStmt } from "./ast.ts";
 import type { CoreLamCapturePlan } from "./closure_capture.ts";
 import { emit_core_scratch_resets } from "./scratch.ts";
+import {
+  static_core_call_branch_value,
+  type StaticCoreCallCtx,
+} from "./static_call.ts";
 import type { StaticValuePlan } from "./static_values.ts";
 import { static_function_value } from "./type_static.ts";
 
@@ -19,96 +23,101 @@ export type CoreStmtEmitCtx = {
   frozen_locals?: Set<string>;
 };
 
-export type CoreStmtEmitHooks<ctx extends CoreStmtEmitCtx> = {
-  bind_core_assignment_union_type: (
-    name: string,
-    value: CoreExpr,
-    mode: "same" | "change",
-    ctx: ctx,
-  ) => void;
-  bind_core_assignment_struct_type: (
-    name: string,
-    value: CoreExpr,
-    mode: "same" | "change",
-    ctx: ctx,
-  ) => void;
-  bind_core_fn_type: (name: string, value: CoreExpr, ctx: ctx) => void;
-  bind_core_struct_type: (
-    name: string,
-    value: CoreExpr,
-    annotation: string | undefined,
-    ctx: ctx,
-  ) => void;
-  bind_core_union_type: (
-    name: string,
-    value: CoreExpr,
-    annotation: string | undefined,
-    ctx: ctx,
-  ) => void;
-  clear_core_local_facts: (name: string, ctx: ctx) => void;
-  core_binding_value: (
-    stmt: Extract<CoreStmt, { tag: "bind" }>,
-    ctx: ctx,
-  ) => CoreExpr;
-  core_type_const_value: (
-    stmt: Extract<CoreStmt, { tag: "bind" }>,
-    value: CoreExpr,
-    ctx: ctx,
-  ) => CoreExpr | undefined;
-  core_expr_has_runtime_text_fact: (value: CoreExpr, ctx: ctx) => boolean;
-  emit_collection_loop: (
-    stmt: Extract<CoreStmt, { tag: "collection_loop" }>,
-    ctx: ctx,
-  ) => Wat;
-  emit_expr: (expr: CoreExpr, ctx: ctx) => Wat;
-  emit_if_else_stmt: (
-    stmt: Extract<CoreStmt, { tag: "if_else_stmt" }>,
-    ctx: ctx,
-  ) => Wat;
-  emit_if_let_stmt: (
-    stmt: Extract<CoreStmt, { tag: "if_let_stmt" }>,
-    ctx: ctx,
-  ) => Wat;
-  emit_if_stmt: (
-    stmt: Extract<CoreStmt, { tag: "if_stmt" }>,
-    ctx: ctx,
-  ) => Wat;
-  emit_range_loop: (
-    stmt: Extract<CoreStmt, { tag: "range_loop" }>,
-    ctx: ctx,
-  ) => Wat;
-  emit_runtime_text_index_assign: (
-    stmt: Extract<CoreStmt, { tag: "index_assign" }>,
-    ctx: ctx,
-  ) => Wat;
-  emit_runtime_aggregate_index_assign: (
-    type_expr: CoreExpr,
-    stmt: Extract<CoreStmt, { tag: "index_assign" }>,
-    ctx: ctx,
-  ) => Wat;
-  emit_static_index_assign: (
-    target: Extract<CoreExpr, { tag: "struct_value" }>,
-    stmt: Extract<CoreStmt, { tag: "index_assign" }>,
-    ctx: ctx,
-  ) => Wat;
-  is_static_value_expr: (expr: CoreExpr, ctx: ctx) => boolean;
-  plan_core_lam_capture: (
-    expr: Extract<CoreExpr, { tag: "lam" }>,
-    ctx: ctx,
-    emit_setup: boolean,
-  ) => CoreLamCapturePlan | undefined;
-  plan_static_value_expr: (
-    value: CoreExpr,
-    ctx: ctx,
-    emit_ctx: ctx,
-  ) => StaticValuePlan;
-  static_struct_binding: (
-    name: string,
-    ctx: ctx,
-  ) => Extract<CoreExpr, { tag: "struct_value" }> | undefined;
-};
+export type CoreStmtEmitHooks<ctx extends CoreStmtEmitCtx & StaticCoreCallCtx> =
+  {
+    bind_core_assignment_union_type: (
+      name: string,
+      value: CoreExpr,
+      mode: "same" | "change",
+      ctx: ctx,
+    ) => void;
+    bind_core_assignment_struct_type: (
+      name: string,
+      value: CoreExpr,
+      mode: "same" | "change",
+      ctx: ctx,
+    ) => void;
+    bind_core_fn_type: (name: string, value: CoreExpr, ctx: ctx) => void;
+    bind_core_struct_type: (
+      name: string,
+      value: CoreExpr,
+      annotation: string | undefined,
+      ctx: ctx,
+    ) => void;
+    bind_core_union_type: (
+      name: string,
+      value: CoreExpr,
+      annotation: string | undefined,
+      ctx: ctx,
+    ) => void;
+    clear_core_local_facts: (name: string, ctx: ctx) => void;
+    core_binding_value: (
+      stmt: Extract<CoreStmt, { tag: "bind" }>,
+      ctx: ctx,
+    ) => CoreExpr;
+    core_type_const_value: (
+      stmt: Extract<CoreStmt, { tag: "bind" }>,
+      value: CoreExpr,
+      ctx: ctx,
+    ) => CoreExpr | undefined;
+    core_expr_has_runtime_text_fact: (value: CoreExpr, ctx: ctx) => boolean;
+    emit_collection_loop: (
+      stmt: Extract<CoreStmt, { tag: "collection_loop" }>,
+      ctx: ctx,
+    ) => Wat;
+    emit_expr: (expr: CoreExpr, ctx: ctx) => Wat;
+    emit_if_else_stmt: (
+      stmt: Extract<CoreStmt, { tag: "if_else_stmt" }>,
+      ctx: ctx,
+    ) => Wat;
+    emit_if_let_stmt: (
+      stmt: Extract<CoreStmt, { tag: "if_let_stmt" }>,
+      ctx: ctx,
+    ) => Wat;
+    emit_if_stmt: (
+      stmt: Extract<CoreStmt, { tag: "if_stmt" }>,
+      ctx: ctx,
+    ) => Wat;
+    emit_range_loop: (
+      stmt: Extract<CoreStmt, { tag: "range_loop" }>,
+      ctx: ctx,
+    ) => Wat;
+    emit_runtime_text_index_assign: (
+      stmt: Extract<CoreStmt, { tag: "index_assign" }>,
+      ctx: ctx,
+    ) => Wat;
+    emit_runtime_aggregate_index_assign: (
+      type_expr: CoreExpr,
+      stmt: Extract<CoreStmt, { tag: "index_assign" }>,
+      ctx: ctx,
+    ) => Wat;
+    emit_static_index_assign: (
+      target: Extract<CoreExpr, { tag: "struct_value" }>,
+      stmt: Extract<CoreStmt, { tag: "index_assign" }>,
+      ctx: ctx,
+    ) => Wat;
+    is_static_value_expr: (expr: CoreExpr, ctx: ctx) => boolean;
+    plan_core_lam_capture: (
+      expr: Extract<CoreExpr, { tag: "lam" }>,
+      ctx: ctx,
+      emit_setup: boolean,
+    ) => CoreLamCapturePlan | undefined;
+    plan_static_value_expr: (
+      value: CoreExpr,
+      ctx: ctx,
+      emit_ctx: ctx,
+    ) => StaticValuePlan;
+    static_struct_binding: (
+      name: string,
+      ctx: ctx,
+    ) => Extract<CoreExpr, { tag: "struct_value" }> | undefined;
+    static_core_call_target: (
+      expr: CoreExpr,
+      ctx: ctx,
+    ) => Extract<CoreExpr, { tag: "lam" }> | undefined;
+  };
 
-export function emit_core_stmt<ctx extends CoreStmtEmitCtx>(
+export function emit_core_stmt<ctx extends CoreStmtEmitCtx & StaticCoreCallCtx>(
   stmt: CoreStmt,
   ctx: ctx,
   is_final: boolean,
@@ -134,6 +143,19 @@ export function emit_core_stmt<ctx extends CoreStmtEmitCtx>(
       }
 
       if (value.tag !== "lam") {
+        const branch_function_value = static_core_call_branch_value(
+          value,
+          ctx,
+          hooks,
+        );
+
+        if (branch_function_value) {
+          ctx.locals.delete(stmt.name);
+          ctx.statics.set(stmt.name, branch_function_value);
+          hooks.clear_core_local_facts(stmt.name, ctx);
+          return "";
+        }
+
         const function_value = static_function_value(value, ctx);
 
         if (function_value) {
@@ -297,7 +319,7 @@ export function emit_core_stmt<ctx extends CoreStmtEmitCtx>(
   }
 }
 
-function bind_core_text_fact<ctx extends CoreStmtEmitCtx>(
+function bind_core_text_fact<ctx extends CoreStmtEmitCtx & StaticCoreCallCtx>(
   name: string,
   value: CoreExpr,
   annotation: string | undefined,

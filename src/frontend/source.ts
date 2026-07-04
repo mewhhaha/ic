@@ -5,6 +5,7 @@ import type { Emit, Format } from "../trait.ts";
 import type { Wat } from "../wat.ts";
 import type { Source as SourceNode } from "./ast.ts";
 import { format_source } from "./format.ts";
+import { validate_source_linear } from "./linear.ts";
 import { load_source } from "./load.ts";
 import { lower_program } from "./lower.ts";
 import { parse_source } from "./parser.ts";
@@ -32,6 +33,7 @@ Source.core = function core(input: string | SourceNode): CoreNode {
     source = input;
   }
 
+  validate_source_linear(source);
   return Core.from_source(source);
 };
 
@@ -47,6 +49,18 @@ Source.load = load_source;
 
 Source.compile_file = function compile_file(path: string): IcNode {
   return Source.emit(Source.load(path));
+};
+
+Source.core_file = function core_file(path: string): CoreNode {
+  return Source.core(Source.load(path));
+};
+
+Source.mod_file = function mod_file(path: string, name = "main"): ModNode {
+  return Source.mod(Source.load(path), name);
+};
+
+Source.wat_file = function wat_file(path: string, name = "main"): Wat {
+  return Source.wat(Source.load(path), name);
 };
 
 Source satisfies Format<SourceNode> & Emit<SourceNode, IcNode>;

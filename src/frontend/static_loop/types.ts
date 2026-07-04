@@ -17,6 +17,11 @@ export type CollectionLoopItem = {
 export type StaticLoopHooks = {
   eval_i32_expr: (expr: FrontExpr, env: Env, label: string) => number;
   infer_expr: (expr: FrontExpr, env: Env) => FrontType;
+  infer_union_cases: (expr: FrontExpr, env: Env) => TypeField[] | undefined;
+  resolve_annotation_type: (
+    annotation: string,
+    env: Env,
+  ) => FrontType | undefined;
   resolve_static_i32_expr: (
     expr: FrontExpr,
     env: Env,

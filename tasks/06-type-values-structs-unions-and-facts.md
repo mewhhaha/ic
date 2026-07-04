@@ -46,6 +46,17 @@ const has_name = t => {
 
 - Represent structural facts such as field existence, field type, struct/union
   kind, size, and alignment.
+- Extend runtime aggregate facts with storage and lifetime information when
+  values are materialized: scalarized static facts, `unique_heap` aggregate or
+  union owners, `frozen_shareable` aggregates, `borrow_view` projections, and
+  `scratch_backed` payloads.
+- Make field and payload ownership explicit. Reading a scalar field copies the
+  scalar; reading an owned field moves, borrows, or rejects according to the
+  owner facts; reading a frozen field remains shareable.
+- A struct or union value produced inside `scratch {}` can leave the scratchpad
+  only when every field or payload is scalar, frozen/shareable, explicitly
+  promoted/frozen, or proven scratch-free. Otherwise it rejects before WAT
+  emission.
 
 ## Acceptance Criteria
 
@@ -55,6 +66,9 @@ const has_name = t => {
 - Union construction checks case payloads.
 - Fact checkers can be used through parameter annotations.
 - Conflicting facts fail at compile time.
+- Aggregate facts that touch runtime storage include enough ownership rows for
+  the no-GC proof gate. Unsupported field/payload ownership or scratch escapes
+  reject deterministically.
 
 ## Verification
 
@@ -62,6 +76,9 @@ const has_name = t => {
 - Add tests for valid and invalid struct fields.
 - Add tests for valid and invalid union case construction.
 - Add fact-checker tests for `has_name`.
+- Add aggregate ownership tests for field/payload scratch escape, frozen
+  sharing, borrow projection lifetime, unique payload movement, and
+  `managed_storage: "disabled"` proof output.
 
 ## Implementation Status
 
@@ -147,6 +164,14 @@ const has_name = t => {
   struct-if reshaping, and static collection-field projection live in
   `src/core/struct_static.ts`, with backend expression-type and static-call
   hooks.
+- Frontend typed no-payload union cases now lower as either
+  `option_type.none()` or `option_type.none`. The field form is accepted only
+  when the named case is declared `Unit`; payload cases still require an
+  explicit constructor call with one argument.
+- Frontend annotated runtime struct field and index projection facts now survive
+  pure-Ic ownership wrappers. A value known through `let user: user_type = ...`
+  can be projected through `borrow`, `freeze`, or a simple value-returning
+  `scratch { user }` wrapper without losing the declared struct field table.
 - `Core.emit` snapshots runtime payload values for statically bound shorthand
   and typed-constructor union cases before later shadowing can change the source
   binding.

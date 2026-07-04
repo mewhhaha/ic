@@ -1,6 +1,8 @@
 import type { Ic as IcNode } from "../ic.ts";
-import type { Env, FrontExpr, Stmt } from "./ast.ts";
+import { type Prim, specialize_prim_for_operands } from "../op.ts";
+import type { Env, FrontExpr, FrontType, Stmt } from "./ast.ts";
 import { structured_core_route } from "./diagnostic.ts";
+import { lookup_field } from "./fields.ts";
 import type { StaticRecHooks } from "./rec_hooks.ts";
 import {
   lower_rec_get_call,
@@ -20,6 +22,8 @@ import {
   create_rec_struct_hooks,
   lower_rec_if as lower_rec_if_with_hooks,
 } from "./rec_if.ts";
+import { infer_rec_expr } from "./rec_infer.ts";
+import { lower_expr_as_front_type } from "./typed_lower.ts";
 
 export type StaticRecResult =
   | { tag: "done"; value: IcNode }
@@ -29,6 +33,7 @@ export type StaticRecBlockLowerer = (
   stmts: Stmt[],
   env: Env,
   hooks: StaticRecHooks,
+  expected_type?: FrontType,
 ) => StaticRecResult | undefined;
 
 export function lower_rec_result_expr(
@@ -57,7 +62,7 @@ export function lower_rec_result_expr(
 
     if (!result) {
       throw new Error(
-        "Cannot lower empty rec block to Ic frontend yet" +
+        "Cannot lower rec block without result to Ic frontend yet" +
           structured_core_route,
       );
     }
@@ -97,6 +102,26 @@ export function lower_rec_result_expr(
       }
 
       if (binding.value.tag !== "lam" && binding.value.tag !== "rec") {
+        if (can_lower_rec_bound_value_as_type(binding.type)) {
+          return lower_expr_as_front_type(
+            binding.value,
+            binding.type,
+            value_env,
+            {
+              infer_expr: (value, infer_env) =>
+                infer_rec_expr(value, infer_env, hooks),
+              lower_expr: (value, lower_env) =>
+                lower_rec_result_expr(
+                  value,
+                  lower_env,
+                  hooks,
+                  lower_static_rec_block,
+                ),
+              resolve_annotation_type: hooks.resolve_annotation_type,
+            },
+          );
+        }
+
         return lower_rec_result_expr(
           binding.value,
           value_env,
@@ -175,24 +200,7 @@ export function lower_rec_result_expr(
   }
 
   if (expr.tag === "prim") {
-    return {
-      tag: "prim",
-      prim: expr.prim,
-      args: [
-        lower_rec_result_expr(
-          expr.left,
-          env,
-          hooks,
-          lower_static_rec_block,
-        ),
-        lower_rec_result_expr(
-          expr.right,
-          env,
-          hooks,
-          lower_static_rec_block,
-        ),
-      ],
-    };
+    return lower_rec_prim(expr, env, hooks, lower_static_rec_block);
   }
 
   if (expr.tag === "field") {
@@ -325,6 +333,87 @@ export function lower_rec_result_expr(
   return hooks.lower_expr(expr, env);
 }
 
+function lower_rec_prim(
+  expr: Extract<FrontExpr, { tag: "prim" }>,
+  env: Env,
+  hooks: StaticRecHooks,
+  lower_static_rec_block: StaticRecBlockLowerer,
+): IcNode {
+  const left_type = hooks.infer_expr(expr.left, env);
+  const right_type = hooks.infer_expr(expr.right, env);
+  const prim = specialize_prim_for_operands(
+    expr.prim,
+    rec_numeric_type(left_type),
+    rec_numeric_type(right_type),
+  );
+  const operand_type = rec_numeric_primitive_operand_type(prim);
+
+  return {
+    tag: "prim",
+    prim,
+    args: [
+      lower_rec_expr_as_type(
+        expr.left,
+        { tag: "int", type: operand_type },
+        env,
+        hooks,
+        lower_static_rec_block,
+      ),
+      lower_rec_expr_as_type(
+        expr.right,
+        { tag: "int", type: operand_type },
+        env,
+        hooks,
+        lower_static_rec_block,
+      ),
+    ],
+  };
+}
+
+function rec_numeric_type(type: FrontType): "i32" | "i64" | undefined {
+  if (type.tag !== "int") {
+    return undefined;
+  }
+
+  return type.type;
+}
+
+function rec_numeric_primitive_operand_type(prim: Prim): "i32" | "i64" {
+  if (prim.startsWith("i64.")) {
+    return "i64";
+  }
+
+  return "i32";
+}
+
+function lower_rec_expr_as_type(
+  expr: FrontExpr,
+  type: FrontType,
+  env: Env,
+  hooks: StaticRecHooks,
+  lower_static_rec_block: StaticRecBlockLowerer,
+): IcNode {
+  return lower_expr_as_front_type(expr, type, env, {
+    infer_expr: (value, value_env) => infer_rec_expr(value, value_env, hooks),
+    lower_expr: (value, value_env) =>
+      lower_rec_result_expr(
+        value,
+        value_env,
+        hooks,
+        lower_static_rec_block,
+      ),
+    resolve_annotation_type: hooks.resolve_annotation_type,
+  });
+}
+
+function can_lower_rec_bound_value_as_type(type: FrontType): boolean {
+  if (type.tag === "int" || type.tag === "text") {
+    return true;
+  }
+
+  return type.tag === "struct" || type.tag === "union_value";
+}
+
 function lower_rec_bound_value_app(
   expr: Extract<FrontExpr, { tag: "app" }>,
   env: Env,
@@ -410,7 +499,7 @@ function lower_rec_struct_value(
   const handler_name = hooks.fresh(env, "pick");
   let body: IcNode = { tag: "var", name: handler_name };
 
-  for (const field of expr.fields) {
+  for (const field of rec_struct_value_fields(expr, env, hooks)) {
     body = {
       tag: "app",
       func: body,
@@ -424,4 +513,25 @@ function lower_rec_struct_value(
   }
 
   return lower_rec_lambda_binding(handler_name, body);
+}
+
+function rec_struct_value_fields(
+  expr: Extract<FrontExpr, { tag: "struct_value" }>,
+  env: Env,
+  hooks: StaticRecHooks,
+): typeof expr.fields {
+  const struct_type = hooks.resolve_struct_type_value(expr.type_expr, env);
+
+  if (!struct_type) {
+    return expr.fields;
+  }
+
+  return struct_type.fields.map((declared) => {
+    const field = lookup_field(expr.fields, declared.name);
+    if (!field) {
+      throw new Error("Missing struct field: " + declared.name);
+    }
+
+    return field;
+  });
 }

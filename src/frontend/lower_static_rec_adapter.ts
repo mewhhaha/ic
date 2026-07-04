@@ -83,6 +83,10 @@ export type FrontendStaticRecApi = {
     expr: FrontExpr,
     env: Env,
   ) => number | undefined;
+  resolve_struct_type_value: (
+    expr: FrontExpr,
+    env: Env,
+  ) => Extract<FrontExpr, { tag: "struct_type" }> | undefined;
   resolve_struct_field_expr: (
     expr: Extract<FrontExpr, { tag: "field" }>,
     env: Env,
@@ -131,6 +135,7 @@ export function create_frontend_static_rec_hooks(
     resolve_annotation_type: api.resolve_annotation_type,
     resolve_index_expr: api.resolve_index_expr,
     resolve_static_i32_expr: api.resolve_static_i32_expr,
+    resolve_struct_type_value: api.resolve_struct_type_value,
     resolve_struct_field_expr: api.resolve_struct_field_expr,
     resolve_union_value: api.resolve_union_value,
     same_type: api.same_type,

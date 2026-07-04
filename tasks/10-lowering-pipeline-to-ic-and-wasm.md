@@ -55,27 +55,76 @@ loops -> block/loop/br_if
 - Keep the default backend on baseline linear-memory Wasm. If scratch escapes,
   borrows, closure captures, or temporary lifetimes cannot be proven sound,
   reject before emission instead of falling back to GC.
+- Treat the no-GC proof gate as part of feature acceptance. A Core feature is
+  not WAT-ready until its storage class, lifetime, escape, borrow, promotion,
+  and cleanup facts are visible to the emitter; missing facts go back to
+  analysis tasks or deterministic rejection fixtures.
 - Treat GC or Wasm-GC as a separate future target profile. It must not change
   the baseline pass ordering or hide missing ownership facts.
+- Do not add a collector-backed repair path in lowering. When the proof rows are
+  missing, lowering should report the missing storage, lifetime, borrow,
+  scratch, promotion, host-boundary, or cleanup edge and send the case back to
+  Task 12 refinement.
+- Treat `borrow value` as an analysis-visible read-only view, not as a runtime
+  owner copy. A live view blocks owner move, mutation, freeze, transfer, return,
+  and escaping capture until the view lifetime ends.
 - Treat `scratch { ... }` as a lexical scratchpad with a value result, not as an
   attached region that can escape the reset. Any scratch-backed result that
   crosses the boundary must be scalarized, frozen, promoted, proven
   scratch-free, or rejected in Core before WAT is emitted.
+- If optional regions are introduced later, lower them as explicit region-owner
+  values with region ids, tied payload lifetimes, cleanup/drop facts, and
+  move/consume rules. Do not make WAT emission infer a hidden region attachment
+  for an otherwise unsafe scratch result.
 - Keep scratchpads as the default temporary-computation mechanism. They give the
   compiler a cheap allocation/reset boundary without requiring managed storage
   or extending region lifetimes implicitly.
+- Treat future region-return lowering as an explicit owner-package feature:
+  returned values must carry the region owner, lifetime ties, cleanup/drop
+  facts, and move/consume behavior. Do not infer this package from ordinary
+  `scratch {}` lowering.
 - Insert cleanup for compiler-created temporaries through the same ownership
   facts as source values. The backend should not rely on WAT emission or a
   runtime collector to discover temporary lifetimes.
+- Keep the no-GC efficiency target visible in lowering: borrows are runtime-free
+  views, scratch reset is a saved-pointer restore, freeze/promotion is an
+  explicit Core copy edge, frozen values are freely shareable, and unique drops
+  remain proof-visible even when the initial bump allocator emits no-op drops.
+- Lowering-created temporaries should be split by origin when analysis is
+  incomplete: aggregate materialization, text copy/concat/slice loops, union
+  payload construction, closure environment setup, host-boundary marshaling, and
+  scratch-to-persistent promotion copies.
 - Add a final ownership proof gate before WAT emission. Accepted programs must
   have storage classes, lifetime ids, escape decisions, borrow decisions,
   scratch reset edges, and unique-owner drop decisions for source values and
   lowering-created temporaries. Missing facts are compiler errors, not GC
   fallback points.
-- Use the Task 12 no-GC acceptance matrix for every lowering feature that
-  touches runtime memory: accepted with proof facts, rejected with a named
-  missing fact, or deferred to an explicit future region/managed-storage
-  profile.
+- The proof gate is the boundary where "skip GC if analysis is proper" is
+  enforced. If the analysis cannot prove the case yet, the accepted baseline
+  program does not exist yet.
+- Use the Task 12 authoritative no-GC acceptance matrix for every lowering
+  feature that touches runtime memory: accepted with proof facts, rejected with
+  a named missing fact, or deferred to an explicit future
+  region/managed-storage profile.
+- Keep the proof gate ahead of both the pure Ic route and the structured
+  Core/Wasm route. Pure scalar/frozen values may still lower through Ic, while
+  owned, borrowed, scratch-backed, or closure-environment values must stay in
+  structured Core until ownership and cleanup decisions are explicit.
+- Use the Task 12 first fixture backlog as the initial lowering order for
+  memory-heavy features: borrow/view barriers, scalar and frozen scratch
+  returns, aggregate/union scratch result gates, lowering-created temporary
+  cleanup, first-class closure storage, and host/import ownership contracts.
+  Do not broaden a lowering path until its accepted and rejected proof fixtures
+  exist.
+- Lowering proof fixtures must follow the Task 12 proof-fixture shape. The
+  final pre-WAT gate must expose `target_profile: "core-3-nonweb"`,
+  `managed_storage: "disabled"`, storage/lifetime rows, borrow/scratch result
+  rows, freeze/promotion rows, cleanup/drop/reset rows, and host-boundary rows
+  before an ownership-heavy value reaches codegen.
+- Treat skipped GC as a lowering invariant: if the proof gate cannot show how a
+  temporary, scratch result, unique owner, borrow view, closure environment, or
+  host-boundary value is cleaned up or kept alive, WAT emission must not repair
+  it by selecting collector-managed storage.
 
 ## Acceptance Criteria
 
@@ -87,6 +136,8 @@ loops -> block/loop/br_if
 - Scratch resets and temporary cleanup points are visible in Core before WAT is
   emitted.
 - Scratch results never depend on a live attached scratch region after reset.
+- Any future region-return feature exposes the region owner and tied value
+  lifetimes in Core before WAT emission.
 - Unique heap drop points are visible in analysis before WAT is emitted, even
   when the first backend lowers them to no-ops.
 - The baseline backend rejects uncertain lifetime/escape cases deterministically
@@ -95,6 +146,9 @@ loops -> block/loop/br_if
   separate future profile with separate ownership and boundary rules.
 - WAT emission is reached only after the ownership proof gate succeeds for the
   selected baseline target.
+- Any fallback to managed storage, tracing GC, Wasm-GC, or hidden attached
+  regions is a separate future target profile and cannot be introduced by an
+  emitter as a repair for missing proof rows.
 
 ## Verification
 
@@ -108,6 +162,16 @@ loops -> block/loop/br_if
 - Add rejected-emission tests for missing ownership, borrow, scratch escape,
   host-boundary, promotion, or temporary-cleanup facts instead of accepting the
   case through GC or implicit region attachment.
+- Add route tests that prove ownership-heavy values stay on the structured
+  Core/Wasm path, while pure scalar or frozen/shareable values can still use the
+  Ic path safely.
+- For each new memory-heavy lowering fixture, add a paired rejection that names
+  the first missing proof edge, such as active borrow, scratch-backed field,
+  unsupported promotion, missing temporary cleanup, ownership-bearing closure
+  capture, or unknown host boundary.
+- Add a proof-fixture assertion for each accepted lowering slice so tests can
+  verify that WAT emission is consuming explicit no-GC proof rows instead of
+  relying on hidden region attachment, implicit promotion, or managed storage.
 
 ## Implementation Status
 
@@ -122,7 +186,9 @@ loops -> block/loop/br_if
   the operand facts were known, dynamic branches whose result type depends on
   those retagged primitives, and no-else `if`/`if let` expression fallbacks that
   must materialize `0i64` for inferred `I64` branch results or `""` for inferred
-  `Text` branch results.
+  `Text` branch results. No-else frontend `if`/`if let` fallbacks also
+  synthesize Ic-safe struct fields and union cases when each field or payload
+  has a fallback value.
 - Implemented Ic primitive folding and propagation coverage for arithmetic,
   comparisons, select, trap, duplication, one-sided duplication cleanup,
   superposition, unary memory loads, and erasure. Dynamic selects retag to
@@ -139,7 +205,18 @@ loops -> block/loop/br_if
   lambdas for scalar/text-pointer selected bodies, including simple aliases to
   known closures, matching, one-sided, and alias-equivalent parameter
   annotations, selected-branch call rejection for known incompatible arguments,
-  and i64 selected bodies whose primitive type is recovered from
+  annotation-driven wrapper erasure for branch-selected scalar, text, struct,
+  and union arguments, typed aggregate branch values, and annotated runtime
+  bindings whose dynamic branch values are otherwise unknown at runtime,
+  simple one-expression block wrappers and pure block-local alias wrappers
+  around those annotated dynamic branch values,
+  including implicit no-else typed struct/union branch values synthesized from
+  declared annotation fallbacks, static-rec annotated aggregate arguments that
+  select between wrapper branches with or without explicit `else`, direct
+  static-rec struct results projected by field, static index, or `get`,
+  annotated static-rec app results lowered under expected scalar, `Text`,
+  struct, and union binding/call-argument contexts, and i64
+  selected bodies whose primitive type is recovered from
   parameter/capture facts, branch-call inlining for frontend-known struct/union
   consumers, typed pure union handler lowering with numeric and text-pointer
   results, typed struct and frontend-known object handler lowering, dynamic
@@ -207,7 +284,13 @@ loops -> block/loop/br_if
   `src/core/backend/graph/deps.ts`. The combined backend graph contract lives in
   `src/core/backend/graph/types.ts`. Backend utility helpers live under
   `src/core/backend/util/`, with `src/core/backend/util.ts` kept as the
-  compatibility facade.
+  compatibility facade. Backend graph context construction and child-context
+  cloning live in `src/core/backend/graph/context.ts`, keeping `CoreCtx`
+  defaults and host-import map cloning out of the public backend graph facade.
+  Unsupported-codegen proof conversion lives in
+  `src/core/backend/graph/proof_unsupported.ts`, keeping analysis-error
+  normalization and placeholder unsupported-proof assembly out of the public
+  backend graph facade.
 - Moved Core top-level WAT artifact assembly, lifted-closure function/table
   aggregation, data segment exposure, and `Mod` construction into
   `src/core/artifact_emit.ts`; `src/core/backend/entry/artifact.ts` owns the
@@ -271,8 +354,10 @@ loops -> block/loop/br_if
   `src/frontend/static_loop/if_let_payload.ts`, dynamic-control flag generation
   and loop-control scanning into `src/frontend/static_loop/dynamic_control.ts`,
   and guarded dynamic-control statement expansion into
-  `src/frontend/static_loop/expand_dynamic.ts`, keeping those helper rules out
-  of the main static-loop expander.
+  `src/frontend/static_loop/expand_dynamic.ts`. Dynamic skipped-step fallback
+  synthesis and guarded struct/union/function value helpers live in
+  `src/frontend/static_loop/fallback.ts`, keeping type/fallback construction
+  separate from dynamic-control statement expansion.
 - Moved frontend static expression lowering and static `i32` evaluation into
   `src/frontend/static_expr.ts`, leaving `src/frontend/lower_graph.ts` to
   provide the dynamic fallback, lookup, and field/index resolution hooks.
@@ -317,6 +402,9 @@ loops -> block/loop/br_if
 - Moved frontend value-graph forwarding through cyclic lowerer dependencies into
   `src/frontend/lower_value_facade.ts`, keeping lazy aggregate/union delegate
   wrappers out of `src/frontend/lower_graph.ts`.
+- Moved app-as-expected-type lowering and inlineable helper app-result type
+  inference into `src/frontend/lower_app_type_adapter.ts`, keeping
+  static-rec/app-helper context recursion out of `src/frontend/lower_graph.ts`.
 - Moved shared union helper-call inlining for union value resolution and union
   case inference into `src/frontend/union_call_inline.ts`, so dynamic `if let`
   branch lowering and case-table inference use the same direct, deferred,
@@ -359,6 +447,9 @@ loops -> block/loop/br_if
   shadowing into `src/frontend/stmt/binding.ts`, with the lowerer supplying
   expression, type, annotation, loop, index-assignment, and value-resolution
   hooks.
+- Moved call-only runtime lambda defer scanning into
+  `src/frontend/stmt/call_only_defer.ts`, keeping tail-use scanning and
+  linear-capture rejection out of `src/frontend/stmt/binding.ts`.
 - Moved frontend const/runtime value preparation, including union-constructor
   normalization, struct update rebuild validation, deferred const-call capture,
   and extension base capture, into `src/frontend/prepare.ts`, with the lowerer
@@ -916,6 +1007,20 @@ loops -> block/loop/br_if
   branch traps at runtime.
 - `len` over runtime values known to have type `Text` lowers through Ic/Expr to
   `i32.load` from the length-prefixed text pointer, with WAT-to-Wasm coverage.
+- `borrow`, `freeze`, and `scratch` wrappers around runtime values known to have
+  type `Text` now erase on the pure Ic route when the wrapped value is returned,
+  matching the existing unwrapped runtime text identity path. Inlineable helpers
+  that return the same runtime `Text` binding, including through transparent
+  `scratch {}` wrappers, now fold `helper(input) == helper(input)` to `1:i32`;
+  helpers that allocate or transform runtime text still route equality through
+  structured Core/Wasm.
+- Static-call result inference now reuses the specialized call environment, so
+  builtin lowering can see `Text` results returned by simple annotated helpers,
+  including helpers that return the text through transparent ownership wrappers.
+- Inline-specialized helper calls now apply known runtime annotations to unknown
+  arguments before visible-value probing, so `helper(input)[index]` and
+  `get(helper(input), index)` over annotated `Text` helpers lower through the
+  same runtime `Text` Ic byte-load path.
 - Runtime values known to have type `Text` can be byte-indexed through Ic/Expr
   as a bounds-checked `i32.load8_u(pointer + 4 + index)`, with WAT-to-Wasm
   coverage for in-range values and out-of-range traps.
@@ -925,6 +1030,25 @@ loops -> block/loop/br_if
 - Static-rec application result typing preserves annotated static-shaped struct
   and nested `Text` fields after the rec call returns, so expressions such as
   `selected.name.first` can feed runtime `Text` operations after Ic lowering.
+- Static-rec app lowering can now receive an expected result type from annotated
+  bindings and annotated call arguments. Dynamic rec result branches that are
+  otherwise unknown lower as typed scalar/`Text` selects, typed struct handler
+  values, or typed union handler values before the pure Ic route continues.
+  Block-local alias results inside the rec result keep that expected type, so
+  branch-local ownership wrappers can still lower through typed struct field
+  projection and union handler selection.
+- Expected-type pure-Ic lowering now unwraps simple one-expression block
+  results, single-return block results, and pure two-statement alias blocks
+  before applying typed dynamic branch lowering. Annotated bindings, annotated
+  call arguments, and direct text reads such as
+  `{ if flag { input } else { other } }`,
+  `{ return if flag { input } else { other } }`, or
+  `{ let selected: Text = if flag { input } else { other }; selected }` keep
+  their scalar, `Text`, struct, or union context instead of falling back to
+  untyped branch lowering. The same path now preserves the expected type before
+  struct field projection or union handler selection when those block-local
+  branches contain `borrow`, `freeze`, or simple `scratch {}` wrappers, including
+  typed union `if let` branch results.
 - Static-rec union payload bindings preserve user-defined annotation type names
   before Ic lowering, so recursive `if let` bodies can project nested struct
   fields and use runtime `Text` operations on payload fields.
@@ -944,6 +1068,13 @@ loops -> block/loop/br_if
   `Core.emit` lowers visible text and runtime values known to have type `Text`
   to Wasm `block`/`loop` control flow over length-prefixed UTF-8 text data, with
   WAT-to-Wasm coverage for `break` and `continue`.
+- The pure Ic frontend folds identity equality for the same runtime `Text`
+  binding. Annotated `Text` parameters or bindings can lower `value == value`,
+  `value != value`, and transparent `borrow`/`freeze`/`scratch` wrappers around
+  the same binding without entering the runtime byte-compare route. Simple
+  block-local `let` aliases inside a returned scratch/block value are treated as
+  transparent only for this identity check; non-identical runtime text
+  comparisons still route to structured Core/Wasm.
 - The frontend lowers direct non-escaping local closure calls, including
   parameterized calls, simple local aliases, simple block-local aliases/direct
   block calls, literal-condition static closure branches, and dynamic ordinary
@@ -968,3 +1099,44 @@ loops -> block/loop/br_if
   `Text` length, byte-load, `get`, byte assignment, collection-loop, and Core
   runtime concat subset, and effectful linear capabilities are not yet
   represented in a structured Wasm-oriented IR.
+- Static-loop skipped-step fallback lowering now materializes inner no-else
+  `if`/`if let` fallbacks before adding the dynamic loop-control guard. This
+  preserves the same Ic-safe scalar/text/struct/union fallback behavior inside
+  guarded loop bindings, including no-else union bindings consumed by later
+  `if let` statements.
+- Dynamic `if let` union-result lowering now handles encoded nested dynamic
+  union targets, not only direct union-case target branches. This lets guarded
+  loop bindings such as `let result = if let .some(value) = maybe { ... }`
+  lower through pure Ic even when `maybe` is a skipped-step union value whose
+  active branch is itself a dynamic union `if`.
+- Expected-type aggregate lowering now falls through from the direct dynamic
+  `if` probe to the typed aggregate path when the direct route reports generic
+  struct or union branches. This keeps annotated guarded loop bindings such as
+  `let user: user_type = { let selected = if let ...; return selected }` and
+  `let option: option_type = { ... }` lowerable through Ic after dynamic static
+  loop `break`/`continue` state, including ownership-wrapper branches.
+- Union-result inference for implicit no-else `if let` expressions now produces
+  the inferred then-case table when that table has a valid implicit fallback.
+  Static-loop skipped-step binding expansion uses that union-case inference
+  before generic expression inference, so shorthand results such as
+  `if let .some(value) = maybe { .ok(value) }` keep their payload type and lower
+  through later union handlers.
+- General expression inference now binds known `if let` payload types while
+  inferring the then branch. Static-loop skipped-step bindings that return the
+  matched payload directly can therefore synthesize `Text` and struct fallbacks
+  without requiring a manual annotation.
+- Expected-type `if let` lowering now backs off from speculative direct
+  lowering when direct no-else fallback inference is weaker than the expected
+  result type. This lets nested block-final no-else `if let` payload selections
+  lower through the typed handler path instead of failing with an unknown
+  fallback.
+- Direct-lambda resolution now includes simple two-statement block-local aliases
+  used after dynamic static-loop control. The skipped-step function binding path
+  normalizes the active value before building the guard, so loop-local aliases
+  such as `let f = { let id = x => x; id }` inline at call sites instead of
+  reaching Ic reduction as unresolved runtime applications.
+- The same direct-lambda path now accepts a non-linear binding prefix before the
+  returned block-local function alias or direct returned lambda. Value-backed
+  bindings from the static-loop expansion snapshot are cloned as inline facts
+  for the captured lambda environment, which keeps loop-local captures such as
+  `offset = i + 1` concrete before Ic reduction.

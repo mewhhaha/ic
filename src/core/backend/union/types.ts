@@ -12,6 +12,7 @@ import type {
 import type { RuntimeUnionPayloadEmitBinding } from "../../runtime_union_emit.ts";
 
 export type CoreBackendUnionApi = {
+  block_ctx: (ctx: StaticCtx) => StaticCtx;
   check_closure_call_args: (
     expr: Extract<CoreExpr, { tag: "app" }>,
     fn_type: CoreFnType,
@@ -28,6 +29,7 @@ export type CoreBackendUnionApi = {
     ctx: StaticCtx,
   ) => CoreFnType | undefined;
   collect_expr_locals: (expr: CoreExpr, ctx: CoreCtx) => void;
+  collect_stmt_locals: (stmt: CoreStmt, ctx: StaticCtx) => void;
   core_expr_is_text: (expr: CoreExpr, ctx: StaticCtx) => boolean;
   emit_expr: (expr: CoreExpr, ctx: CoreEmitCtx) => Wat;
   emit_stmt: (stmt: CoreStmt, ctx: CoreEmitCtx, is_final: boolean) => Wat;
@@ -37,6 +39,14 @@ export type CoreBackendUnionApi = {
     info: RuntimeUnionMatchInfo,
     ctx: CoreEmitCtx,
   ) => RuntimeUnionPayloadEmitBinding<CoreEmitCtx>;
+  merge_if_else_static_assignments: (
+    stmt: CoreStmt,
+    cond: CoreExpr,
+    then_statics: Map<string, CoreExpr>,
+    else_statics: Map<string, CoreExpr>,
+    ctx: CoreEmitCtx,
+    emit_ctx: CoreEmitCtx,
+  ) => Wat;
   runtime_aggregate_type_expr: (
     expr: CoreExpr,
     ctx: StaticCtx,
@@ -46,10 +56,22 @@ export type CoreBackendUnionApi = {
     right: CoreExpr,
     ctx: StaticCtx,
   ) => boolean;
+  scoped_static_core_call_value: (
+    expr: Extract<CoreExpr, { tag: "app" }>,
+    target: Extract<CoreExpr, { tag: "lam" }>,
+    ctx: StaticCtx,
+  ) => { value: CoreExpr; ctx: StaticCtx };
+  static_core_call_requires_scope: (
+    target: Extract<CoreExpr, { tag: "lam" }>,
+  ) => boolean;
   static_core_call_value: (
     expr: CoreExpr,
     ctx: StaticCtx,
   ) => CoreExpr | undefined;
+  static_core_call_target: (
+    expr: CoreExpr,
+    ctx: StaticCtx,
+  ) => Extract<CoreExpr, { tag: "lam" }> | undefined;
   static_struct_value: (
     expr: CoreExpr,
     ctx: StaticCtx,

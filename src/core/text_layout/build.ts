@@ -2,14 +2,21 @@ import type { DataSegment } from "../../mod.ts";
 import type { CoreExpr, CoreField, CoreParam, CoreStmt } from "../ast.ts";
 import { set_local } from "../backend/util.ts";
 import { align_to } from "../memory.ts";
+import { static_core_call_branch_value } from "../static_call.ts";
 import { align_to_4, text_bytes } from "../text.ts";
 import {
   static_text_value,
   type StaticTextCtx,
   type StaticTextHooks,
 } from "../text_static.ts";
+import { dynamic_if_let_can_match } from "../union_static.ts";
 import { core_text_layout_param_type } from "./param.ts";
 import type { CoreTextLayoutHooks, TextLayout } from "./types.ts";
+
+type TextLayoutBranchCtx =
+  | { tag: "scan"; ctx: StaticTextCtx }
+  | { tag: "skip" }
+  | { tag: "unknown" };
 
 export function build_text_layout(
   core: { statements: CoreStmt[] },
@@ -25,6 +32,7 @@ export function build_text_layout(
     dynamic_union_if: hooks.dynamic_union_if,
   } satisfies StaticTextHooks;
   const ctx: StaticTextCtx = {
+    ...initial_ctx,
     locals: initial_ctx.locals,
     statics: new Map(),
     fn_types: new Map(initial_ctx.fn_types),
@@ -33,6 +41,7 @@ export function build_text_layout(
     union_locals: new Map(initial_ctx.union_locals),
   };
   let offset = 0;
+  const visiting_static_functions = new Set<string>();
 
   function add_text(expr: Extract<CoreExpr, { tag: "text" }>): void {
     const existing = offsets.get(expr.value);
@@ -65,6 +74,18 @@ export function build_text_layout(
     if (value.tag === "lam" || value.tag === "rec") {
       ctx.statics.set(name, value);
       visit_expr(value);
+      return true;
+    }
+
+    const branch_function_value = static_core_call_branch_value(
+      value,
+      ctx,
+      hooks,
+    );
+
+    if (branch_function_value) {
+      ctx.statics.set(name, branch_function_value);
+      visit_expr(branch_function_value);
       return true;
     }
 
@@ -127,6 +148,7 @@ export function build_text_layout(
           }
 
           visit_expr(value);
+          bind_dynamic_value(stmt.name, value, stmt.annotation);
         }
 
         return;
@@ -137,6 +159,7 @@ export function build_text_layout(
         }
 
         visit_expr(stmt.value);
+        bind_dynamic_value(stmt.name, stmt.value, undefined);
         return;
 
       case "index_assign":
@@ -229,6 +252,27 @@ export function build_text_layout(
       case "if_let_stmt":
         visit_expr(stmt.target);
 
+        {
+          const branch_ctx = if_let_branch_ctx(
+            stmt.target,
+            stmt.case_name,
+            stmt.value_name,
+          );
+
+          if (branch_ctx.tag === "skip") {
+            return;
+          }
+
+          if (branch_ctx.tag === "scan") {
+            with_text_layout_ctx(branch_ctx.ctx, () => {
+              for (const item of stmt.body) {
+                visit_stmt(item);
+              }
+            });
+            return;
+          }
+        }
+
         for (const item of stmt.body) {
           visit_stmt(item);
         }
@@ -253,6 +297,91 @@ export function build_text_layout(
 
   function visit_field(field: CoreField): void {
     visit_expr(field.value);
+  }
+
+  function bind_dynamic_value(
+    name: string,
+    value: CoreExpr,
+    annotation: string | undefined,
+  ): void {
+    ctx.statics.delete(name);
+
+    const has_text_fact = layout_value_has_text_fact(value, annotation);
+
+    if (has_text_fact && value_has_implicit_text_fallback(value)) {
+      add_text({ tag: "text", value: "" });
+    }
+
+    if (has_text_fact) {
+      set_local(ctx.locals, name, "i32");
+      ctx.text_locals.add(name);
+    } else {
+      ctx.text_locals.delete(name);
+    }
+  }
+
+  function layout_value_has_text_fact(
+    value: CoreExpr,
+    annotation: string | undefined,
+  ): boolean {
+    if (annotation === "Text") {
+      return true;
+    }
+
+    if (static_text_value(value, ctx, text_hooks)) {
+      return true;
+    }
+
+    if (value.tag === "var") {
+      return ctx.text_locals.has(value.name);
+    }
+
+    if (value.tag === "borrow" || value.tag === "freeze") {
+      return layout_value_has_text_fact(value.value, undefined);
+    }
+
+    if (value.tag === "scratch") {
+      return layout_value_has_text_fact(value.body, undefined);
+    }
+
+    if (value.tag === "if") {
+      if (value.implicit_else) {
+        return layout_value_has_text_fact(value.then_branch, undefined);
+      }
+
+      return layout_value_has_text_fact(value.then_branch, undefined) &&
+        layout_value_has_text_fact(value.else_branch, undefined);
+    }
+
+    if (value.tag === "if_let" && value.implicit_else) {
+      const text_value = static_text_value(value, ctx, text_hooks);
+
+      if (text_value) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function value_has_implicit_text_fallback(value: CoreExpr): boolean {
+    if (value.tag === "if" && value.implicit_else) {
+      return true;
+    }
+
+    if (value.tag === "if_let" && value.implicit_else) {
+      return true;
+    }
+
+    if (value.tag === "borrow" || value.tag === "freeze") {
+      return value_has_implicit_text_fallback(value.value);
+    }
+
+    if (value.tag === "scratch") {
+      return value_has_implicit_text_fallback(value.body);
+    }
+
+    return false;
   }
 
   function visit_closure_body(params: CoreParam[], body: CoreExpr): void {
@@ -287,12 +416,14 @@ export function build_text_layout(
     const outer_statics = ctx.statics;
     const outer_fn_types = ctx.fn_types;
     const outer_text_locals = ctx.text_locals;
+    const outer_struct_locals = ctx.struct_locals;
     const outer_union_locals = ctx.union_locals;
 
     ctx.locals = body_ctx.locals;
     ctx.statics = body_ctx.statics;
     ctx.fn_types = body_ctx.fn_types;
     ctx.text_locals = body_ctx.text_locals;
+    ctx.struct_locals = body_ctx.struct_locals;
     ctx.union_locals = body_ctx.union_locals;
 
     try {
@@ -302,7 +433,31 @@ export function build_text_layout(
       ctx.statics = outer_statics;
       ctx.fn_types = outer_fn_types;
       ctx.text_locals = outer_text_locals;
+      ctx.struct_locals = outer_struct_locals;
       ctx.union_locals = outer_union_locals;
+    }
+  }
+
+  function visit_static_function_reference(name: string): void {
+    const value = ctx.statics.get(name);
+
+    if (!value) {
+      return;
+    }
+
+    if (value.tag !== "lam" && value.tag !== "rec") {
+      return;
+    }
+
+    if (visiting_static_functions.has(name)) {
+      return;
+    }
+
+    visiting_static_functions.add(name);
+    try {
+      visit_expr(value);
+    } finally {
+      visiting_static_functions.delete(name);
     }
   }
 
@@ -331,6 +486,23 @@ export function build_text_layout(
 
       case "text":
         add_text(expr);
+        return;
+
+      case "if":
+        if (
+          expr.implicit_else &&
+          layout_value_has_text_fact(expr, undefined)
+        ) {
+          add_text({ tag: "text", value: "" });
+        }
+
+        visit_expr(expr.cond);
+        visit_expr(expr.then_branch);
+
+        if (!expr.implicit_else) {
+          visit_expr(expr.else_branch);
+        }
+
         return;
 
       case "lam":
@@ -397,16 +569,50 @@ export function build_text_layout(
 
         return;
 
-      case "if":
-        visit_expr(expr.cond);
-        visit_expr(expr.then_branch);
-        visit_expr(expr.else_branch);
-        return;
-
       case "if_let":
+        if (
+          expr.implicit_else &&
+          layout_value_has_text_fact(expr, undefined)
+        ) {
+          add_text({ tag: "text", value: "" });
+        }
+
         visit_expr(expr.target);
+
+        {
+          const branch_ctx = if_let_branch_ctx(
+            expr.target,
+            expr.case_name,
+            expr.value_name,
+          );
+
+          if (branch_ctx.tag === "skip") {
+            if (!expr.implicit_else) {
+              visit_expr(expr.else_branch);
+            }
+
+            return;
+          }
+
+          if (branch_ctx.tag === "scan") {
+            with_text_layout_ctx(branch_ctx.ctx, () => {
+              visit_expr(expr.then_branch);
+            });
+
+            if (!expr.implicit_else) {
+              visit_expr(expr.else_branch);
+            }
+
+            return;
+          }
+        }
+
         visit_expr(expr.then_branch);
-        visit_expr(expr.else_branch);
+
+        if (!expr.implicit_else) {
+          visit_expr(expr.else_branch);
+        }
+
         return;
 
       case "field":
@@ -429,9 +635,12 @@ export function build_text_layout(
 
         return;
 
+      case "var":
+        visit_static_function_reference(expr.name);
+        return;
+
       case "num":
       case "type_name":
-      case "var":
       case "linear":
       case "struct_type":
       case "union_type":
@@ -445,4 +654,105 @@ export function build_text_layout(
   }
 
   return { offsets, data, heap_start: align_to(offset, 8) };
+
+  function if_let_branch_ctx(
+    target: CoreExpr,
+    case_name: string,
+    value_name: string | undefined,
+  ): TextLayoutBranchCtx {
+    const union_case = hooks.static_union_case(target, ctx);
+
+    if (union_case) {
+      if (union_case.name !== case_name) {
+        return { tag: "skip" };
+      }
+
+      const branch_ctx = create_text_layout_branch_ctx(ctx);
+      hooks.bind_core_if_let_payload_fact(
+        value_name,
+        union_case,
+        branch_ctx,
+      );
+      return { tag: "scan", ctx: branch_ctx };
+    }
+
+    const dynamic_target = hooks.dynamic_union_if(target, ctx);
+
+    if (dynamic_target) {
+      if (!dynamic_if_let_can_match(case_name, dynamic_target)) {
+        return { tag: "skip" };
+      }
+
+      const branch_ctx = create_text_layout_branch_ctx(ctx);
+      hooks.bind_dynamic_if_let_payload(
+        case_name,
+        value_name,
+        dynamic_target,
+        branch_ctx,
+      );
+      return { tag: "scan", ctx: branch_ctx };
+    }
+
+    const runtime_target = hooks.runtime_union_target(target, ctx);
+
+    if (runtime_target) {
+      const info = hooks.runtime_union_match_info(
+        case_name,
+        runtime_target,
+        ctx,
+      );
+      const branch_ctx = hooks.static_runtime_union_match_branch_ctx(
+        value_name,
+        info,
+        ctx,
+      );
+      return { tag: "scan", ctx: branch_ctx };
+    }
+
+    return { tag: "unknown" };
+  }
+
+  function create_text_layout_branch_ctx(
+    source: StaticTextCtx,
+  ): StaticTextCtx {
+    return {
+      ...source,
+      locals: new Map(source.locals),
+      statics: new Map(source.statics),
+      fn_types: new Map(source.fn_types),
+      text_locals: new Set(source.text_locals),
+      struct_locals: new Map(source.struct_locals),
+      union_locals: new Map(source.union_locals),
+    };
+  }
+
+  function with_text_layout_ctx(
+    next_ctx: StaticTextCtx,
+    visit: () => void,
+  ): void {
+    const outer_locals = ctx.locals;
+    const outer_statics = ctx.statics;
+    const outer_fn_types = ctx.fn_types;
+    const outer_text_locals = ctx.text_locals;
+    const outer_struct_locals = ctx.struct_locals;
+    const outer_union_locals = ctx.union_locals;
+
+    ctx.locals = next_ctx.locals;
+    ctx.statics = next_ctx.statics;
+    ctx.fn_types = next_ctx.fn_types;
+    ctx.text_locals = next_ctx.text_locals;
+    ctx.struct_locals = next_ctx.struct_locals;
+    ctx.union_locals = next_ctx.union_locals;
+
+    try {
+      visit();
+    } finally {
+      ctx.locals = outer_locals;
+      ctx.statics = outer_statics;
+      ctx.fn_types = outer_fn_types;
+      ctx.text_locals = outer_text_locals;
+      ctx.struct_locals = outer_struct_locals;
+      ctx.union_locals = outer_union_locals;
+    }
+  }
 }

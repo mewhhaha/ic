@@ -33,11 +33,7 @@ import {
   type CoreHostBoundaryPlan,
 } from "../host_boundary.ts";
 import type { CoreCtx } from "../local_collect.ts";
-import {
-  clone_core_host_imports,
-  core_host_import_map,
-  core_host_import_result_ownership,
-} from "../host_import.ts";
+import { core_host_import_result_ownership } from "../host_import.ts";
 import {
   core_expr_ownership,
   type CoreOwnership,
@@ -49,13 +45,26 @@ import {
   core_freeze_proof_edges,
   core_unsupported_codegen_issues,
   type CoreBaselineProof,
+  type CoreUnsupportedCodegenIssue,
 } from "../proof.ts";
 import { core_transfer_validation } from "../transfer.ts";
 import {
   core_val_type_from_type_name,
   static_type_level_value,
+  static_type_value,
 } from "../type_static.ts";
 import { find_core_field, set_local } from "./util.ts";
+import {
+  create_child_core_ctx,
+  create_empty_core_ctx,
+} from "./graph/context.ts";
+import {
+  core_probe_index_assign_error,
+  core_unknown_host_boundary_probe_error,
+  core_unsupported_codegen_issue_exists,
+  core_unsupported_codegen_issue_from_analysis_error,
+  core_unsupported_codegen_proof,
+} from "./graph/proof_unsupported.ts";
 import {
   runtime_aggregate_field_info,
   runtime_aggregate_type_expr,
@@ -63,6 +72,7 @@ import {
 import { runtime_union_match_info } from "../runtime_union.ts";
 import { bind_runtime_union_match_payload_temps } from "../runtime_union_match.ts";
 import type { RuntimeUnionMatchInfo } from "../runtime_union.ts";
+import { static_core_call_branch_value } from "../static_call.ts";
 import { create_core_backend_graph } from "./graph/instance.ts";
 
 const core_backend = create_core_backend_graph();
@@ -95,7 +105,7 @@ export function core_ownership(core: CoreNode): CoreOwnership {
   expect(final_stmt, "Core program has no result statement");
   const expr = final_stmt_expr(final_stmt);
 
-  return core_expr_ownership(expr, ctx, core_ownership_hooks());
+  return core_expr_ownership(expr, ctx, core_static_call_proof_hooks());
 }
 
 export function core_escape(core: CoreNode): CoreEscapeAnalysis {
@@ -104,7 +114,7 @@ export function core_escape(core: CoreNode): CoreEscapeAnalysis {
 
 export function core_cleanup(core: CoreNode): CoreCleanupPlan {
   const ctx = collect_core_ctx(core);
-  return core_cleanup_plan(core, ctx, core_ownership_hooks());
+  return core_cleanup_plan(core, ctx, core_static_call_proof_hooks());
 }
 
 function core_frozen_local(name: string, ctx: CoreCtx): boolean {
@@ -138,6 +148,9 @@ export function core_drops(core: CoreNode): CoreDropPlan {
       create_core_runtime_union_match_child_ctx,
     static_struct_value: core_backend.struct.static_struct_value,
     static_union_case: core_backend.union.static_union_case,
+    static_core_call_requires_scope:
+      core_backend.static_call.static_core_call_requires_scope,
+    static_core_call_target: core_backend.static_call.static_core_call_target,
     static_value: drop_analysis_static_expr_value,
     static_text_value: core_backend.text.static_text_value,
   });
@@ -224,6 +237,31 @@ function core_ownership_hooks(): CoreOwnershipHooks<CoreCtx> {
   };
 }
 
+function core_static_call_proof_hooks() {
+  return {
+    ...core_ownership_hooks(),
+    closure_body_ctx: core_cleanup_closure_body_ctx,
+    scoped_static_core_call_value:
+      core_backend.static_call.scoped_static_core_call_value,
+    static_core_call_requires_scope:
+      core_backend.static_call.static_core_call_requires_scope,
+    static_core_call_target: core_backend.static_call.static_core_call_target,
+  };
+}
+
+function core_cleanup_closure_body_ctx(
+  expr: Extract<CoreExpr, { tag: "lam" | "rec" }>,
+  ctx: CoreCtx,
+): CoreCtx | undefined {
+  for (const param of expr.params) {
+    if (param.is_const) {
+      return undefined;
+    }
+  }
+
+  return core_drop_closure_body_ctx(expr, ctx);
+}
+
 function core_allocation_hooks() {
   return {
     ...core_ownership_hooks(),
@@ -240,6 +278,11 @@ function core_allocation_hooks() {
       return false;
     },
     is_static_value_expr: core_backend.static_value.is_static_value_expr,
+    scoped_static_core_call_value:
+      core_backend.static_call.scoped_static_core_call_value,
+    static_core_call_requires_scope:
+      core_backend.static_call.static_core_call_requires_scope,
+    static_core_call_target: core_backend.static_call.static_core_call_target,
     static_core_call_value: core_backend.static_call.static_core_call_value,
   };
 }
@@ -429,94 +472,137 @@ function core_runtime_aggregate_ownership_probe_error(
 }
 
 export function core_proof(core: CoreNode): CoreBaselineProof {
-  const ctx = collect_core_drop_ctx(core);
+  let ctx: CoreCtx;
+
+  try {
+    ctx = collect_core_drop_ctx(core);
+  } catch (error) {
+    const unsupported = core_unsupported_codegen_issue_from_analysis_error(
+      error,
+    );
+
+    if (unsupported) {
+      return core_unsupported_codegen_proof(core, [unsupported]);
+    }
+
+    throw error;
+  }
+
   const drop_ctx = ctx;
-  const borrow_ctx = collect_core_borrow_ctx(core);
-  const closure_ctx = collect_core_drop_ctx(core);
-  const final_stmt = core.statements[core.statements.length - 1];
-  expect(final_stmt, "Core program has no result statement");
-  const expr = final_stmt_expr(final_stmt);
   const unsupported_codegen = core_unsupported_codegen_issues(core, {
     collection_loop_supported: (stmt) =>
       core_collection_loop_supported(stmt, ctx),
+    index_assign_supported: (stmt) => core_index_assign_supported(stmt, ctx),
+    type_value_expr: (expr) => core_type_value_expr(expr, ctx),
     if_let_expr_supported: (expr) =>
       core_if_let_target_supported(expr.target, ctx),
     if_let_stmt_supported: (stmt) =>
       core_if_let_target_supported(stmt.target, ctx),
     index_expr_supported: (expr) => core_index_expr_supported(expr, ctx),
   });
+
+  if (unsupported_codegen.length > 0) {
+    return core_unsupported_codegen_proof(core, unsupported_codegen);
+  }
+
+  const final_stmt = core.statements[core.statements.length - 1];
+  expect(final_stmt, "Core program has no result statement");
+  const expr = final_stmt_expr(final_stmt);
   const final_unsupported = core_unsupported_final_expr_issue(expr, ctx);
 
-  if (final_unsupported) {
+  if (
+    final_unsupported &&
+    !core_unsupported_codegen_issue_exists(
+      unsupported_codegen,
+      final_unsupported,
+    )
+  ) {
     unsupported_codegen.unshift(final_unsupported);
   }
 
   if (unsupported_codegen.length > 0) {
+    return core_unsupported_codegen_proof(core, unsupported_codegen);
+  }
+
+  try {
+    const borrow_ctx = collect_core_borrow_ctx(core);
+    const closure_ctx = collect_core_drop_ctx(core);
+    const final_result = core_escape_analysis(
+      "final_result",
+      core_expr_ownership(expr, ctx, core_static_call_proof_hooks()),
+    );
+    const borrow_plan = core_borrow_plan(core, borrow_ctx, {
+      ...core_ownership_hooks(),
+      closure_body_ctx: core_borrow_closure_body_ctx,
+      static_core_call_value: core_backend.static_call.static_core_call_value,
+      static_value: core_static_value,
+    });
+    const cleanup = core_cleanup_plan(
+      core,
+      ctx,
+      core_static_call_proof_hooks(),
+    );
+    const closure_ownership = core_closure_ownership_plan(
+      core,
+      closure_ctx,
+      core_closure_ownership_hooks(),
+    );
+    const allocations = core_allocation_plan(
+      core,
+      ctx,
+      core_allocation_hooks(),
+    );
+    const drops = core_drop_plan(core, drop_ctx, {
+      ...core_ownership_hooks(),
+      block_ctx: create_child_core_ctx,
+      closure_body_ctx: core_drop_closure_body_ctx,
+      collect_stmt_locals: collect_stmt_locals_for_proof,
+      collection_loop_body_ctx: core_drop_collection_loop_body_ctx,
+      if_let_branch_ctx: core_drop_if_let_branch_ctx,
+      static_core_call_requires_scope:
+        core_backend.static_call.static_core_call_requires_scope,
+      static_core_call_target: core_backend.static_call.static_core_call_target,
+      static_value: drop_analysis_static_expr_value,
+    });
+    const freeze_edges = core_freeze_proof_edges(
+      core,
+      ctx,
+      core_static_call_proof_hooks(),
+    );
+    const host_boundaries = core_host_boundaries(core);
+    const transfers = core_transfer_validation(
+      core,
+      ctx,
+      {
+        ...core_ownership_hooks(),
+        closure_body_ctx: core_drop_closure_body_ctx,
+      },
+    );
+
     return core_baseline_proof({
-      final_result: core_escape_analysis("final_result", {
-        tag: "scalar_local",
-        type: "i32",
-      }),
-      borrows: { ok: true, issues: [] },
-      freeze_edges: [],
-      cleanup: { steps: [] },
-      closure_ownership: { edges: [] },
-      drops: { steps: [] },
-      allocations: { facts: [] },
-      host_boundaries: { edges: [] },
-      transfers: { transfers: [], issues: [] },
+      final_result,
+      borrows: core_validate_borrow_plan(borrow_plan),
+      freeze_edges,
+      cleanup,
+      closure_ownership,
+      drops,
+      allocations,
+      host_boundaries,
+      transfers,
       lifetimes: core_lifetime_plan(core),
       unsupported_codegen,
     });
+  } catch (error) {
+    const unsupported = core_unsupported_codegen_issue_from_analysis_error(
+      error,
+    );
+
+    if (unsupported) {
+      return core_unsupported_codegen_proof(core, [unsupported]);
+    }
+
+    throw error;
   }
-
-  const final_result = core_escape_analysis(
-    "final_result",
-    core_expr_ownership(expr, ctx, core_ownership_hooks()),
-  );
-  const borrow_plan = core_borrow_plan(core, borrow_ctx, {
-    ...core_ownership_hooks(),
-    closure_body_ctx: core_borrow_closure_body_ctx,
-    static_core_call_value: core_backend.static_call.static_core_call_value,
-    static_value: core_static_value,
-  });
-  const cleanup = core_cleanup_plan(core, ctx, core_ownership_hooks());
-  const closure_ownership = core_closure_ownership_plan(
-    core,
-    closure_ctx,
-    core_closure_ownership_hooks(),
-  );
-  const allocations = core_allocation_plan(core, ctx, core_allocation_hooks());
-  const drops = core_drop_plan(core, drop_ctx, {
-    ...core_ownership_hooks(),
-    block_ctx: create_child_core_ctx,
-    closure_body_ctx: core_drop_closure_body_ctx,
-    collect_stmt_locals: core_backend.local_collect.collect_stmt_locals,
-    collection_loop_body_ctx: core_drop_collection_loop_body_ctx,
-    if_let_branch_ctx: core_drop_if_let_branch_ctx,
-    static_value: drop_analysis_static_expr_value,
-  });
-  const freeze_edges = core_freeze_proof_edges(
-    core,
-    ctx,
-    core_ownership_hooks(),
-  );
-  const host_boundaries = core_host_boundaries(core);
-  const transfers = core_transfer_validation(core, ctx, core_ownership_hooks());
-
-  return core_baseline_proof({
-    final_result,
-    borrows: core_validate_borrow_plan(borrow_plan),
-    freeze_edges,
-    cleanup,
-    closure_ownership,
-    drops,
-    allocations,
-    host_boundaries,
-    transfers,
-    lifetimes: core_lifetime_plan(core),
-    unsupported_codegen,
-  });
 }
 
 export function core_check_proof(core: CoreNode): void {
@@ -596,7 +682,10 @@ function collect_drop_analysis_stmt_locals(
   ctx: CoreCtx,
 ): void {
   if (stmt.tag === "bind") {
-    const static_value = drop_analysis_static_expr_value(stmt.value, ctx);
+    const value = core_backend.type_check.core_binding_value(stmt, ctx);
+    const static_value = stmt.kind === "const"
+      ? drop_analysis_static_expr_value(value, ctx)
+      : drop_analysis_runtime_binding_static_expr_value(value, ctx);
 
     if (static_value) {
       if (
@@ -655,7 +744,10 @@ function collect_drop_analysis_stmt_locals(
   }
 
   if (stmt.tag === "assign") {
-    const static_value = drop_analysis_static_expr_value(stmt.value, ctx);
+    const static_value = drop_analysis_runtime_binding_static_expr_value(
+      stmt.value,
+      ctx,
+    );
 
     if (static_value) {
       if (
@@ -773,6 +865,27 @@ function collect_drop_analysis_stmt_locals(
 
     collect_expr_locals_for_proof(stmt.target, ctx);
 
+    const branch = core_drop_if_let_branch_ctx(
+      stmt.case_name,
+      stmt.value_name,
+      stmt.target,
+      ctx,
+    );
+
+    if (branch.tag === "skip") {
+      return;
+    }
+
+    if (branch.tag === "scan") {
+      for (const body_stmt of stmt.body) {
+        collect_drop_analysis_stmt_locals(body_stmt, branch.ctx);
+      }
+
+      ctx.next_loop = branch.ctx.next_loop;
+      ctx.next_temp = branch.ctx.next_temp;
+      return;
+    }
+
     for (const body_stmt of stmt.body) {
       collect_drop_analysis_stmt_locals(body_stmt, ctx);
     }
@@ -794,8 +907,75 @@ function collect_stmt_locals_for_proof(
       return;
     }
 
+    if (core_unsafe_scratch_return_probe_error(error)) {
+      if (bind_unsafe_scratch_return_for_proof(stmt, ctx)) {
+        return;
+      }
+    }
+
     throw error;
   }
+}
+
+function core_unsafe_scratch_return_probe_error(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.message.startsWith(
+    "Cannot type core scratch block with unsafe scratch return ",
+  );
+}
+
+function bind_unsafe_scratch_return_for_proof(
+  stmt: CoreStmt,
+  ctx: CoreCtx,
+): boolean {
+  if (stmt.tag !== "bind") {
+    return false;
+  }
+
+  const annotation = stmt.annotation;
+
+  if (!annotation) {
+    return false;
+  }
+
+  ctx.statics.delete(stmt.name);
+  core_backend.local_facts.clear_core_local_facts(stmt.name, ctx);
+
+  const scalar_type = core_val_type_from_type_name(annotation);
+
+  if (scalar_type) {
+    set_local(ctx.locals, stmt.name, scalar_type);
+
+    if (annotation === "Text") {
+      ctx.text_locals.add(stmt.name);
+    }
+
+    return true;
+  }
+
+  const annotation_expr: CoreExpr = { tag: "var", name: annotation };
+  const type_value = static_type_value(annotation_expr, ctx);
+
+  if (!type_value) {
+    return false;
+  }
+
+  if (type_value.tag === "struct_type") {
+    set_local(ctx.locals, stmt.name, "i32");
+    ctx.struct_locals.set(stmt.name, annotation_expr);
+    return true;
+  }
+
+  if (type_value.tag === "union_type") {
+    set_local(ctx.locals, stmt.name, "i32");
+    ctx.union_locals.set(stmt.name, annotation_expr);
+    return true;
+  }
+
+  return false;
 }
 
 function collect_expr_locals_for_proof(
@@ -811,18 +991,6 @@ function collect_expr_locals_for_proof(
 
     throw error;
   }
-}
-
-function core_unknown_host_boundary_probe_error(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  if (error.message === "Cannot type core app expression yet") {
-    return true;
-  }
-
-  return false;
 }
 
 function core_collection_loop_supported(
@@ -847,11 +1015,31 @@ function core_collection_loop_supported(
   return core_backend.text.core_expr_is_text(stmt.collection, ctx);
 }
 
+function core_index_assign_supported(
+  stmt: Extract<CoreStmt, { tag: "index_assign" }>,
+  ctx: CoreCtx,
+): boolean {
+  const static_target = core_backend.struct.static_struct_binding(
+    stmt.name,
+    ctx,
+  );
+
+  if (static_target) {
+    return true;
+  }
+
+  if (ctx.text_locals.has(stmt.name)) {
+    return true;
+  }
+
+  return ctx.struct_locals.has(stmt.name);
+}
+
 function core_unsupported_final_expr_issue(
   expr: CoreExpr,
   ctx: CoreCtx,
 ) {
-  if (core_final_type_value_supported_by_proof_gate(expr, ctx)) {
+  if (core_type_value_expr(expr, ctx)) {
     return {
       tag: "unsupported_codegen" as const,
       node: "expr" as const,
@@ -860,13 +1048,12 @@ function core_unsupported_final_expr_issue(
     };
   }
 
-  if (expr.tag === "app" && !core_app_expr_supported(expr, ctx)) {
-    return {
-      tag: "unsupported_codegen" as const,
-      node: "expr" as const,
-      feature: "app",
-      message: "Cannot emit core app expression yet",
-    };
+  if (expr.tag === "app") {
+    const app_issue = core_app_expr_unsupported_codegen_issue(expr, ctx);
+
+    if (app_issue) {
+      return app_issue;
+    }
   }
 
   if (expr.tag === "field" && !core_field_expr_supported(expr, ctx)) {
@@ -881,7 +1068,7 @@ function core_unsupported_final_expr_issue(
   return undefined;
 }
 
-function core_final_type_value_supported_by_proof_gate(
+function core_type_value_expr(
   expr: CoreExpr,
   ctx: CoreCtx,
 ): boolean {
@@ -894,40 +1081,108 @@ function core_final_type_value_supported_by_proof_gate(
   }
 
   if (expr.tag !== "var") {
+    const type_value = maybe_core_static_type_level_value(expr, ctx);
+
+    if (!type_value) {
+      return false;
+    }
+
+    return core_static_value_is_type_value(type_value);
+  }
+
+  const type_value = maybe_core_static_type_level_value(expr, ctx);
+
+  if (!type_value) {
     return false;
   }
 
-  const type_value = static_type_level_value(expr, ctx);
-
-  return type_value !== undefined;
+  return core_static_value_is_type_value(type_value);
 }
 
-function core_app_expr_supported(
-  expr: Extract<CoreExpr, { tag: "app" }>,
+function core_static_value_is_type_value(expr: CoreExpr): boolean {
+  return expr.tag === "type_name" ||
+    expr.tag === "struct_type" ||
+    expr.tag === "union_type";
+}
+
+function maybe_core_static_type_level_value(
+  expr: CoreExpr,
   ctx: CoreCtx,
-): boolean {
-  const runtime_union_value = core_backend.union.core_runtime_union_value(
-    expr,
-    ctx,
-  );
-
-  if (runtime_union_value) {
-    return true;
-  }
-
+): CoreExpr | undefined {
   try {
-    core_backend.app.app_type(expr, ctx);
-    return true;
+    return static_type_level_value(expr, ctx);
   } catch (error) {
-    if (core_app_unsupported_type_error(error)) {
-      return false;
+    if (core_static_type_value_probe_error(error)) {
+      return undefined;
     }
 
     throw error;
   }
 }
 
-function core_app_unsupported_type_error(error: unknown): boolean {
+function core_static_type_value_probe_error(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  if (error.message.startsWith("Core type constructor ")) {
+    return true;
+  }
+
+  if (error.message.startsWith("Missing core type constructor ")) {
+    return true;
+  }
+
+  return false;
+}
+
+function core_app_expr_unsupported_codegen_issue(
+  expr: Extract<CoreExpr, { tag: "app" }>,
+  ctx: CoreCtx,
+): CoreUnsupportedCodegenIssue | undefined {
+  const runtime_union_value = core_backend.union.core_runtime_union_value(
+    expr,
+    ctx,
+  );
+
+  if (runtime_union_value) {
+    return undefined;
+  }
+
+  try {
+    core_backend.app.app_type(expr, ctx);
+    return undefined;
+  } catch (error) {
+    if (core_app_type_probe_error(error)) {
+      return undefined;
+    }
+
+    const builtin_issue = core_unsupported_codegen_issue_from_analysis_error(
+      error,
+    );
+
+    if (builtin_issue) {
+      return builtin_issue;
+    }
+
+    if (core_generic_app_unsupported_type_error(error)) {
+      return {
+        tag: "unsupported_codegen",
+        node: "expr",
+        feature: "app",
+        message: "Cannot emit core app expression yet",
+      };
+    }
+
+    throw error;
+  }
+}
+
+function core_app_type_probe_error(error: unknown): boolean {
+  return core_probe_index_assign_error(error);
+}
+
+function core_generic_app_unsupported_type_error(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
@@ -1026,10 +1281,14 @@ function drop_analysis_static_expr_value(
     );
 
     if (struct_value) {
-      return {
-        tag: "freeze",
-        value: struct_value,
-      };
+      return core_backend.static_value.plan_static_value_expr(
+        {
+          tag: "freeze",
+          value: struct_value,
+        },
+        ctx,
+        undefined,
+      ).value;
     }
   }
 
@@ -1041,9 +1300,16 @@ function drop_analysis_static_expr_value(
     return expr;
   }
 
+  if (expr.tag === "struct_update") {
+    const updated = core_backend.struct.static_struct_update_value(expr, ctx);
+
+    if (updated) {
+      return updated;
+    }
+  }
+
   if (
     expr.tag === "struct_value" ||
-    expr.tag === "struct_update" ||
     expr.tag === "union_case" ||
     expr.tag === "with"
   ) {
@@ -1051,6 +1317,14 @@ function drop_analysis_static_expr_value(
   }
 
   if (expr.tag === "if") {
+    const branch_function = static_core_call_branch_value(expr, ctx, {
+      static_core_call_target: core_backend.static_call.static_core_call_target,
+    });
+
+    if (branch_function) {
+      return branch_function;
+    }
+
     const then_value = drop_analysis_static_expr_value(expr.then_branch, ctx);
     const else_value = drop_analysis_static_expr_value(expr.else_branch, ctx);
 
@@ -1091,6 +1365,23 @@ function drop_analysis_static_expr_value(
   }
 
   return undefined;
+}
+
+function drop_analysis_runtime_binding_static_expr_value(
+  expr: CoreExpr,
+  ctx: CoreCtx,
+): CoreExpr | undefined {
+  const value = drop_analysis_static_expr_value(expr, ctx);
+
+  if (!value) {
+    return undefined;
+  }
+
+  if (value.tag === "with") {
+    return undefined;
+  }
+
+  return value;
 }
 
 function drop_analysis_static_type_level_value(
@@ -1305,6 +1596,10 @@ function core_borrow_closure_body_ctx(
   const closure_ctx = create_child_core_ctx(ctx);
 
   for (const param of expr.params) {
+    if (param.is_const) {
+      continue;
+    }
+
     const annotation = param.annotation;
 
     if (!annotation) {
@@ -1348,7 +1643,17 @@ function core_host_boundary_closure_body_ctx(
   expr: Extract<CoreExpr, { tag: "lam" | "rec" }>,
   ctx: CoreCtx,
 ): CoreHostBoundaryClosureCtx<CoreCtx> {
-  const closure_ctx = core_drop_closure_body_ctx(expr, ctx);
+  let closure_ctx: CoreCtx | undefined;
+
+  try {
+    closure_ctx = core_drop_closure_body_ctx(expr, ctx);
+  } catch (error) {
+    if (core_probe_index_assign_error(error)) {
+      return { tag: "skip" };
+    }
+
+    throw error;
+  }
 
   if (!closure_ctx) {
     return { tag: "skip" };
@@ -1365,8 +1670,14 @@ function core_drop_closure_body_ctx(
   ctx: CoreCtx,
 ): CoreCtx | undefined {
   const closure_ctx = create_child_core_ctx(ctx);
+  let has_const_param = false;
 
   for (const param of expr.params) {
+    if (param.is_const) {
+      has_const_param = true;
+      continue;
+    }
+
     const annotation = param.annotation;
 
     if (!annotation) {
@@ -1376,10 +1687,49 @@ function core_drop_closure_body_ctx(
     const type = core_val_type_from_type_name(annotation);
 
     if (!type) {
+      const type_value = static_type_value(
+        { tag: "var", name: annotation },
+        ctx,
+      );
+
+      if (type_value && type_value.tag === "struct_type") {
+        closure_ctx.locals.set(param.name, "i32");
+        closure_ctx.text_locals.delete(param.name);
+        closure_ctx.struct_locals.set(param.name, {
+          tag: "var",
+          name: annotation,
+        });
+        closure_ctx.union_locals.delete(param.name);
+
+        if (closure_ctx.frozen_locals) {
+          closure_ctx.frozen_locals.delete(param.name);
+        }
+
+        continue;
+      }
+
+      if (type_value && type_value.tag === "union_type") {
+        closure_ctx.locals.set(param.name, "i32");
+        closure_ctx.text_locals.delete(param.name);
+        closure_ctx.struct_locals.delete(param.name);
+        closure_ctx.union_locals.set(param.name, {
+          tag: "var",
+          name: annotation,
+        });
+
+        if (closure_ctx.frozen_locals) {
+          closure_ctx.frozen_locals.delete(param.name);
+        }
+
+        continue;
+      }
+
       return undefined;
     }
 
     closure_ctx.locals.set(param.name, type);
+    closure_ctx.struct_locals.delete(param.name);
+    closure_ctx.union_locals.delete(param.name);
 
     if (annotation === "Text") {
       closure_ctx.text_locals.add(param.name);
@@ -1390,6 +1740,10 @@ function core_drop_closure_body_ctx(
     if (closure_ctx.frozen_locals) {
       closure_ctx.frozen_locals.delete(param.name);
     }
+  }
+
+  if (has_const_param) {
+    return closure_ctx;
   }
 
   core_backend.local_collect.collect_expr_locals(expr.body, closure_ctx);
@@ -1495,50 +1849,4 @@ function core_drop_if_let_branch_ctx(
 
 function core_static_value(name: string, ctx: CoreCtx): CoreExpr | undefined {
   return ctx.statics.get(name);
-}
-
-function create_empty_core_ctx(core: CoreNode | undefined): CoreCtx {
-  let host_imports;
-
-  if (core) {
-    host_imports = core_host_import_map(core);
-  }
-
-  return {
-    locals: new Map(),
-    statics: new Map(),
-    fn_types: new Map(),
-    text_locals: new Set(),
-    struct_locals: new Map(),
-    union_locals: new Map(),
-    frozen_locals: new Set(),
-    host_imports,
-    next_loop: 0,
-    next_temp: 0,
-  };
-}
-
-function create_child_core_ctx(ctx: CoreCtx): CoreCtx {
-  return {
-    locals: new Map(ctx.locals),
-    statics: new Map(ctx.statics),
-    fn_types: new Map(ctx.fn_types),
-    text_locals: new Set(ctx.text_locals),
-    struct_locals: new Map(ctx.struct_locals),
-    union_locals: new Map(ctx.union_locals),
-    frozen_locals: clone_optional_set(ctx.frozen_locals),
-    host_imports: clone_core_host_imports(ctx.host_imports),
-    next_loop: ctx.next_loop,
-    next_temp: ctx.next_temp,
-  };
-}
-
-function clone_optional_set(
-  value: Set<string> | undefined,
-): Set<string> | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  return new Set(value);
 }

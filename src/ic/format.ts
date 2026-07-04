@@ -78,5 +78,11 @@ export function fmt_ic(ic: Ic): string {
       const body = fmt_ic(ic.body);
       return `~ ${expr};\n${body}`;
     }
+
+    case "fix": {
+      const expr = fmt_ic(ic.expr);
+      const body = fmt_ic(ic.body);
+      return `fix ${ic.name} = ${expr};\n${body}`;
+    }
   }
 }

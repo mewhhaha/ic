@@ -46,6 +46,18 @@ let x#1: Int = 3
 let x#2: Text = "hello"
 ```
 
+- Thread ownership facts through shadowing. Rebinding a name whose previous
+  value owns runtime storage must record a move, drop, transfer, freeze, or
+  explicit no-cleanup decision for the old binding before the new binding takes
+  over the source name.
+- Keep shadowing copy-free for `unique_heap`, `scratch_backed`, active
+  `borrow_view`, capability, and ownership-bearing closure values. These values
+  may be moved or consumed according to their facts, but not implicitly copied.
+- For compiler-created temporaries introduced while freshening source names,
+  record the same lifetime and cleanup facts required by Task 12 before WAT
+  emission. The baseline does not use GC or hidden managed storage to clean up a
+  missed shadowing temporary.
+
 ## Acceptance Criteria
 
 - `let` creates a new binding in the current scope.
@@ -53,12 +65,18 @@ let x#2: Text = "hello"
 - `:=` shadows an existing source name and permits type changes.
 - Uses of a source name resolve to the latest binding in scope.
 - Internal names are fresh and deterministic.
+- Shadowing an owned runtime value cannot leak or implicitly duplicate the old
+  owner. Accepted cases expose the old binding's cleanup or transfer edge;
+  unsupported cases reject with a named missing ownership/lifetime fact.
 
 ## Verification
 
 - Add parser tests for `let`, `=`, and `:=`.
 - Add resolver/lowering tests showing fresh internal names.
 - Add type tests proving `=` rejects `Int -> Text` while `:=` accepts it.
+- Add ownership-shadowing tests for owner replacement, borrow-active rebinding,
+  frozen/shareable rebinding, scratch-local temporaries, and cleanup facts with
+  `managed_storage: "disabled"`.
 
 ## Implementation Status
 
@@ -68,6 +86,31 @@ let x#2: Text = "hello"
   when assigning otherwise unknown values. Frontend binding, assignment, and
   index-assignment shadowing live in `src/frontend/stmt/binding.ts`, behind the
   public statement-lowering facade in `src/frontend/stmt.ts`.
+- Annotated runtime bindings and same-type assignments now use that type context
+  to erase `borrow`, `freeze`, and simple value-returning `scratch` wrappers
+  before pure-Ic lowering. Shapes such as `let value: Int = borrow input`,
+  `let message: Text = scratch { input }`, and `value = borrow input` keep the
+  wrapper-visible ownership syntax out of the final Ic term while preserving
+  the declared binding type.
+- That annotation boundary also reaches simple block results and scalar/Text
+  dynamic `if` branches. `let value: Int = if flag { borrow input } else {
+  other }` and same-type assignment variants lower through Ic as typed selects
+  instead of failing on unknown branch wrappers. Simple one-expression,
+  single-return, and pure two-statement alias blocks now preserve that same
+  expected type, so `let text: Text = { if flag { input } else { other } }`,
+  `let text: Text = { return if flag { input } else { other } }`,
+  `let text: Text = { let selected: Text = if flag { input } else { other };
+  selected }`, and annotated call arguments with the same block shapes lower
+  through the typed pure-Ic path, including branch-local `borrow`, `freeze`, or
+  simple `scratch {}` wrappers inside the selected value. The same block-local
+  alias shape now works when the selected value is produced by typed union
+  `if let` branches.
+- The same binding context now covers implicit no-else typed aggregate branches.
+  `let user: user_type = if flag { borrow input }` can still project
+  `user.age` through Ic with a synthesized fallback field value, while typed
+  union bindings use the declared case table and fallback payloads for later
+  `if let` consumption. Invalid aggregate annotations still reject before
+  lowering.
 - The `Source -> Core` path also freshens sequential type-changing `:=`
   shadowing into new Core bindings before WAT emission, including closure-local
   shadows, so fixed-type Wasm locals are preserved.
@@ -107,6 +150,9 @@ let x#2: Text = "hello"
   annotations provide shorthand aggregate context in both paths. In the frontend
   Ic path, explicit runtime binding annotations can also provide scalar, text,
   struct, or union type context for otherwise unknown runtime values. The
+  annotation-driven wrapper erasure path now covers simple block results,
+  scalar/Text dynamic branches, and typed struct/union dynamic branch values
+  used by annotated bindings before pure-Ic lowering. The
   structured Core path rejects unsupported annotations explicitly instead of
   treating them as comments. Fact-checker annotations over const or
   frontend-known aggregate values are checked in the frontend. Frontend

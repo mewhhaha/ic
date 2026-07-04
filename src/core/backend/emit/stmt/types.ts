@@ -94,6 +94,10 @@ export type CoreBackendStmtEmitApi = {
     name: string,
     ctx: CoreEmitCtx,
   ) => Extract<CoreExpr, { tag: "struct_value" }> | undefined;
+  static_core_call_target: (
+    expr: CoreExpr,
+    ctx: CoreEmitCtx,
+  ) => Extract<CoreExpr, { tag: "lam" }> | undefined;
 };
 
 export type CoreBackendStmtEmit = {

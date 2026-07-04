@@ -26,6 +26,7 @@ export function core_from_source(source: SourceNode): Core {
 
   for (const stmt of source.statements) {
     if (stmt.tag === "host_import") {
+      ctx.host_import_names.add(stmt.value.name);
       host_imports[stmt.value.name] = {
         name: stmt.value.name,
         module: stmt.value.module,
@@ -116,7 +117,9 @@ function core_host_import_result_contract(
 type CoreFromSourceCtx = {
   aliases: Map<string, string>;
   host_import_const_names: Set<string>;
+  host_import_names: Set<string>;
   host_import_type_values: Map<string, CoreHostImportOwnerReason>;
+  linear_names: Set<string>;
   fresh: { next: number };
 };
 
@@ -124,7 +127,9 @@ function create_core_from_source_ctx(): CoreFromSourceCtx {
   return {
     aliases: new Map(),
     host_import_const_names: new Set(),
+    host_import_names: new Set(),
     host_import_type_values: new Map(),
+    linear_names: new Set(),
     fresh: { next: 0 },
   };
 }
@@ -135,7 +140,9 @@ function fork_core_from_source_ctx(
   return {
     aliases: new Map(ctx.aliases),
     host_import_const_names: new Set(ctx.host_import_const_names),
+    host_import_names: new Set(ctx.host_import_names),
     host_import_type_values: new Map(ctx.host_import_type_values),
+    linear_names: new Set(ctx.linear_names),
     fresh: ctx.fresh,
   };
 }
@@ -268,8 +275,19 @@ function fresh_core_shadow_name(
 function core_stmt(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
   switch (stmt.tag) {
     case "bind": {
+      if (stmt.is_recursive) {
+        throw new Error("Cannot lower recursive source binding to Core yet");
+      }
+
       const value = core_expr(stmt.value, ctx);
       const name = bind_core_name(ctx, stmt.name);
+
+      if (stmt.is_linear) {
+        ctx.linear_names.add(name);
+      } else {
+        ctx.linear_names.delete(name);
+      }
+
       return {
         tag: "bind",
         kind: stmt.kind,
@@ -284,10 +302,12 @@ function core_stmt(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
       const value = core_expr(stmt.value, ctx);
 
       if (stmt.mode === "change") {
+        const name = shadow_core_name(ctx, stmt.name);
+        ctx.linear_names.delete(name);
         return {
           tag: "bind",
           kind: "let",
-          name: shadow_core_name(ctx, stmt.name),
+          name,
           is_linear: false,
           annotation: undefined,
           value,
@@ -447,6 +467,11 @@ function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
 
       for (const param of expr.params) {
         body_ctx.aliases.set(param.name, param.name);
+        if (param.is_linear) {
+          body_ctx.linear_names.add(param.name);
+        } else {
+          body_ctx.linear_names.delete(param.name);
+        }
       }
 
       return {
@@ -461,6 +486,11 @@ function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
 
       for (const param of expr.params) {
         body_ctx.aliases.set(param.name, param.name);
+        if (param.is_linear) {
+          body_ctx.linear_names.add(param.name);
+        } else {
+          body_ctx.linear_names.delete(param.name);
+        }
       }
 
       return {
@@ -470,12 +500,19 @@ function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
       };
     }
 
-    case "app":
+    case "app": {
+      const host_method = core_host_import_method_app(expr, ctx);
+
+      if (host_method) {
+        return host_method;
+      }
+
       return {
         tag: "app",
         func: core_expr(expr.func, ctx),
         args: expr.args.map((arg) => core_expr(arg, ctx)),
       };
+    }
 
     case "block": {
       const block_ctx = fork_core_from_source_ctx(ctx);
@@ -610,6 +647,47 @@ function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
         text: expr.text,
       };
   }
+}
+
+function core_host_import_method_app(
+  expr: Extract<FrontExpr, { tag: "app" }>,
+  ctx: CoreFromSourceCtx,
+): CoreExpr | undefined {
+  if (expr.func.tag !== "field") {
+    return undefined;
+  }
+
+  const object = expr.func.object;
+
+  if (object.tag !== "var" && object.tag !== "linear") {
+    return undefined;
+  }
+
+  const receiver_name = resolve_core_name(ctx, object.name);
+
+  if (!ctx.host_import_names.has(expr.func.name)) {
+    if (ctx.linear_names.has(receiver_name)) {
+      return {
+        tag: "unsupported",
+        feature: "missing_capability_method",
+        text: receiver_name + "." + expr.func.name,
+      };
+    }
+
+    return undefined;
+  }
+
+  const args: CoreExpr[] = [{ tag: "linear", name: receiver_name }];
+
+  for (const arg of expr.args) {
+    args.push(core_expr(arg, ctx));
+  }
+
+  return {
+    tag: "app",
+    func: { tag: "var", name: expr.func.name },
+    args,
+  };
 }
 
 function core_field(

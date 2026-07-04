@@ -42,6 +42,37 @@ export function collect_scoped_static_core_call_locals<
   hooks.collect_expr_locals(plan.value, ctx);
 }
 
+export function scoped_static_core_call_value<
+  static_ctx extends StaticCoreCallCtx,
+  temp_ctx extends static_ctx & StaticCoreCallTempCtx,
+  block_ctx extends temp_ctx & StaticCoreCallBlockCtx,
+  emit_ctx extends temp_ctx,
+>(
+  expr: Extract<CoreExpr, { tag: "app" }>,
+  target: Extract<CoreExpr, { tag: "lam" }>,
+  ctx: static_ctx,
+  hooks: StaticCoreCallHooks<static_ctx, temp_ctx, block_ctx, emit_ctx>,
+): { value: CoreExpr; ctx: block_ctx } {
+  const body_ctx = hooks.create_scoped_static_core_call_ctx(ctx);
+  const plan = scoped_static_core_call_plan<
+    static_ctx,
+    temp_ctx,
+    block_ctx,
+    emit_ctx
+  >(
+    expr,
+    target,
+    body_ctx,
+    undefined,
+    hooks,
+  );
+
+  return {
+    value: plan.value,
+    ctx: body_ctx,
+  };
+}
+
 export function emit_scoped_static_core_call<
   static_ctx extends StaticCoreCallCtx,
   temp_ctx extends static_ctx & StaticCoreCallTempCtx,

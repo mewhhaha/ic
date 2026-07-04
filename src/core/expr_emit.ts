@@ -216,6 +216,51 @@ export function emit_core_expr<ctx extends CoreExprEmitCtx>(
       return "i32.const " + offset.toString();
     }
 
+    case "linear": {
+      const lookup_expr: CoreExpr = { tag: "var", name: expr.name };
+      const text_value = hooks.static_text_value(lookup_expr, ctx);
+
+      if (text_value) {
+        return emit_core_expr(text_value, ctx, hooks);
+      }
+
+      const union_value = hooks.runtime_union_value(lookup_expr, ctx);
+
+      if (union_value) {
+        return hooks.emit_runtime_union_value(union_value, ctx);
+      }
+
+      const struct_value = hooks.static_struct_value(lookup_expr, ctx);
+
+      if (struct_value) {
+        return emit_runtime_aggregate_value(struct_value, ctx, {
+          core_expr_is_text: hooks.core_expr_is_text,
+          emit_expr: emit_core_expr_with_hooks,
+          expr_type: hooks.expr_type,
+          runtime_aggregate_type_expr: hooks.runtime_aggregate_type_expr,
+          runtime_union_type_expr: hooks.runtime_union_type_expr,
+          same_runtime_aggregate_type_expr:
+            hooks.same_runtime_aggregate_type_expr,
+          same_runtime_union_type_expr: hooks.same_runtime_union_type_expr,
+          static_struct_value: hooks.static_struct_value,
+        });
+      }
+
+      const static_value = ctx.statics.get(expr.name);
+
+      if (static_value) {
+        if (hooks.closure_fn_type(lookup_expr, ctx)) {
+          return emit_core_expr(static_value, ctx, hooks);
+        }
+
+        throw new Error("Cannot emit core static value directly: " + expr.name);
+      }
+
+      const type = ctx.locals.get(expr.name);
+      expect(type, "Unbound core local: " + expr.name);
+      return "local.get $" + expr.name;
+    }
+
     case "var": {
       const text_value = hooks.static_text_value(expr, ctx);
 
@@ -310,7 +355,11 @@ export function emit_core_expr<ctx extends CoreExprEmitCtx>(
       let else_branch = emit_core_expr(expr.else_branch, ctx, hooks);
 
       if (expr.implicit_else) {
-        else_branch = result_type + ".const 0";
+        if (hooks.core_expr_is_text(expr, ctx)) {
+          else_branch = emit_core_expr({ tag: "text", value: "" }, ctx, hooks);
+        } else {
+          else_branch = result_type + ".const 0";
+        }
       }
 
       return [
@@ -323,8 +372,15 @@ export function emit_core_expr<ctx extends CoreExprEmitCtx>(
       ].join("\n");
     }
 
-    case "if_let":
+    case "if_let": {
+      const text_value = hooks.static_text_value(expr, ctx);
+
+      if (text_value) {
+        return emit_core_expr(text_value, ctx, hooks);
+      }
+
       return hooks.emit_core_if_let_expr(expr, ctx);
+    }
 
     case "lam":
       return hooks.emit_runtime_closure(expr, ctx);
@@ -620,15 +676,20 @@ export function emit_core_expr<ctx extends CoreExprEmitCtx>(
     case "union_case":
       return hooks.emit_runtime_union_value(expr, ctx);
 
+    case "unsupported":
+      if (expr.feature === "missing_capability_method") {
+        throw new Error("Missing host capability method: " + expr.text);
+      }
+
+      throw new Error("Cannot emit core " + expr.tag + " expression yet");
+
     case "type_name":
-    case "linear":
     case "rec":
     case "comptime":
     case "with":
     case "struct_type":
     case "struct_update":
     case "union_type":
-    case "unsupported":
       throw new Error("Cannot emit core " + expr.tag + " expression yet");
   }
 

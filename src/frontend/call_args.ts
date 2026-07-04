@@ -7,6 +7,7 @@ import {
 } from "./call_deferred.ts";
 import { validate_const_expr } from "./constness.ts";
 import { fresh, push_binding } from "./env.ts";
+import { unwrap_ownership_wrapper_context_expr } from "./ownership.ts";
 import { param_can_defer_visible_text } from "./visible_params.ts";
 
 export type CallArgHooks = CallDeferredHooks & {
@@ -30,6 +31,11 @@ export type CallArgHooks = CallDeferredHooks & {
     annotation: string,
     env: Env,
   ) => FrontType | undefined;
+};
+
+export type RuntimeSpecializedArg = {
+  value: FrontExpr;
+  type: FrontType;
 };
 
 export function has_const_param(
@@ -100,7 +106,7 @@ export function push_runtime_specialized_arg(
   arg: FrontExpr,
   env: Env,
   call_env: Env,
-  runtime_args: FrontExpr[],
+  runtime_args: RuntimeSpecializedArg[],
   runtime_names: string[],
   hooks: CallArgHooks,
 ): void {
@@ -122,6 +128,7 @@ export function push_runtime_specialized_arg(
     }
 
     arg_value = hooks.apply_annotation_context(param.annotation, arg, env);
+    arg_value = unwrap_ownership_wrapper_context_expr(arg_value);
   }
 
   let deferred = resolve_deferred_frontend_value(arg_value, env, hooks);
@@ -144,7 +151,7 @@ export function push_runtime_specialized_arg(
   }
 
   const ic_name = fresh(call_env, param.name);
-  runtime_args.push(arg_value);
+  runtime_args.push({ value: arg_value, type: arg_type });
   runtime_names.push(ic_name);
   push_binding(call_env, {
     name: param.name,

@@ -19,6 +19,34 @@ function add(left: IcNode, right: IcNode): IcNode {
   return { tag: "prim", prim: "i32.add", args: [left, right] };
 }
 
+function sub(left: IcNode, right: IcNode): IcNode {
+  return { tag: "prim", prim: "i32.sub", args: [left, right] };
+}
+
+function lt(left: IcNode, right: IcNode): IcNode {
+  return { tag: "prim", prim: "i32.lt_s", args: [left, right] };
+}
+
+function le(left: IcNode, right: IcNode): IcNode {
+  return { tag: "prim", prim: "i32.le_s", args: [left, right] };
+}
+
+function select(
+  then_branch: IcNode,
+  else_branch: IcNode,
+  cond: IcNode,
+): IcNode {
+  return {
+    tag: "prim",
+    prim: "i32.select",
+    args: [then_branch, else_branch, cond],
+  };
+}
+
+function app(func: IcNode, arg: IcNode): IcNode {
+  return { tag: "app", func, arg };
+}
+
 function id(name: string): IcNode {
   return { tag: "lam", name, body: var_(name) };
 }
@@ -266,6 +294,57 @@ Deno.test("Ic.reduce folds select when the condition is known", () => {
   };
 
   assert_equals(Ic.reduce(program), i32(42));
+});
+
+Deno.test("Ic.reduce does not reduce the unused known select branch", () => {
+  const program = select(
+    i32(42),
+    { tag: "prim", prim: "i32.div_s", args: [i32(1), i32(0)] },
+    i32(1),
+  );
+
+  assert_equals(Ic.reduce(program), i32(42));
+});
+
+Deno.test("Ic.reduce supports recursive fixpoints in the graph reducer", () => {
+  const program: IcNode = {
+    tag: "fix",
+    name: "count",
+    expr: {
+      tag: "lam",
+      name: "n",
+      body: select(
+        i32(0),
+        add(app(var_("count"), sub(var_("n"), i32(1))), i32(1)),
+        le(var_("n"), i32(0)),
+      ),
+    },
+    body: app(var_("count"), i32(3)),
+  };
+
+  assert_equals(Ic.reduce(program), i32(3));
+});
+
+Deno.test("Ic.reduce supports naive recursive fib through fix", () => {
+  const program: IcNode = {
+    tag: "fix",
+    name: "fib",
+    expr: {
+      tag: "lam",
+      name: "n",
+      body: select(
+        var_("n"),
+        add(
+          app(var_("fib"), sub(var_("n"), i32(1))),
+          app(var_("fib"), sub(var_("n"), i32(2))),
+        ),
+        lt(var_("n"), i32(2)),
+      ),
+    },
+    body: app(var_("fib"), i32(6)),
+  };
+
+  assert_equals(Ic.reduce(program), i32(8));
 });
 
 Deno.test("Ic.reduce preserves select with a dynamic condition", () => {

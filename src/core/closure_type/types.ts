@@ -85,4 +85,6 @@ export type CoreClosureTypeHooks = {
 export type ClosureParamInfo = {
   type: ValType;
   is_text: boolean;
+  struct_type?: CoreExpr;
+  union_type?: CoreExpr;
 };

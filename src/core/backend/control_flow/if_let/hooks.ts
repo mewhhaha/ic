@@ -9,7 +9,10 @@ import {
 import type { CoreIfLetDispatchHooks } from "../../../if_let_dispatch.ts";
 import type { CoreIfLetPayloadEmitHooks } from "../../../if_let_payload.ts";
 import type { StaticCtx } from "../../../local_collect.ts";
-import type { CoreBackendControlFlowApi } from "../types.ts";
+import type {
+  CoreBackendControlFlow,
+  CoreBackendControlFlowApi,
+} from "../types.ts";
 
 export type CoreBackendBindIfLetPayload = (
   value_name: string | undefined,
@@ -35,13 +38,18 @@ export function create_core_backend_if_let_payload_hooks(
 export function create_core_backend_if_let_hooks(
   api: CoreBackendControlFlowApi,
   bind_payload: CoreBackendBindIfLetPayload,
+  merge_if_else_static_assignments: CoreBackendControlFlow[
+    "merge_if_else_static_assignments"
+  ],
 ): CoreIfLetHooks<CoreEmitCtx> {
   return {
     bind_payload,
+    core_expr_is_text: api.core_expr_is_text,
     dynamic_union_if: api.dynamic_union_if,
     emit_expr: api.emit_expr,
     emit_stmt: api.emit_stmt,
     expr_type: api.expr_type,
+    merge_if_else_static_assignments,
     static_union_case: api.static_union_case,
   };
 }

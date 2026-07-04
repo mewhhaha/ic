@@ -39,6 +39,12 @@ export type CoreTransferValidationIssue =
     ownership: CoreOwnership | undefined;
     reason: string;
     message: string;
+  }
+  | {
+    tag: "conditional_transfer_requires_cleanup";
+    owner: string;
+    transfer: CoreTransferEdge;
+    message: string;
   };
 
 export type CoreTransferValidation = {
@@ -58,7 +64,14 @@ type CoreTransferState<ctx> = {
   alias_rejection_reasons: Map<string, string>;
   active_functions: Set<string>;
   ctx: ctx;
-  hooks: CoreOwnershipHooks<ctx>;
+  hooks: CoreTransferHooks<ctx>;
+};
+
+type CoreTransferHooks<ctx> = CoreOwnershipHooks<ctx> & {
+  closure_body_ctx?: (
+    expr: Extract<CoreExpr, { tag: "lam" | "rec" }>,
+    ctx: ctx,
+  ) => ctx | undefined;
 };
 
 type CoreTransferFunction =
@@ -74,7 +87,7 @@ type CoreTransferFunction =
 export function core_transfer_validation<ctx>(
   core: Core,
   ctx: ctx,
-  hooks: CoreOwnershipHooks<ctx>,
+  hooks: CoreTransferHooks<ctx>,
 ): CoreTransferValidation {
   const state: CoreTransferState<ctx> = {
     next_transfer: 0,
@@ -128,12 +141,14 @@ function scan_transfer_stmt<ctx>(
     case "bind":
       scan_transfer_expr(stmt.value, scope, host_imports, state);
       state.transferred.delete(stmt.name);
+      bind_transfer_owner_alias(stmt.name, stmt.value, state);
       bind_transfer_function(stmt.name, stmt.value, state);
       return;
 
     case "assign":
       scan_transfer_expr(stmt.value, scope, host_imports, state);
       state.transferred.delete(stmt.name);
+      bind_transfer_owner_alias(stmt.name, stmt.value, state);
       bind_transfer_function(stmt.name, stmt.value, state);
       return;
 
@@ -154,7 +169,7 @@ function scan_transfer_stmt<ctx>(
         host_imports,
         body,
       );
-      merge_transfer_state(state, body);
+      merge_conditional_transfer_states(state, [body], 2);
       return;
     }
 
@@ -167,7 +182,7 @@ function scan_transfer_stmt<ctx>(
         host_imports,
         body,
       );
-      merge_transfer_state(state, body);
+      merge_conditional_transfer_states(state, [body], 2);
       return;
     }
 
@@ -180,7 +195,7 @@ function scan_transfer_stmt<ctx>(
         host_imports,
         branch,
       );
-      merge_transfer_state(state, branch);
+      merge_conditional_transfer_states(state, [branch], 2);
       return;
     }
 
@@ -201,21 +216,31 @@ function scan_transfer_stmt<ctx>(
         host_imports,
         else_branch,
       );
-      merge_transfer_state(state, then_branch);
-      merge_transfer_state(state, else_branch);
+      merge_conditional_transfer_states(state, [then_branch, else_branch], 2);
       return;
     }
 
     case "if_let_stmt": {
       scan_transfer_expr(stmt.target, scope, host_imports, state);
+      const branch_context = transfer_if_let_stmt_branch_ctx(stmt, state);
+
+      if (branch_context.tag === "skip") {
+        return;
+      }
+
       const branch = clone_transfer_state(state);
+
+      if (branch_context.tag === "scan") {
+        branch.ctx = branch_context.ctx;
+      }
+
       scan_transfer_stmts(
         stmt.body,
         child_scope(scope, "if_let"),
         host_imports,
         branch,
       );
-      merge_transfer_state(state, branch);
+      merge_conditional_transfer_states(state, [branch], 2);
       return;
     }
 
@@ -236,6 +261,88 @@ function scan_transfer_stmt<ctx>(
     case "unsupported":
       return;
   }
+}
+
+function transfer_if_let_stmt_branch_ctx<ctx>(
+  stmt: Extract<CoreStmt, { tag: "if_let_stmt" }>,
+  state: CoreTransferState<ctx>,
+): { tag: "scan"; ctx: ctx } | { tag: "skip" } | { tag: "unknown" } {
+  const hooks = state.hooks;
+
+  if (
+    hooks.static_union_case &&
+    hooks.if_let_branch_ctx &&
+    hooks.bind_core_if_let_payload_fact
+  ) {
+    const union_case = hooks.static_union_case(stmt.target, state.ctx);
+
+    if (union_case) {
+      if (union_case.name !== stmt.case_name) {
+        return { tag: "skip" };
+      }
+
+      const branch_ctx = hooks.if_let_branch_ctx(state.ctx);
+      hooks.bind_core_if_let_payload_fact(
+        stmt.value_name,
+        union_case,
+        branch_ctx,
+      );
+      return { tag: "scan", ctx: branch_ctx };
+    }
+  }
+
+  if (
+    hooks.dynamic_union_if &&
+    hooks.if_let_branch_ctx &&
+    hooks.bind_dynamic_if_let_payload
+  ) {
+    const dynamic_target = hooks.dynamic_union_if(stmt.target, state.ctx);
+
+    if (dynamic_target) {
+      if (
+        dynamic_target.then_case.name !== stmt.case_name &&
+        dynamic_target.else_case.name !== stmt.case_name
+      ) {
+        return { tag: "skip" };
+      }
+
+      const branch_ctx = hooks.if_let_branch_ctx(state.ctx);
+      hooks.bind_dynamic_if_let_payload(
+        stmt.case_name,
+        stmt.value_name,
+        dynamic_target,
+        branch_ctx,
+      );
+      return { tag: "scan", ctx: branch_ctx };
+    }
+  }
+
+  if (
+    hooks.runtime_union_target &&
+    hooks.runtime_union_match_info &&
+    hooks.static_runtime_union_match_branch_ctx
+  ) {
+    const runtime_target = hooks.runtime_union_target(
+      stmt.target,
+      state.ctx,
+    );
+
+    if (runtime_target) {
+      const info = hooks.runtime_union_match_info(
+        stmt.case_name,
+        runtime_target,
+        state.ctx,
+      );
+      const branch_ctx = hooks.static_runtime_union_match_branch_ctx(
+        stmt.value_name,
+        info,
+        state.ctx,
+      );
+      return { tag: "scan", ctx: branch_ctx };
+    }
+  }
+
+  return { tag: "unknown" };
 }
 
 function scan_transfer_expr<ctx>(
@@ -265,12 +372,26 @@ function scan_transfer_expr<ctx>(
     case "lam":
     case "rec": {
       const body = clone_transfer_state(state);
-      scan_transfer_expr(
-        expr.body,
-        child_scope(scope, "closure"),
-        host_imports,
-        body,
-      );
+      const previous_ctx = body.ctx;
+
+      if (body.hooks.closure_body_ctx) {
+        const scoped_ctx = body.hooks.closure_body_ctx(expr, body.ctx);
+
+        if (scoped_ctx) {
+          body.ctx = scoped_ctx;
+        }
+      }
+
+      try {
+        scan_transfer_expr(
+          expr.body,
+          child_scope(scope, "closure"),
+          host_imports,
+          body,
+        );
+      } finally {
+        body.ctx = previous_ctx;
+      }
       merge_transfer_issues(state, body);
       return;
     }
@@ -345,6 +466,7 @@ function scan_transfer_expr<ctx>(
       if (expr.type_expr) {
         scan_transfer_expr(expr.type_expr, scope, host_imports, state);
       }
+      record_union_payload_transfer(expr, scope, state);
       return;
   }
 }
@@ -386,6 +508,7 @@ function scan_transfer_app<ctx>(
   }
 
   scan_static_transfer_call(expr, scope, host_imports, state);
+  record_union_payload_transfer(expr, scope, state);
 }
 
 function scan_static_transfer_call<ctx>(
@@ -603,12 +726,26 @@ function scan_static_transfer_target<ctx>(
   state: CoreTransferState<ctx>,
 ): void {
   if (target.tag === "lam" || target.tag === "rec") {
-    scan_transfer_expr(
-      target.value.body,
-      scope,
-      host_imports,
-      state,
-    );
+    const previous_ctx = state.ctx;
+
+    if (state.hooks.closure_body_ctx) {
+      const scoped_ctx = state.hooks.closure_body_ctx(target.value, state.ctx);
+
+      if (scoped_ctx) {
+        state.ctx = scoped_ctx;
+      }
+    }
+
+    try {
+      scan_transfer_expr(
+        target.value.body,
+        scope,
+        host_imports,
+        state,
+      );
+    } finally {
+      state.ctx = previous_ctx;
+    }
     return;
   }
 
@@ -629,8 +766,7 @@ function scan_static_transfer_target<ctx>(
     else_branch,
   );
 
-  merge_transfer_state(state, then_branch);
-  merge_transfer_state(state, else_branch);
+  merge_conditional_transfer_states(state, [then_branch, else_branch], 2);
 }
 
 function static_transfer_function_params(
@@ -679,8 +815,7 @@ function scan_transfer_if_expr<ctx>(
     host_imports,
     else_branch,
   );
-  merge_transfer_state(state, then_branch);
-  merge_transfer_state(state, else_branch);
+  merge_conditional_transfer_states(state, [then_branch, else_branch], 2);
 }
 
 function scan_transfer_if_let_expr<ctx>(
@@ -704,8 +839,7 @@ function scan_transfer_if_let_expr<ctx>(
     host_imports,
     else_branch,
   );
-  merge_transfer_state(state, then_branch);
-  merge_transfer_state(state, else_branch);
+  merge_conditional_transfer_states(state, [then_branch, else_branch], 2);
 }
 
 function scan_transfer_exprs<ctx>(
@@ -763,6 +897,120 @@ function record_transfer<ctx>(
   state.transferred.set(resolved_owner, edge);
 }
 
+function record_union_payload_transfer<ctx>(
+  expr: CoreExpr,
+  scope: string,
+  state: CoreTransferState<ctx>,
+): void {
+  if (!direct_union_payload_may_be_owner_transfer(expr)) {
+    return;
+  }
+
+  const runtime_value = state.hooks.runtime_union_value(expr, state.ctx);
+  if (!runtime_value) {
+    return;
+  }
+
+  if (runtime_value.tag !== "union_case") {
+    return;
+  }
+
+  if (!runtime_value.value) {
+    return;
+  }
+
+  if (runtime_value.value.tag !== "var") {
+    return;
+  }
+
+  if (!union_payload_transfers_owner(expr, state)) {
+    return;
+  }
+
+  record_transfer(
+    runtime_value.value.name,
+    scope,
+    "union_case." + runtime_value.name,
+    0,
+    state,
+  );
+}
+
+function direct_union_payload_may_be_owner_transfer(expr: CoreExpr): boolean {
+  if (expr.tag === "union_case") {
+    if (!expr.value) {
+      return false;
+    }
+
+    return expr.value.tag === "var";
+  }
+
+  if (expr.tag === "app" && expr.func.tag === "field") {
+    const payload = expr.args[0];
+
+    if (!payload) {
+      return false;
+    }
+
+    return payload.tag === "var";
+  }
+
+  return true;
+}
+
+function union_payload_transfers_owner<ctx>(
+  expr: CoreExpr,
+  state: CoreTransferState<ctx>,
+): boolean {
+  let union_ownership: CoreOwnership;
+
+  try {
+    union_ownership = core_expr_ownership(expr, state.ctx, state.hooks);
+  } catch {
+    return false;
+  }
+
+  if (union_ownership.tag !== "unique_heap") {
+    return false;
+  }
+
+  if (union_ownership.reason !== "runtime_union") {
+    return false;
+  }
+
+  const runtime_value = state.hooks.runtime_union_value(expr, state.ctx);
+  if (!runtime_value) {
+    return false;
+  }
+
+  if (runtime_value.tag !== "union_case") {
+    return false;
+  }
+
+  if (!runtime_value.value) {
+    return false;
+  }
+
+  let payload_ownership: CoreOwnership;
+
+  try {
+    payload_ownership = core_expr_ownership(
+      runtime_value.value,
+      state.ctx,
+      state.hooks,
+    );
+  } catch {
+    return false;
+  }
+
+  if (payload_ownership.tag !== "unique_heap") {
+    return false;
+  }
+
+  return payload_ownership.reason === "runtime_aggregate" ||
+    payload_ownership.reason === "runtime_union";
+}
+
 function static_transfer_argument_is_unique<ctx>(
   owner: string,
   callee: string,
@@ -805,6 +1053,40 @@ function static_transfer_argument_is_unique<ctx>(
   return false;
 }
 
+function bind_transfer_owner_alias<ctx>(
+  name: string,
+  value: CoreExpr,
+  state: CoreTransferState<ctx>,
+): void {
+  state.aliases.delete(name);
+  state.alias_ownership.delete(name);
+  state.alias_rejection_reasons.delete(name);
+
+  if (value.tag !== "var") {
+    return;
+  }
+
+  const owner = resolve_transfer_owner(value.name, state);
+  if (owner === name) {
+    return;
+  }
+
+  let ownership: CoreOwnership;
+
+  try {
+    ownership = core_expr_ownership(value, state.ctx, state.hooks);
+  } catch {
+    return;
+  }
+
+  if (ownership.tag !== "unique_heap") {
+    return;
+  }
+
+  state.aliases.set(name, owner);
+  state.alias_ownership.set(name, ownership);
+}
+
 function record_invalid_static_transfer_argument<ctx>(
   owner: string,
   callee: string,
@@ -823,6 +1105,29 @@ function record_invalid_static_transfer_argument<ctx>(
     message: "Rejected ownership-transfer wrapper argument " + owner +
       " for " + callee + " argument " + argument.toString() + ": " +
       reason,
+  });
+}
+
+function record_conditional_transfer_requires_cleanup<ctx>(
+  owner: string,
+  transfer: CoreTransferEdge,
+  state: CoreTransferState<ctx>,
+): void {
+  const message = "Conditional transfer of owner " + owner + " through " +
+    transfer.id + " to " + transfer.callee +
+    " requires conditional cleanup/drop facts";
+
+  for (const issue of state.issues) {
+    if (issue.message === message) {
+      return;
+    }
+  }
+
+  state.issues.push({
+    tag: "conditional_transfer_requires_cleanup",
+    owner,
+    transfer,
+    message,
   });
 }
 
@@ -864,8 +1169,17 @@ function record_transfer_use<ctx>(
     transfer,
     use,
     message: "Use of transferred owner " + resolved_owner + " after " +
-      "host/import transfer " + transfer.id + " to " + transfer.callee,
+      transfer_edge_text(transfer) + " " + transfer.id + " to " +
+      transfer.callee,
   });
+}
+
+function transfer_edge_text(edge: CoreTransferEdge): string {
+  if (edge.callee.startsWith("union_case.")) {
+    return "ownership transfer";
+  }
+
+  return "host/import transfer";
 }
 
 function clone_transfer_state<ctx>(
@@ -906,6 +1220,88 @@ function merge_transfer_state<ctx>(
 
   for (const entry of source.alias_rejection_reasons.entries()) {
     target.alias_rejection_reasons.set(entry[0], entry[1]);
+  }
+}
+
+function merge_conditional_transfer_states<ctx>(
+  target: CoreTransferState<ctx>,
+  sources: CoreTransferState<ctx>[],
+  path_count: number,
+): void {
+  const base_transferred = new Map(target.transferred);
+
+  record_conditional_transfer_issues(
+    target,
+    sources,
+    path_count,
+    base_transferred,
+  );
+
+  for (const source of sources) {
+    merge_transfer_state(target, source);
+  }
+}
+
+function record_conditional_transfer_issues<ctx>(
+  target: CoreTransferState<ctx>,
+  sources: CoreTransferState<ctx>[],
+  path_count: number,
+  base_transferred: Map<string, CoreTransferEdge>,
+): void {
+  const counts = new Map<string, {
+    count: number;
+    transfer: CoreTransferEdge;
+  }>();
+
+  for (const source of sources) {
+    const seen = new Set<string>();
+
+    for (const entry of source.transferred.entries()) {
+      const owner = entry[0];
+      const transfer = entry[1];
+
+      if (seen.has(owner)) {
+        continue;
+      }
+
+      if (owner.startsWith("temporary#")) {
+        continue;
+      }
+
+      const base = base_transferred.get(owner);
+
+      if (base && base.id === transfer.id) {
+        continue;
+      }
+
+      seen.add(owner);
+      const previous = counts.get(owner);
+
+      if (previous) {
+        previous.count += 1;
+        continue;
+      }
+
+      counts.set(owner, {
+        count: 1,
+        transfer,
+      });
+    }
+  }
+
+  for (const entry of counts.entries()) {
+    const owner = entry[0];
+    const info = entry[1];
+
+    if (info.count >= path_count) {
+      continue;
+    }
+
+    record_conditional_transfer_requires_cleanup(
+      owner,
+      info.transfer,
+      target,
+    );
   }
 }
 

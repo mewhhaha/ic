@@ -68,6 +68,7 @@ export function create_core_backend_values_text(
       ),
     static_collection_fields: struct.static_collection_fields,
     static_core_call_value: static_call.static_core_call_value,
+    static_core_call_target: static_call.static_core_call_target,
     static_struct_value: struct.static_struct_value,
     static_union_case: (expr: CoreExpr, ctx: StaticCtx) =>
       deps.union().static_union_case(expr, ctx),

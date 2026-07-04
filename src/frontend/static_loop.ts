@@ -1,6 +1,7 @@
 import type { Env, FrontExpr, Stmt } from "./ast.ts";
 import { structured_core_route } from "./diagnostic.ts";
 import { clone_env, fresh } from "./env.ts";
+import { format_expr } from "./format.ts";
 import {
   bind_loop_static_value,
   continues_range,
@@ -130,6 +131,7 @@ function expand_for_range_dynamic_control(
   let current = start;
 
   while (continues_range(current, end, step)) {
+    const step_name = fresh(env, "loop_step");
     const loop_env = clone_env(env);
     const index_value: FrontExpr = { tag: "num", type: "i32", value: current };
     bind_loop_static_value(loop_env, stmt.index, index_value);
@@ -142,7 +144,6 @@ function expand_for_range_dynamic_control(
       value: index_value,
     });
 
-    const step_name = fresh(env, "loop_step");
     const state: DynamicLoopState = { active_name, step_name };
     expanded.push({
       tag: "bind",
@@ -158,6 +159,7 @@ function expand_for_range_dynamic_control(
       loop_env,
       hooks,
       state,
+      static_loop_body_expanders,
     );
     expanded.push(...body.statements);
 
@@ -243,7 +245,8 @@ function expand_for_collection_body(
 
   if (!runtime_target) {
     throw new Error(
-      "Cannot lower collection loop to Ic frontend yet" +
+      "Cannot lower collection loop to Ic frontend yet: " +
+        format_expr(stmt.collection) +
         structured_core_route,
     );
   }
@@ -316,10 +319,10 @@ function expand_for_collection_dynamic_control(
   });
 
   for (const item of items) {
+    const step_name = fresh(env, "loop_step");
     const loop_env = clone_env(env);
     push_collection_loop_binds(expanded, loop_env, stmt, item);
 
-    const step_name = fresh(env, "loop_step");
     const state: DynamicLoopState = { active_name, step_name };
     expanded.push({
       tag: "bind",
@@ -335,6 +338,7 @@ function expand_for_collection_dynamic_control(
       loop_env,
       hooks,
       state,
+      static_loop_body_expanders,
     );
     expanded.push(...body.statements);
 

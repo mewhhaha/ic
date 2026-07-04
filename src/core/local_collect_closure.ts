@@ -1,6 +1,7 @@
 import { expect } from "../expect.ts";
 import type { CoreExpr, CoreFnType, CoreStmt } from "./ast.ts";
 import { fresh_temp_local, set_local } from "./backend/util.ts";
+import { clone_core_host_imports } from "./host_import.ts";
 import type { CoreCtx, CoreLocalCollectHooks } from "./local_collect/types.ts";
 import { runtime_union_match_info } from "./runtime_union.ts";
 import { core_runtime_union_match_branch_ctx } from "./runtime_union_match.ts";
@@ -315,9 +316,22 @@ function closure_if_let_branch_ctx(ctx: CoreCtx): CoreCtx {
     text_locals: new Set(ctx.text_locals),
     struct_locals: new Map(ctx.struct_locals),
     union_locals: new Map(ctx.union_locals),
+    frozen_locals: clone_optional_set(ctx.frozen_locals),
+    host_imports: clone_core_host_imports(ctx.host_imports),
+    scratch_depth: ctx.scratch_depth,
     next_loop: ctx.next_loop,
     next_temp: ctx.next_temp,
   };
+}
+
+function clone_optional_set(
+  value: Set<string> | undefined,
+): Set<string> | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return new Set(value);
 }
 
 function collect_closure_block_locals_with_type(

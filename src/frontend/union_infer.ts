@@ -1,11 +1,12 @@
 import { expect } from "../expect.ts";
-import type { Env, FrontExpr, TypeField } from "./ast.ts";
+import type { Env, FrontExpr, FrontType, TypeField } from "./ast.ts";
 import {
   type DynamicUnionCaseHooks,
   infer_dynamic_union_if_cases as infer_dynamic_union_if_cases_with_hooks,
 } from "./dynamic_union_cases.ts";
 import { clone_env, lookup, push_binding } from "./env.ts";
 import { lookup_type_field, merge_type_fields } from "./fields.ts";
+import { implicit_fallback_expr } from "./implicit_fallback.ts";
 import {
   inline_union_result_call,
   type UnionCallInlineHooks,
@@ -25,6 +26,10 @@ export type UnionInferHooks = DynamicUnionCaseHooks & UnionCallInlineHooks & {
     expr: FrontExpr,
     env: Env,
   ) => { expr: Extract<FrontExpr, { tag: "if" }>; env: Env } | undefined;
+  resolve_annotation_type: (
+    annotation: string,
+    env: Env,
+  ) => FrontType | undefined;
   resolve_union_type_value: (
     expr: FrontExpr,
     env: Env,
@@ -188,6 +193,18 @@ function infer_if_let_union_result_cases(
 
   const then_cases = infer_union_cases(expr.then_branch, then_env, hooks);
   const else_cases = infer_union_cases(expr.else_branch, env, hooks);
+
+  if (!else_cases && expr.implicit_else && then_cases) {
+    const fallback = implicit_fallback_expr(
+      { tag: "union_value", cases: then_cases },
+      env,
+      hooks,
+    );
+
+    if (fallback) {
+      return then_cases;
+    }
+  }
 
   if (!then_cases || !else_cases) {
     return undefined;

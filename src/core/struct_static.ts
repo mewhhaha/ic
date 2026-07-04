@@ -6,6 +6,7 @@ import {
   runtime_aggregate_layout_for_type,
   type RuntimeAggregateField,
 } from "./runtime_aggregate.ts";
+import { static_core_call_branch_app } from "./static_call.ts";
 import { static_block_result } from "./type_static.ts";
 
 export type StaticStructCtx = {
@@ -27,6 +28,10 @@ export type StaticStructHooks<ctx extends StaticStructCtx> = {
     expr: CoreExpr,
     ctx: ctx,
   ) => CoreExpr | undefined;
+  static_core_call_target: (
+    expr: CoreExpr,
+    ctx: ctx,
+  ) => Extract<CoreExpr, { tag: "lam" }> | undefined;
 };
 
 export type StaticStructIfBranches = {
@@ -43,6 +48,14 @@ export function static_struct_value<ctx extends StaticStructCtx>(
 
   if (inlined) {
     return static_struct_value(inlined, ctx, hooks);
+  }
+
+  if (expr.tag === "app") {
+    const branch_static_call = static_core_call_branch_app(expr, ctx, hooks);
+
+    if (branch_static_call) {
+      return static_struct_value(branch_static_call, ctx, hooks);
+    }
   }
 
   if (expr.tag === "struct_value") {

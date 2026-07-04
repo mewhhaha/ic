@@ -59,13 +59,26 @@ export type StatementLowerHooks = {
   ) => TypeField[] | undefined;
   infer_expr: (expr: FrontExpr, env: Env) => FrontType;
   is_deferred_frontend_value: (expr: FrontExpr, env: Env) => boolean;
+  lower_app_as_front_type: (
+    expr: Extract<FrontExpr, { tag: "app" }>,
+    type: FrontType,
+    env: Env,
+  ) => IcNode | undefined;
   lower_expr: (expr: FrontExpr, env: Env) => IcNode;
+  lower_dynamic_union_if: (
+    expr: Extract<FrontExpr, { tag: "if" }>,
+    env: Env,
+  ) => IcNode | undefined;
   prepare_const_value: (expr: FrontExpr, env: Env) => FrontExpr;
   prepare_runtime_value: (expr: FrontExpr, env: Env) => FrontExpr;
   requires_specialized_call: (
     expr: Extract<FrontExpr, { tag: "lam" }>,
     env: Env,
   ) => boolean;
+  resolve_annotation_type: (
+    annotation: string,
+    env: Env,
+  ) => FrontType | undefined;
   resolve_static_i32_expr: (
     expr: FrontExpr,
     env: Env,

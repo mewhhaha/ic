@@ -7,8 +7,14 @@ import {
   type CoreHostImportCtx,
   emit_core_host_import_call,
 } from "./host_import.ts";
+import {
+  static_core_call_branch_app,
+  type StaticCoreCallCtx,
+} from "./static_call.ts";
 
-export type CoreAppEmitHooks<ctx extends CoreHostImportCtx> = {
+export type CoreAppEmitHooks<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+> = {
   app_type: (
     expr: Extract<CoreExpr, { tag: "app" }>,
     ctx: ctx,
@@ -93,7 +99,9 @@ export type CoreAppEmitHooks<ctx extends CoreHostImportCtx> = {
   ) => CoreExpr;
 };
 
-export function emit_core_app<ctx extends CoreHostImportCtx>(
+export function emit_core_app<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
   expr: Extract<CoreExpr, { tag: "app" }>,
   ctx: ctx,
   hooks: CoreAppEmitHooks<ctx>,
@@ -182,6 +190,12 @@ export function emit_core_app<ctx extends CoreHostImportCtx>(
 
   if (rec_target) {
     return hooks.emit_core_rec_call(expr, rec_target, ctx);
+  }
+
+  const branch_static_call = static_core_call_branch_app(expr, ctx, hooks);
+
+  if (branch_static_call) {
+    return hooks.emit_expr(branch_static_call, ctx);
   }
 
   const inlined = hooks.static_core_call_value(expr, ctx);

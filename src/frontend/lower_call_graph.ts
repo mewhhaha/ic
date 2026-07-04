@@ -6,11 +6,13 @@ import type {
   ResolvedCallTarget,
   ResolvedFrontExpr,
 } from "./ast.ts";
+import type { TypedFrontExpr } from "./typed_lower.ts";
 import {
   type CallSpecializeHooks,
   check_dynamic_function_if_args as check_dynamic_function_if_args_with_hooks,
   eval_const_call as eval_const_call_with_hooks,
   infer_call_union_result_type as infer_call_union_result_type_with_hooks,
+  infer_specialized_app_type as infer_specialized_app_type_with_hooks,
   inline_deferred_const_call as inline_deferred_const_call_with_hooks,
   inline_runtime_call_expr as inline_runtime_call_expr_with_hooks,
   inline_specialized_call_expr as inline_specialized_call_expr_with_hooks,
@@ -30,13 +32,17 @@ export type FrontendCallGraph = {
   check_dynamic_function_if_args: (
     expr: Extract<FrontExpr, { tag: "app" }>,
     env: Env,
-  ) => void;
+  ) => TypedFrontExpr[] | undefined;
   eval_const_call: (
     expr: Extract<FrontExpr, { tag: "app" }>,
     env: Env,
     allow_unmarked_params: boolean,
   ) => FrontExpr | undefined;
   infer_call_union_result_type: (
+    expr: Extract<FrontExpr, { tag: "app" }>,
+    env: Env,
+  ) => FrontType | undefined;
+  infer_specialized_app_type: (
     expr: Extract<FrontExpr, { tag: "app" }>,
     env: Env,
   ) => FrontType | undefined;
@@ -127,6 +133,13 @@ export function create_frontend_call_graph(
     return infer_call_union_result_type_with_hooks(expr, env, hooks);
   }
 
+  function infer_specialized_app_type(
+    expr: Extract<FrontExpr, { tag: "app" }>,
+    env: Env,
+  ): FrontType | undefined {
+    return infer_specialized_app_type_with_hooks(expr, env, hooks);
+  }
+
   function resolve_deferred_frontend_value(
     expr: FrontExpr,
     env: Env,
@@ -180,8 +193,8 @@ export function create_frontend_call_graph(
   function check_dynamic_function_if_args(
     expr: Extract<FrontExpr, { tag: "app" }>,
     env: Env,
-  ): void {
-    check_dynamic_function_if_args_with_hooks(expr, env, hooks);
+  ): TypedFrontExpr[] | undefined {
+    return check_dynamic_function_if_args_with_hooks(expr, env, hooks);
   }
 
   function is_deferred_frontend_value(
@@ -216,6 +229,7 @@ export function create_frontend_call_graph(
     check_dynamic_function_if_args,
     eval_const_call,
     infer_call_union_result_type,
+    infer_specialized_app_type,
     inline_deferred_const_call,
     inline_runtime_call_expr,
     inline_specialized_call_expr,

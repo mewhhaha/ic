@@ -24,6 +24,11 @@ export type CallSpecializeHooks = CallConstHooks & {
     env: Env,
   ) => void;
   infer_union_cases: (expr: FrontExpr, env: Env) => TypeField[] | undefined;
+  lower_app_as_front_type: (
+    expr: Extract<FrontExpr, { tag: "app" }>,
+    type: FrontType,
+    env: Env,
+  ) => IcNode | undefined;
   lower_expr: (expr: FrontExpr, env: Env) => IcNode;
   resolve_annotation_type: (
     annotation: string,

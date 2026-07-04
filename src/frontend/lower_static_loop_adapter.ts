@@ -8,6 +8,14 @@ import {
 export type FrontendStaticLoopApi = {
   eval_i32_expr: (expr: FrontExpr, env: Env, label: string) => number;
   infer_expr: (expr: FrontExpr, env: Env) => FrontType;
+  infer_union_cases: (
+    expr: FrontExpr,
+    env: Env,
+  ) => { name: string; type_name: string }[] | undefined;
+  resolve_annotation_type: (
+    annotation: string,
+    env: Env,
+  ) => FrontType | undefined;
   resolve_static_i32_expr: (
     expr: FrontExpr,
     env: Env,
@@ -50,6 +58,8 @@ export function create_frontend_static_loop(
   const static_loop_hooks = {
     eval_i32_expr: api.eval_i32_expr,
     infer_expr: api.infer_expr,
+    infer_union_cases: api.infer_union_cases,
+    resolve_annotation_type: api.resolve_annotation_type,
     resolve_static_i32_expr: api.resolve_static_i32_expr,
     resolve_runtime_struct_type: api.resolve_runtime_struct_type,
     resolve_struct_value: api.resolve_struct_value,

@@ -68,7 +68,7 @@ export function apply_index_assignment(
     }
 
     throw new Error(
-      "Cannot lower index update to Ic frontend yet" +
+      "Cannot lower index update to Ic frontend yet: " + stmt.name +
         structured_core_route,
     );
   }

@@ -7,6 +7,7 @@ import type {
   ResolvedFrontExpr,
 } from "./ast.ts";
 import type { FrontendCallGraph } from "./lower_call_graph.ts";
+import type { TypedFrontExpr } from "./typed_lower.ts";
 
 export function create_frontend_call_facade(
   graph: () => FrontendCallGraph,
@@ -14,8 +15,8 @@ export function create_frontend_call_facade(
   function check_dynamic_function_if_args(
     expr: Extract<FrontExpr, { tag: "app" }>,
     env: Env,
-  ): void {
-    graph().check_dynamic_function_if_args(expr, env);
+  ): TypedFrontExpr[] | undefined {
+    return graph().check_dynamic_function_if_args(expr, env);
   }
 
   function eval_const_call(
@@ -31,6 +32,13 @@ export function create_frontend_call_facade(
     env: Env,
   ): FrontType | undefined {
     return graph().infer_call_union_result_type(expr, env);
+  }
+
+  function infer_specialized_app_type(
+    expr: Extract<FrontExpr, { tag: "app" }>,
+    env: Env,
+  ): FrontType | undefined {
+    return graph().infer_specialized_app_type(expr, env);
   }
 
   function inline_deferred_const_call(
@@ -129,6 +137,7 @@ export function create_frontend_call_facade(
     check_dynamic_function_if_args,
     eval_const_call,
     infer_call_union_result_type,
+    infer_specialized_app_type,
     inline_deferred_const_call,
     inline_runtime_call_expr,
     inline_specialized_call_expr,

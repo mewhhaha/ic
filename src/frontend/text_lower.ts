@@ -1,12 +1,15 @@
 import { expect } from "../expect.ts";
 import { Ic, type Ic as IcNode } from "../ic.ts";
-import type { Env, FrontExpr } from "./ast.ts";
+import type { Env, FrontExpr, Stmt } from "./ast.ts";
 import { text_byte_length } from "./text.ts";
+import { lower_expr_as_front_type } from "./typed_lower.ts";
+import { front_type_from_type_name, is_builtin_type_name } from "./types.ts";
 import type { TextLowerHooks } from "./text_lower_types.ts";
 import {
   check_text_concat_operand_visibility,
   visible_text_value,
 } from "./text_visible.ts";
+import { lower_text_app_result } from "./text_lower/app_result.ts";
 
 export {
   lower_runtime_text_byte_index,
@@ -87,6 +90,21 @@ export function lower_text_len(
       if (value_len) {
         return value_len;
       }
+
+      if (binding.is_deferred) {
+        return {
+          tag: "prim",
+          prim: "i32.load",
+          args: [
+            lower_expr_as_front_type(
+              binding.value,
+              { tag: "text" },
+              value_env,
+              hooks,
+            ),
+          ],
+        };
+      }
     }
 
     if (binding.type.tag === "text") {
@@ -141,6 +159,17 @@ export function lower_text_len(
   }
 
   if (expr.tag === "block") {
+    const alias_len = lower_simple_text_alias_block_len(
+      expr,
+      env,
+      seen,
+      hooks,
+    );
+
+    if (alias_len) {
+      return alias_len;
+    }
+
     const value = hooks.eval_simple_front_block(expr, env);
 
     if (value) {
@@ -173,6 +202,16 @@ export function lower_text_len(
 
     if (text_value) {
       return lower_text_len(text_value, env, seen, hooks);
+    }
+
+    const typed_app = lower_text_app_result(expr, env, hooks);
+
+    if (typed_app) {
+      return {
+        tag: "prim",
+        prim: "i32.load",
+        args: [typed_app],
+      };
     }
 
     const value = hooks.try_eval_all_const_call(expr, env);
@@ -211,6 +250,93 @@ export function lower_text_len(
   }
 
   return undefined;
+}
+
+function lower_simple_text_alias_block_len(
+  expr: Extract<FrontExpr, { tag: "block" }>,
+  env: Env,
+  seen: Set<string>,
+  hooks: TextLowerHooks,
+): IcNode | undefined {
+  if (expr.statements.length !== 2) {
+    return undefined;
+  }
+
+  const bind = expr.statements[0];
+  const result = expr.statements[1];
+  expect(bind, "Missing text alias block binding");
+  expect(result, "Missing text alias block result");
+
+  if (bind.tag !== "bind") {
+    return undefined;
+  }
+
+  if (bind.kind !== "let") {
+    return undefined;
+  }
+
+  if (bind.is_linear) {
+    return undefined;
+  }
+
+  const result_expr = text_block_result_expr(result);
+
+  if (!result_expr) {
+    return undefined;
+  }
+
+  if (result_expr.tag !== "var" || result_expr.name !== bind.name) {
+    return undefined;
+  }
+
+  if (bind.annotation && !annotation_is_text(bind.annotation, env, hooks)) {
+    return undefined;
+  }
+
+  const direct_len = lower_text_len(bind.value, env, seen, hooks);
+
+  if (direct_len) {
+    return direct_len;
+  }
+
+  return {
+    tag: "prim",
+    prim: "i32.load",
+    args: [
+      lower_expr_as_front_type(bind.value, { tag: "text" }, env, hooks),
+    ],
+  };
+}
+
+function text_block_result_expr(stmt: Stmt): FrontExpr | undefined {
+  if (stmt.tag === "expr") {
+    return stmt.expr;
+  }
+
+  if (stmt.tag === "return") {
+    return stmt.value;
+  }
+
+  return undefined;
+}
+
+function annotation_is_text(
+  annotation: string,
+  env: Env,
+  hooks: TextLowerHooks,
+): boolean {
+  const resolved = hooks.resolve_annotation_type(annotation, env);
+
+  if (resolved && resolved.tag !== "unknown") {
+    return resolved.tag === "text";
+  }
+
+  if (!is_builtin_type_name(annotation)) {
+    return false;
+  }
+
+  const builtin = front_type_from_type_name(annotation);
+  return builtin.tag === "text";
 }
 
 function lower_dynamic_text_index_len(

@@ -39,10 +39,12 @@ export function create_core_backend_union_runtime_emit(
   } satisfies RuntimeUnionEmitHooks<CoreEmitCtx>;
 
   const runtime_union_if_let_hooks = {
+    core_expr_is_text: api.core_expr_is_text,
     emit_expr: api.emit_expr,
     emit_stmt: api.emit_stmt,
     expr_type: api.expr_type,
     match_branch_ctx: api.match_branch_ctx,
+    merge_if_else_static_assignments: api.merge_if_else_static_assignments,
     runtime_union_match_info: runtime_info.runtime_union_match_info,
   } satisfies RuntimeUnionIfLetHooks<CoreEmitCtx>;
 

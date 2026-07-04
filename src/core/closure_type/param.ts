@@ -34,11 +34,16 @@ export function closure_param_info(
     );
   }
 
-  if (hooks.static_annotation_type_value(annotation, ctx)) {
-    throw new Error(
-      "Core first-class closure parameter must use a scalar annotation: " +
-        annotation,
-    );
+  const type_value = hooks.static_annotation_type_value(annotation, ctx);
+
+  if (type_value) {
+    if (type_value.tag === "struct_type") {
+      return { type: "i32", is_text: false, struct_type: type_value };
+    }
+
+    if (type_value.tag === "union_type") {
+      return { type: "i32", is_text: false, union_type: type_value };
+    }
   }
 
   throw new Error(

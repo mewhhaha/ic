@@ -9,12 +9,12 @@ export function substitute_core_call_expr(
     case "num":
     case "text":
     case "type_name":
-    case "linear":
     case "struct_type":
     case "union_type":
     case "unsupported":
       return expr;
 
+    case "linear":
     case "var": {
       const replacement = replacements.get(expr.name);
 

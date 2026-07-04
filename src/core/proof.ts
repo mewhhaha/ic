@@ -45,6 +45,10 @@ export type CoreUnsupportedCodegenHooks = {
   collection_loop_supported: (
     stmt: Extract<CoreStmt, { tag: "collection_loop" }>,
   ) => boolean;
+  index_assign_supported: (
+    stmt: Extract<CoreStmt, { tag: "index_assign" }>,
+  ) => boolean;
+  type_value_expr: (expr: CoreExpr) => boolean;
   if_let_expr_supported: (
     expr: Extract<CoreExpr, { tag: "if_let" }>,
   ) => boolean;
@@ -134,6 +138,25 @@ type CoreFreezeProofState = {
   edges: CoreFreezeProofEdge[];
 };
 
+type CoreFreezeProofHooks<ctx> = CoreOwnershipHooks<ctx> & {
+  closure_body_ctx?: (
+    expr: Extract<CoreExpr, { tag: "lam" | "rec" }>,
+    ctx: ctx,
+  ) => ctx | undefined;
+  scoped_static_core_call_value?: (
+    expr: Extract<CoreExpr, { tag: "app" }>,
+    target: Extract<CoreExpr, { tag: "lam" }>,
+    ctx: ctx,
+  ) => { value: CoreExpr; ctx: ctx };
+  static_core_call_target?: (
+    expr: CoreExpr,
+    ctx: ctx,
+  ) => Extract<CoreExpr, { tag: "lam" }> | undefined;
+  static_core_call_requires_scope?: (
+    target: Extract<CoreExpr, { tag: "lam" }>,
+  ) => boolean;
+};
+
 export function core_baseline_proof(
   input: CoreBaselineProofInput,
 ): CoreBaselineProof {
@@ -168,8 +191,7 @@ export function core_baseline_proof(
     issues.push({
       tag: "scratch_return",
       step,
-      message: "Rejected baseline proof " + step.scope +
-        " scratch_return: " + step.return_value.decision.reason,
+      message: scratch_return_issue_message(step),
     });
   }
 
@@ -250,19 +272,31 @@ export function core_unsupported_codegen_issues(
   const issues: CoreUnsupportedCodegenIssue[] = [];
 
   for (const stmt of core.statements) {
-    scan_unsupported_codegen_stmt(stmt, issues, hooks);
+    scan_unsupported_codegen_stmt(stmt, issues, hooks, 0);
   }
 
   return issues;
+}
+
+function scratch_return_issue_message(step: CoreCleanupStep): string {
+  const prefix = "Rejected baseline proof " + step.scope + " scratch_return: ";
+
+  if (step.return_detail) {
+    return prefix + "unsafe scratch return " + step.return_detail + " and " +
+      step.return_value.decision.reason;
+  }
+
+  return prefix + step.return_value.decision.reason;
 }
 
 function scan_unsupported_codegen_stmts(
   statements: CoreStmt[],
   issues: CoreUnsupportedCodegenIssue[],
   hooks: CoreUnsupportedCodegenHooks,
+  loop_depth: number,
 ): void {
   for (const stmt of statements) {
-    scan_unsupported_codegen_stmt(stmt, issues, hooks);
+    scan_unsupported_codegen_stmt(stmt, issues, hooks, loop_depth);
   }
 }
 
@@ -270,23 +304,100 @@ function scan_unsupported_codegen_stmt(
   stmt: CoreStmt,
   issues: CoreUnsupportedCodegenIssue[],
   hooks: CoreUnsupportedCodegenHooks,
+  loop_depth: number,
 ): void {
   switch (stmt.tag) {
     case "bind":
+      if (stmt.kind === "let" && hooks.type_value_expr(stmt.value)) {
+        issues.push({
+          tag: "unsupported_codegen",
+          node: "expr",
+          feature: "type_value",
+          message: "Cannot emit core type value expression yet",
+        });
+        return;
+      }
+      scan_unsupported_codegen_expr(
+        stmt.value,
+        issues,
+        hooks,
+        false,
+        loop_depth,
+      );
+      return;
+
     case "assign":
-      scan_unsupported_codegen_expr(stmt.value, issues, hooks);
+      if (hooks.type_value_expr(stmt.value)) {
+        issues.push({
+          tag: "unsupported_codegen",
+          node: "expr",
+          feature: "type_value",
+          message: "Cannot emit core type value expression yet",
+        });
+        return;
+      }
+      scan_unsupported_codegen_expr(
+        stmt.value,
+        issues,
+        hooks,
+        false,
+        loop_depth,
+      );
       return;
 
     case "index_assign":
-      scan_unsupported_codegen_expr(stmt.index, issues, hooks);
-      scan_unsupported_codegen_expr(stmt.value, issues, hooks);
+      if (!hooks.index_assign_supported(stmt)) {
+        issues.push({
+          tag: "unsupported_codegen",
+          node: "stmt",
+          feature: "index_assign",
+          message: "Cannot emit core index_assign statement yet",
+        });
+      }
+      scan_unsupported_codegen_expr(
+        stmt.index,
+        issues,
+        hooks,
+        true,
+        loop_depth,
+      );
+      scan_unsupported_codegen_expr(
+        stmt.value,
+        issues,
+        hooks,
+        true,
+        loop_depth,
+      );
       return;
 
     case "range_loop":
-      scan_unsupported_codegen_expr(stmt.start, issues, hooks);
-      scan_unsupported_codegen_expr(stmt.end, issues, hooks);
-      scan_unsupported_codegen_expr(stmt.step, issues, hooks);
-      scan_unsupported_codegen_stmts(stmt.body, issues, hooks);
+      scan_unsupported_codegen_expr(
+        stmt.start,
+        issues,
+        hooks,
+        true,
+        loop_depth,
+      );
+      scan_unsupported_codegen_expr(
+        stmt.end,
+        issues,
+        hooks,
+        true,
+        loop_depth,
+      );
+      scan_unsupported_codegen_expr(
+        stmt.step,
+        issues,
+        hooks,
+        true,
+        loop_depth,
+      );
+      scan_unsupported_codegen_stmts(
+        stmt.body,
+        issues,
+        hooks,
+        loop_depth + 1,
+      );
       return;
 
     case "collection_loop":
@@ -298,19 +409,52 @@ function scan_unsupported_codegen_stmt(
           message: "Cannot emit core collection_loop statement yet",
         });
       }
-      scan_unsupported_codegen_expr(stmt.collection, issues, hooks);
-      scan_unsupported_codegen_stmts(stmt.body, issues, hooks);
+      scan_unsupported_codegen_expr(
+        stmt.collection,
+        issues,
+        hooks,
+        true,
+        loop_depth,
+      );
+      scan_unsupported_codegen_stmts(
+        stmt.body,
+        issues,
+        hooks,
+        loop_depth + 1,
+      );
       return;
 
     case "if_stmt":
-      scan_unsupported_codegen_expr(stmt.cond, issues, hooks);
-      scan_unsupported_codegen_stmts(stmt.body, issues, hooks);
+      scan_unsupported_codegen_expr(
+        stmt.cond,
+        issues,
+        hooks,
+        true,
+        loop_depth,
+      );
+      scan_unsupported_codegen_stmts(stmt.body, issues, hooks, loop_depth);
       return;
 
     case "if_else_stmt":
-      scan_unsupported_codegen_expr(stmt.cond, issues, hooks);
-      scan_unsupported_codegen_stmts(stmt.then_body, issues, hooks);
-      scan_unsupported_codegen_stmts(stmt.else_body, issues, hooks);
+      scan_unsupported_codegen_expr(
+        stmt.cond,
+        issues,
+        hooks,
+        true,
+        loop_depth,
+      );
+      scan_unsupported_codegen_stmts(
+        stmt.then_body,
+        issues,
+        hooks,
+        loop_depth,
+      );
+      scan_unsupported_codegen_stmts(
+        stmt.else_body,
+        issues,
+        hooks,
+        loop_depth,
+      );
       return;
 
     case "if_let_stmt":
@@ -322,23 +466,65 @@ function scan_unsupported_codegen_stmt(
           message: "Cannot emit core if_let_stmt statement yet",
         });
       }
-      scan_unsupported_codegen_expr(stmt.target, issues, hooks);
+      scan_unsupported_codegen_expr(
+        stmt.target,
+        issues,
+        hooks,
+        true,
+        loop_depth,
+      );
       return;
 
     case "type_check":
-      scan_unsupported_codegen_expr(stmt.target, issues, hooks);
+      scan_unsupported_codegen_expr(
+        stmt.target,
+        issues,
+        hooks,
+        false,
+        loop_depth,
+      );
       return;
 
     case "return":
-      scan_unsupported_codegen_expr(stmt.value, issues, hooks);
+      scan_unsupported_codegen_expr(
+        stmt.value,
+        issues,
+        hooks,
+        true,
+        loop_depth,
+      );
       return;
 
     case "expr":
-      scan_unsupported_codegen_expr(stmt.expr, issues, hooks);
+      scan_unsupported_codegen_expr(
+        stmt.expr,
+        issues,
+        hooks,
+        true,
+        loop_depth,
+      );
       return;
 
     case "break":
+      if (loop_depth === 0) {
+        issues.push({
+          tag: "unsupported_codegen",
+          node: "stmt",
+          feature: "break",
+          message: "Cannot emit core break outside loop",
+        });
+      }
+      return;
+
     case "continue":
+      if (loop_depth === 0) {
+        issues.push({
+          tag: "unsupported_codegen",
+          node: "stmt",
+          feature: "continue",
+          message: "Cannot emit core continue outside loop",
+        });
+      }
       return;
 
     case "unsupported":
@@ -356,7 +542,28 @@ function scan_unsupported_codegen_expr(
   expr: CoreExpr,
   issues: CoreUnsupportedCodegenIssue[],
   hooks: CoreUnsupportedCodegenHooks,
+  runtime_position: boolean,
+  loop_depth = 0,
 ): void {
+  if (runtime_position && hooks.type_value_expr(expr)) {
+    issues.push({
+      tag: "unsupported_codegen",
+      node: "expr",
+      feature: "type_value",
+      message: "Cannot emit core type value expression yet",
+    });
+    return;
+  }
+
+  if (runtime_position) {
+    const direct_issue = direct_unsupported_codegen_expr_issue(expr);
+
+    if (direct_issue) {
+      issues.push(direct_issue);
+      return;
+    }
+  }
+
   switch (expr.tag) {
     case "num":
     case "text":
@@ -371,53 +578,148 @@ function scan_unsupported_codegen_expr(
 
     case "prim":
       for (const arg of expr.args) {
-        scan_unsupported_codegen_expr(arg, issues, hooks);
+        scan_unsupported_codegen_expr(
+          arg,
+          issues,
+          hooks,
+          runtime_position,
+          loop_depth,
+        );
       }
       return;
 
     case "app":
-      scan_unsupported_codegen_expr(expr.func, issues, hooks);
+      scan_unsupported_codegen_expr(
+        expr.func,
+        issues,
+        hooks,
+        false,
+        loop_depth,
+      );
       for (const arg of expr.args) {
-        scan_unsupported_codegen_expr(arg, issues, hooks);
+        scan_unsupported_codegen_expr(
+          arg,
+          issues,
+          hooks,
+          runtime_position,
+          loop_depth,
+        );
       }
       return;
 
     case "block":
-      scan_unsupported_codegen_stmts(expr.statements, issues, hooks);
+      scan_unsupported_codegen_stmts(
+        expr.statements,
+        issues,
+        hooks,
+        loop_depth,
+      );
       return;
 
     case "comptime":
-      scan_unsupported_codegen_expr(expr.expr, issues, hooks);
+      scan_unsupported_codegen_expr(
+        expr.expr,
+        issues,
+        hooks,
+        false,
+        loop_depth,
+      );
       return;
 
     case "borrow":
     case "freeze":
-      scan_unsupported_codegen_expr(expr.value, issues, hooks);
+      scan_unsupported_codegen_expr(
+        expr.value,
+        issues,
+        hooks,
+        runtime_position,
+        loop_depth,
+      );
       return;
 
     case "scratch":
-      scan_unsupported_codegen_expr(expr.body, issues, hooks);
+      scan_unsupported_codegen_expr(
+        expr.body,
+        issues,
+        hooks,
+        runtime_position,
+        loop_depth,
+      );
       return;
 
     case "with":
-      scan_unsupported_codegen_expr(expr.base, issues, hooks);
-      scan_unsupported_codegen_fields(expr.fields, issues, hooks);
+      scan_unsupported_codegen_expr(
+        expr.base,
+        issues,
+        hooks,
+        false,
+        loop_depth,
+      );
+      scan_unsupported_codegen_fields(
+        expr.fields,
+        issues,
+        hooks,
+        runtime_position,
+        loop_depth,
+      );
       return;
 
     case "struct_value":
-      scan_unsupported_codegen_expr(expr.type_expr, issues, hooks);
-      scan_unsupported_codegen_fields(expr.fields, issues, hooks);
+      scan_unsupported_codegen_expr(
+        expr.type_expr,
+        issues,
+        hooks,
+        false,
+        loop_depth,
+      );
+      scan_unsupported_codegen_fields(
+        expr.fields,
+        issues,
+        hooks,
+        runtime_position,
+        loop_depth,
+      );
       return;
 
     case "struct_update":
-      scan_unsupported_codegen_expr(expr.base, issues, hooks);
-      scan_unsupported_codegen_fields(expr.fields, issues, hooks);
+      scan_unsupported_codegen_expr(
+        expr.base,
+        issues,
+        hooks,
+        runtime_position,
+        loop_depth,
+      );
+      scan_unsupported_codegen_fields(
+        expr.fields,
+        issues,
+        hooks,
+        runtime_position,
+        loop_depth,
+      );
       return;
 
     case "if":
-      scan_unsupported_codegen_expr(expr.cond, issues, hooks);
-      scan_unsupported_codegen_expr(expr.then_branch, issues, hooks);
-      scan_unsupported_codegen_expr(expr.else_branch, issues, hooks);
+      scan_unsupported_codegen_expr(
+        expr.cond,
+        issues,
+        hooks,
+        runtime_position,
+        loop_depth,
+      );
+      scan_unsupported_codegen_expr(
+        expr.then_branch,
+        issues,
+        hooks,
+        runtime_position,
+        loop_depth,
+      );
+      scan_unsupported_codegen_expr(
+        expr.else_branch,
+        issues,
+        hooks,
+        runtime_position,
+        loop_depth,
+      );
       return;
 
     case "if_let":
@@ -429,11 +731,23 @@ function scan_unsupported_codegen_expr(
           message: "Cannot emit core if_let expression yet",
         });
       }
-      scan_unsupported_codegen_expr(expr.target, issues, hooks);
+      scan_unsupported_codegen_expr(
+        expr.target,
+        issues,
+        hooks,
+        runtime_position,
+        loop_depth,
+      );
       return;
 
     case "field":
-      scan_unsupported_codegen_expr(expr.object, issues, hooks);
+      scan_unsupported_codegen_expr(
+        expr.object,
+        issues,
+        hooks,
+        false,
+        loop_depth,
+      );
       return;
 
     case "index":
@@ -445,21 +759,55 @@ function scan_unsupported_codegen_expr(
           message: "Cannot emit core index expression yet",
         });
       }
-      scan_unsupported_codegen_expr(expr.object, issues, hooks);
-      scan_unsupported_codegen_expr(expr.index, issues, hooks);
+      scan_unsupported_codegen_expr(
+        expr.object,
+        issues,
+        hooks,
+        false,
+        loop_depth,
+      );
+      scan_unsupported_codegen_expr(
+        expr.index,
+        issues,
+        hooks,
+        runtime_position,
+        loop_depth,
+      );
       return;
 
     case "union_case":
       if (expr.value) {
-        scan_unsupported_codegen_expr(expr.value, issues, hooks);
+        scan_unsupported_codegen_expr(
+          expr.value,
+          issues,
+          hooks,
+          runtime_position,
+          loop_depth,
+        );
       }
 
       if (expr.type_expr) {
-        scan_unsupported_codegen_expr(expr.type_expr, issues, hooks);
+        scan_unsupported_codegen_expr(
+          expr.type_expr,
+          issues,
+          hooks,
+          false,
+          loop_depth,
+        );
       }
       return;
 
     case "unsupported":
+      if (expr.feature === "missing_capability_method") {
+        issues.push({
+          tag: "unsupported_codegen",
+          node: "expr",
+          feature: expr.feature,
+          message: "Missing host capability method: " + expr.text,
+        });
+        return;
+      }
+
       issues.push({
         tag: "unsupported_codegen",
         node: "expr",
@@ -470,13 +818,71 @@ function scan_unsupported_codegen_expr(
   }
 }
 
+function direct_unsupported_codegen_expr_issue(
+  expr: CoreExpr,
+): CoreUnsupportedCodegenIssue | undefined {
+  switch (expr.tag) {
+    case "rec":
+    case "comptime":
+    case "with":
+    case "struct_update":
+      return {
+        tag: "unsupported_codegen",
+        node: "expr",
+        feature: expr.tag,
+        message: "Cannot emit core " + expr.tag + " expression yet",
+      };
+
+    case "num":
+    case "text":
+    case "type_name":
+    case "var":
+    case "prim":
+    case "lam":
+    case "app":
+    case "block":
+    case "borrow":
+    case "freeze":
+    case "scratch":
+    case "struct_type":
+    case "struct_value":
+    case "union_type":
+    case "if":
+    case "if_let":
+    case "field":
+    case "index":
+    case "union_case":
+      return undefined;
+
+    case "unsupported":
+      if (expr.feature === "missing_capability_method") {
+        return {
+          tag: "unsupported_codegen",
+          node: "expr",
+          feature: expr.feature,
+          message: "Missing host capability method: " + expr.text,
+        };
+      }
+
+      return undefined;
+  }
+}
+
 function scan_unsupported_codegen_fields(
   fields: CoreField[],
   issues: CoreUnsupportedCodegenIssue[],
   hooks: CoreUnsupportedCodegenHooks,
+  runtime_position: boolean,
+  loop_depth: number,
 ): void {
   for (const field of fields) {
-    scan_unsupported_codegen_expr(field.value, issues, hooks);
+    scan_unsupported_codegen_expr(
+      field.value,
+      issues,
+      hooks,
+      runtime_position,
+      loop_depth,
+    );
   }
 }
 
@@ -506,7 +912,7 @@ export function core_check_baseline_proof(
 export function core_freeze_proof_edges<ctx>(
   core: Core,
   ctx: ctx,
-  hooks: CoreOwnershipHooks<ctx>,
+  hooks: CoreFreezeProofHooks<ctx>,
 ): CoreFreezeProofEdge[] {
   const state: CoreFreezeProofState = {
     next_freeze: 0,
@@ -523,12 +929,16 @@ export function core_freeze_proof_edges<ctx>(
 function scan_freeze_stmt<ctx>(
   stmt: CoreStmt,
   ctx: ctx,
-  hooks: CoreOwnershipHooks<ctx>,
+  hooks: CoreFreezeProofHooks<ctx>,
   state: CoreFreezeProofState,
 ): void {
   switch (stmt.tag) {
     case "bind":
     case "assign":
+      if (freeze_stmt_value_is_direct_static_call_target(stmt, ctx, hooks)) {
+        return;
+      }
+
       scan_freeze_expr(stmt.value, ctx, hooks, state);
       return;
 
@@ -583,10 +993,69 @@ function scan_freeze_stmt<ctx>(
   }
 }
 
+function freeze_stmt_value_is_direct_static_call_target<ctx>(
+  stmt: Extract<CoreStmt, { tag: "bind" | "assign" }>,
+  ctx: ctx,
+  hooks: CoreFreezeProofHooks<ctx>,
+): boolean {
+  if (!hooks.static_core_call_target) {
+    return false;
+  }
+
+  if (!hooks.static_core_call_requires_scope) {
+    return false;
+  }
+
+  if (stmt.value.tag !== "lam") {
+    return false;
+  }
+
+  const target = hooks.static_core_call_target(
+    { tag: "var", name: stmt.name },
+    ctx,
+  );
+
+  if (!target) {
+    return false;
+  }
+
+  if (target !== stmt.value) {
+    return false;
+  }
+
+  return hooks.static_core_call_requires_scope(target);
+}
+
+function scoped_static_freeze_call_value<ctx>(
+  expr: Extract<CoreExpr, { tag: "app" }>,
+  ctx: ctx,
+  hooks: CoreFreezeProofHooks<ctx>,
+): { value: CoreExpr; ctx: ctx } | undefined {
+  if (
+    !hooks.static_core_call_target ||
+    !hooks.scoped_static_core_call_value ||
+    !hooks.static_core_call_requires_scope
+  ) {
+    return undefined;
+  }
+
+  const target = hooks.static_core_call_target(expr.func, ctx);
+
+  if (!target) {
+    return undefined;
+  }
+
+  if (!hooks.static_core_call_requires_scope(target)) {
+    return undefined;
+  }
+
+  return hooks.scoped_static_core_call_value(expr, target, ctx);
+}
+
 function scan_freeze_stmts<ctx>(
   statements: CoreStmt[],
   ctx: ctx,
-  hooks: CoreOwnershipHooks<ctx>,
+  hooks: CoreFreezeProofHooks<ctx>,
   state: CoreFreezeProofState,
 ): void {
   for (const stmt of statements) {
@@ -597,7 +1066,7 @@ function scan_freeze_stmts<ctx>(
 function scan_freeze_expr<ctx>(
   expr: CoreExpr,
   ctx: ctx,
-  hooks: CoreOwnershipHooks<ctx>,
+  hooks: CoreFreezeProofHooks<ctx>,
   state: CoreFreezeProofState,
 ): void {
   switch (expr.tag) {
@@ -606,11 +1075,14 @@ function scan_freeze_expr<ctx>(
     case "type_name":
     case "var":
     case "linear":
-    case "lam":
-    case "rec":
     case "struct_type":
     case "union_type":
     case "unsupported":
+      return;
+
+    case "lam":
+    case "rec":
+      scan_freeze_closure_body(expr, ctx, hooks, state);
       return;
 
     case "prim":
@@ -619,12 +1091,19 @@ function scan_freeze_expr<ctx>(
       }
       return;
 
-    case "app":
+    case "app": {
       scan_freeze_expr(expr.func, ctx, hooks, state);
       for (const arg of expr.args) {
         scan_freeze_expr(arg, ctx, hooks, state);
       }
+
+      const scoped = scoped_static_freeze_call_value(expr, ctx, hooks);
+
+      if (scoped) {
+        scan_freeze_expr(scoped.value, scoped.ctx, hooks, state);
+      }
       return;
+    }
 
     case "block":
       scan_freeze_block(expr, ctx, hooks, state);
@@ -700,10 +1179,29 @@ function scan_freeze_expr<ctx>(
   }
 }
 
+function scan_freeze_closure_body<ctx>(
+  expr: Extract<CoreExpr, { tag: "lam" | "rec" }>,
+  ctx: ctx,
+  hooks: CoreFreezeProofHooks<ctx>,
+  state: CoreFreezeProofState,
+): void {
+  if (!hooks.closure_body_ctx) {
+    return;
+  }
+
+  const body_ctx = hooks.closure_body_ctx(expr, ctx);
+
+  if (!body_ctx) {
+    return;
+  }
+
+  scan_freeze_expr(expr.body, body_ctx, hooks, state);
+}
+
 function scan_freeze_if_let_stmt<ctx>(
   stmt: Extract<CoreStmt, { tag: "if_let_stmt" }>,
   ctx: ctx,
-  hooks: CoreOwnershipHooks<ctx>,
+  hooks: CoreFreezeProofHooks<ctx>,
   state: CoreFreezeProofState,
 ): void {
   scan_freeze_expr(stmt.target, ctx, hooks, state);
@@ -760,7 +1258,7 @@ function scan_freeze_if_let_stmt<ctx>(
 function scan_freeze_if_let_expr<ctx>(
   expr: Extract<CoreExpr, { tag: "if_let" }>,
   ctx: ctx,
-  hooks: CoreOwnershipHooks<ctx>,
+  hooks: CoreFreezeProofHooks<ctx>,
   state: CoreFreezeProofState,
 ): void {
   scan_freeze_expr(expr.target, ctx, hooks, state);
@@ -820,7 +1318,7 @@ function scan_freeze_if_let_expr<ctx>(
 function scan_freeze_block<ctx>(
   expr: Extract<CoreExpr, { tag: "block" }>,
   ctx: ctx,
-  hooks: CoreOwnershipHooks<ctx>,
+  hooks: CoreFreezeProofHooks<ctx>,
   state: CoreFreezeProofState,
 ): void {
   if (!hooks.block_ctx || !hooks.collect_stmt_locals) {
@@ -930,7 +1428,7 @@ function freeze_operand_static_field_is_ownerless<ctx>(
 function scan_freeze_fields<ctx>(
   fields: CoreField[],
   ctx: ctx,
-  hooks: CoreOwnershipHooks<ctx>,
+  hooks: CoreFreezeProofHooks<ctx>,
   state: CoreFreezeProofState,
 ): void {
   for (const field of fields) {

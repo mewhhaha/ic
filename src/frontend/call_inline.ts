@@ -17,6 +17,7 @@ import {
 import { should_specialize_app } from "./call_specialize_decision.ts";
 import type { CallSpecializeHooks } from "./call_specialize_types.ts";
 import { validate_const_expr } from "./constness.ts";
+import { unwrap_ownership_wrapper_context_expr } from "./ownership.ts";
 import { substitute_front_expr } from "./substitute.ts";
 
 export function inline_deferred_const_call(
@@ -235,8 +236,18 @@ function inline_call_arg_value(
   let value = arg;
 
   if (param.annotation) {
-    hooks.check_binding_annotation(param.annotation, value, env);
+    const annotation_type = hooks.resolve_annotation_type(
+      param.annotation,
+      env,
+    );
+    const arg_type = hooks.infer_expr(arg, env);
+
+    if (arg_type.tag !== "unknown" || !annotation_type) {
+      hooks.check_binding_annotation(param.annotation, value, env);
+    }
+
     value = hooks.apply_annotation_context(param.annotation, value, env);
+    value = unwrap_ownership_wrapper_context_expr(value);
   }
 
   return capture_expr(value, env);

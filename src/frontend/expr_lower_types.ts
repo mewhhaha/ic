@@ -1,6 +1,13 @@
 import type { Ic as IcNode } from "../ic.ts";
 import type { Prim } from "../op.ts";
-import type { Env, FrontExpr, FrontType, Stmt } from "./ast.ts";
+import type {
+  Env,
+  FrontExpr,
+  FrontType,
+  ResolvedFrontExpr,
+  Stmt,
+} from "./ast.ts";
+import type { TypedFrontExpr } from "./typed_lower.ts";
 
 export type ExprLowerHooks = {
   apply_struct_update: (
@@ -18,7 +25,7 @@ export type ExprLowerHooks = {
   check_dynamic_function_if_args: (
     expr: Extract<FrontExpr, { tag: "app" }>,
     env: Env,
-  ) => void;
+  ) => TypedFrontExpr[] | undefined;
   check_text_concat_operand_visibility: (
     expr: Extract<FrontExpr, { tag: "prim" }>,
     env: Env,
@@ -60,6 +67,10 @@ export type ExprLowerHooks = {
     expr: Extract<FrontExpr, { tag: "if_let" }>,
     env: Env,
   ) => IcNode;
+  inline_runtime_call_expr: (
+    expr: Extract<FrontExpr, { tag: "app" }>,
+    env: Env,
+  ) => ResolvedFrontExpr | undefined;
   lower_method_app: (
     expr: Extract<FrontExpr, { tag: "app" }>,
     env: Env,
@@ -84,6 +95,11 @@ export type ExprLowerHooks = {
   ) => IcNode | undefined;
   lower_static_rec_app: (
     expr: Extract<FrontExpr, { tag: "app" }>,
+    env: Env,
+  ) => IcNode | undefined;
+  lower_app_as_front_type: (
+    expr: Extract<FrontExpr, { tag: "app" }>,
+    type: FrontType,
     env: Env,
   ) => IcNode | undefined;
   lower_static_text_byte_index: (

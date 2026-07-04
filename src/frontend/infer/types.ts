@@ -19,6 +19,10 @@ export type InferHooks = {
     expr: Extract<FrontExpr, { tag: "app" }>,
     env: Env,
   ) => FrontType | undefined;
+  infer_specialized_app_type: (
+    expr: Extract<FrontExpr, { tag: "app" }>,
+    env: Env,
+  ) => FrontType | undefined;
   infer_dynamic_union_if_cases: (
     expr: Extract<FrontExpr, { tag: "if" }>,
     env: Env,

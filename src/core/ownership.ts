@@ -87,6 +87,18 @@ export type CoreOwnershipHooks<ctx> = {
     ctx: ctx,
   ) => Extract<CoreExpr, { tag: "struct_value" }> | undefined;
   static_text_value: (expr: CoreExpr, ctx: ctx) => CoreExpr | undefined;
+  scoped_static_core_call_value?: (
+    expr: Extract<CoreExpr, { tag: "app" }>,
+    target: Extract<CoreExpr, { tag: "lam" }>,
+    ctx: ctx,
+  ) => { value: CoreExpr; ctx: ctx };
+  static_core_call_target?: (
+    expr: CoreExpr,
+    ctx: ctx,
+  ) => Extract<CoreExpr, { tag: "lam" }> | undefined;
+  static_core_call_requires_scope?: (
+    target: Extract<CoreExpr, { tag: "lam" }>,
+  ) => boolean;
   static_union_case?: (
     expr: CoreExpr,
     ctx: ctx,
@@ -144,6 +156,14 @@ export function core_expr_ownership<ctx>(
     }
 
     return { tag: "scratch_backed", source };
+  }
+
+  if (expr.tag === "app") {
+    const scoped = scoped_static_ownership_call_value(expr, ctx, hooks);
+
+    if (scoped) {
+      return core_expr_ownership(scoped.value, scoped.ctx, hooks);
+    }
   }
 
   if (
@@ -231,6 +251,32 @@ export function core_expr_ownership<ctx>(
   const type = hooks.expr_type(expr, ctx);
 
   return { tag: "scalar_local", type };
+}
+
+function scoped_static_ownership_call_value<ctx>(
+  expr: Extract<CoreExpr, { tag: "app" }>,
+  ctx: ctx,
+  hooks: CoreOwnershipHooks<ctx>,
+): { value: CoreExpr; ctx: ctx } | undefined {
+  if (
+    !hooks.static_core_call_target ||
+    !hooks.scoped_static_core_call_value ||
+    !hooks.static_core_call_requires_scope
+  ) {
+    return undefined;
+  }
+
+  const target = hooks.static_core_call_target(expr.func, ctx);
+
+  if (!target) {
+    return undefined;
+  }
+
+  if (!hooks.static_core_call_requires_scope(target)) {
+    return undefined;
+  }
+
+  return hooks.scoped_static_core_call_value(expr, target, ctx);
 }
 
 function try_runtime_union_target<ctx>(

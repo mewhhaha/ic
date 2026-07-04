@@ -1,10 +1,17 @@
 import { expect } from "../expect.ts";
 import { Prim, type ValType } from "../op.ts";
 import { Callable } from "../trait.ts";
-import type { CoreExpr, CoreField, CoreFnType, CoreHostImport } from "./ast.ts";
+import type {
+  CoreExpr,
+  CoreField,
+  CoreFnType,
+  CoreHostImport,
+  CoreStmt,
+} from "./ast.ts";
 import {
   find_core_field,
   maybe_static_i32,
+  set_local,
   static_indexed_field,
 } from "./backend/util.ts";
 import { core_host_import_result_ownership } from "./host_import.ts";
@@ -105,15 +112,29 @@ export function core_expr_is_text<ctx extends CoreTextFactCtx>(
     return core_expr_is_text(value.value, ctx, hooks);
   }
 
-  const block_value = core_text_block_result(value);
+  if (value.tag === "scratch") {
+    return core_expr_is_text(value.body, ctx, hooks);
+  }
 
-  if (block_value) {
-    return core_expr_is_text(block_value, ctx, hooks);
+  const block_text = core_text_block_fact(
+    value,
+    ctx,
+    hooks,
+    core_expr_is_text,
+  );
+
+  if (block_text !== undefined) {
+    return block_text;
   }
 
   if (value.tag === "if") {
     const cond_type = hooks.expr_type(value.cond, ctx);
     expect(cond_type === "i32", "Core text if condition must be i32");
+
+    if (value.implicit_else) {
+      return core_expr_is_text(value.then_branch, ctx, hooks);
+    }
+
     return core_expr_is_text(value.then_branch, ctx, hooks) &&
       core_expr_is_text(value.else_branch, ctx, hooks);
   }
@@ -216,15 +237,29 @@ export function core_expr_has_runtime_text_fact<
     return core_expr_has_runtime_text_fact(value.value, ctx, hooks);
   }
 
-  const block_value = core_text_block_result(value);
+  if (value.tag === "scratch") {
+    return core_expr_has_runtime_text_fact(value.body, ctx, hooks);
+  }
 
-  if (block_value) {
-    return core_expr_has_runtime_text_fact(block_value, ctx, hooks);
+  const block_text = core_text_block_fact(
+    value,
+    ctx,
+    hooks,
+    core_expr_has_runtime_text_fact,
+  );
+
+  if (block_text !== undefined) {
+    return block_text;
   }
 
   if (value.tag === "if") {
     const cond_type = hooks.expr_type(value.cond, ctx);
     expect(cond_type === "i32", "Core text if condition must be i32");
+
+    if (value.implicit_else) {
+      return core_expr_has_runtime_text_fact(value.then_branch, ctx, hooks);
+    }
+
     return core_expr_has_runtime_text_fact(value.then_branch, ctx, hooks) &&
       core_expr_has_runtime_text_fact(value.else_branch, ctx, hooks);
   }
@@ -350,27 +385,122 @@ function core_host_import_result_is_unique_text<ctx extends CoreTextFactCtx>(
   return ownership.reason === "text";
 }
 
-function core_text_block_result(value: CoreExpr): CoreExpr | undefined {
+function core_text_block_fact<ctx extends CoreTextFactCtx>(
+  value: CoreExpr,
+  ctx: ctx,
+  hooks: CoreTextFactHooks<ctx>,
+  check_text: (
+    value: CoreExpr,
+    ctx: ctx,
+    hooks: CoreTextFactHooks<ctx>,
+  ) => boolean,
+): boolean | undefined {
   if (value.tag !== "block") {
     return undefined;
   }
 
-  if (value.statements.length !== 1) {
-    return undefined;
+  const final_stmt = value.statements[value.statements.length - 1];
+
+  if (!final_stmt) {
+    return false;
   }
 
-  const stmt = value.statements[0];
-  expect(stmt, "Missing core text block result");
+  const block_ctx = clone_core_text_fact_ctx(ctx);
 
-  if (stmt.tag === "expr") {
-    return stmt.expr;
+  for (let index = 0; index + 1 < value.statements.length; index += 1) {
+    const stmt = value.statements[index];
+    expect(stmt, "Missing core text block statement " + index.toString());
+    bind_core_text_block_stmt(stmt, block_ctx, hooks, check_text);
   }
 
-  if (stmt.tag === "return") {
-    return stmt.value;
+  if (final_stmt.tag === "expr") {
+    return check_text(final_stmt.expr, block_ctx, hooks);
   }
 
-  return undefined;
+  if (final_stmt.tag === "return") {
+    return check_text(final_stmt.value, block_ctx, hooks);
+  }
+
+  return false;
+}
+
+function bind_core_text_block_stmt<ctx extends CoreTextFactCtx>(
+  stmt: CoreStmt,
+  ctx: ctx,
+  hooks: CoreTextFactHooks<ctx>,
+  check_text: (
+    value: CoreExpr,
+    ctx: ctx,
+    hooks: CoreTextFactHooks<ctx>,
+  ) => boolean,
+): void {
+  if (stmt.tag === "bind") {
+    bind_core_text_block_value(
+      stmt.name,
+      stmt.value,
+      ctx,
+      hooks,
+      check_text,
+    );
+    return;
+  }
+
+  if (stmt.tag === "assign") {
+    bind_core_text_block_value(
+      stmt.name,
+      stmt.value,
+      ctx,
+      hooks,
+      check_text,
+    );
+  }
+}
+
+function bind_core_text_block_value<ctx extends CoreTextFactCtx>(
+  name: string,
+  value: CoreExpr,
+  ctx: ctx,
+  hooks: CoreTextFactHooks<ctx>,
+  check_text: (
+    value: CoreExpr,
+    ctx: ctx,
+    hooks: CoreTextFactHooks<ctx>,
+  ) => boolean,
+): void {
+  const text_value = hooks.static_text_value(value, ctx);
+
+  if (text_value) {
+    ctx.locals.delete(name);
+    ctx.statics.set(name, text_value);
+    ctx.text_locals.delete(name);
+    return;
+  }
+
+  ctx.statics.delete(name);
+
+  if (check_text(value, ctx, hooks)) {
+    set_local(ctx.locals, name, "i32");
+    ctx.text_locals.add(name);
+    return;
+  }
+
+  if (value.tag === "num") {
+    set_local(ctx.locals, name, value.type);
+  }
+
+  ctx.text_locals.delete(name);
+}
+
+function clone_core_text_fact_ctx<ctx extends CoreTextFactCtx>(ctx: ctx): ctx {
+  return {
+    ...ctx,
+    locals: new Map(ctx.locals),
+    statics: new Map(ctx.statics),
+    fn_types: new Map(ctx.fn_types),
+    text_locals: new Set(ctx.text_locals),
+    struct_locals: new Map(ctx.struct_locals),
+    union_locals: new Map(ctx.union_locals),
+  };
 }
 
 function core_if_let_text_fact<ctx extends CoreTextFactCtx>(
@@ -383,10 +513,6 @@ function core_if_let_text_fact<ctx extends CoreTextFactCtx>(
     hooks: CoreTextFactHooks<ctx>,
   ) => boolean,
 ): boolean | undefined {
-  if (value.implicit_else) {
-    return undefined;
-  }
-
   const union_case = hooks.static_union_case(value.target, ctx);
 
   if (union_case) {
@@ -406,10 +532,14 @@ function core_if_let_text_fact<ctx extends CoreTextFactCtx>(
     expect(cond_type === "i32", "Core text if let condition must be i32");
 
     if (!dynamic_if_let_can_match(value.case_name, dynamic_target)) {
+      if (value.implicit_else) {
+        return false;
+      }
+
       return check_text(value.else_branch, ctx, hooks);
     }
 
-    const then_text = core_if_let_dynamic_case_text_fact(
+    let then_text = core_if_let_dynamic_case_text_fact(
       value,
       dynamic_target.then_case,
       dynamic_target,
@@ -417,7 +547,7 @@ function core_if_let_text_fact<ctx extends CoreTextFactCtx>(
       hooks,
       check_text,
     );
-    const else_text = core_if_let_dynamic_case_text_fact(
+    let else_text = core_if_let_dynamic_case_text_fact(
       value,
       dynamic_target.else_case,
       dynamic_target,
@@ -425,6 +555,24 @@ function core_if_let_text_fact<ctx extends CoreTextFactCtx>(
       hooks,
       check_text,
     );
+
+    if (
+      value.implicit_else &&
+      then_text &&
+      !else_text &&
+      dynamic_target.else_case.name !== value.case_name
+    ) {
+      else_text = true;
+    }
+
+    if (
+      value.implicit_else &&
+      else_text &&
+      !then_text &&
+      dynamic_target.then_case.name !== value.case_name
+    ) {
+      then_text = true;
+    }
 
     return then_text && else_text;
   }
@@ -446,8 +594,13 @@ function core_if_let_text_fact<ctx extends CoreTextFactCtx>(
     ctx,
   );
 
-  return check_text(value.then_branch, branch_ctx, hooks) &&
-    check_text(value.else_branch, ctx, hooks);
+  const then_text = check_text(value.then_branch, branch_ctx, hooks);
+
+  if (value.implicit_else) {
+    return then_text;
+  }
+
+  return then_text && check_text(value.else_branch, ctx, hooks);
 }
 
 function core_if_let_dynamic_case_text_fact<ctx extends CoreTextFactCtx>(
@@ -463,6 +616,10 @@ function core_if_let_dynamic_case_text_fact<ctx extends CoreTextFactCtx>(
   ) => boolean,
 ): boolean {
   if (union_case.name !== value.case_name) {
+    if (value.implicit_else) {
+      return false;
+    }
+
     return check_text(value.else_branch, ctx, hooks);
   }
 
@@ -488,6 +645,10 @@ function core_if_let_case_text_fact<ctx extends CoreTextFactCtx>(
   ) => boolean,
 ): boolean {
   if (union_case.name !== value.case_name) {
+    if (value.implicit_else) {
+      return false;
+    }
+
     return check_text(value.else_branch, ctx, hooks);
   }
 
@@ -498,8 +659,13 @@ function core_if_let_case_text_fact<ctx extends CoreTextFactCtx>(
     branch_ctx,
   );
 
-  return check_text(value.then_branch, branch_ctx, hooks) &&
-    check_text(value.else_branch, ctx, hooks);
+  const then_text = check_text(value.then_branch, branch_ctx, hooks);
+
+  if (value.implicit_else) {
+    return then_text;
+  }
+
+  return then_text && check_text(value.else_branch, ctx, hooks);
 }
 
 function core_get_app_is_text<ctx extends CoreTextFactCtx>(

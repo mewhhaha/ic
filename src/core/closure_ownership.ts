@@ -53,6 +53,7 @@ type CoreClosureOwnershipFacts = {
   borrow_views: Map<string, CoreOwnership>;
   scratch_locals: Map<string, CoreOwnership>;
   scratch_depth: number;
+  direct_call_depth: number;
 };
 
 export function core_closure_ownership_plan<ctx>(
@@ -260,7 +261,22 @@ function scan_closure_ownership_expr<ctx>(
       return;
 
     case "app":
-      scan_closure_ownership_expr(expr.func, scope, ctx, facts, hooks, state);
+      {
+        const func_facts = clone_closure_ownership_facts(facts);
+
+        if (expr.func.tag === "lam" || expr.func.tag === "rec") {
+          func_facts.direct_call_depth += 1;
+        }
+
+        scan_closure_ownership_expr(
+          expr.func,
+          scope,
+          ctx,
+          func_facts,
+          hooks,
+          state,
+        );
+      }
       for (const arg of expr.args) {
         scan_closure_ownership_expr(arg, scope, ctx, facts, hooks, state);
       }
@@ -455,7 +471,7 @@ function record_closure_ownership_edge<ctx>(
     captures.push({
       name,
       ownership,
-      decision: closure_capture_decision(ownership),
+      decision: closure_capture_decision(ownership, expr, facts),
     });
   }
 
@@ -488,6 +504,8 @@ function lam_capture_expr(
 
 function closure_capture_decision(
   ownership: CoreOwnership,
+  expr: Extract<CoreExpr, { tag: "lam" | "rec" }>,
+  facts: CoreClosureOwnershipFacts,
 ): CoreClosureCaptureDecision {
   if (ownership.tag === "scalar_local") {
     return {
@@ -530,6 +548,19 @@ function closure_capture_decision(
     return {
       tag: "allowed",
       reason: "runtime union pointer capture is supported",
+    };
+  }
+
+  if (
+    ownership.tag === "scratch_backed" &&
+    facts.scratch_depth > 0 &&
+    facts.direct_call_depth > 0 &&
+    !closure_body_contains_closure_value(expr.body)
+  ) {
+    return {
+      tag: "allowed",
+      reason: "scratch-backed capture is valid for an immediate non-escaping " +
+        "closure call inside scratchpad",
     };
   }
 
@@ -583,6 +614,7 @@ function empty_closure_ownership_facts(): CoreClosureOwnershipFacts {
     borrow_views: new Map(),
     scratch_locals: new Map(),
     scratch_depth: 0,
+    direct_call_depth: 0,
   };
 }
 
@@ -593,7 +625,229 @@ function clone_closure_ownership_facts(
     borrow_views: new Map(facts.borrow_views),
     scratch_locals: new Map(facts.scratch_locals),
     scratch_depth: facts.scratch_depth,
+    direct_call_depth: facts.direct_call_depth,
   };
+}
+
+function closure_body_contains_closure_value(expr: CoreExpr): boolean {
+  switch (expr.tag) {
+    case "lam":
+    case "rec":
+      return true;
+
+    case "num":
+    case "text":
+    case "type_name":
+    case "var":
+    case "linear":
+    case "struct_type":
+    case "union_type":
+    case "unsupported":
+      return false;
+
+    case "prim":
+      for (const arg of expr.args) {
+        if (closure_body_contains_closure_value(arg)) {
+          return true;
+        }
+      }
+      return false;
+
+    case "app":
+      if (closure_body_contains_closure_value(expr.func)) {
+        return true;
+      }
+
+      for (const arg of expr.args) {
+        if (closure_body_contains_closure_value(arg)) {
+          return true;
+        }
+      }
+      return false;
+
+    case "block":
+      for (const stmt of expr.statements) {
+        if (closure_stmt_contains_closure_value(stmt)) {
+          return true;
+        }
+      }
+      return false;
+
+    case "comptime":
+      return closure_body_contains_closure_value(expr.expr);
+
+    case "borrow":
+    case "freeze":
+      return closure_body_contains_closure_value(expr.value);
+
+    case "scratch":
+      return closure_body_contains_closure_value(expr.body);
+
+    case "with":
+      if (closure_body_contains_closure_value(expr.base)) {
+        return true;
+      }
+      return closure_fields_contain_closure_value(expr.fields);
+
+    case "struct_value":
+      if (closure_body_contains_closure_value(expr.type_expr)) {
+        return true;
+      }
+      return closure_fields_contain_closure_value(expr.fields);
+
+    case "struct_update":
+      if (closure_body_contains_closure_value(expr.base)) {
+        return true;
+      }
+      return closure_fields_contain_closure_value(expr.fields);
+
+    case "if":
+      return closure_body_contains_closure_value(expr.cond) ||
+        closure_body_contains_closure_value(expr.then_branch) ||
+        closure_body_contains_closure_value(expr.else_branch);
+
+    case "if_let":
+      return closure_body_contains_closure_value(expr.target) ||
+        closure_body_contains_closure_value(expr.then_branch) ||
+        closure_body_contains_closure_value(expr.else_branch);
+
+    case "field":
+      return closure_body_contains_closure_value(expr.object);
+
+    case "index":
+      return closure_body_contains_closure_value(expr.object) ||
+        closure_body_contains_closure_value(expr.index);
+
+    case "union_case":
+      if (expr.value) {
+        if (closure_body_contains_closure_value(expr.value)) {
+          return true;
+        }
+      }
+
+      if (expr.type_expr) {
+        return closure_body_contains_closure_value(expr.type_expr);
+      }
+
+      return false;
+  }
+}
+
+function closure_stmt_contains_closure_value(stmt: CoreStmt): boolean {
+  switch (stmt.tag) {
+    case "bind":
+    case "assign":
+      return closure_body_contains_closure_value(stmt.value);
+
+    case "index_assign":
+      return closure_body_contains_closure_value(stmt.index) ||
+        closure_body_contains_closure_value(stmt.value);
+
+    case "type_check":
+      return closure_body_contains_closure_value(stmt.target);
+
+    case "expr":
+      return closure_body_contains_closure_value(stmt.expr);
+
+    case "return":
+      return closure_body_contains_closure_value(stmt.value);
+
+    case "range_loop":
+      if (closure_body_contains_closure_value(stmt.start)) {
+        return true;
+      }
+
+      if (closure_body_contains_closure_value(stmt.end)) {
+        return true;
+      }
+
+      if (closure_body_contains_closure_value(stmt.step)) {
+        return true;
+      }
+
+      for (const body_stmt of stmt.body) {
+        if (closure_stmt_contains_closure_value(body_stmt)) {
+          return true;
+        }
+      }
+
+      return false;
+
+    case "collection_loop":
+      if (closure_body_contains_closure_value(stmt.collection)) {
+        return true;
+      }
+
+      for (const body_stmt of stmt.body) {
+        if (closure_stmt_contains_closure_value(body_stmt)) {
+          return true;
+        }
+      }
+
+      return false;
+
+    case "if_stmt":
+      if (closure_body_contains_closure_value(stmt.cond)) {
+        return true;
+      }
+
+      for (const body_stmt of stmt.body) {
+        if (closure_stmt_contains_closure_value(body_stmt)) {
+          return true;
+        }
+      }
+
+      return false;
+
+    case "if_else_stmt":
+      if (closure_body_contains_closure_value(stmt.cond)) {
+        return true;
+      }
+
+      for (const body_stmt of stmt.then_body) {
+        if (closure_stmt_contains_closure_value(body_stmt)) {
+          return true;
+        }
+      }
+
+      for (const body_stmt of stmt.else_body) {
+        if (closure_stmt_contains_closure_value(body_stmt)) {
+          return true;
+        }
+      }
+
+      return false;
+
+    case "if_let_stmt":
+      if (closure_body_contains_closure_value(stmt.target)) {
+        return true;
+      }
+
+      for (const body_stmt of stmt.body) {
+        if (closure_stmt_contains_closure_value(body_stmt)) {
+          return true;
+        }
+      }
+
+      return false;
+
+    case "break":
+    case "continue":
+    case "unsupported":
+      return false;
+  }
+}
+
+function closure_fields_contain_closure_value(
+  fields: { value: CoreExpr }[],
+): boolean {
+  for (const field of fields) {
+    if (closure_body_contains_closure_value(field.value)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function record_closure_local_ownership_fact<ctx>(

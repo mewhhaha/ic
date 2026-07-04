@@ -85,6 +85,8 @@ export function create_core_backend_graph_stmt_emit(
       emit_ctx: EmitCtx,
     ): StaticValuePlan =>
       deps.static_value().plan_static_value_expr(value, ctx, emit_ctx),
+    static_core_call_target: (expr: CoreExpr, ctx: EmitCtx) =>
+      deps.static_call().static_core_call_target(expr, ctx),
     static_struct_binding: (name: string, ctx: EmitCtx) =>
       deps.struct().static_struct_binding(name, ctx),
   });

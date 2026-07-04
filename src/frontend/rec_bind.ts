@@ -1,5 +1,6 @@
 import { expect } from "../expect.ts";
-import type { Env, FrontExpr } from "./ast.ts";
+import type { Env, FrontExpr, FrontType } from "./ast.ts";
+import { unwrap_ownership_wrapper_value } from "./ownership.ts";
 import type { StaticRecHooks } from "./rec_hooks.ts";
 
 export type StaticRecTarget = {
@@ -72,21 +73,31 @@ export function bind_rec_args(
       continue;
     }
 
-    if (param.is_linear) {
-      throw new Error("Cannot lower linear parameter to pure Ic frontend yet");
-    }
-
     let value = arg;
-    let value_type = hooks.infer_expr(value, env);
+    let value_env = env;
+    let value_type: FrontType = hooks.infer_expr(value, value_env);
+
+    if (param.is_linear) {
+      const resolved = resolve_linear_rec_arg(value, value_env, hooks);
+
+      if (resolved) {
+        value = resolved.value;
+        value_env = resolved.env;
+        value_type = resolved.type;
+      }
+    }
 
     if (param.annotation) {
       const annotated = hooks.apply_runtime_binding_annotation(
         param.annotation,
         value,
-        env,
+        value_env,
       );
       value = annotated.value;
       value_type = annotated.type;
+      const unwrapped = unwrap_ownership_wrapper_value(value, value_env);
+      value = unwrapped.value;
+      value_env = unwrapped.env;
     }
 
     hooks.push_binding(env, {
@@ -96,7 +107,48 @@ export function bind_rec_args(
       is_const: false,
       is_linear: param.is_linear,
       value,
-      value_env: env,
+      value_env,
     });
   }
+}
+
+function resolve_linear_rec_arg(
+  arg: FrontExpr,
+  env: Env,
+  hooks: StaticRecHooks,
+): { value: FrontExpr; env: Env; type: FrontType } | undefined {
+  let target = arg;
+  let target_env = env;
+
+  while (target.tag === "captured") {
+    target_env = target.env;
+    target = target.expr;
+  }
+
+  if (target.tag !== "linear") {
+    return undefined;
+  }
+
+  const binding = hooks.lookup(target_env, target.name);
+  expect(binding, "Unbound linear value: " + target.name);
+
+  if (!binding.value) {
+    return {
+      value: { tag: "var", name: target.name },
+      env: target_env,
+      type: binding.type,
+    };
+  }
+
+  let value_env = target_env;
+
+  if (binding.value_env) {
+    value_env = binding.value_env;
+  }
+
+  return {
+    value: hooks.capture_expr(binding.value, value_env),
+    env: target_env,
+    type: binding.type,
+  };
 }

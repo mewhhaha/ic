@@ -1,5 +1,6 @@
 import { expect } from "../expect.ts";
-import type { CoreStmt } from "./ast.ts";
+import type { CoreExpr, CoreStmt } from "./ast.ts";
+import { assigned_stmt_names } from "./assigned_names.ts";
 import { clone_core_host_imports } from "./host_import.ts";
 import type { CoreCtx, CoreLocalCollectHooks } from "./local_collect/types.ts";
 import type { CoreLocalCollectorCallbacks } from "./local_collect_closure.ts";
@@ -66,6 +67,102 @@ export function collect_if_else_stmt_locals(
     ctx,
     undefined,
   );
+
+  merge_assigned_runtime_facts(stmt, ctx, then_ctx, else_ctx);
+}
+
+function merge_assigned_runtime_facts(
+  stmt: Extract<CoreStmt, { tag: "if_else_stmt" }>,
+  target: CoreCtx,
+  then_ctx: CoreCtx,
+  else_ctx: CoreCtx,
+): void {
+  for (const name of assigned_stmt_names(stmt)) {
+    merge_assigned_text_fact(name, target, then_ctx, else_ctx);
+    merge_assigned_type_fact(
+      name,
+      target.struct_locals,
+      then_ctx.struct_locals,
+      else_ctx.struct_locals,
+    );
+    merge_assigned_type_fact(
+      name,
+      target.union_locals,
+      then_ctx.union_locals,
+      else_ctx.union_locals,
+    );
+    merge_assigned_frozen_fact(name, target, then_ctx, else_ctx);
+  }
+}
+
+function merge_assigned_text_fact(
+  name: string,
+  target: CoreCtx,
+  then_ctx: CoreCtx,
+  else_ctx: CoreCtx,
+): void {
+  if (then_ctx.text_locals.has(name) && else_ctx.text_locals.has(name)) {
+    target.text_locals.add(name);
+    return;
+  }
+
+  target.text_locals.delete(name);
+}
+
+function merge_assigned_type_fact(
+  name: string,
+  target: Map<string, CoreExpr>,
+  then_facts: Map<string, CoreExpr>,
+  else_facts: Map<string, CoreExpr>,
+): void {
+  const then_type = then_facts.get(name);
+  const else_type = else_facts.get(name);
+
+  if (!then_type || !else_type) {
+    target.delete(name);
+    return;
+  }
+
+  if (!same_core_fact_expr(then_type, else_type)) {
+    target.delete(name);
+    return;
+  }
+
+  target.set(name, then_type);
+}
+
+function merge_assigned_frozen_fact(
+  name: string,
+  target: CoreCtx,
+  then_ctx: CoreCtx,
+  else_ctx: CoreCtx,
+): void {
+  if (!then_ctx.frozen_locals || !else_ctx.frozen_locals) {
+    if (target.frozen_locals) {
+      target.frozen_locals.delete(name);
+    }
+    return;
+  }
+
+  if (
+    then_ctx.frozen_locals.has(name) &&
+    else_ctx.frozen_locals.has(name)
+  ) {
+    if (!target.frozen_locals) {
+      target.frozen_locals = new Set();
+    }
+
+    target.frozen_locals.add(name);
+    return;
+  }
+
+  if (target.frozen_locals) {
+    target.frozen_locals.delete(name);
+  }
+}
+
+function same_core_fact_expr(left: CoreExpr, right: CoreExpr): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function merge_generated_temp_facts(target: CoreCtx, source: CoreCtx): void {

@@ -114,8 +114,10 @@ function collect_static_collection_loop_stmt_locals(
     bind_static_collection_item_text_fact(stmt.item, fields, ctx, hooks);
   }
 
-  for (const item of stmt.body) {
-    callbacks.collect_stmt_locals(item, ctx, hooks);
+  for (const _field of fields) {
+    for (const item of stmt.body) {
+      callbacks.collect_stmt_locals(item, ctx, hooks);
+    }
   }
 }
 

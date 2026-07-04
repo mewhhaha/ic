@@ -227,7 +227,7 @@ function same_function_params(left: Param[], right: Param[]): boolean {
   return true;
 }
 
-function same_param_annotation(
+export function same_param_annotation(
   left: string | undefined,
   right: string | undefined,
 ): boolean {

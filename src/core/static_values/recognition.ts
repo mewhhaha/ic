@@ -22,6 +22,12 @@ export function is_static_value_expr<ctx extends StaticValueAliasCtx>(
     return true;
   }
 
+  const block_result = static_value_block_result_with_ctx(value, ctx, hooks);
+
+  if (block_result) {
+    return is_static_value_expr(block_result.expr, block_result.ctx, hooks);
+  }
+
   if (hooks.static_union_case(value, ctx)) {
     return true;
   }
@@ -64,6 +70,25 @@ export function is_static_value_expr<ctx extends StaticValueAliasCtx>(
   }
 
   if (value.tag === "scratch") {
+    const scratch_result = static_value_block_result_with_ctx(
+      value.body,
+      ctx,
+      hooks,
+    );
+
+    if (scratch_result) {
+      return is_static_value_expr(
+        scratch_result.expr,
+        scratch_result.ctx,
+        hooks,
+      ) &&
+        is_scratch_free_static_value_expr(
+          scratch_result.expr,
+          scratch_result.ctx,
+          hooks,
+        );
+    }
+
     return is_static_value_expr(value.body, ctx, hooks) &&
       is_scratch_free_static_value_expr(value.body, ctx, hooks);
   }
@@ -75,4 +100,44 @@ export function is_static_value_expr<ctx extends StaticValueAliasCtx>(
   }
 
   return false;
+}
+
+function static_value_block_result_with_ctx<ctx extends StaticValueAliasCtx>(
+  value: CoreExpr,
+  ctx: ctx,
+  hooks: StaticValueRecognitionHooks<ctx>,
+): { expr: CoreExpr; ctx: ctx } | undefined {
+  if (value.tag !== "block") {
+    return undefined;
+  }
+
+  if (!hooks.block_ctx || !hooks.collect_stmt_locals) {
+    return undefined;
+  }
+
+  const block_ctx = hooks.block_ctx(ctx);
+
+  for (let index = 0; index < value.statements.length; index += 1) {
+    const stmt = value.statements[index];
+
+    if (!stmt) {
+      throw new Error("Missing static value block statement");
+    }
+
+    const is_final = index + 1 >= value.statements.length;
+
+    if (is_final) {
+      if (stmt.tag === "expr") {
+        return { expr: stmt.expr, ctx: block_ctx };
+      }
+
+      if (stmt.tag === "return") {
+        return { expr: stmt.value, ctx: block_ctx };
+      }
+    }
+
+    hooks.collect_stmt_locals(stmt, block_ctx);
+  }
+
+  return undefined;
 }

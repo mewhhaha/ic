@@ -73,6 +73,11 @@ export type CoreBackendStaticCall = {
     target: Extract<CoreExpr, { tag: "lam" }>,
     ctx: StaticCtx,
   ) => ValType;
+  scoped_static_core_call_value: (
+    expr: Extract<CoreExpr, { tag: "app" }>,
+    target: Extract<CoreExpr, { tag: "lam" }>,
+    ctx: StaticCtx,
+  ) => { value: CoreExpr; ctx: CoreCtx };
   static_core_call_requires_scope: (
     target: Extract<CoreExpr, { tag: "lam" }>,
   ) => boolean;

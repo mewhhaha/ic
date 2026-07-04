@@ -125,6 +125,14 @@ export function apply_core_direct_type_annotation<
       }
     }
 
+    let frozen_struct_value:
+      | Extract<CoreExpr, { tag: "struct_value" }>
+      | undefined;
+
+    if (value.tag === "freeze") {
+      frozen_struct_value = hooks.static_struct_value(value.value, ctx);
+    }
+
     const struct_value = hooks.static_struct_value(value, ctx);
 
     if (!struct_value) {
@@ -149,11 +157,20 @@ export function apply_core_direct_type_annotation<
     }
 
     check_core_struct_fields(type_value, struct_value.fields, ctx, hooks);
-    return {
+    const annotated_struct: CoreExpr = {
       tag: "struct_value",
       type_expr: { tag: "var", name: annotation },
       fields: struct_value.fields,
     };
+
+    if (frozen_struct_value) {
+      return {
+        tag: "freeze",
+        value: annotated_struct,
+      };
+    }
+
+    return annotated_struct;
   }
 
   const union_case = hooks.static_union_case(value, ctx);

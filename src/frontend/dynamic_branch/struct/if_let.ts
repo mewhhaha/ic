@@ -8,6 +8,7 @@ import {
   lookup_field,
   lookup_type_field,
 } from "../../fields.ts";
+import { implicit_fallback_expr } from "../../implicit_fallback.ts";
 import type { DynamicBranchHooks, ResolvedStructValue } from "../types.ts";
 import {
   dynamic_front_type_for_type_name,
@@ -51,15 +52,35 @@ export function resolve_dynamic_if_let_struct_value(
     });
   }
 
-  const then_branch = hooks.resolve_struct_value(expr.then_branch, then_env);
-  const else_branch = hooks.resolve_struct_value(expr.else_branch, env);
+  let target_expr = expr;
+
+  if (expr.implicit_else) {
+    const then_type = hooks.infer_expr(expr.then_branch, then_env);
+    const fallback = implicit_fallback_expr(then_type, env, hooks);
+
+    if (!fallback) {
+      return undefined;
+    }
+
+    target_expr = {
+      ...expr,
+      else_branch: fallback,
+      implicit_else: undefined,
+    };
+  }
+
+  const then_branch = hooks.resolve_struct_value(
+    target_expr.then_branch,
+    then_env,
+  );
+  const else_branch = hooks.resolve_struct_value(target_expr.else_branch, env);
 
   if (!then_branch || !else_branch) {
     return undefined;
   }
 
   return merge_if_let_struct_branches(
-    expr,
+    target_expr,
     then_branch,
     else_branch,
     env,
@@ -104,7 +125,13 @@ function merge_if_let_struct_branches(
     is_object_type_expr(then_branch.expr.type_expr) ||
     is_object_type_expr(else_branch.expr.type_expr)
   ) {
-    return undefined;
+    return merge_mixed_if_let_struct_branches(
+      expr,
+      then_branch,
+      else_branch,
+      env,
+      hooks,
+    );
   }
 
   const then_type = hooks.resolve_struct_type_value(
@@ -146,6 +173,88 @@ function merge_if_let_struct_branches(
     expr: {
       tag: "struct_value",
       type_expr: capture_expr(then_branch.expr.type_expr, then_branch.env),
+      fields,
+    },
+    env,
+  };
+}
+
+function merge_mixed_if_let_struct_branches(
+  expr: Extract<FrontExpr, { tag: "if_let" }>,
+  then_branch: ResolvedStructValue,
+  else_branch: ResolvedStructValue,
+  env: Env,
+  hooks: DynamicBranchHooks,
+): ResolvedStructValue | undefined {
+  let object_branch = then_branch;
+  let typed_branch = else_branch;
+  let object_is_then = true;
+
+  if (!is_object_type_expr(then_branch.expr.type_expr)) {
+    object_branch = else_branch;
+    typed_branch = then_branch;
+    object_is_then = false;
+  }
+
+  check_object_fields(object_branch.expr.fields);
+
+  const typed_type = hooks.resolve_struct_type_value(
+    typed_branch.expr.type_expr,
+    typed_branch.env,
+  );
+
+  if (!typed_type) {
+    return undefined;
+  }
+
+  if (object_branch.expr.fields.length !== typed_type.fields.length) {
+    return undefined;
+  }
+
+  const fields: Field[] = [];
+
+  for (const field_type of typed_type.fields) {
+    const object_field = lookup_field(
+      object_branch.expr.fields,
+      field_type.name,
+    );
+    const typed_field = lookup_field(typed_branch.expr.fields, field_type.name);
+
+    if (!object_field || !typed_field) {
+      return undefined;
+    }
+
+    let then_field = object_field;
+    let then_env = object_branch.env;
+    let else_field = typed_field;
+    let else_env = typed_branch.env;
+
+    if (!object_is_then) {
+      then_field = typed_field;
+      then_env = typed_branch.env;
+      else_field = object_field;
+      else_env = object_branch.env;
+    }
+
+    fields.push({
+      name: field_type.name,
+      value: dynamic_if_let_struct_field_expr(
+        expr,
+        field_type,
+        then_field,
+        then_env,
+        else_field,
+        else_env,
+        env,
+        hooks,
+      ),
+    });
+  }
+
+  return {
+    expr: {
+      tag: "struct_value",
+      type_expr: capture_expr(typed_branch.expr.type_expr, typed_branch.env),
       fields,
     },
     env,

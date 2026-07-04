@@ -1,6 +1,6 @@
 import { expect } from "../../expect.ts";
 import type { ValType } from "../../op.ts";
-import type { CoreExpr, CoreStmt } from "../ast.ts";
+import type { CoreExpr, CoreFnType, CoreStmt } from "../ast.ts";
 import {
   find_core_field,
   maybe_static_i32,
@@ -69,24 +69,26 @@ export function expr_type<
     case "text":
       return "i32";
 
+    case "linear":
     case "var": {
-      const text_value = hooks.static_text_value(expr, ctx);
+      const lookup_expr: CoreExpr = { tag: "var", name: expr.name };
+      const text_value = hooks.static_text_value(lookup_expr, ctx);
 
       if (text_value) {
         return "i32";
       }
 
-      const union_value = hooks.core_runtime_union_value(expr, ctx);
+      const union_value = hooks.core_runtime_union_value(lookup_expr, ctx);
 
       if (union_value) {
         return hooks.runtime_union_value_type(union_value, ctx);
       }
 
-      if (hooks.static_struct_value(expr, ctx)) {
+      if (hooks.static_struct_value(lookup_expr, ctx)) {
         return "i32";
       }
 
-      if (hooks.closure_fn_type(expr, ctx)) {
+      if (expr_type_closure_fn_type(lookup_expr, ctx, hooks)) {
         return "i32";
       }
 
@@ -113,7 +115,7 @@ export function expr_type<
     }
 
     case "if": {
-      const fn_type = hooks.closure_fn_type(expr, ctx);
+      const fn_type = expr_type_closure_fn_type(expr, ctx, hooks);
 
       if (fn_type) {
         return "i32";
@@ -138,7 +140,7 @@ export function expr_type<
     }
 
     case "if_let": {
-      const fn_type = hooks.closure_fn_type(expr, ctx);
+      const fn_type = expr_type_closure_fn_type(expr, ctx, hooks);
 
       if (fn_type) {
         return "i32";
@@ -343,15 +345,20 @@ export function expr_type<
     case "struct_value":
       return "i32";
 
+    case "unsupported":
+      if (expr.feature === "missing_capability_method") {
+        throw new Error("Missing host capability method: " + expr.text);
+      }
+
+      throw new Error("Cannot type core " + expr.tag + " expression yet");
+
     case "type_name":
-    case "linear":
     case "rec":
     case "comptime":
     case "with":
     case "struct_type":
     case "struct_update":
     case "union_type":
-    case "unsupported":
       throw new Error("Cannot type core " + expr.tag + " expression yet");
 
     case "union_case":
@@ -367,6 +374,35 @@ export function expr_type<
       throw new Error("Cannot type core " + expr.tag + " expression yet");
     }
   }
+}
+
+function expr_type_closure_fn_type<
+  ctx extends CoreExprTypeCtx,
+  block_ctx extends ctx & CoreExprTypeBlockCtx,
+>(
+  expr: CoreExpr,
+  ctx: ctx,
+  hooks: CoreExprTypeHooks<ctx, block_ctx>,
+): CoreFnType | undefined {
+  try {
+    return hooks.closure_fn_type(expr, ctx);
+  } catch (error) {
+    if (expr_type_closure_probe_error(error)) {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+function expr_type_closure_probe_error(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.message.startsWith(
+    "Core first-class closure parameter must use a scalar annotation:",
+  );
 }
 
 function core_scratch_rejection_message(

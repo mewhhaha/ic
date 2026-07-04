@@ -3,7 +3,7 @@ import type { ValType } from "../op.ts";
 import type { CoreExpr, CoreField, CoreFnType } from "./ast.ts";
 import { maybe_static_i32, static_indexed_field } from "./backend/util.ts";
 import { text_byte_length } from "./text.ts";
-import { static_block_result } from "./type_static.ts";
+import { static_block_result, static_type_value } from "./type_static.ts";
 
 export type StaticTextCtx = {
   locals: Map<string, ValType>;
@@ -121,6 +121,10 @@ export function static_text_if_branches(
     return undefined;
   }
 
+  if (expr.implicit_else) {
+    return { then_text, else_text: { tag: "text", value: "" } };
+  }
+
   const else_text = static_text_value(expr.else_branch, ctx, hooks);
 
   if (!else_text) {
@@ -160,16 +164,36 @@ function static_text_if_let_value(
     hooks,
   );
 
-  if (!then_text) {
-    return undefined;
-  }
-
-  const else_text = static_text_if_let_case_value(
+  let else_text = static_text_if_let_case_value(
     expr,
     target.else_case,
     ctx,
     hooks,
   );
+
+  if (
+    expr.implicit_else &&
+    then_text &&
+    !else_text &&
+    target.else_case.name !== expr.case_name
+  ) {
+    else_text = { tag: "text", value: "" };
+  }
+
+  let resolved_then_text = then_text;
+
+  if (
+    expr.implicit_else &&
+    else_text &&
+    !resolved_then_text &&
+    target.then_case.name !== expr.case_name
+  ) {
+    resolved_then_text = { tag: "text", value: "" };
+  }
+
+  if (!resolved_then_text) {
+    return undefined;
+  }
 
   if (!else_text) {
     return undefined;
@@ -178,7 +202,7 @@ function static_text_if_let_value(
   return {
     tag: "if",
     cond: target.cond,
-    then_branch: then_text,
+    then_branch: resolved_then_text,
     else_branch: else_text,
   };
 }
@@ -190,6 +214,13 @@ function static_text_if_let_case_value(
   hooks: StaticTextHooks,
 ): CoreExpr | undefined {
   if (union_case.name !== expr.case_name) {
+    if (
+      expr.implicit_else &&
+      static_if_let_matched_payload_is_text(expr, union_case, ctx)
+    ) {
+      return { tag: "text", value: "" };
+    }
+
     return static_text_value(expr.else_branch, ctx, hooks);
   }
 
@@ -217,6 +248,34 @@ function static_text_if_let_case_value(
   }
 
   return static_text_value(expr.then_branch, branch_ctx, hooks);
+}
+
+function static_if_let_matched_payload_is_text(
+  expr: Extract<CoreExpr, { tag: "if_let" }>,
+  union_case: Extract<CoreExpr, { tag: "union_case" }>,
+  ctx: StaticTextCtx,
+): boolean {
+  const type_expr = union_case.type_expr;
+
+  if (!type_expr) {
+    return false;
+  }
+
+  const type_value = static_type_value(type_expr, ctx);
+
+  if (!type_value || type_value.tag !== "union_type") {
+    return false;
+  }
+
+  for (const item of type_value.cases) {
+    if (item.name !== expr.case_name) {
+      continue;
+    }
+
+    return item.type_name === "Text";
+  }
+
+  return false;
 }
 
 export function static_text_length_expr(

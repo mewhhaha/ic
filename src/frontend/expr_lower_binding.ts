@@ -11,6 +11,7 @@ import {
   validate_linear_lam,
 } from "./linear.ts";
 import { expect_snake_case } from "./names.ts";
+import { is_builtin_type_name } from "./types.ts";
 
 export function lower_var_expr(
   expr: Extract<FrontExpr, { tag: "var" }>,
@@ -21,6 +22,13 @@ export function lower_var_expr(
   const binding = lookup(env, expr.name);
 
   if (!binding) {
+    if (is_builtin_type_name(expr.name)) {
+      throw new Error(
+        "Compile-time type name cannot be emitted as an Ic result: " +
+          expr.name,
+      );
+    }
+
     expect_snake_case(expr.name, "Free runtime name");
     return { tag: "var", name: expr.name };
   }
@@ -40,7 +48,10 @@ export function lower_lam_expr(
     validate_linear_lam(expr);
 
     if (contains_reserved_linear_effect(expr.body, linear_names)) {
-      throw new Error("Cannot lower linear function to Ic frontend yet");
+      throw new Error(
+        "Cannot lower linear function to Ic frontend yet" +
+          structured_core_route,
+      );
     }
   }
 
@@ -100,9 +111,7 @@ export function lower_linear_expr(
   const binding = lookup(env, expr.name);
 
   if (!binding) {
-    throw new Error(
-      "Cannot lower linear value to pure Ic frontend yet",
-    );
+    throw new Error("Unbound linear value: " + expr.name);
   }
 
   if (binding.is_const) {
@@ -126,6 +135,17 @@ function lower_binding_expr(
   hooks: ExprLowerHooks,
   lower_expr: LowerExprFn,
 ): IcNode {
+  if (binding.is_deferred) {
+    expect(binding.value, "Missing deferred value: " + name);
+    let value_env = env;
+
+    if (binding.value_env) {
+      value_env = binding.value_env;
+    }
+
+    return lower_expr(binding.value, value_env, hooks);
+  }
+
   if (binding.is_const) {
     expect(binding.value, "Missing const value: " + name);
     let value_env = env;
@@ -142,7 +162,8 @@ function lower_binding_expr(
       if (linear_param_names(binding.value).size > 0) {
         validate_linear_lam(binding.value);
         throw new Error(
-          "Cannot lower linear function to Ic frontend yet",
+          "Cannot lower linear function to Ic frontend yet" +
+            structured_core_route,
         );
       }
 
@@ -155,7 +176,8 @@ function lower_binding_expr(
 
   if (binding.value && binding.value.tag === "rec") {
     throw new Error(
-      "Cannot lower rec to Ic frontend yet" + structured_core_route,
+      "Cannot lower rec function value to Ic frontend yet" +
+        structured_core_route,
     );
   }
 
@@ -200,7 +222,8 @@ function lower_binding_expr(
       }
 
       throw new Error(
-        "Cannot lower dynamic if with non-i32 branches yet",
+        "Cannot lower dynamic union-if binding to Ic frontend" +
+          structured_core_route,
       );
     }
   }

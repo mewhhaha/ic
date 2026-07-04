@@ -100,7 +100,7 @@ export type CoreBackendControlFlow = {
     ctx: CoreEmitCtx,
   ) => Wat;
   merge_if_else_static_assignments: (
-    stmt: Extract<CoreStmt, { tag: "if_else_stmt" }>,
+    stmt: CoreStmt,
     cond: CoreExpr,
     then_statics: Map<string, CoreExpr>,
     else_statics: Map<string, CoreExpr>,

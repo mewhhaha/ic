@@ -2,6 +2,7 @@ import { expect } from "../expect.ts";
 import type { Ic as IcNode } from "../ic.ts";
 import type { Binding, Env, FrontExpr, FrontType } from "./ast.ts";
 import { text_byte_length } from "./text.ts";
+import { lower_expr_as_front_type } from "./typed_lower.ts";
 
 export type StaticRecTextHooks = {
   infer_expr: (expr: FrontExpr, env: Env) => FrontType;
@@ -130,6 +131,24 @@ function lower_rec_text_len(
     if (value_len) {
       return value_len;
     }
+
+    if (binding.is_deferred) {
+      return {
+        tag: "prim",
+        prim: "i32.load",
+        args: [
+          lower_expr_as_front_type(
+            binding.value,
+            { tag: "text" },
+            value_env,
+            {
+              infer_expr: hooks.infer_expr,
+              lower_expr: lower_result,
+            },
+          ),
+        ],
+      };
+    }
   }
 
   if (binding.type.tag !== "text") {
@@ -139,7 +158,15 @@ function lower_rec_text_len(
   let target: IcNode = { tag: "var", name: binding.ic_name };
 
   if (binding.value) {
-    target = lower_result(binding.value, value_env);
+    target = lower_expr_as_front_type(
+      binding.value,
+      binding.type,
+      value_env,
+      {
+        infer_expr: hooks.infer_expr,
+        lower_expr: lower_result,
+      },
+    );
   }
 
   return {

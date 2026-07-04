@@ -36,11 +36,20 @@ export type TextLowerHooks = {
   ) => ResolvedFrontExpr | undefined;
   infer_expr: (expr: FrontExpr, env: Env) => FrontType;
   lookup: (env: Env, name: string) => Binding | undefined;
+  lower_app_as_front_type?: (
+    expr: Extract<FrontExpr, { tag: "app" }>,
+    type: FrontType,
+    env: Env,
+  ) => IcNode | undefined;
   lower_expr: (expr: FrontExpr, env: Env) => IcNode;
   resolve_index_expr: (
     expr: Extract<FrontExpr, { tag: "index" }>,
     env: Env,
   ) => ResolvedFrontExpr | undefined;
+  resolve_annotation_type: (
+    annotation: string,
+    env: Env,
+  ) => FrontType | undefined;
   resolve_static_i32_expr: (
     expr: FrontExpr,
     env: Env,

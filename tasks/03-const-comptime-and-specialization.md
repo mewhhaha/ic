@@ -27,6 +27,17 @@ let map = (xs, const f) => { ... }
 - Specialize functions when const parameters are passed.
 - Allow const values to be reified as runtime values when passed to ordinary
   runtime parameters.
+- Keep const evaluation separate from runtime ownership. Const values may
+  describe storage layouts, ownership contracts, and specialization facts, but
+  `comptime` execution must not manufacture runtime owners that bypass the Task
+  12 proof gate.
+- When specialization inserts runtime temporaries, closure environments, union
+  payloads, aggregate materialization, text operations, or host-boundary
+  wrappers, those generated values must receive the same storage class, lifetime
+  id, escape decision, and cleanup/transfer facts as source values.
+- Reifying a const value as a runtime value must choose an explicit storage
+  shape: scalar/static data, `frozen_shareable`, `unique_heap`, or rejected. It
+  must not become an implicit GC-managed value in the baseline backend.
 
 ## Snake Case Examples
 
@@ -52,6 +63,9 @@ let ys = map(xs, double)
 - Const functions cannot capture runtime values.
 - Const parameters reject runtime-only arguments.
 - Specialized call output no longer needs runtime structural dispatch.
+- Specialized output that touches runtime memory reaches WAT emission only after
+  the no-GC ownership proof rows are present. Missing rows are deterministic
+  compiler errors, not managed-storage fallbacks.
 
 ## Verification
 
@@ -59,6 +73,9 @@ let ys = map(xs, double)
 - Add tests for const closure capture rules.
 - Add specialization tests showing `map(xs, double)` can produce a specialized
   body.
+- Add specialization tests where generated temporaries and reified const
+  aggregate/text values expose ownership proof facts or reject before WAT
+  emission.
 
 ## Implementation Status
 
@@ -88,3 +105,8 @@ let ys = map(xs, double)
   and WAT emission.
 - Runtime structural dispatch is intentionally excluded; generic and duck-typed
   paths are specialized before lowering.
+- Annotated runtime parameters now preserve ownership-wrapper erasure at
+  frontend-to-Ic call boundaries. Direct specialized calls and const-parameter
+  helper calls can lower arguments such as `borrow input`, `freeze input`, or
+  `scratch { input }` when the runtime parameter annotation supplies the
+  scalar, text, or declared aggregate context needed by the pure Ic route.

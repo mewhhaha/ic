@@ -592,6 +592,57 @@ function scan_borrow_stmts<ctx>(
     } else {
       scan_borrow_stmt(stmt, ctx, hooks, parent, state, "bounded", aliases);
     }
+
+    if (core_stmt_definitely_exits_sequence(stmt)) {
+      return;
+    }
+  }
+}
+
+function core_stmts_definitely_exit_sequence(statements: CoreStmt[]): boolean {
+  for (let index = 0; index < statements.length; index += 1) {
+    const stmt = statements[index];
+
+    if (!stmt) {
+      throw new Error("Missing core control-flow statement " + index);
+    }
+
+    if (core_stmt_definitely_exits_sequence(stmt)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function core_stmt_definitely_exits_sequence(stmt: CoreStmt): boolean {
+  switch (stmt.tag) {
+    case "return":
+    case "break":
+    case "continue":
+      return true;
+
+    case "if_else_stmt":
+      return core_stmts_definitely_exit_sequence(stmt.then_body) &&
+        core_stmts_definitely_exit_sequence(stmt.else_body);
+
+    case "expr":
+      if (stmt.expr.tag === "block") {
+        return core_stmts_definitely_exit_sequence(stmt.expr.statements);
+      }
+
+      return false;
+
+    case "bind":
+    case "assign":
+    case "index_assign":
+    case "range_loop":
+    case "collection_loop":
+    case "if_stmt":
+    case "if_let_stmt":
+    case "type_check":
+    case "unsupported":
+      return false;
   }
 }
 
@@ -1373,6 +1424,10 @@ function collect_stmts_captured_borrow_view_names(
 ): void {
   for (const stmt of statements) {
     collect_stmt_captured_borrow_view_names(stmt, aliases, shadowed, names);
+
+    if (core_stmt_definitely_exits_sequence(stmt)) {
+      return;
+    }
   }
 }
 
@@ -2745,6 +2800,10 @@ function update_field_aliases_for_stmts<ctx>(
     }
 
     update_field_aliases_for_stmt(stmt, ctx, hooks, aliases);
+
+    if (core_stmt_definitely_exits_sequence(stmt)) {
+      return;
+    }
   }
 }
 

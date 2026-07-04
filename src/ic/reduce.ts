@@ -2,6 +2,7 @@ import { expect } from "../expect.ts";
 import { Prim } from "../op.ts";
 import { Callable, Reduce } from "../trait.ts";
 import type { Ic } from "./ast.ts";
+import { reduce_ic_graph } from "./graph_reduce.ts";
 import { fold_prim, fold_select, is_binary_prim } from "./prim_reduce.ts";
 
 type Ctx = {
@@ -60,6 +61,9 @@ IcStep.reduce = function (ctx: Ctx, ic: IcStep): Ic {
 
     case "era":
       return Reduce.reduce(Era, ctx, ic);
+
+    case "fix":
+      return reduce_ic_graph(ic);
   }
 };
 
@@ -400,6 +404,9 @@ function erase(expr: Ic, body: Ic): Ic {
 
     case "era":
       return erase_many([expr.expr, expr.body], body);
+
+    case "fix":
+      return erase_many([expr.expr, expr.body], body);
   }
 }
 
@@ -496,6 +503,12 @@ function collect_names(ic: Ic, out = new Set<string>()): Set<string> {
       collect_names(ic.expr, out);
       collect_names(ic.body, out);
       return out;
+
+    case "fix":
+      out.add(ic.name);
+      collect_names(ic.expr, out);
+      collect_names(ic.body, out);
+      return out;
   }
 }
 
@@ -573,6 +586,18 @@ function subst(ic: Ic, name: string, value: Ic): Ic {
         expr: subst(ic.expr, name, value),
         body: subst(ic.body, name, value),
       };
+
+    case "fix":
+      if (ic.name === name) {
+        return ic;
+      }
+
+      return {
+        tag: "fix",
+        name: ic.name,
+        expr: subst(ic.expr, name, value),
+        body: subst(ic.body, name, value),
+      };
   }
 }
 
@@ -625,6 +650,14 @@ function ic_name_use_count(ic: Ic, name: string): number {
     }
 
     case "era":
+      return ic_name_use_count(ic.expr, name) +
+        ic_name_use_count(ic.body, name);
+
+    case "fix":
+      if (ic.name === name) {
+        return 0;
+      }
+
       return ic_name_use_count(ic.expr, name) +
         ic_name_use_count(ic.body, name);
   }

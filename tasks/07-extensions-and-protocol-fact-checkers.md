@@ -35,6 +35,18 @@ let fmap = (const f_type: functor, fa, const f) => {
 }
 ```
 
+- Treat protocol/fact-checker operations as compile-time structural checks, not
+  runtime dispatch. Any protocol operation that moves, borrows, freezes, or
+  returns runtime-owned data must specialize to concrete Core code before the
+  ownership/lifetime proof gate.
+- Allow protocol facts to require ownership contracts, such as a method taking a
+  bounded borrow, consuming a unique owner, returning a frozen/shareable value,
+  or producing a scratch-free result. These remain ordinary const facts checked
+  structurally.
+- Reject protocol-specialized code whose generated ownership facts are missing.
+  The baseline does not use GC or hidden managed storage to make a generic
+  protocol operation safe after specialization.
+
 ## Acceptance Criteria
 
 - `option_type = option_type with { ... }` shadows the previous `option_type`
@@ -45,6 +57,9 @@ let fmap = (const f_type: functor, fa, const f) => {
   operation.
 - `applicative` can depend on `functor`; `monad` can depend on `applicative`.
 - Generic protocol-checked functions specialize before code generation.
+- Specialized protocol code exposes storage, lifetime, borrow, freeze,
+  promotion, and cleanup facts before WAT emission whenever it touches runtime
+  memory.
 
 ## Verification
 
@@ -52,6 +67,9 @@ let fmap = (const f_type: functor, fa, const f) => {
 - Add tests for extension field lookup.
 - Add fact-checker tests for `functor`, `applicative`, and `monad` shapes.
 - Add specialization tests for `fmap(option_type, a, inc)`.
+- Add protocol/fact-checker fixtures for ownership-bearing operations:
+  bounded-borrow inputs, unique-owner transfer, frozen/shareable returns, and
+  rejected missing cleanup or scratch-escape facts.
 
 ## Implementation Status
 

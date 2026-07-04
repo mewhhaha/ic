@@ -2,6 +2,7 @@ import type {
   Core,
   CoreExpr,
   CoreField,
+  CoreFnType,
   CoreHostImport,
   CoreParam,
   CoreStmt,
@@ -85,6 +86,13 @@ type CoreDropHooks<ctx> = Omit<CoreOwnershipHooks<ctx>, "if_let_branch_ctx"> & {
     ctx: ctx,
   ) => CoreDropIfLetBranchCtx<ctx>;
   collect_stmt_locals: (stmt: CoreStmt, ctx: ctx) => void;
+  static_core_call_requires_scope?: (
+    target: Extract<CoreExpr, { tag: "lam" }>,
+  ) => boolean;
+  static_core_call_target?: (
+    expr: CoreExpr,
+    ctx: ctx,
+  ) => Extract<CoreExpr, { tag: "lam" }> | undefined;
   static_value: (expr: CoreExpr, ctx: ctx) => CoreExpr | undefined;
 };
 
@@ -232,6 +240,14 @@ function scan_drop_stmts<ctx>(
       if (!continues) {
         return false;
       }
+
+      try {
+        hooks.collect_stmt_locals(stmt, ctx);
+      } catch (error) {
+        if (!drop_unknown_host_boundary_probe_error(error)) {
+          throw error;
+        }
+      }
     }
 
     if (drop_fallthrough_owners) {
@@ -348,7 +364,15 @@ function scan_drop_stmt<ctx>(
         owners.delete(stmt.name);
       }
 
-      if (should_skip_drop_owner_bind(stmt.kind, stmt.value, ctx, hooks)) {
+      if (
+        should_skip_drop_owner_bind(
+          stmt.kind,
+          stmt.name,
+          stmt.value,
+          ctx,
+          hooks,
+        )
+      ) {
         owners.delete(stmt.name);
         bind_static_drop_function(stmt.name, stmt.value, state);
         return true;
@@ -378,7 +402,7 @@ function scan_drop_stmt<ctx>(
         hooks,
         state,
       );
-      if (should_skip_drop_owner_assign(stmt.value, ctx, hooks)) {
+      if (should_skip_drop_owner_assign(stmt.name, stmt.value, ctx, hooks)) {
         owners.delete(stmt.name);
         bind_static_drop_function(stmt.name, stmt.value, state);
         return true;
@@ -833,6 +857,7 @@ function scan_drop_expr_children<ctx>(
         hooks,
         state,
       );
+      consume_runtime_union_payload_owner(expr, owners, ctx, hooks, state);
       return true;
 
     case "block": {
@@ -1029,7 +1054,7 @@ function scan_drop_expr_children<ctx>(
       }
 
       if (expr.type_expr) {
-        return scan_drop_expr_children(
+        const continues = scan_drop_expr_children(
           expr.type_expr,
           scope,
           owners,
@@ -1038,8 +1063,12 @@ function scan_drop_expr_children<ctx>(
           hooks,
           state,
         );
+        if (!continues) {
+          return false;
+        }
       }
 
+      consume_runtime_union_payload_owner(expr, owners, ctx, hooks, state);
       return true;
   }
 }
@@ -1648,6 +1677,12 @@ function scan_drop_closure_body<ctx>(
   hooks: CoreDropHooks<ctx>,
   state: CoreDropState,
 ): boolean {
+  for (const param of expr.params) {
+    if (param.is_const) {
+      return true;
+    }
+  }
+
   let body_ctx = ctx;
 
   if (hooks.closure_body_ctx) {
@@ -1896,6 +1931,7 @@ function bind_drop_owner<ctx>(
 
 function should_skip_drop_owner_bind<ctx>(
   kind: "let" | "const",
+  name: string,
   expr: CoreExpr,
   ctx: ctx,
   hooks: CoreDropHooks<ctx>,
@@ -1914,10 +1950,15 @@ function should_skip_drop_owner_bind<ctx>(
     return true;
   }
 
+  if (is_scoped_static_drop_helper(name, static_value, ctx, hooks)) {
+    return true;
+  }
+
   return is_drop_static_non_runtime_closure(static_value, ctx, hooks);
 }
 
 function should_skip_drop_owner_assign<ctx>(
+  name: string,
   expr: CoreExpr,
   ctx: ctx,
   hooks: CoreDropHooks<ctx>,
@@ -1929,6 +1970,10 @@ function should_skip_drop_owner_assign<ctx>(
   }
 
   if (is_drop_static_ownerless_value(static_value)) {
+    return true;
+  }
+
+  if (is_scoped_static_drop_helper(name, static_value, ctx, hooks)) {
     return true;
   }
 
@@ -1995,6 +2040,40 @@ function is_drop_static_ownerless_value(expr: CoreExpr): boolean {
   return false;
 }
 
+function is_scoped_static_drop_helper<ctx>(
+  name: string,
+  expr: CoreExpr,
+  ctx: ctx,
+  hooks: CoreDropHooks<ctx>,
+): boolean {
+  if (!hooks.static_core_call_target) {
+    return false;
+  }
+
+  if (!hooks.static_core_call_requires_scope) {
+    return false;
+  }
+
+  if (expr.tag !== "lam") {
+    return false;
+  }
+
+  const target = hooks.static_core_call_target(
+    { tag: "var", name },
+    ctx,
+  );
+
+  if (!target) {
+    return false;
+  }
+
+  if (target !== expr) {
+    return false;
+  }
+
+  return hooks.static_core_call_requires_scope(target);
+}
+
 function is_drop_static_non_runtime_closure<ctx>(
   expr: CoreExpr,
   ctx: ctx,
@@ -2008,13 +2087,45 @@ function is_drop_static_non_runtime_closure<ctx>(
     return false;
   }
 
-  const fn_type = hooks.closure_fn_type(expr, ctx);
+  let fn_type: CoreFnType | undefined;
+
+  try {
+    fn_type = hooks.closure_fn_type(expr, ctx);
+  } catch (error) {
+    if (drop_closure_probe_error(error)) {
+      return true;
+    }
+
+    throw error;
+  }
 
   if (fn_type) {
     return false;
   }
 
   return true;
+}
+
+function drop_closure_probe_error(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  if (
+    error.message.startsWith(
+      "Core first-class closure parameter must use a scalar annotation:",
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    error.message === "Core runtime aggregate requires a static struct type"
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function moved_named_owner(
@@ -2061,6 +2172,50 @@ function moved_expr_owner(
   }
 
   return simple_expr_result_owner(state.expr_results.get(expr));
+}
+
+function consume_runtime_union_payload_owner<ctx>(
+  expr: CoreExpr,
+  owners: Map<string, CoreDropOwner>,
+  ctx: ctx,
+  hooks: CoreDropHooks<ctx>,
+  state: CoreDropState,
+): void {
+  const runtime_value = hooks.runtime_union_value(expr, ctx);
+  if (!runtime_value) {
+    return;
+  }
+
+  if (runtime_value.tag !== "union_case") {
+    return;
+  }
+
+  if (!runtime_value.value) {
+    return;
+  }
+
+  const union_ownership = unique_heap_ownership(expr, ctx, hooks);
+  if (!union_ownership) {
+    return;
+  }
+
+  if (union_ownership.reason !== "runtime_union") {
+    return;
+  }
+
+  const moved_owner = moved_expr_owner(runtime_value.value, owners, state);
+  if (!moved_owner) {
+    return;
+  }
+
+  if (
+    moved_owner.ownership.reason !== "runtime_aggregate" &&
+    moved_owner.ownership.reason !== "runtime_union"
+  ) {
+    return;
+  }
+
+  owners.delete(moved_owner.name);
 }
 
 function expr_consumes_owner_name(
@@ -2328,13 +2483,22 @@ function scan_static_drop_transfer_target<ctx>(
     }
 
     const body_scope = scope + body.scope_suffix;
+    let body_ctx = ctx;
+
+    if (hooks.closure_body_ctx) {
+      const scoped_ctx = hooks.closure_body_ctx(target.value, ctx);
+
+      if (scoped_ctx) {
+        body_ctx = scoped_ctx;
+      }
+    }
 
     if (body.tag === "expr") {
       scan_static_drop_transfer_expr(
         body.expr,
         body_scope,
         owners,
-        ctx,
+        body_ctx,
         hooks,
         state,
       );
@@ -2343,7 +2507,7 @@ function scan_static_drop_transfer_target<ctx>(
         body.statements,
         body_scope,
         owners,
-        ctx,
+        body_ctx,
         hooks,
         state,
       );
@@ -2986,6 +3150,10 @@ function static_drop_call_bindings<ctx>(
 
     if (!arg) {
       throw new Error("Missing static drop call argument");
+    }
+
+    if (arg.tag === "borrow") {
+      return undefined;
     }
 
     if (arg.tag !== "var") {

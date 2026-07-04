@@ -223,6 +223,16 @@ export function runtime_aggregate_type_expr<
   }
 
   if (value.tag === "app") {
+    const branch_type = runtime_aggregate_branch_call_type_expr(
+      value,
+      ctx,
+      hooks,
+    );
+
+    if (branch_type) {
+      return branch_type;
+    }
+
     const fn_type = hooks.closure_fn_type(value.func, ctx);
 
     if (fn_type) {
@@ -275,6 +285,91 @@ export function runtime_aggregate_type_expr<
   }
 
   return undefined;
+}
+
+function runtime_aggregate_branch_call_type_expr<
+  ctx extends RuntimeAggregateTypeCtx,
+>(
+  value: Extract<CoreExpr, { tag: "app" }>,
+  ctx: ctx,
+  hooks: RuntimeAggregateTypeHooks<ctx>,
+): CoreExpr | undefined {
+  const branch = runtime_aggregate_call_branch(value.func, ctx, hooks);
+
+  if (!branch) {
+    return undefined;
+  }
+
+  const then_type = runtime_aggregate_type_expr(
+    {
+      tag: "app",
+      func: branch.then_branch,
+      args: value.args,
+    },
+    ctx,
+    hooks,
+  );
+  const else_type = runtime_aggregate_type_expr(
+    {
+      tag: "app",
+      func: branch.else_branch,
+      args: value.args,
+    },
+    ctx,
+    hooks,
+  );
+
+  expect(
+    same_runtime_aggregate_type_expr(then_type, else_type, ctx),
+    "Core runtime aggregate branch call type mismatch",
+  );
+  return then_type;
+}
+
+function runtime_aggregate_call_branch<
+  ctx extends RuntimeAggregateTypeCtx,
+>(
+  value: CoreExpr,
+  ctx: ctx,
+  hooks: RuntimeAggregateTypeHooks<ctx>,
+): Extract<CoreExpr, { tag: "if" }> | undefined {
+  if (value.tag === "block") {
+    const block_value = static_block_result(value);
+
+    if (!block_value) {
+      return undefined;
+    }
+
+    return runtime_aggregate_call_branch(block_value, ctx, hooks);
+  }
+
+  if (value.tag === "var") {
+    const static_value = ctx.statics.get(value.name);
+
+    if (!static_value) {
+      return undefined;
+    }
+
+    return runtime_aggregate_call_branch(static_value, ctx, hooks);
+  }
+
+  if (value.tag !== "if") {
+    return undefined;
+  }
+
+  const then_type = hooks.closure_fn_type(value.then_branch, ctx);
+
+  if (!then_type) {
+    return undefined;
+  }
+
+  const else_type = hooks.closure_fn_type(value.else_branch, ctx);
+
+  if (!else_type) {
+    return undefined;
+  }
+
+  return value;
 }
 
 function runtime_aggregate_block_result_type_expr<

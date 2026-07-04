@@ -215,18 +215,6 @@ export function lower_dynamic_union_if_let_union_value(
   env: Env,
   hooks: IfLetHooks,
 ): IcNode {
-  const then_target = hooks.resolve_union_value(
-    target.expr.then_branch,
-    target.env,
-  );
-  const else_target = hooks.resolve_union_value(
-    target.expr.else_branch,
-    target.env,
-  );
-
-  expect(then_target, "Missing then dynamic union target");
-  expect(else_target, "Missing else dynamic union target");
-
   const local = clone_env(env);
   const handler_names: string[] = [];
 
@@ -238,18 +226,20 @@ export function lower_dynamic_union_if_let_union_value(
     tag: "prim",
     prim: "i32.select",
     args: [
-      lower_dynamic_union_if_let_union_branch(
+      lower_dynamic_union_if_let_union_branch_expr(
         expr,
-        then_target,
+        target.expr.then_branch,
+        target.env,
         target_cases,
         result_cases,
         handler_names,
         env,
         hooks,
       ),
-      lower_dynamic_union_if_let_union_branch(
+      lower_dynamic_union_if_let_union_branch_expr(
         expr,
-        else_target,
+        target.expr.else_branch,
+        target.env,
         target_cases,
         result_cases,
         handler_names,
@@ -267,6 +257,56 @@ export function lower_dynamic_union_if_let_union_value(
   }
 
   return body;
+}
+
+function lower_dynamic_union_if_let_union_branch_expr(
+  expr: Extract<FrontExpr, { tag: "if_let" }>,
+  branch_expr: FrontExpr,
+  branch_env: Env,
+  target_cases: TypeField[],
+  result_cases: TypeField[],
+  handler_names: string[],
+  env: Env,
+  hooks: IfLetHooks,
+): IcNode {
+  const target = hooks.resolve_union_value(branch_expr, branch_env);
+
+  if (target) {
+    return lower_dynamic_union_if_let_union_branch(
+      expr,
+      target,
+      target_cases,
+      result_cases,
+      handler_names,
+      env,
+      hooks,
+    );
+  }
+
+  const branch_type = hooks.infer_expr(branch_expr, branch_env);
+
+  if (
+    branch_type.tag !== "union_value" ||
+    !same_union_cases(target_cases, branch_type.cases)
+  ) {
+    throw new Error("Dynamic if let target union cases must match");
+  }
+
+  let result = hooks.lower_expr(capture_expr(branch_expr, branch_env), env);
+
+  for (const union_case of target_cases) {
+    const handler = lower_if_let_union_result_handler(
+      expr,
+      union_case,
+      result_cases,
+      handler_names,
+      env,
+      hooks,
+    );
+    result = { tag: "app", func: result, arg: handler };
+  }
+
+  return result;
 }
 
 function lower_dynamic_union_if_let_union_branch(
@@ -447,4 +487,24 @@ function apply_union_result_handlers(
   }
 
   return result;
+}
+
+function same_union_cases(left: TypeField[], right: TypeField[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (const left_case of left) {
+    const right_case = lookup_type_field(right, left_case.name);
+
+    if (!right_case) {
+      return false;
+    }
+
+    if (right_case.type_name !== left_case.type_name) {
+      return false;
+    }
+  }
+
+  return true;
 }

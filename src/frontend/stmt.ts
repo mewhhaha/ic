@@ -3,7 +3,11 @@ import type { Ic as IcNode } from "../ic.ts";
 import type { Env, FrontExpr, ResolvedFrontExpr, Stmt } from "./ast.ts";
 import { capture_expr } from "./capture.ts";
 import { validate_const_expr } from "./constness.ts";
-import { structured_core_route } from "./diagnostic.ts";
+import {
+  dynamic_if_let_ic_route,
+  structured_core_route,
+  unresolved_import_route,
+} from "./diagnostic.ts";
 import { clone_env } from "./env.ts";
 import {
   lower_assign_statement,
@@ -49,7 +53,7 @@ function lower_statements_with_done(
 
   if (stmt.tag === "import") {
     throw new Error(
-      "Cannot lower unresolved import; use Source.load or Source.compile_file",
+      "Cannot lower unresolved import; " + unresolved_import_route,
     );
   }
 
@@ -208,7 +212,10 @@ function lower_statements_with_done(
     };
   }
 
-  throw new Error("Cannot lower " + stmt.feature + " to Ic frontend yet");
+  throw new Error(
+    "Cannot lower " + stmt.feature + " to Ic frontend yet" +
+      structured_core_route,
+  );
 }
 
 function lower_if_statement(
@@ -223,12 +230,19 @@ function lower_if_statement(
   const cond = hooks.resolve_static_i32_expr(stmt.cond, env);
 
   if (cond === undefined) {
+    let implicit_else: boolean | undefined;
+
+    if (rest.length === 0) {
+      implicit_else = true;
+    }
+
     return hooks.lower_expr(
       {
         tag: "if",
         cond: stmt.cond,
         then_branch: { tag: "block", statements: [...stmt.body, ...rest] },
         else_branch: { tag: "block", statements: rest },
+        implicit_else,
       },
       env,
     );
@@ -265,6 +279,12 @@ function lower_if_let_statement(
       target_type.tag === "union_value" ||
       hooks.infer_dynamic_if_let_cases(stmt.target, env)
     ) {
+      let implicit_else: boolean | undefined;
+
+      if (rest.length === 0) {
+        implicit_else = true;
+      }
+
       return hooks.lower_expr(
         {
           tag: "if_let",
@@ -273,15 +293,13 @@ function lower_if_let_statement(
           target: stmt.target,
           then_branch: { tag: "block", statements: [...stmt.body, ...rest] },
           else_branch: { tag: "block", statements: rest },
+          implicit_else,
         },
         env,
       );
     }
 
-    throw new Error(
-      "Cannot lower dynamic if let to Ic frontend yet" +
-        structured_core_route,
-    );
+    throw new Error(dynamic_if_let_ic_route);
   }
 
   if (target.expr.name !== stmt.case_name) {

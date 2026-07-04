@@ -2,16 +2,24 @@ import { expect } from "../expect.ts";
 import type { Ic as IcNode } from "../ic.ts";
 import type { Env, FrontExpr, Stmt } from "./ast.ts";
 import {
+  inline_runtime_call_expr as inline_runtime_call_expr_with_hooks,
+} from "./call_inline.ts";
+import { is_deferred_frontend_value } from "./call_deferred.ts";
+import {
   push_const_specialized_arg,
   push_runtime_specialized_arg,
+  type RuntimeSpecializedArg,
 } from "./call_args.ts";
 import { resolve_call_target_with_env } from "./call_resolve.ts";
+import { resolve_dynamic_function_if_target } from "./call_resolve.ts";
 import { should_specialize_app } from "./call_specialize_decision.ts";
 import type { CallSpecializeHooks } from "./call_specialize_types.ts";
+import { structured_core_route } from "./diagnostic.ts";
 import { clone_env } from "./env.ts";
 import { lookup_field } from "./fields.ts";
 import { lower_lambda_binding } from "./ic_share.ts";
 import { linear_param_names, validate_linear_lam } from "./linear.ts";
+import { lower_expr_as_front_type } from "./typed_lower.ts";
 
 export type { CallSpecializeHooks } from "./call_specialize_types.ts";
 export { check_dynamic_function_if_args } from "./call_dynamic_args.ts";
@@ -49,10 +57,16 @@ export function lower_specialized_app(
   const target = resolve_call_target_with_env(expr.func, env, hooks);
 
   if (!target) {
-    return undefined;
+    return lower_deferred_dynamic_function_if_app(expr, env, hooks);
   }
 
   if (!should_specialize_app(target.expr, expr.args, env, hooks)) {
+    const dynamic = lower_deferred_dynamic_function_if_app(expr, env, hooks);
+
+    if (dynamic) {
+      return dynamic;
+    }
+
     return undefined;
   }
 
@@ -72,7 +86,7 @@ export function lower_specialized_app(
   }
 
   const call_env = clone_env(target.env);
-  const runtime_args: FrontExpr[] = [];
+  const runtime_args: RuntimeSpecializedArg[] = [];
   const runtime_names: string[] = [];
 
   for (let index = 0; index < target.expr.params.length; index += 1) {
@@ -113,7 +127,10 @@ export function lower_specialized_app(
         hooks,
       )
     ) {
-      throw new Error("Cannot lower linear function to Ic frontend yet");
+      throw new Error(
+        "Cannot lower linear function to Ic frontend yet" +
+          structured_core_route,
+      );
     }
   }
 
@@ -126,10 +143,107 @@ export function lower_specialized_app(
   }
 
   for (const arg of runtime_args) {
-    result = { tag: "app", func: result, arg: hooks.lower_expr(arg, env) };
+    result = {
+      tag: "app",
+      func: result,
+      arg: lower_expr_as_front_type(arg.value, arg.type, env, hooks),
+    };
   }
 
   return result;
+}
+
+function lower_deferred_dynamic_function_if_app(
+  expr: Extract<FrontExpr, { tag: "app" }>,
+  env: Env,
+  hooks: CallSpecializeHooks,
+): IcNode | undefined {
+  const dynamic_target = resolve_dynamic_function_if_target(
+    expr.func,
+    env,
+    hooks,
+  );
+
+  if (!dynamic_target) {
+    return undefined;
+  }
+
+  if (
+    !is_deferred_frontend_value(
+      dynamic_target.expr,
+      dynamic_target.env,
+      hooks,
+    )
+  ) {
+    return undefined;
+  }
+
+  const inlined_dynamic = inline_runtime_call_expr_with_hooks(
+    expr,
+    env,
+    hooks,
+  );
+
+  if (!inlined_dynamic) {
+    return undefined;
+  }
+
+  return hooks.lower_expr(inlined_dynamic.expr, inlined_dynamic.env);
+}
+
+export function infer_specialized_app_type(
+  expr: Extract<FrontExpr, { tag: "app" }>,
+  env: Env,
+  hooks: CallSpecializeHooks,
+): ReturnType<CallSpecializeHooks["infer_expr"]> | undefined {
+  const target = resolve_call_target_with_env(expr.func, env, hooks);
+
+  if (!target) {
+    return undefined;
+  }
+
+  if (expr.args.length !== target.expr.params.length) {
+    return undefined;
+  }
+
+  const call_env = clone_env(target.env);
+  const runtime_args: RuntimeSpecializedArg[] = [];
+  const runtime_names: string[] = [];
+
+  for (let index = 0; index < target.expr.params.length; index += 1) {
+    const param = target.expr.params[index];
+    const arg = expr.args[index];
+    expect(param, "Missing parameter " + index);
+    expect(arg, "Missing argument " + index);
+
+    if (param.is_linear) {
+      return undefined;
+    }
+
+    if (param.is_const) {
+      push_const_specialized_arg(
+        param.name,
+        param.annotation,
+        arg,
+        env,
+        call_env,
+        hooks,
+      );
+    } else {
+      push_runtime_specialized_arg(
+        target.expr,
+        param,
+        arg,
+        env,
+        call_env,
+        runtime_args,
+        runtime_names,
+        hooks,
+      );
+    }
+  }
+
+  return hooks.infer_expr(target.expr.body, call_env);
 }
 
 function contains_unresolved_linear_effect(

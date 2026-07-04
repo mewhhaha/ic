@@ -82,6 +82,10 @@ export type StaticRecHooks = {
     expr: FrontExpr,
     env: Env,
   ) => number | undefined;
+  resolve_struct_type_value: (
+    expr: FrontExpr,
+    env: Env,
+  ) => Extract<FrontExpr, { tag: "struct_type" }> | undefined;
   resolve_struct_field_expr: (
     expr: Extract<FrontExpr, { tag: "field" }>,
     env: Env,

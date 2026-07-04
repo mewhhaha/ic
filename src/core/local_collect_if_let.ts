@@ -1,7 +1,8 @@
 import type { CoreExpr, CoreStmt } from "./ast.ts";
+import { assigned_stmt_names } from "./assigned_names.ts";
 import { fresh_temp_local, set_local } from "./backend/util.ts";
 import { clone_core_host_imports } from "./host_import.ts";
-import type { DynamicUnionIf } from "./if_let.ts";
+import { core_if_let_match_condition, type DynamicUnionIf } from "./if_let.ts";
 import type { CoreCtx, CoreLocalCollectHooks } from "./local_collect/types.ts";
 import {
   runtime_union_match_info,
@@ -58,17 +59,55 @@ export function collect_core_if_let_stmt_locals(
       return;
     }
 
-    hooks.bind_dynamic_if_let_payload(
-      stmt.case_name,
-      stmt.value_name,
+    const base_statics = new Map(ctx.statics);
+    const then_ctx = create_if_let_branch_ctx(ctx);
+    const then_matched = collect_dynamic_if_let_stmt_case_locals(
+      stmt,
+      dynamic_target.then_case,
       dynamic_target,
-      ctx,
+      then_ctx,
+      hooks,
+      api,
     );
-    hooks.clear_optional_core_union_local(stmt.value_name, ctx);
 
-    for (const item of stmt.body) {
-      api.collect_stmt_locals(item, ctx, hooks);
+    const else_ctx = create_if_let_branch_ctx(ctx);
+    else_ctx.fn_types = new Map(then_ctx.fn_types);
+    else_ctx.next_loop = then_ctx.next_loop;
+    else_ctx.next_temp = then_ctx.next_temp;
+    const else_matched = collect_dynamic_if_let_stmt_case_locals(
+      stmt,
+      dynamic_target.else_case,
+      dynamic_target,
+      else_ctx,
+      hooks,
+      api,
+    );
+
+    ctx.next_loop = else_ctx.next_loop;
+    ctx.next_temp = else_ctx.next_temp;
+    merge_generated_temp_facts(ctx, then_ctx);
+    merge_generated_temp_facts(ctx, else_ctx);
+
+    let then_statics = base_statics;
+    if (then_matched) {
+      then_statics = then_ctx.statics;
     }
+
+    let else_statics = base_statics;
+    if (else_matched) {
+      else_statics = else_ctx.statics;
+    }
+
+    hooks.merge_if_else_static_assignments(
+      stmt,
+      dynamic_target.cond,
+      then_statics,
+      else_statics,
+      ctx,
+      undefined,
+    );
+
+    merge_assigned_runtime_facts(stmt, ctx, then_ctx, else_ctx);
 
     return;
   }
@@ -80,6 +119,7 @@ export function collect_core_if_let_stmt_locals(
   }
 
   collect_runtime_if_let_target_locals(runtime_target, ctx, hooks, api);
+  const else_ctx = create_if_let_branch_ctx(ctx);
   const info = runtime_union_match_info(
     stmt.case_name,
     runtime_target,
@@ -97,6 +137,18 @@ export function collect_core_if_let_stmt_locals(
 
   ctx.next_loop = branch_ctx.next_loop;
   ctx.next_temp = branch_ctx.next_temp;
+  merge_generated_temp_facts(ctx, branch_ctx);
+
+  hooks.merge_if_else_static_assignments(
+    stmt,
+    core_if_let_match_condition(stmt.target, stmt.case_name),
+    branch_ctx.statics,
+    else_ctx.statics,
+    ctx,
+    undefined,
+  );
+
+  merge_assigned_runtime_facts(stmt, ctx, branch_ctx, else_ctx);
 }
 
 export function collect_core_if_let_expr_locals(
@@ -208,6 +260,34 @@ function collect_dynamic_if_let_expr_case_locals(
   ctx.next_temp = branch_ctx.next_temp;
 }
 
+function collect_dynamic_if_let_stmt_case_locals(
+  stmt: Extract<CoreStmt, { tag: "if_let_stmt" }>,
+  union_case: Extract<CoreExpr, { tag: "union_case" }>,
+  dynamic_target: DynamicUnionIf,
+  ctx: CoreCtx,
+  hooks: CoreLocalCollectHooks,
+  api: CoreIfLetLocalCollectApi,
+): boolean {
+  if (union_case.name !== stmt.case_name) {
+    return false;
+  }
+
+  collect_union_case_payload_locals(union_case, ctx, hooks, api);
+  hooks.bind_dynamic_if_let_payload(
+    stmt.case_name,
+    stmt.value_name,
+    dynamic_target,
+    ctx,
+  );
+  hooks.clear_optional_core_union_local(stmt.value_name, ctx);
+
+  for (const item of stmt.body) {
+    api.collect_stmt_locals(item, ctx, hooks);
+  }
+
+  return true;
+}
+
 function collect_union_case_payload_locals(
   union_case: Extract<CoreExpr, { tag: "union_case" }>,
   ctx: CoreCtx,
@@ -248,6 +328,144 @@ function create_if_let_branch_ctx(ctx: CoreCtx): CoreCtx {
     next_loop: ctx.next_loop,
     next_temp: ctx.next_temp,
   };
+}
+
+function merge_assigned_runtime_facts(
+  stmt: Extract<CoreStmt, { tag: "if_let_stmt" }>,
+  target: CoreCtx,
+  branch_ctx: CoreCtx,
+  else_ctx: CoreCtx,
+): void {
+  for (const name of assigned_stmt_names(stmt)) {
+    merge_assigned_text_fact(name, target, branch_ctx, else_ctx);
+    merge_assigned_type_fact(
+      name,
+      target.struct_locals,
+      branch_ctx.struct_locals,
+      else_ctx.struct_locals,
+    );
+    merge_assigned_type_fact(
+      name,
+      target.union_locals,
+      branch_ctx.union_locals,
+      else_ctx.union_locals,
+    );
+    merge_assigned_frozen_fact(name, target, branch_ctx, else_ctx);
+  }
+}
+
+function merge_assigned_text_fact(
+  name: string,
+  target: CoreCtx,
+  branch_ctx: CoreCtx,
+  else_ctx: CoreCtx,
+): void {
+  if (branch_ctx.text_locals.has(name) && else_ctx.text_locals.has(name)) {
+    target.text_locals.add(name);
+    return;
+  }
+
+  target.text_locals.delete(name);
+}
+
+function merge_assigned_type_fact(
+  name: string,
+  target: Map<string, CoreExpr>,
+  branch_facts: Map<string, CoreExpr>,
+  else_facts: Map<string, CoreExpr>,
+): void {
+  const branch_type = branch_facts.get(name);
+  const else_type = else_facts.get(name);
+
+  if (!branch_type || !else_type) {
+    target.delete(name);
+    return;
+  }
+
+  if (!same_core_fact_expr(branch_type, else_type)) {
+    target.delete(name);
+    return;
+  }
+
+  target.set(name, branch_type);
+}
+
+function merge_assigned_frozen_fact(
+  name: string,
+  target: CoreCtx,
+  branch_ctx: CoreCtx,
+  else_ctx: CoreCtx,
+): void {
+  if (!branch_ctx.frozen_locals || !else_ctx.frozen_locals) {
+    if (target.frozen_locals) {
+      target.frozen_locals.delete(name);
+    }
+    return;
+  }
+
+  if (
+    branch_ctx.frozen_locals.has(name) &&
+    else_ctx.frozen_locals.has(name)
+  ) {
+    if (!target.frozen_locals) {
+      target.frozen_locals = new Set();
+    }
+
+    target.frozen_locals.add(name);
+    return;
+  }
+
+  if (target.frozen_locals) {
+    target.frozen_locals.delete(name);
+  }
+}
+
+function same_core_fact_expr(left: CoreExpr, right: CoreExpr): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function merge_generated_temp_facts(target: CoreCtx, source: CoreCtx): void {
+  for (const name of source.text_locals) {
+    if (is_generated_temp_name(name)) {
+      target.text_locals.add(name);
+    }
+  }
+
+  for (const [name, value] of source.struct_locals) {
+    if (is_generated_temp_name(name)) {
+      target.struct_locals.set(name, value);
+    }
+  }
+
+  for (const [name, value] of source.union_locals) {
+    if (is_generated_temp_name(name)) {
+      target.union_locals.set(name, value);
+    }
+  }
+
+  for (const [name, value] of source.fn_types) {
+    if (is_generated_temp_name(name)) {
+      target.fn_types.set(name, value);
+    }
+  }
+
+  if (!source.frozen_locals) {
+    return;
+  }
+
+  if (!target.frozen_locals) {
+    target.frozen_locals = new Set();
+  }
+
+  for (const name of source.frozen_locals) {
+    if (is_generated_temp_name(name)) {
+      target.frozen_locals.add(name);
+    }
+  }
+}
+
+function is_generated_temp_name(name: string): boolean {
+  return name.startsWith("_") && name.includes("#");
 }
 
 function clone_optional_set(

@@ -2,6 +2,8 @@ import type { Ic as IcNode } from "../ic.ts";
 import type { Env, FrontExpr } from "./ast.ts";
 import { structured_core_route } from "./diagnostic.ts";
 import type { ExprLowerHooks, LowerExprFn } from "./expr_lower_types.ts";
+import { format_expr } from "./format.ts";
+import { lower_expr_as_front_type } from "./typed_lower.ts";
 
 export function lower_app_expr(
   expr: Extract<FrontExpr, { tag: "app" }>,
@@ -51,16 +53,52 @@ export function lower_app_expr(
     return specialized;
   }
 
-  hooks.check_dynamic_function_if_args(expr, env);
+  const dynamic_function_if_args = hooks.check_dynamic_function_if_args(
+    expr,
+    env,
+  );
 
-  let result = lower_expr(expr.func, env, hooks);
+  let result: IcNode;
+
+  try {
+    result = lower_expr(expr.func, env, hooks);
+  } catch (err) {
+    if (expr.func.tag === "field" && err instanceof Error) {
+      const field_message =
+        "Cannot lower field access to Ic frontend yet: " + expr.func.name;
+
+      if (err.message.startsWith(field_message)) {
+        throw new Error(
+          "Cannot lower method call to Ic frontend yet: " +
+            expr.func.name +
+            structured_core_route,
+        );
+      }
+    }
+
+    throw err;
+  }
+
+  if (dynamic_function_if_args) {
+    for (const arg of dynamic_function_if_args) {
+      result = {
+        tag: "app",
+        func: result,
+        arg: lower_expr_as_front_type(arg.value, arg.type, env, {
+          infer_expr: hooks.infer_expr,
+          lower_app_as_front_type: hooks.lower_app_as_front_type,
+          lower_expr: (value, value_env) =>
+            lower_expr(value, value_env, hooks),
+          resolve_annotation_type: hooks.resolve_annotation_type,
+        }),
+      };
+    }
+
+    return result;
+  }
 
   for (const arg of expr.args) {
-    result = {
-      tag: "app",
-      func: result,
-      arg: lower_expr(arg, env, hooks),
-    };
+    result = { tag: "app", func: result, arg: lower_expr(arg, env, hooks) };
   }
 
   return result;
@@ -76,6 +114,16 @@ export function lower_field_expr(
 
   if (field) {
     return lower_expr(field, env, hooks);
+  }
+
+  const union_value = hooks.resolve_union_constructor_call({
+    tag: "app",
+    func: expr,
+    args: [],
+  }, env);
+
+  if (union_value) {
+    return lower_expr(union_value.expr, union_value.env, hooks);
   }
 
   const struct_field = hooks.resolve_struct_field_expr(expr, env);
@@ -188,6 +236,8 @@ export function lower_index_expr(
   }
 
   throw new Error(
-    "Cannot lower index access to Ic frontend yet" + structured_core_route,
+    "Cannot lower index access to Ic frontend yet: " +
+      format_expr(expr.object) +
+      structured_core_route,
   );
 }

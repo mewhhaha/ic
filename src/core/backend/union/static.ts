@@ -18,9 +18,14 @@ export function create_core_backend_union_static(
   api: CoreBackendUnionApi,
 ): CoreBackendUnionStatic {
   const union_hooks = {
+    block_ctx: api.block_ctx,
     check_core_value_type_name: api.check_core_value_type_name,
+    collect_stmt_locals: api.collect_stmt_locals,
     core_expr_is_text: api.core_expr_is_text,
     expr_type: api.expr_type,
+    scoped_static_core_call_value: api.scoped_static_core_call_value,
+    static_core_call_requires_scope: api.static_core_call_requires_scope,
+    static_core_call_target: api.static_core_call_target,
     static_core_call_value: api.static_core_call_value,
     static_struct_value: api.static_struct_value,
     static_type_value: api.static_type_value,

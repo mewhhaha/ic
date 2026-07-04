@@ -160,6 +160,14 @@ function collect_free_name_counts(
       collect_free_name_counts(ic.expr, bound, counts);
       collect_free_name_counts(ic.body, bound, counts);
       return;
+
+    case "fix": {
+      const body_bound = new Set(bound);
+      body_bound.add(ic.name);
+      collect_free_name_counts(ic.expr, body_bound, counts);
+      collect_free_name_counts(ic.body, body_bound, counts);
+      return;
+    }
   }
 }
 
@@ -298,6 +306,18 @@ function replace_ic_name_with_leaves(
           expr: visit(node.expr),
           body: visit(node.body),
         };
+
+      case "fix":
+        if (node.name === name) {
+          return node;
+        }
+
+        return {
+          tag: "fix",
+          name: node.name,
+          expr: visit(node.expr),
+          body: visit(node.body),
+        };
     }
   }
 
@@ -358,6 +378,14 @@ function ic_name_use_count(ic: IcNode, name: string): number {
     }
 
     case "era":
+      return ic_name_use_count(ic.expr, name) +
+        ic_name_use_count(ic.body, name);
+
+    case "fix":
+      if (ic.name === name) {
+        return 0;
+      }
+
       return ic_name_use_count(ic.expr, name) +
         ic_name_use_count(ic.body, name);
   }

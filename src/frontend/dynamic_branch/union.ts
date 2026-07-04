@@ -4,6 +4,7 @@ import type { Env, FrontExpr, TypeField } from "../ast.ts";
 import { capture_expr } from "../capture.ts";
 import { clone_env, fresh } from "../env.ts";
 import { lookup_type_field } from "../fields.ts";
+import { implicit_fallback_expr } from "../implicit_fallback.ts";
 import { lower_lambda_binding } from "../ic_share.ts";
 import type { DynamicBranchHooks, ResolvedUnionValue } from "./types.ts";
 
@@ -12,13 +13,19 @@ export function lower_dynamic_union_if(
   env: Env,
   hooks: DynamicBranchHooks,
 ): IcNode | undefined {
-  const value = dynamic_union_if_same_case_value(expr, env, hooks);
+  const target_expr = dynamic_union_if_with_implicit_fallback(expr, env, hooks);
+
+  if (!target_expr) {
+    return undefined;
+  }
+
+  const value = dynamic_union_if_same_case_value(target_expr, env, hooks);
 
   if (value) {
     return hooks.lower_union_case_value(value.expr, value.env);
   }
 
-  return lower_dynamic_union_if_handler_value(expr, env, hooks);
+  return lower_dynamic_union_if_handler_value(target_expr, env, hooks);
 }
 
 export function can_lower_dynamic_union_if_as_value(
@@ -26,7 +33,37 @@ export function can_lower_dynamic_union_if_as_value(
   env: Env,
   hooks: DynamicBranchHooks,
 ): boolean {
-  return dynamic_union_if_same_case_value(expr, env, hooks) !== undefined;
+  const target_expr = dynamic_union_if_with_implicit_fallback(expr, env, hooks);
+
+  if (!target_expr) {
+    return false;
+  }
+
+  return dynamic_union_if_same_case_value(target_expr, env, hooks) !==
+    undefined;
+}
+
+function dynamic_union_if_with_implicit_fallback(
+  expr: Extract<FrontExpr, { tag: "if" }>,
+  env: Env,
+  hooks: DynamicBranchHooks,
+): Extract<FrontExpr, { tag: "if" }> | undefined {
+  if (!expr.implicit_else) {
+    return expr;
+  }
+
+  const then_type = hooks.infer_expr(expr.then_branch, env);
+  const fallback = implicit_fallback_expr(then_type, env, hooks);
+
+  if (!fallback) {
+    return undefined;
+  }
+
+  return {
+    ...expr,
+    else_branch: fallback,
+    implicit_else: undefined,
+  };
 }
 
 function dynamic_union_if_same_case_value(

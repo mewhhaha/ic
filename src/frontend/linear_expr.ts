@@ -2,8 +2,11 @@ import { expect } from "../expect.ts";
 import type { FrontExpr, Stmt } from "./ast.ts";
 import {
   clone_linear_closures,
+  type LinearClosureBinding,
   type LinearClosureEnv,
-  resolve_linear_closure_expr,
+  type LinearClosureRef,
+  merge_used_linear_closures,
+  resolve_linear_closure_ref,
 } from "./linear_closure.ts";
 import { same_name_set, same_names } from "./linear_state.ts";
 
@@ -59,9 +62,9 @@ export function consume_linear_expr(
     }
 
     if (item.tag === "app") {
-      const closure = resolve_linear_closure_expr(item.func, closures);
+      const closure = resolve_linear_closure_ref(item.func, closures);
 
-      if (closure && closure.params.length === item.args.length) {
+      if (closure && closure.expr.params.length === item.args.length) {
         consume_linear_closure_call(
           linear_closure_call_name(item.func),
           closure,
@@ -105,12 +108,14 @@ export function consume_linear_expr(
 
     if (item.tag === "block") {
       const before = new Set(available);
+      const block_closures = clone_linear_closures(closures);
       hooks.validate_linear_block(
         item.statements,
         available,
-        clone_linear_closures(closures),
+        block_closures,
         active_calls,
       );
+      merge_used_linear_closures(closures, block_closures);
 
       for (const name of before) {
         if (!available.has(name) && !consumed.includes(name)) {
@@ -146,7 +151,13 @@ export function consume_linear_expr(
         active_calls,
         hooks,
       );
-      merge_linear_branches(available, consumed, then_branch, else_branch);
+      merge_linear_branches(
+        available,
+        consumed,
+        closures,
+        then_branch,
+        else_branch,
+      );
       return;
     }
 
@@ -175,7 +186,13 @@ export function consume_linear_expr(
         active_calls,
         hooks,
       );
-      merge_linear_branches(available, consumed, then_branch, else_branch);
+      merge_linear_branches(
+        available,
+        consumed,
+        closures,
+        then_branch,
+        else_branch,
+      );
       return;
     }
   }
@@ -190,11 +207,13 @@ export function consume_linear_expr(
 
   function consume_linear_closure_call(
     name: string,
-    closure: Extract<FrontExpr, { tag: "lam" }>,
+    closure: LinearClosureRef,
     args: FrontExpr[],
   ): void {
     if (active_calls.has(name)) {
-      throw new Error("Cannot validate recursive linear closure call yet");
+      throw new Error(
+        "Cannot validate recursive linear closure call yet: " + name,
+      );
     }
 
     for (const arg of args) {
@@ -207,7 +226,7 @@ export function consume_linear_expr(
     const local_closures = clone_linear_closures(closures);
     const param_names = new Set<string>();
 
-    for (const param of closure.params) {
+    for (const param of closure.expr.params) {
       param_names.add(param.name);
       local_closures.delete(param.name);
 
@@ -218,16 +237,16 @@ export function consume_linear_expr(
       }
     }
 
-    if (closure.body.tag === "block") {
+    if (closure.expr.body.tag === "block") {
       hooks.validate_linear_block(
-        closure.body.statements,
+        closure.expr.body.statements,
         local_available,
         local_closures,
         active_calls,
       );
     } else {
       consume_linear_expr(
-        closure.body,
+        closure.expr.body,
         local_available,
         "final",
         local_closures,
@@ -238,11 +257,33 @@ export function consume_linear_expr(
 
     active_calls.delete(name);
 
-    for (const param of closure.params) {
+    for (const param of closure.expr.params) {
       if (param.is_linear && local_available.has(param.name)) {
         throw new Error("Linear value " + param.name + " was not consumed");
       }
     }
+
+    let consumed_outer_linear = false;
+
+    for (const used of before) {
+      if (param_names.has(used)) {
+        continue;
+      }
+
+      if (!local_available.has(used)) {
+        consumed_outer_linear = true;
+      }
+    }
+
+    if (consumed_outer_linear && closure.binding) {
+      if (closures.used.has(closure.binding)) {
+        throw new Error("Linear closure " + name + " was already consumed");
+      }
+
+      closures.used.add(closure.binding);
+    }
+
+    merge_used_linear_closures(closures, local_closures);
 
     for (const used of before) {
       if (param_names.has(used)) {
@@ -274,6 +315,7 @@ export function consume_linear_expr(
 export type LinearBranch = {
   available: Set<string>;
   consumed: string[];
+  used_closures: Set<LinearClosureBinding>;
 };
 
 export function consume_linear_condition(
@@ -303,20 +345,26 @@ export function consume_linear_branch(
   hooks: LinearExprHooks,
 ): LinearBranch {
   const branch_available = new Set(available);
+  const branch_closures = clone_linear_closures(closures);
   const branch_consumed = consume_linear_expr(
     expr,
     branch_available,
     mode,
-    clone_linear_closures(closures),
+    branch_closures,
     new Set(active_calls),
     hooks,
   );
-  return { available: branch_available, consumed: branch_consumed };
+  return {
+    available: branch_available,
+    consumed: branch_consumed,
+    used_closures: new Set(branch_closures.used),
+  };
 }
 
 export function merge_linear_branches(
   available: Set<string>,
   consumed: string[],
+  closures: LinearClosureEnv,
   left: LinearBranch,
   right: LinearBranch,
 ): void {
@@ -326,6 +374,15 @@ export function merge_linear_branches(
 
   if (!same_name_set(left.available, right.available)) {
     throw new Error("Linear branches must leave the same available values");
+  }
+
+  if (
+    !same_linear_closure_binding_set(
+      left.used_closures,
+      right.used_closures,
+    )
+  ) {
+    throw new Error("Linear branches must consume the same closures");
   }
 
   available.clear();
@@ -339,4 +396,25 @@ export function merge_linear_branches(
       consumed.push(name);
     }
   }
+
+  for (const id of left.used_closures) {
+    closures.used.add(id);
+  }
+}
+
+function same_linear_closure_binding_set(
+  left: Set<LinearClosureBinding>,
+  right: Set<LinearClosureBinding>,
+): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+
+  for (const binding of left) {
+    if (!right.has(binding)) {
+      return false;
+    }
+  }
+
+  return true;
 }

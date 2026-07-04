@@ -13,7 +13,12 @@ import {
 
 export type FrontendRuntimeStructApi = {
   fresh: (env: Env, name: string) => string;
+  infer_expr: (expr: FrontExpr, env: Env) => FrontType;
   lower_expr: (expr: FrontExpr, env: Env) => IcNode;
+  resolve_app_result_type: (
+    expr: Extract<FrontExpr, { tag: "app" }>,
+    env: Env,
+  ) => FrontType | undefined;
   resolve_annotation_type: (
     annotation: string,
     env: Env,
@@ -50,6 +55,8 @@ export function create_frontend_runtime_struct(
   api: FrontendRuntimeStructApi,
 ): FrontendRuntimeStruct {
   const runtime_struct_type_hooks = {
+    infer_expr: api.infer_expr,
+    resolve_app_result_type: api.resolve_app_result_type,
     resolve_annotation_type: api.resolve_annotation_type,
     resolve_struct_value_type_fields: api.resolve_struct_value_type_fields,
   } satisfies RuntimeStructTypeHooks;

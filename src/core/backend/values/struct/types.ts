@@ -13,6 +13,10 @@ export type CoreBackendStructApi = {
     expr: CoreExpr,
     ctx: StaticCtx,
   ) => CoreExpr | undefined;
+  static_core_call_target: (
+    expr: CoreExpr,
+    ctx: StaticCtx,
+  ) => Extract<CoreExpr, { tag: "lam" }> | undefined;
 };
 
 export type CoreBackendStruct = {

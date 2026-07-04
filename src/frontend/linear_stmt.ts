@@ -3,7 +3,9 @@ import type { FrontExpr, Stmt } from "./ast.ts";
 import {
   bind_linear_closure,
   clone_linear_closures,
+  create_linear_closures,
   type LinearClosureEnv,
+  merge_used_linear_closures,
 } from "./linear_closure.ts";
 import {
   consume_linear_condition as consume_linear_condition_with_hooks,
@@ -55,8 +57,22 @@ function consume_condition(
 export function validate_linear_lam(
   expr: Extract<FrontExpr, { tag: "lam" }>,
 ): void {
+  validate_linear_callable(expr);
+}
+
+export function validate_linear_rec(
+  expr: Extract<FrontExpr, { tag: "rec" }>,
+): void {
+  validate_linear_callable(expr);
+}
+
+function validate_linear_callable(
+  expr:
+    | Extract<FrontExpr, { tag: "lam" }>
+    | Extract<FrontExpr, { tag: "rec" }>,
+): void {
   const available = new Set<string>();
-  const closures: LinearClosureEnv = new Map();
+  const closures = create_linear_closures();
 
   for (const param of expr.params) {
     if (param.is_linear) {
@@ -77,7 +93,7 @@ export function validate_linear_lam(
 
 export function validate_linear_rest(name: string, stmts: Stmt[]): void {
   const available = new Set<string>([name]);
-  const closures: LinearClosureEnv = new Map();
+  const closures = create_linear_closures();
   validate_linear_block(stmts, available, closures);
 
   for (const item of available) {
@@ -248,6 +264,7 @@ function validate_linear_loop_body(
 
     if (stmt.tag === "break" || stmt.tag === "continue") {
       expect_same_linear_state(before, local, stmt.tag);
+      expect_same_linear_closure_state(closures, local_closures, stmt.tag);
       return;
     }
 
@@ -390,6 +407,8 @@ function validate_linear_loop_body(
   }
 
   expect_same_linear_state(before, local, "fallthrough");
+  expect_same_linear_closure_state(closures, local_closures, "fallthrough");
+  merge_used_linear_closures(closures, local_closures);
 }
 
 function validate_linear_no_else_branch(
@@ -401,10 +420,11 @@ function validate_linear_no_else_branch(
 ): void {
   const before = new Set(available);
   const branch = new Set(available);
+  const branch_closures = clone_linear_closures(closures);
   validate_linear_block(
     stmts,
     branch,
-    clone_linear_closures(closures),
+    branch_closures,
     new Set(active_calls),
   );
 
@@ -413,6 +433,8 @@ function validate_linear_no_else_branch(
   }
 
   expect_same_linear_state(before, branch, edge);
+  expect_same_linear_closure_state(closures, branch_closures, edge);
+  merge_used_linear_closures(closures, branch_closures);
 }
 
 function validate_linear_no_else_loop_branch(
@@ -424,10 +446,11 @@ function validate_linear_no_else_loop_branch(
 ): void {
   const before = new Set(available);
   const branch = new Set(available);
+  const branch_closures = clone_linear_closures(closures);
   validate_linear_loop_body(
     stmts,
     branch,
-    clone_linear_closures(closures),
+    branch_closures,
     new Set(active_calls),
   );
 
@@ -436,6 +459,8 @@ function validate_linear_no_else_loop_branch(
   }
 
   expect_same_linear_state(before, branch, edge);
+  expect_same_linear_closure_state(closures, branch_closures, edge);
+  merge_used_linear_closures(closures, branch_closures);
 }
 
 function validate_linear_assignment(
@@ -473,4 +498,35 @@ function validate_linear_assignment(
       "Linear value " + stmt.name + " was rebound without being consumed",
     );
   }
+}
+
+function expect_same_linear_closure_state(
+  before: LinearClosureEnv,
+  after: LinearClosureEnv,
+  edge: string,
+): void {
+  if (same_linear_closure_used_state(before, after)) {
+    return;
+  }
+
+  throw new Error(
+    "Linear closures must be consumed on every " + edge + " path",
+  );
+}
+
+function same_linear_closure_used_state(
+  before: LinearClosureEnv,
+  after: LinearClosureEnv,
+): boolean {
+  if (before.used.size !== after.used.size) {
+    return false;
+  }
+
+  for (const binding of before.used) {
+    if (!after.used.has(binding)) {
+      return false;
+    }
+  }
+
+  return true;
 }

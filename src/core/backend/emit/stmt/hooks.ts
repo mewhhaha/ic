@@ -28,6 +28,7 @@ export function create_core_backend_stmt_emit_hooks(
     is_static_value_expr: api.is_static_value_expr,
     plan_core_lam_capture: api.plan_core_lam_capture,
     plan_static_value_expr: api.plan_static_value_expr,
+    static_core_call_target: api.static_core_call_target,
     static_struct_binding: api.static_struct_binding,
   };
 }

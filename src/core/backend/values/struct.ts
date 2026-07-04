@@ -23,6 +23,7 @@ export function create_core_backend_struct(
     expr_type: api.expr_type,
     runtime_aggregate_type_expr: api.runtime_aggregate_type_expr,
     static_core_call_value: api.static_core_call_value,
+    static_core_call_target: api.static_core_call_target,
   } satisfies StaticStructHooks<StaticCtx>;
 
   function static_struct_value(

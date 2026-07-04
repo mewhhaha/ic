@@ -1,4 +1,10 @@
-import type { Core, CoreExpr, CoreHostImport, CoreStmt } from "./ast.ts";
+import type {
+  Core,
+  CoreExpr,
+  CoreHostImport,
+  CoreParam,
+  CoreStmt,
+} from "./ast.ts";
 import {
   core_host_import_arg_decision,
   core_host_import_for_app,
@@ -10,6 +16,10 @@ import {
   type CoreOwnership,
   type CoreOwnershipHooks,
 } from "./ownership.ts";
+import {
+  static_core_call_branch_app,
+  type StaticCoreCallCtx,
+} from "./static_call.ts";
 
 export type CoreHostBoundaryDecision =
   | {
@@ -48,7 +58,9 @@ export type CoreHostBoundaryClosureCtx<ctx> =
     tag: "skip";
   };
 
-export type CoreHostBoundaryHooks<ctx extends CoreHostImportCtx> =
+export type CoreHostBoundaryHooks<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+> =
   & CoreOwnershipHooks<ctx>
   & {
     closure_body_ctx: (
@@ -71,9 +83,29 @@ type CoreHostBoundaryState = {
   edges: CoreHostBoundaryEdge[];
   scratch_depth: number;
   scratch_locals: Map<string, CoreOwnership>;
+  aliases: Map<string, CoreExpr>;
+  functions: Map<string, StaticHostBoundaryTarget>;
+  active_static_calls: Set<string>;
+  static_wrapper_depth: number;
 };
 
-export function core_host_boundary_plan<ctx extends CoreHostImportCtx>(
+type StaticHostBoundaryFunction = Extract<
+  CoreExpr,
+  { tag: "lam" | "rec" }
+>;
+
+type StaticHostBoundaryTarget =
+  | StaticHostBoundaryFunction
+  | {
+    tag: "branch";
+    kind: "if" | "if_let";
+    then_target: StaticHostBoundaryTarget;
+    else_target: StaticHostBoundaryTarget;
+  };
+
+export function core_host_boundary_plan<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
   core: Core,
   ctx: ctx,
   hooks: CoreHostBoundaryHooks<ctx>,
@@ -83,6 +115,10 @@ export function core_host_boundary_plan<ctx extends CoreHostImportCtx>(
     edges: [],
     scratch_depth: 0,
     scratch_locals: new Map(),
+    aliases: new Map(),
+    functions: new Map(),
+    active_static_calls: new Set(),
+    static_wrapper_depth: 0,
   };
 
   scan_host_boundary_stmts(core.statements, ctx, hooks, state);
@@ -92,7 +128,9 @@ export function core_host_boundary_plan<ctx extends CoreHostImportCtx>(
   };
 }
 
-function scan_host_boundary_stmts<ctx extends CoreHostImportCtx>(
+function scan_host_boundary_stmts<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
   statements: CoreStmt[],
   ctx: ctx,
   hooks: CoreHostBoundaryHooks<ctx>,
@@ -104,7 +142,9 @@ function scan_host_boundary_stmts<ctx extends CoreHostImportCtx>(
   }
 }
 
-function scan_host_boundary_stmt<ctx extends CoreHostImportCtx>(
+function scan_host_boundary_stmt<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
   stmt: CoreStmt,
   ctx: ctx,
   hooks: CoreHostBoundaryHooks<ctx>,
@@ -113,6 +153,17 @@ function scan_host_boundary_stmt<ctx extends CoreHostImportCtx>(
   switch (stmt.tag) {
     case "bind":
     case "assign":
+      if (
+        scan_static_host_boundary_wrapper_definition(
+          stmt.value,
+          ctx,
+          hooks,
+          state,
+        )
+      ) {
+        return;
+      }
+
       scan_host_boundary_expr(stmt.value, ctx, hooks, state);
       return;
 
@@ -168,7 +219,9 @@ function scan_host_boundary_stmt<ctx extends CoreHostImportCtx>(
   }
 }
 
-function scan_host_boundary_expr<ctx extends CoreHostImportCtx>(
+function scan_host_boundary_expr<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
   expr: CoreExpr,
   ctx: ctx,
   hooks: CoreHostBoundaryHooks<ctx>,
@@ -193,10 +246,18 @@ function scan_host_boundary_expr<ctx extends CoreHostImportCtx>(
 
     case "lam":
     case "rec": {
+      if (host_boundary_closure_has_const_params(expr)) {
+        return;
+      }
+
       const closure = hooks.closure_body_ctx(expr, ctx);
 
       if (closure.tag === "scan") {
-        scan_host_boundary_expr(expr.body, closure.ctx, hooks, state);
+        scan_host_boundary_with_shadowed_aliases(
+          expr.params,
+          state,
+          () => scan_host_boundary_expr(expr.body, closure.ctx, hooks, state),
+        );
       }
       return;
     }
@@ -281,43 +342,119 @@ function scan_host_boundary_expr<ctx extends CoreHostImportCtx>(
   }
 }
 
-function scan_host_boundary_app<ctx extends CoreHostImportCtx>(
+function host_boundary_closure_has_const_params(
+  expr: Extract<CoreExpr, { tag: "lam" | "rec" }>,
+): boolean {
+  for (const param of expr.params) {
+    if (param.is_const) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function scan_host_boundary_app<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
   expr: Extract<CoreExpr, { tag: "app" }>,
   ctx: ctx,
   hooks: CoreHostBoundaryHooks<ctx>,
   state: CoreHostBoundaryState,
 ): void {
+  const app = host_boundary_app_with_func_alias(expr, state);
+  const branch_static_call = static_core_call_branch_app(app, ctx, hooks);
+
+  if (branch_static_call) {
+    scan_host_boundary_expr(branch_static_call, ctx, hooks, state);
+    return;
+  }
+
   scan_host_boundary_expr(expr.func, ctx, hooks, state);
 
   for (const arg of expr.args) {
     scan_host_boundary_expr(arg, ctx, hooks, state);
   }
 
-  const signature = core_host_import_for_app(expr, ctx);
+  const state_target = static_host_boundary_app_target(app, state);
 
-  if (core_app_is_known(expr, ctx, hooks, signature)) {
+  if (
+    state_target &&
+    scan_static_host_boundary_call(app, state_target, ctx, hooks, state)
+  ) {
     return;
   }
 
-  if (expr.func.tag !== "var") {
+  const target = hooks.static_core_call_target(app.func, ctx);
+
+  if (
+    target && scan_static_host_boundary_call(app, target, ctx, hooks, state)
+  ) {
     return;
   }
 
-  const args = host_boundary_args(expr, ctx, hooks, signature, state);
-  const decision = host_boundary_decision(expr.func.name, args, signature);
+  const rec_target = hooks.static_core_rec_target(app.func, ctx);
+
+  if (
+    rec_target &&
+    scan_static_host_boundary_call(app, rec_target, ctx, hooks, state)
+  ) {
+    return;
+  }
+
+  const signature = core_host_import_for_app(app, ctx);
+
+  if (
+    signature &&
+    state.static_wrapper_depth > 0 &&
+    host_import_has_ownership_transfer(signature)
+  ) {
+    return;
+  }
+
+  if (core_app_is_known(app, ctx, hooks, signature)) {
+    return;
+  }
+
+  if (app.func.tag !== "var") {
+    return;
+  }
+
+  const args = host_boundary_args(app, ctx, hooks, signature, state);
+  const decision = host_boundary_decision(app.func.name, args, signature);
   const id = "host#" + state.next_host.toString();
   state.next_host += 1;
 
   state.edges.push({
     id,
-    callee: expr.func.name,
+    callee: app.func.name,
     signature,
     args,
     decision,
   });
 }
 
-function core_app_is_known<ctx extends CoreHostImportCtx>(
+function host_boundary_app_with_func_alias(
+  expr: Extract<CoreExpr, { tag: "app" }>,
+  state: CoreHostBoundaryState,
+): Extract<CoreExpr, { tag: "app" }> {
+  if (expr.func.tag !== "var") {
+    return expr;
+  }
+
+  const alias = host_boundary_arg_alias(expr.func, state);
+
+  if (!alias) {
+    return expr;
+  }
+
+  return {
+    ...expr,
+    func: alias,
+  };
+}
+
+function core_app_is_known<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
   expr: Extract<CoreExpr, { tag: "app" }>,
   ctx: ctx,
   hooks: CoreHostBoundaryHooks<ctx>,
@@ -378,12 +515,17 @@ function core_builtin_app_name(name: string): boolean {
   return false;
 }
 
-function collect_host_boundary_stmt_locals<ctx extends CoreHostImportCtx>(
+function collect_host_boundary_stmt_locals<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
   stmt: CoreStmt,
   ctx: ctx,
   hooks: CoreHostBoundaryHooks<ctx>,
   state: CoreHostBoundaryState,
 ): void {
+  record_host_boundary_stmt_alias(stmt, state);
+  bind_host_boundary_stmt_function(stmt, state);
+
   if (!hooks.collect_stmt_locals) {
     return;
   }
@@ -405,7 +547,46 @@ function collect_host_boundary_stmt_locals<ctx extends CoreHostImportCtx>(
   record_host_boundary_scratch_local(stmt.name, stmt.value, ctx, hooks, state);
 }
 
-function host_boundary_args<ctx extends CoreHostImportCtx>(
+function record_host_boundary_stmt_alias(
+  stmt: CoreStmt,
+  state: CoreHostBoundaryState,
+): void {
+  if (stmt.tag !== "bind" && stmt.tag !== "assign") {
+    return;
+  }
+
+  if (stmt.value.tag === "var") {
+    state.aliases.set(stmt.name, stmt.value);
+    return;
+  }
+
+  if (stmt.value.tag === "borrow" && stmt.value.value.tag === "var") {
+    state.aliases.set(stmt.name, stmt.value);
+    return;
+  }
+
+  state.aliases.delete(stmt.name);
+}
+
+function bind_host_boundary_stmt_function(
+  stmt: CoreStmt,
+  state: CoreHostBoundaryState,
+): void {
+  if (stmt.tag !== "bind" && stmt.tag !== "assign") {
+    return;
+  }
+
+  const target = static_host_boundary_function_value(stmt.value, state);
+
+  if (target) {
+    state.functions.set(stmt.name, target);
+    return;
+  }
+
+  state.functions.delete(stmt.name);
+}
+
+function host_boundary_args<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
   expr: Extract<CoreExpr, { tag: "app" }>,
   ctx: ctx,
   hooks: CoreHostBoundaryHooks<ctx>,
@@ -433,13 +614,21 @@ function host_boundary_args<ctx extends CoreHostImportCtx>(
   return args;
 }
 
-function host_boundary_arg_ownership<ctx extends CoreHostImportCtx>(
+function host_boundary_arg_ownership<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
   arg: CoreExpr,
   ctx: ctx,
   hooks: CoreHostBoundaryHooks<ctx>,
   state: CoreHostBoundaryState,
 ): CoreOwnership {
   if (arg.tag === "var") {
+    const alias = host_boundary_arg_alias(arg, state);
+
+    if (alias) {
+      return host_boundary_arg_ownership(alias, ctx, hooks, state);
+    }
+
     const scratch_local = state.scratch_locals.get(arg.name);
 
     if (scratch_local) {
@@ -448,6 +637,20 @@ function host_boundary_arg_ownership<ctx extends CoreHostImportCtx>(
   }
 
   if (arg.tag === "borrow" && arg.value.tag === "var") {
+    const alias = host_boundary_arg_alias(arg.value, state);
+
+    if (alias) {
+      return host_boundary_arg_ownership(
+        {
+          tag: "borrow",
+          value: alias,
+        },
+        ctx,
+        hooks,
+        state,
+      );
+    }
+
     const scratch_local = state.scratch_locals.get(arg.value.name);
 
     if (scratch_local) {
@@ -482,7 +685,9 @@ function host_boundary_arg_ownership<ctx extends CoreHostImportCtx>(
   };
 }
 
-function record_host_boundary_scratch_local<ctx extends CoreHostImportCtx>(
+function record_host_boundary_scratch_local<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
   name: string,
   value: CoreExpr,
   ctx: ctx,
@@ -508,7 +713,7 @@ function record_host_boundary_scratch_local<ctx extends CoreHostImportCtx>(
 }
 
 function host_boundary_expr_allocates_in_scratch<
-  ctx extends CoreHostImportCtx,
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
 >(
   expr: CoreExpr,
   ctx: ctx,
@@ -563,6 +768,612 @@ function host_boundary_expr_allocates_in_scratch<
   }
 
   return false;
+}
+
+function scan_static_host_boundary_call<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
+  expr: Extract<CoreExpr, { tag: "app" }>,
+  target: StaticHostBoundaryTarget,
+  ctx: ctx,
+  hooks: CoreHostBoundaryHooks<ctx>,
+  state: CoreHostBoundaryState,
+): boolean {
+  const params = static_host_boundary_target_params(target);
+
+  if (!params) {
+    return false;
+  }
+
+  if (params.length !== expr.args.length) {
+    return false;
+  }
+
+  let call_name: string | undefined;
+
+  if (expr.func.tag === "var") {
+    call_name = expr.func.name;
+
+    if (state.active_static_calls.has(call_name)) {
+      return true;
+    }
+  }
+
+  const previous_aliases = state.aliases;
+  state.aliases = new Map(previous_aliases);
+
+  for (let index = 0; index < params.length; index += 1) {
+    const param = params[index];
+    const arg = expr.args[index];
+
+    if (!param) {
+      throw new Error("Missing host boundary wrapper parameter");
+    }
+
+    if (!arg) {
+      throw new Error("Missing host boundary wrapper argument");
+    }
+
+    state.aliases.set(param.name, arg);
+  }
+
+  if (!static_host_boundary_wrapper_target(target, ctx, hooks, state)) {
+    state.aliases = previous_aliases;
+    return false;
+  }
+
+  if (call_name) {
+    state.active_static_calls.add(call_name);
+  }
+
+  state.static_wrapper_depth += 1;
+
+  try {
+    scan_static_host_boundary_target_call(
+      target,
+      expr.args,
+      ctx,
+      hooks,
+      state,
+    );
+  } finally {
+    state.static_wrapper_depth -= 1;
+
+    if (call_name) {
+      state.active_static_calls.delete(call_name);
+    }
+
+    state.aliases = previous_aliases;
+  }
+
+  return true;
+}
+
+function static_host_boundary_wrapper_target<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
+  target: StaticHostBoundaryTarget,
+  ctx: ctx,
+  hooks: CoreHostBoundaryHooks<ctx>,
+  state: CoreHostBoundaryState,
+): boolean {
+  if (target.tag === "branch") {
+    return static_host_boundary_wrapper_target(
+      target.then_target,
+      ctx,
+      hooks,
+      state,
+    ) &&
+      static_host_boundary_wrapper_target(
+        target.else_target,
+        ctx,
+        hooks,
+        state,
+      );
+  }
+
+  return static_host_boundary_wrapper_body(target.body, ctx, hooks, state);
+}
+
+function scan_static_host_boundary_target_call<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
+  target: StaticHostBoundaryTarget,
+  args: CoreExpr[],
+  ctx: ctx,
+  hooks: CoreHostBoundaryHooks<ctx>,
+  state: CoreHostBoundaryState,
+): void {
+  if (target.tag === "lam" || target.tag === "rec") {
+    let body_ctx = ctx;
+    const closure = hooks.closure_body_ctx(target, ctx);
+
+    if (closure.tag === "scan") {
+      body_ctx = closure.ctx;
+    }
+
+    const previous_aliases = state.aliases;
+    state.aliases = new Map(previous_aliases);
+
+    for (let index = 0; index < target.params.length; index += 1) {
+      const param = target.params[index];
+      const arg = args[index];
+
+      if (!param) {
+        throw new Error("Missing host boundary target parameter");
+      }
+
+      if (!arg) {
+        throw new Error("Missing host boundary target argument");
+      }
+
+      state.aliases.set(param.name, arg);
+    }
+
+    try {
+      scan_host_boundary_expr(target.body, body_ctx, hooks, state);
+    } finally {
+      state.aliases = previous_aliases;
+    }
+    return;
+  }
+
+  scan_static_host_boundary_target_call(
+    target.then_target,
+    args,
+    ctx,
+    hooks,
+    state,
+  );
+  scan_static_host_boundary_target_call(
+    target.else_target,
+    args,
+    ctx,
+    hooks,
+    state,
+  );
+}
+
+function static_host_boundary_target_params(
+  target: StaticHostBoundaryTarget,
+): CoreParam[] | undefined {
+  if (target.tag === "lam" || target.tag === "rec") {
+    return target.params;
+  }
+
+  const then_params = static_host_boundary_target_params(target.then_target);
+  const else_params = static_host_boundary_target_params(target.else_target);
+
+  if (!then_params) {
+    return undefined;
+  }
+
+  if (!else_params) {
+    return undefined;
+  }
+
+  if (then_params.length !== else_params.length) {
+    return undefined;
+  }
+
+  return then_params;
+}
+
+function scan_static_host_boundary_wrapper_definition<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
+  expr: CoreExpr,
+  ctx: ctx,
+  hooks: CoreHostBoundaryHooks<ctx>,
+  state: CoreHostBoundaryState,
+): boolean {
+  const target = static_host_boundary_function_value(expr, state);
+
+  if (!target) {
+    return false;
+  }
+
+  if (!static_host_boundary_wrapper_target(target, ctx, hooks, state)) {
+    return false;
+  }
+
+  scan_static_host_boundary_wrapper_definition_conditions(
+    expr,
+    ctx,
+    hooks,
+    state,
+  );
+  return true;
+}
+
+function scan_static_host_boundary_wrapper_definition_conditions<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
+  expr: CoreExpr,
+  ctx: ctx,
+  hooks: CoreHostBoundaryHooks<ctx>,
+  state: CoreHostBoundaryState,
+): void {
+  if (expr.tag === "block") {
+    const final_stmt = expr.statements[expr.statements.length - 1];
+
+    if (!final_stmt) {
+      return;
+    }
+
+    if (final_stmt.tag === "expr") {
+      scan_static_host_boundary_wrapper_definition_conditions(
+        final_stmt.expr,
+        ctx,
+        hooks,
+        state,
+      );
+      return;
+    }
+
+    if (final_stmt.tag === "return") {
+      scan_static_host_boundary_wrapper_definition_conditions(
+        final_stmt.value,
+        ctx,
+        hooks,
+        state,
+      );
+    }
+
+    return;
+  }
+
+  if (expr.tag === "if") {
+    scan_host_boundary_expr(expr.cond, ctx, hooks, state);
+    return;
+  }
+
+  if (expr.tag === "if_let") {
+    scan_host_boundary_expr(expr.target, ctx, hooks, state);
+  }
+}
+
+function static_host_boundary_app_target(
+  expr: Extract<CoreExpr, { tag: "app" }>,
+  state: CoreHostBoundaryState,
+): StaticHostBoundaryTarget | undefined {
+  if (expr.func.tag !== "var") {
+    return undefined;
+  }
+
+  const direct = state.functions.get(expr.func.name);
+
+  if (direct) {
+    return direct;
+  }
+
+  const alias = host_boundary_arg_alias(expr.func, state);
+
+  if (!alias || alias.tag !== "var") {
+    return undefined;
+  }
+
+  return state.functions.get(alias.name);
+}
+
+function static_host_boundary_function_value(
+  expr: CoreExpr,
+  state: CoreHostBoundaryState,
+): StaticHostBoundaryTarget | undefined {
+  const direct = static_host_boundary_function(expr);
+
+  if (direct) {
+    return direct;
+  }
+
+  if (expr.tag === "var") {
+    return state.functions.get(expr.name);
+  }
+
+  if (expr.tag === "block") {
+    const final_stmt = expr.statements[expr.statements.length - 1];
+
+    if (!final_stmt) {
+      return undefined;
+    }
+
+    if (final_stmt.tag === "expr") {
+      return static_host_boundary_function_value(final_stmt.expr, state);
+    }
+
+    if (final_stmt.tag === "return") {
+      return static_host_boundary_function_value(final_stmt.value, state);
+    }
+
+    return undefined;
+  }
+
+  if (expr.tag === "if") {
+    const then_target = static_host_boundary_function_value(
+      expr.then_branch,
+      state,
+    );
+    const else_target = static_host_boundary_function_value(
+      expr.else_branch,
+      state,
+    );
+
+    if (!then_target || !else_target) {
+      return undefined;
+    }
+
+    return {
+      tag: "branch",
+      kind: "if",
+      then_target,
+      else_target,
+    };
+  }
+
+  if (expr.tag === "if_let") {
+    const then_target = static_host_boundary_function_value(
+      expr.then_branch,
+      state,
+    );
+    const else_target = static_host_boundary_function_value(
+      expr.else_branch,
+      state,
+    );
+
+    if (!then_target || !else_target) {
+      return undefined;
+    }
+
+    return {
+      tag: "branch",
+      kind: "if_let",
+      then_target,
+      else_target,
+    };
+  }
+
+  return undefined;
+}
+
+function static_host_boundary_function(
+  expr: CoreExpr,
+): StaticHostBoundaryTarget | undefined {
+  if (expr.tag === "lam" || expr.tag === "rec") {
+    return expr;
+  }
+
+  if (expr.tag === "block") {
+    const final_stmt = expr.statements[expr.statements.length - 1];
+
+    if (!final_stmt) {
+      return undefined;
+    }
+
+    if (final_stmt.tag === "expr") {
+      return static_host_boundary_function(final_stmt.expr);
+    }
+
+    if (final_stmt.tag === "return") {
+      return static_host_boundary_function(final_stmt.value);
+    }
+
+    return undefined;
+  }
+
+  if (expr.tag === "if") {
+    const then_target = static_host_boundary_function(expr.then_branch);
+    const else_target = static_host_boundary_function(expr.else_branch);
+
+    if (!then_target || !else_target) {
+      return undefined;
+    }
+
+    return {
+      tag: "branch",
+      kind: "if",
+      then_target,
+      else_target,
+    };
+  }
+
+  if (expr.tag === "if_let") {
+    const then_target = static_host_boundary_function(expr.then_branch);
+    const else_target = static_host_boundary_function(expr.else_branch);
+
+    if (!then_target || !else_target) {
+      return undefined;
+    }
+
+    return {
+      tag: "branch",
+      kind: "if_let",
+      then_target,
+      else_target,
+    };
+  }
+
+  return undefined;
+}
+
+function static_host_boundary_wrapper_body<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
+  expr: CoreExpr,
+  ctx: ctx,
+  hooks: CoreHostBoundaryHooks<ctx>,
+  state: CoreHostBoundaryState,
+): boolean {
+  if (expr.tag === "app") {
+    return static_host_boundary_wrapper_app(expr, ctx, hooks, state);
+  }
+
+  if (expr.tag === "block") {
+    if (expr.statements.length === 0) {
+      return false;
+    }
+
+    const previous_aliases = state.aliases;
+    state.aliases = new Map(previous_aliases);
+
+    try {
+      for (let index = 0; index + 1 < expr.statements.length; index += 1) {
+        const stmt = expr.statements[index];
+
+        if (!stmt) {
+          throw new Error("Missing host boundary wrapper statement");
+        }
+
+        if (!static_host_boundary_wrapper_prefix_stmt(stmt)) {
+          return false;
+        }
+
+        record_host_boundary_stmt_alias(stmt, state);
+      }
+
+      const final_stmt = expr.statements[expr.statements.length - 1];
+
+      if (!final_stmt) {
+        throw new Error("Missing host boundary wrapper final statement");
+      }
+
+      if (final_stmt.tag === "expr") {
+        return static_host_boundary_wrapper_body(
+          final_stmt.expr,
+          ctx,
+          hooks,
+          state,
+        );
+      }
+
+      if (final_stmt.tag === "return") {
+        return static_host_boundary_wrapper_body(
+          final_stmt.value,
+          ctx,
+          hooks,
+          state,
+        );
+      }
+    } finally {
+      state.aliases = previous_aliases;
+    }
+  }
+
+  return false;
+}
+
+function static_host_boundary_wrapper_prefix_stmt(stmt: CoreStmt): boolean {
+  if (stmt.tag !== "bind" && stmt.tag !== "assign") {
+    return false;
+  }
+
+  if (stmt.value.tag === "var") {
+    return true;
+  }
+
+  if (stmt.value.tag === "borrow" && stmt.value.value.tag === "var") {
+    return true;
+  }
+
+  return false;
+}
+
+function static_host_boundary_wrapper_app<
+  ctx extends CoreHostImportCtx & StaticCoreCallCtx,
+>(
+  expr: Extract<CoreExpr, { tag: "app" }>,
+  ctx: ctx,
+  hooks: CoreHostBoundaryHooks<ctx>,
+  state: CoreHostBoundaryState,
+): boolean {
+  const app = host_boundary_app_with_func_alias(expr, state);
+  const signature = core_host_import_for_app(app, ctx);
+
+  if (signature) {
+    return !host_import_has_ownership_transfer(signature);
+  }
+
+  const state_target = static_host_boundary_app_target(app, state);
+
+  if (state_target) {
+    return static_host_boundary_wrapper_target(
+      state_target,
+      ctx,
+      hooks,
+      state,
+    );
+  }
+
+  const target = hooks.static_core_call_target(app.func, ctx);
+
+  if (!target) {
+    return false;
+  }
+
+  return static_host_boundary_wrapper_target(target, ctx, hooks, state);
+}
+
+function host_import_has_ownership_transfer(
+  signature: CoreHostImport,
+): boolean {
+  for (const arg of signature.args) {
+    if (arg.tag === "ownership_transfer") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function scan_host_boundary_with_shadowed_aliases(
+  params: CoreParam[],
+  state: CoreHostBoundaryState,
+  scan: () => void,
+): void {
+  const previous_aliases = state.aliases;
+  state.aliases = new Map(previous_aliases);
+
+  for (const param of params) {
+    state.aliases.delete(param.name);
+  }
+
+  try {
+    scan();
+  } finally {
+    state.aliases = previous_aliases;
+  }
+}
+
+function host_boundary_arg_alias(
+  arg: Extract<CoreExpr, { tag: "var" }>,
+  state: CoreHostBoundaryState,
+): CoreExpr | undefined {
+  const seen = new Set<string>();
+  let current = arg.name;
+  let resolved = false;
+
+  while (true) {
+    if (seen.has(current)) {
+      return undefined;
+    }
+
+    seen.add(current);
+    const alias = state.aliases.get(current);
+
+    if (!alias) {
+      if (resolved) {
+        return { tag: "var", name: current };
+      }
+
+      return undefined;
+    }
+
+    if (alias.tag !== "var") {
+      return alias;
+    }
+
+    resolved = true;
+    current = alias.name;
+  }
 }
 
 function host_boundary_arg_decision(

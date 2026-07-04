@@ -1,4 +1,5 @@
 import type { CoreExpr, CoreField, CoreStmt } from "../ast.ts";
+import type { CoreFnType } from "../ast.ts";
 import {
   find_core_field,
   maybe_static_i32,
@@ -34,6 +35,7 @@ import {
 } from "../runtime_aggregate.ts";
 import { core_scratch_plan, declare_core_scratch_locals } from "../scratch.ts";
 import {
+  static_core_call_branch_app,
   static_core_call_requires_scope,
   static_core_rec_target,
 } from "../static_call.ts";
@@ -82,7 +84,7 @@ export function collect_core_expr_locals(
 
       const static_value = ctx.statics.get(expr.name);
 
-      if (static_value && hooks.closure_fn_type(expr, ctx)) {
+      if (static_value && local_collect_closure_fn_type(expr, ctx, hooks)) {
         api.collect_expr_locals(static_value, ctx, hooks);
         return;
       }
@@ -91,7 +93,7 @@ export function collect_core_expr_locals(
       return;
 
     case "lam": {
-      const fn_type = hooks.closure_fn_type(expr, ctx);
+      const fn_type = local_collect_closure_fn_type(expr, ctx, hooks);
 
       if (fn_type) {
         collect_runtime_closure_locals(ctx);
@@ -119,6 +121,17 @@ export function collect_core_expr_locals(
 
     case "app": {
       if (hooks.collect_runtime_union_value_locals(expr, ctx)) {
+        return;
+      }
+
+      const branch_static_call = static_core_call_branch_app(
+        expr,
+        ctx,
+        hooks,
+      );
+
+      if (branch_static_call) {
+        api.collect_expr_locals(branch_static_call, ctx, hooks);
         return;
       }
 
@@ -157,7 +170,7 @@ export function collect_core_expr_locals(
         return;
       }
 
-      const fn_type = hooks.closure_fn_type(expr.func, ctx);
+      const fn_type = local_collect_closure_fn_type(expr.func, ctx, hooks);
 
       if (fn_type) {
         hooks.check_closure_call_args(expr, fn_type, ctx);
@@ -166,7 +179,7 @@ export function collect_core_expr_locals(
 
       if (
         expr.func.tag === "var" && expr.func.name === "append" &&
-        !hooks.closure_fn_type(expr.func, ctx)
+        !local_collect_closure_fn_type(expr.func, ctx, hooks)
       ) {
         const locals = runtime_text_concat_plan(ctx);
         declare_runtime_text_concat_locals(locals, ctx);
@@ -246,7 +259,7 @@ export function collect_core_expr_locals(
 
       api.collect_expr_locals(expr.cond, ctx, hooks);
       {
-        const fn_type = hooks.closure_fn_type(expr, ctx);
+        const fn_type = local_collect_closure_fn_type(expr, ctx, hooks);
 
         if (fn_type) {
           collect_closure_value_locals_with_type(
@@ -279,7 +292,7 @@ export function collect_core_expr_locals(
 
     case "if_let":
       {
-        const fn_type = hooks.closure_fn_type(expr, ctx);
+        const fn_type = local_collect_closure_fn_type(expr, ctx, hooks);
 
         if (fn_type) {
           collect_closure_if_let_value_locals_with_type(
@@ -345,6 +358,38 @@ export function collect_core_expr_locals(
       hooks.collect_runtime_union_value_locals(expr, ctx);
       return;
   }
+}
+
+function local_collect_closure_fn_type(
+  expr: CoreExpr,
+  ctx: CoreCtx,
+  hooks: CoreLocalCollectHooks,
+): CoreFnType | undefined {
+  try {
+    return hooks.closure_fn_type(expr, ctx);
+  } catch (error) {
+    if (local_collect_closure_probe_error(error)) {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+function local_collect_closure_probe_error(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  if (
+    error.message.startsWith(
+      "Core first-class closure parameter must use a scalar annotation:",
+    )
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function collect_runtime_aggregate_freeze_copy_locals(

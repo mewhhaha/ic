@@ -8,7 +8,7 @@ export function core_text_layout_param_type(
   const annotation = param.annotation;
 
   if (!annotation) {
-    return undefined;
+    return "i32";
   }
 
   return core_val_type_from_type_name(annotation);

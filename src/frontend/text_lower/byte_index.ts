@@ -4,8 +4,10 @@ import { Ic } from "../../ic.ts";
 import type { Env, FrontExpr } from "../ast.ts";
 import { unwrap_ownership_wrapper_expr } from "../ownership.ts";
 import { text_content_bytes } from "../text.ts";
+import { lower_expr_as_front_type } from "../typed_lower.ts";
 import type { TextLowerHooks } from "../text_lower_types.ts";
 import { visible_text_value } from "../text_visible.ts";
+import { lower_text_app_result } from "./app_result.ts";
 
 type TextBranchBounds = "throw" | "trap";
 
@@ -110,7 +112,10 @@ function lower_visible_text_byte_index(
     };
   }
 
-  throw new Error("Cannot lower visible text byte index yet");
+  throw new Error(
+    "Visible text byte index expected normalized text or if, got: " +
+      text.tag,
+  );
 }
 
 export function lower_runtime_text_byte_index(
@@ -146,9 +151,26 @@ export function lower_runtime_text_byte_index(
   }
 
   const object_type = hooks.infer_expr(object, env);
+  let lowered_object: IcNode;
 
-  if (object_type.tag !== "text") {
-    return undefined;
+  if (object_type.tag === "text") {
+    lowered_object = hooks.lower_expr(object, env);
+  } else {
+    if (object_type.tag !== "unknown") {
+      return undefined;
+    }
+
+    const lowered_text_object = lower_unknown_text_object(
+      object,
+      env,
+      hooks,
+    );
+
+    if (!lowered_text_object) {
+      return undefined;
+    }
+
+    lowered_object = lowered_text_object;
   }
 
   const index_type = hooks.infer_expr(index, env);
@@ -166,7 +188,6 @@ export function lower_runtime_text_byte_index(
     throw new Error("Text index out of bounds: " + static_index.toString());
   }
 
-  const lowered_object = hooks.lower_expr(object, env);
   const lowered_index = hooks.lower_expr(index, env);
   const length: IcNode = {
     tag: "prim",
@@ -227,6 +248,27 @@ export function lower_runtime_text_byte_index(
       },
     ],
   };
+}
+
+function lower_unknown_text_object(
+  object: FrontExpr,
+  env: Env,
+  hooks: TextLowerHooks,
+): IcNode | undefined {
+  if (object.tag === "if_let") {
+    return lower_expr_as_front_type(
+      object,
+      { tag: "text" },
+      env,
+      hooks,
+    );
+  }
+
+  if (object.tag === "app") {
+    return lower_text_app_result(object, env, hooks);
+  }
+
+  return undefined;
 }
 
 function normalize_text_read_object(expr: FrontExpr): FrontExpr {
@@ -375,7 +417,10 @@ function lower_dynamic_visible_text_byte_index(
     };
   }
 
-  throw new Error("Cannot lower visible text byte index yet");
+  throw new Error(
+    "Visible text byte index expected normalized text or if, got: " +
+      text.tag,
+  );
 }
 
 function check_text_index_type(

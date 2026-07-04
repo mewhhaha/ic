@@ -6,11 +6,16 @@ import {
 } from "./dynamic_union_cases.ts";
 import { clone_env, fresh, push_binding } from "./env.ts";
 import { lookup_type_field } from "./fields.ts";
+import {
+  can_implicit_fallback_type,
+  implicit_fallback_expr,
+} from "./implicit_fallback.ts";
 import { lower_lambda_binding } from "./ic_share.ts";
 import type { IfLetHooks } from "./if_let_types.ts";
 import {
   common_front_type,
   front_type_from_type_name,
+  front_type_name,
   numeric_front_type,
 } from "./types.ts";
 
@@ -104,7 +109,7 @@ export function common_if_let_type(
 
   if (
     implicit_else &&
-    (then_type.tag === "int" || then_type.tag === "text")
+    can_implicit_fallback_type(then_type)
   ) {
     return then_type;
   }
@@ -124,21 +129,17 @@ export function lower_if_let_else_branch(
 
   const type = infer_if_let_then_type(expr, cases, env, hooks);
 
-  if (type.tag === "text") {
-    return { tag: "text", value: "" };
-  }
+  const fallback = implicit_fallback_expr(type, env, hooks);
 
-  if (type.tag !== "int") {
+  if (!fallback) {
     throw new Error(
-      "Cannot lower no-else if let with non-scalar branch yet",
+      "No-else if let implicit fallback supports Int, I64, Text, " +
+        "struct, or union, got " +
+        front_type_name(type),
     );
   }
 
-  if (type.type === "i64") {
-    return { tag: "num", type: "i64", value: 0n };
-  }
-
-  return { tag: "num", type: "i32", value: 0 };
+  return hooks.lower_expr(fallback, env);
 }
 
 export function lower_if_let_handler(

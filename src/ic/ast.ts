@@ -9,4 +9,5 @@ export type Ic =
   | { tag: "app"; func: Ic; arg: Ic }
   | { tag: "sup"; label: string; left: Ic; right: Ic }
   | { tag: "dup"; label: string; name: string; expr: Ic; body: Ic }
-  | { tag: "era"; expr: Ic; body: Ic };
+  | { tag: "era"; expr: Ic; body: Ic }
+  | { tag: "fix"; name: string; expr: Ic; body: Ic };

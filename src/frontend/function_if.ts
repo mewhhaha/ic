@@ -1,5 +1,5 @@
 import { expect } from "../expect.ts";
-import type { Env, FrontExpr, FrontType, Param } from "./ast.ts";
+import type { Env, FrontExpr, FrontType, Param, Stmt } from "./ast.ts";
 import { clone_env, fresh, lookup, push_binding } from "./env.ts";
 import { common_front_type, same_type } from "./types.ts";
 
@@ -17,6 +17,12 @@ function resolve_direct_lambda_seen(
 ): { expr: Extract<FrontExpr, { tag: "lam" }>; env: Env } | undefined {
   if (expr.tag === "captured") {
     return resolve_direct_lambda_seen(expr.expr, expr.env, seen);
+  }
+
+  const block_alias = direct_lambda_alias_block(expr, env, seen);
+
+  if (block_alias) {
+    return block_alias;
   }
 
   if (expr.tag === "block" && expr.statements.length === 1) {
@@ -61,6 +67,88 @@ function resolve_direct_lambda_seen(
   return { expr, env };
 }
 
+function direct_lambda_alias_block(
+  expr: FrontExpr,
+  env: Env,
+  seen: Set<string>,
+): { expr: Extract<FrontExpr, { tag: "lam" }>; env: Env } | undefined {
+  if (expr.tag !== "block" || expr.statements.length <= 1) {
+    return undefined;
+  }
+
+  const result = expr.statements[expr.statements.length - 1];
+  expect(result, "Missing function alias block result");
+
+  const result_expr = direct_lambda_block_result(result);
+
+  if (!result_expr) {
+    return undefined;
+  }
+
+  const local = clone_inline_value_env(env);
+
+  for (let index = 0; index < expr.statements.length - 1; index += 1) {
+    const stmt = expr.statements[index];
+    expect(stmt, "Missing function alias block binding " + index);
+
+    if (stmt.tag !== "bind") {
+      return undefined;
+    }
+
+    if (stmt.is_linear) {
+      return undefined;
+    }
+
+    const ic_name = fresh(local, stmt.name);
+    const value_env = clone_inline_value_env(local);
+
+    // Block-local bindings are inlined through the captured environment; this
+    // path does not emit separate Ic lets for the block prefix.
+    push_binding(local, {
+      name: stmt.name,
+      ic_name,
+      type: { tag: "unknown" },
+      is_const: true,
+      is_linear: false,
+      value: stmt.value,
+      value_env,
+    });
+  }
+
+  return resolve_direct_lambda_seen(result_expr, local, seen);
+}
+
+function clone_inline_value_env(env: Env): Env {
+  const cloned = clone_env(env);
+
+  for (const scope of cloned.scopes) {
+    for (const [name, binding] of scope) {
+      if (!binding.value || binding.is_linear) {
+        continue;
+      }
+
+      scope.set(name, {
+        ...binding,
+        is_const: true,
+      });
+    }
+  }
+
+  return cloned;
+}
+
+function direct_lambda_block_result(stmt: Stmt): FrontExpr | undefined {
+  if (stmt.tag === "expr") {
+    return stmt.expr;
+  }
+
+  if (stmt.tag === "return") {
+    return stmt.value;
+  }
+
+  return undefined;
+}
+
 export function function_if_param_types(
   left: Param[],
   left_env: Env,
@@ -89,7 +177,7 @@ export function function_if_param_types(
       return undefined;
     }
 
-    if (left_param.is_linear || right_param.is_linear) {
+    if (left_param.is_linear !== right_param.is_linear) {
       return undefined;
     }
 
@@ -175,7 +263,7 @@ export function bind_function_if_params(
       ic_name,
       type,
       is_const: false,
-      is_linear: false,
+      is_linear: left_param.is_linear,
       value: undefined,
       value_env: undefined,
     });
@@ -184,7 +272,7 @@ export function bind_function_if_params(
       ic_name,
       type,
       is_const: false,
-      is_linear: false,
+      is_linear: right_param.is_linear,
       value: undefined,
       value_env: undefined,
     });

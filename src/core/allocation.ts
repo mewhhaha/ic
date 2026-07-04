@@ -53,6 +53,18 @@ export type CoreAllocationHooks<ctx> = CoreOwnershipHooks<ctx> & {
   ) => boolean;
   is_static_value_expr: (expr: CoreExpr, ctx: ctx) => boolean;
   runtime_union_value: (expr: CoreExpr, ctx: ctx) => CoreExpr | undefined;
+  scoped_static_core_call_value?: (
+    expr: Extract<CoreExpr, { tag: "app" }>,
+    target: Extract<CoreExpr, { tag: "lam" }>,
+    ctx: ctx,
+  ) => { value: CoreExpr; ctx: ctx };
+  static_core_call_requires_scope?: (
+    target: Extract<CoreExpr, { tag: "lam" }>,
+  ) => boolean;
+  static_core_call_target?: (
+    expr: CoreExpr,
+    ctx: ctx,
+  ) => Extract<CoreExpr, { tag: "lam" }> | undefined;
   static_core_call_value: (expr: CoreExpr, ctx: ctx) => CoreExpr | undefined;
   static_struct_value: (
     expr: CoreExpr,
@@ -67,6 +79,7 @@ type CoreAllocationState = {
   next_closure: number;
   next_scratch: number;
   facts: CoreAllocationFact[];
+  recorded: WeakMap<CoreExpr, Set<string>>;
 };
 
 type CoreAllocationScope = {
@@ -85,6 +98,7 @@ export function core_allocation_plan<ctx>(
     next_closure: 0,
     next_scratch: 0,
     facts: [],
+    recorded: new WeakMap(),
   };
 
   scan_allocation_stmts(
@@ -116,6 +130,7 @@ function scan_static_value_allocation_expr<ctx>(
   ctx: ctx,
   hooks: CoreAllocationHooks<ctx>,
   state: CoreAllocationState,
+  record_runtime_union_owner: boolean,
 ): void {
   const struct_value = hooks.static_struct_value(expr, ctx);
 
@@ -127,8 +142,60 @@ function scan_static_value_allocation_expr<ctx>(
   const union_value = hooks.runtime_union_value(expr, ctx);
 
   if (union_value) {
+    if (record_runtime_union_owner) {
+      record_static_runtime_union_owner_allocations(
+        union_value,
+        scope,
+        ctx,
+        hooks,
+        state,
+      );
+      return;
+    }
+
     scan_static_value_union_allocations(union_value, scope, ctx, hooks, state);
   }
+}
+
+function record_static_runtime_union_owner_allocations<ctx>(
+  value: CoreExpr,
+  scope: CoreAllocationScope,
+  ctx: ctx,
+  hooks: CoreAllocationHooks<ctx>,
+  state: CoreAllocationState,
+): void {
+  if (value.tag === "if") {
+    record_static_runtime_union_owner_allocations(
+      value.then_branch,
+      scope,
+      ctx,
+      hooks,
+      state,
+    );
+    record_static_runtime_union_owner_allocations(
+      value.else_branch,
+      scope,
+      ctx,
+      hooks,
+      state,
+    );
+    return;
+  }
+
+  if (value.tag !== "union_case") {
+    record_allocation(value, "runtime_union", scope, state);
+    return;
+  }
+
+  if (value.type_expr) {
+    scan_allocation_expr(value.type_expr, scope, ctx, hooks, state);
+  }
+
+  if (value.value) {
+    scan_allocation_expr(value.value, scope, ctx, hooks, state);
+  }
+
+  record_allocation(value, "runtime_union", scope, state);
 }
 
 function scan_static_value_union_allocations<ctx>(
@@ -165,6 +232,37 @@ function scan_static_value_union_allocations<ctx>(
   }
 }
 
+function static_value_materializes_runtime_union_owner<ctx>(
+  expr: CoreExpr,
+  has_annotation: boolean,
+  ctx: ctx,
+  hooks: CoreAllocationHooks<ctx>,
+): boolean {
+  const ownership = core_expr_ownership(expr, ctx, hooks);
+
+  if (ownership.tag !== "unique_heap") {
+    return false;
+  }
+
+  if (ownership.reason !== "runtime_union") {
+    return false;
+  }
+
+  if (has_annotation) {
+    return true;
+  }
+
+  if (expr.tag === "union_case") {
+    if (expr.type_expr) {
+      return true;
+    }
+
+    return false;
+  }
+
+  return true;
+}
+
 function scan_allocation_stmt<ctx>(
   stmt: CoreStmt,
   scope: CoreAllocationScope,
@@ -174,8 +272,26 @@ function scan_allocation_stmt<ctx>(
 ): void {
   switch (stmt.tag) {
     case "bind":
+      if (
+        allocation_stmt_value_is_scoped_static_call_target(stmt, ctx, hooks)
+      ) {
+        return;
+      }
+
       if (hooks.is_static_value_expr(stmt.value, ctx)) {
-        scan_static_value_allocation_expr(stmt.value, scope, ctx, hooks, state);
+        scan_static_value_allocation_expr(
+          stmt.value,
+          scope,
+          ctx,
+          hooks,
+          state,
+          static_value_materializes_runtime_union_owner(
+            stmt.value,
+            !!stmt.annotation,
+            ctx,
+            hooks,
+          ),
+        );
         return;
       }
 
@@ -183,8 +299,26 @@ function scan_allocation_stmt<ctx>(
       return;
 
     case "assign":
+      if (
+        allocation_stmt_value_is_scoped_static_call_target(stmt, ctx, hooks)
+      ) {
+        return;
+      }
+
       if (hooks.is_static_value_expr(stmt.value, ctx)) {
-        scan_static_value_allocation_expr(stmt.value, scope, ctx, hooks, state);
+        scan_static_value_allocation_expr(
+          stmt.value,
+          scope,
+          ctx,
+          hooks,
+          state,
+          static_value_materializes_runtime_union_owner(
+            stmt.value,
+            false,
+            ctx,
+            hooks,
+          ),
+        );
         return;
       }
 
@@ -311,6 +445,19 @@ function scan_allocation_expr<ctx>(
         return;
       }
 
+      const scoped = scoped_static_allocation_call_value(expr, ctx, hooks);
+
+      if (scoped) {
+        scan_allocation_expr(expr.func, scope, ctx, hooks, state);
+
+        for (const arg of expr.args) {
+          scan_allocation_expr(arg, scope, ctx, hooks, state);
+        }
+
+        scan_allocation_expr(scoped.value, scope, scoped.ctx, hooks, state);
+        return;
+      }
+
       scan_allocation_expr(expr.func, scope, ctx, hooks, state);
       for (const arg of expr.args) {
         scan_allocation_expr(arg, scope, ctx, hooks, state);
@@ -412,7 +559,10 @@ function scan_allocation_expr<ctx>(
       }
 
       if (freeze_copies_runtime_union(expr, ctx, hooks)) {
-        scan_allocation_expr(expr.value, scope, ctx, hooks, state);
+        if (expr.value.tag !== "var") {
+          scan_allocation_expr(expr.value, scope, ctx, hooks, state);
+        }
+
         record_runtime_union_freeze_copy_allocations(
           expr,
           { name: scope.name, scratch: undefined },
@@ -494,6 +644,65 @@ function scan_allocation_expr<ctx>(
   }
 }
 
+function allocation_stmt_value_is_scoped_static_call_target<ctx>(
+  stmt: Extract<CoreStmt, { tag: "bind" | "assign" }>,
+  ctx: ctx,
+  hooks: CoreAllocationHooks<ctx>,
+): boolean {
+  if (!hooks.static_core_call_target) {
+    return false;
+  }
+
+  if (!hooks.static_core_call_requires_scope) {
+    return false;
+  }
+
+  if (stmt.value.tag !== "lam") {
+    return false;
+  }
+
+  const target = hooks.static_core_call_target(
+    { tag: "var", name: stmt.name },
+    ctx,
+  );
+
+  if (!target) {
+    return false;
+  }
+
+  if (target !== stmt.value) {
+    return false;
+  }
+
+  return hooks.static_core_call_requires_scope(target);
+}
+
+function scoped_static_allocation_call_value<ctx>(
+  expr: Extract<CoreExpr, { tag: "app" }>,
+  ctx: ctx,
+  hooks: CoreAllocationHooks<ctx>,
+): { value: CoreExpr; ctx: ctx } | undefined {
+  if (
+    !hooks.static_core_call_target ||
+    !hooks.scoped_static_core_call_value ||
+    !hooks.static_core_call_requires_scope
+  ) {
+    return undefined;
+  }
+
+  const target = hooks.static_core_call_target(expr.func, ctx);
+
+  if (!target) {
+    return undefined;
+  }
+
+  if (!hooks.static_core_call_requires_scope(target)) {
+    return undefined;
+  }
+
+  return hooks.scoped_static_core_call_value(expr, target, ctx);
+}
+
 function scan_allocation_if_let_stmt<ctx>(
   stmt: Extract<CoreStmt, { tag: "if_let_stmt" }>,
   scope: CoreAllocationScope,
@@ -547,6 +756,29 @@ function scan_allocation_if_let_stmt<ctx>(
     );
     scan_allocation_stmts(stmt.body, scope, branch_ctx, hooks, state);
     return;
+  }
+
+  if (
+    hooks.runtime_union_target &&
+    hooks.runtime_union_match_info &&
+    hooks.static_runtime_union_match_branch_ctx
+  ) {
+    const runtime_target = hooks.runtime_union_target(stmt.target, ctx);
+
+    if (runtime_target) {
+      const info = hooks.runtime_union_match_info(
+        stmt.case_name,
+        runtime_target,
+        ctx,
+      );
+      const branch_ctx = hooks.static_runtime_union_match_branch_ctx(
+        stmt.value_name,
+        info,
+        ctx,
+      );
+      scan_allocation_stmts(stmt.body, scope, branch_ctx, hooks, state);
+      return;
+    }
   }
 
   scan_allocation_stmts(stmt.body, scope, ctx, hooks, state);
@@ -607,6 +839,30 @@ function scan_allocation_if_let_expr<ctx>(
 
     scan_allocation_expr(expr.else_branch, scope, ctx, hooks, state);
     return;
+  }
+
+  if (
+    hooks.runtime_union_target &&
+    hooks.runtime_union_match_info &&
+    hooks.static_runtime_union_match_branch_ctx
+  ) {
+    const runtime_target = hooks.runtime_union_target(expr.target, ctx);
+
+    if (runtime_target) {
+      const info = hooks.runtime_union_match_info(
+        expr.case_name,
+        runtime_target,
+        ctx,
+      );
+      const branch_ctx = hooks.static_runtime_union_match_branch_ctx(
+        expr.value_name,
+        info,
+        ctx,
+      );
+      scan_allocation_expr(expr.then_branch, scope, branch_ctx, hooks, state);
+      scan_allocation_expr(expr.else_branch, scope, ctx, hooks, state);
+      return;
+    }
   }
 
   scan_allocation_expr(expr.then_branch, scope, ctx, hooks, state);
@@ -1156,6 +1412,19 @@ function record_allocation(
   scope: CoreAllocationScope,
   state: CoreAllocationState,
 ): void {
+  const key = allocation_record_key(reason, scope);
+  const recorded = state.recorded.get(expr);
+
+  if (recorded) {
+    if (recorded.has(key)) {
+      return;
+    }
+
+    recorded.add(key);
+  } else {
+    state.recorded.set(expr, new Set([key]));
+  }
+
   const base: CoreOwnership = {
     tag: "unique_heap",
     reason: ownership_reason(reason),
@@ -1176,6 +1445,19 @@ function record_allocation(
   };
   state.next_allocation += 1;
   state.facts.push(fact);
+}
+
+function allocation_record_key(
+  reason: CoreAllocationReason,
+  scope: CoreAllocationScope,
+): string {
+  let scratch = "";
+
+  if (scope.scratch) {
+    scratch = scope.scratch;
+  }
+
+  return scope.name + "|" + scratch + "|" + reason;
 }
 
 function ownership_reason(

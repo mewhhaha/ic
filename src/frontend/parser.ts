@@ -425,6 +425,12 @@ class Parser extends ParserExpr {
       return { tag: "type_check", pattern, target: this.parse_expr() };
     }
 
+    let is_recursive = false;
+
+    if (kind === "let" && this.match_name("rec")) {
+      is_recursive = true;
+    }
+
     let is_linear = false;
 
     if (this.match_symbol("!")) {
@@ -459,6 +465,7 @@ class Parser extends ParserExpr {
         tag: "bind",
         kind,
         name,
+        is_recursive,
         is_linear,
         annotation,
         value: this.parse_expr(),
@@ -469,6 +476,7 @@ class Parser extends ParserExpr {
       tag: "bind",
       kind,
       name,
+      is_recursive,
       is_linear,
       annotation,
       value: this.parse_expr(),

@@ -27,11 +27,15 @@ export type CoreBackendControlFlowIfLet = Pick<
 
 export function create_core_backend_control_flow_if_let(
   api: CoreBackendControlFlowApi,
+  merge_if_else_static_assignments: CoreBackendControlFlow[
+    "merge_if_else_static_assignments"
+  ],
 ): CoreBackendControlFlowIfLet {
   const if_let_payload_hooks = create_core_backend_if_let_payload_hooks(api);
   const if_let_hooks = create_core_backend_if_let_hooks(
     api,
     bind_core_if_let_payload,
+    merge_if_else_static_assignments,
   );
   const if_let_dispatch_hooks = create_core_backend_if_let_dispatch_hooks(api);
 

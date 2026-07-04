@@ -166,6 +166,133 @@ result + 1
   );
 });
 
+Deno.test("Source lowers let rec lambdas through Ic fixpoints", () => {
+  const source = `
+let rec fib = n => {
+  if n < 2 {
+    n
+  } else {
+    fib(n - 1) + fib(n - 2)
+  }
+}
+
+fib(6)
+`;
+
+  assert_equals(
+    Format.fmt(Source, Source.parse("let rec fib = n => n\nfib(1)")),
+    "let rec fib = (n) => n\nfib(1)",
+  );
+
+  const ic = compile(source);
+
+  assert_includes(Format.fmt(Ic, ic), "fix fib#0 =");
+  assert_equals(Ic.reduce(ic), { tag: "num", type: "i32", value: 8 });
+
+  assert_throws(
+    () => Source.core(Source.parse(source)),
+    "Cannot lower recursive source binding to Core yet",
+  );
+});
+
+Deno.test("Source lowers unknown dynamic if through numeric primitive context", () => {
+  const direct = compile(`
+(if flag { a } else { b }) + 1
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(direct)),
+    "if flag then a else b + 1:i32",
+  );
+
+  const deferred_binding = compile(`
+let value = if flag {
+  a
+} else {
+  b
+}
+
+value + 1
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(deferred_binding)),
+    "if flag then a else b + 1:i32",
+  );
+
+  const deferred_i64 = compile(`
+let value = if flag {
+  a
+} else {
+  b
+}
+
+value + 1i64
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(deferred_i64)),
+    "if flag then a else b + 1:i64",
+  );
+
+  const call_only_helper = compile(`
+let choose = flag => if flag {
+  a
+} else {
+  b
+}
+
+choose(flag) + 1
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(call_only_helper)),
+    "if flag then a else b + 1:i32",
+  );
+
+  const call_only_helper_wide = compile(`
+let choose = flag => if flag {
+  a
+} else {
+  b
+}
+
+choose(flag) + 1i64
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(call_only_helper_wide)),
+    "if flag then a else b + 1:i64",
+  );
+
+  const call_only_no_else_helper = compile(`
+let choose = flag => if flag {
+  a
+}
+
+choose(flag) + 1
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(call_only_no_else_helper)),
+    "if flag then a else 0:i32 + 1:i32",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let value = if flag {
+  a
+} else {
+  b
+}
+
+value
+`),
+    "Cannot lower dynamic if with unknown branches to Ic frontend",
+  );
+});
+
 Deno.test("Source lowers let and same-type shadowing to fresh Ic names", () => {
   const ic = compile(`
 let x = 40
@@ -689,6 +816,34 @@ if 1 {
   const escaped = compile('"hello\\nworld"');
 
   assert_equals(Format.fmt(Ic, Ic.reduce(escaped)), '"hello\\nworld"');
+
+  const escaped_tab = compile('"hello\\tworld"');
+
+  assert_equals(Ic.reduce(escaped_tab), {
+    tag: "text",
+    value: "hello\tworld",
+  });
+
+  const escaped_return = compile('"hello\\rworld"');
+
+  assert_equals(Ic.reduce(escaped_return), {
+    tag: "text",
+    value: "hello\rworld",
+  });
+
+  const escaped_quote = compile('"hello \\"Ada\\""');
+
+  assert_equals(Ic.reduce(escaped_quote), {
+    tag: "text",
+    value: 'hello "Ada"',
+  });
+
+  const escaped_backslash = compile('"path \\\\ tmp"');
+
+  assert_equals(Ic.reduce(escaped_backslash), {
+    tag: "text",
+    value: "path \\ tmp",
+  });
 
   const concat = compile('"hello" + " world"');
 
@@ -1454,6 +1609,118 @@ message == "Ada"
     "if input then 1:i32 else 0:i32",
   );
 
+  const runtime_text_identity = compile(`
+let same = (value: Text) => {
+  value == value
+}
+
+same(input)
+`);
+
+  assert_equals(Ic.reduce(runtime_text_identity), {
+    tag: "num",
+    type: "i32",
+    value: 1,
+  });
+
+  const runtime_text_non_identity = compile(`
+let different = (value: Text) => {
+  value != value
+}
+
+different(input)
+`);
+
+  assert_equals(Ic.reduce(runtime_text_non_identity), {
+    tag: "num",
+    type: "i32",
+    value: 0,
+  });
+
+  const runtime_text_borrow_identity = compile(`
+let same = (value: Text) => {
+  borrow value == borrow value
+}
+
+same(input)
+`);
+
+  assert_equals(Ic.reduce(runtime_text_borrow_identity), {
+    tag: "num",
+    type: "i32",
+    value: 1,
+  });
+
+  const runtime_text_scratch_identity = compile(`
+let same = (value: Text) => {
+  scratch { value } == scratch { value }
+}
+
+same(input)
+`);
+
+  assert_equals(Ic.reduce(runtime_text_scratch_identity), {
+    tag: "num",
+    type: "i32",
+    value: 1,
+  });
+
+  const runtime_text_mixed_wrapper_identity = compile(`
+let value: Text = input
+borrow value == scratch { value }
+`);
+
+  assert_equals(Ic.reduce(runtime_text_mixed_wrapper_identity), {
+    tag: "num",
+    type: "i32",
+    value: 1,
+  });
+
+  const runtime_text_scratch_alias_identity = compile(`
+let value: Text = input
+scratch {
+  let alias = value
+  alias
+} == scratch {
+  let alias = value
+  alias
+}
+`);
+
+  assert_equals(Ic.reduce(runtime_text_scratch_alias_identity), {
+    tag: "num",
+    type: "i32",
+    value: 1,
+  });
+
+  const runtime_text_helper_identity = compile(`
+let identity = (value: Text) => {
+  value
+}
+
+identity(input) == identity(input)
+`);
+
+  assert_equals(Ic.reduce(runtime_text_helper_identity), {
+    tag: "num",
+    type: "i32",
+    value: 1,
+  });
+
+  const runtime_text_helper_scratch_identity = compile(`
+let identity = (value: Text) => {
+  scratch { value }
+}
+
+identity(input) == identity(input)
+`);
+
+  assert_equals(Ic.reduce(runtime_text_helper_scratch_identity), {
+    tag: "num",
+    type: "i32",
+    value: 1,
+  });
+
   assert_throws(
     () =>
       compile(`
@@ -1462,6 +1729,18 @@ let same = (value: Text) => {
 }
 
 same(input)
+`),
+    "Text equality with runtime text requires structured Core/Wasm lowering",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let suffix = (value: Text) => {
+  append(value, "!")
+}
+
+suffix(input) == suffix(input)
 `),
     "Text equality with runtime text requires structured Core/Wasm lowering",
   );
@@ -1978,6 +2257,22 @@ if result {
   assert_throws(
     () =>
       compile(`
+const user_type = struct {
+  age: Int
+}
+
+if input {
+  user_type
+} else {
+  user_type
+}
+`),
+    "Cannot lower dynamic if with Type branches to Ic frontend",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
 let check = (value: I64) => {
   if value {
     1
@@ -2048,6 +2343,55 @@ user.age + 1
 `);
 
   assert_equals(Ic.reduce(ic), { tag: "num", type: "i32", value: 42 });
+
+  const block_local_call = compile(`
+const pair_type = struct {
+  first: Int,
+  label: Text
+}
+
+const make = x => {
+  pair_type {
+    first: x + 1,
+    label: "ok"
+  }
+}
+
+let pair = {
+  let made = make(input)
+  made
+}
+
+pair.first
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(block_local_call)),
+    "input + 1:i32",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+const pair_type = struct {
+  first: Int
+}
+
+const make = x => {
+  pair_type {
+    first: x + 1
+  }
+}
+
+let pair = {
+  const made = make(input)
+  made
+}
+
+pair.first
+`),
+    "Const binding captures runtime value: input",
+  );
 });
 
 Deno.test("Source lowers const struct field projection", () => {
@@ -2129,6 +2473,243 @@ len(selected.name.first) + selected.age
   assert_includes(nested_text, "load(if");
   assert_includes(nested_text, "then message else other");
   assert_includes(nested_text, "then 1:i32 else 2:i32");
+
+  const call_only_struct_helper = compile(`
+const user_type = struct {
+  age: Int
+}
+
+let choose = flag => if flag {
+  input
+} else {
+  other
+}
+
+let user: user_type = choose(flag)
+user.age
+`);
+  const call_only_struct_helper_text = Format.fmt(
+    Ic,
+    Ic.reduce(call_only_struct_helper),
+  );
+
+  assert_equals(
+    call_only_struct_helper_text,
+    "if flag then (input)(λfield_age#0. field_age#0) else (other)(λfield_age#1. field_age#1)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const user_type = struct {
+  name: Text
+}
+
+let choose = flag => if flag {
+  user_type { name: input }
+} else {
+  user_type { name: other }
+}
+
+len(choose(flag).name)
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  const call_only_struct_text_get = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const user_type = struct {
+  name: Text
+}
+
+let choose = flag => if flag {
+  user_type { name: input }
+} else {
+  user_type { name: other }
+}
+
+get(choose(flag).name, index)
+`)),
+  );
+  assert_includes(call_only_struct_text_get, "load8_u");
+  assert_includes(call_only_struct_text_get, "if flag");
+  assert_includes(call_only_struct_text_get, "input");
+  assert_includes(call_only_struct_text_get, "other");
+  assert_includes(call_only_struct_text_get, "index");
+
+  const call_only_nested_struct_text = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const name_type = struct {
+  first: Text
+}
+
+const user_type = struct {
+  name: name_type
+}
+
+let choose = flag => if flag {
+  user_type {
+    name: name_type { first: input }
+  }
+} else {
+  user_type {
+    name: name_type { first: other }
+  }
+}
+
+len(choose(flag).name.first)
+`)),
+  );
+  assert_equals(
+    call_only_nested_struct_text,
+    "load(if flag then input else other)",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+const user_type = struct {
+  name: Text
+}
+
+let choose = flag => if flag {
+  user_type { name: input }
+} else {
+  other
+}
+
+len(choose(flag).name)
+`),
+    "Cannot lower dynamic if with struct branches to Ic frontend",
+  );
+
+  const union_payload_struct_age = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const user_type = struct {
+  age: Int
+}
+
+const option_type = union {
+  some: user_type,
+  none: Unit
+}
+
+let choose = flag => if flag {
+  option_type.some(user_type { age: a })
+} else {
+  option_type.none()
+}
+
+(if let .some(user) = choose(flag) {
+  user
+} else {
+  user_type { age: b }
+}).age
+`)),
+  );
+  assert_includes(union_payload_struct_age, "if flag");
+  assert_includes(union_payload_struct_age, "a");
+  assert_includes(union_payload_struct_age, "b");
+  assert_includes(union_payload_struct_age, "field_age");
+
+  if (union_payload_struct_age.includes("choose#")) {
+    throw new Error(
+      "Expected union payload struct helper to inline before Ic lowering:\n" +
+        union_payload_struct_age,
+    );
+  }
+
+  const union_payload_struct_text_len = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const user_type = struct {
+  name: Text
+}
+
+const option_type = union {
+  some: user_type,
+  none: Unit
+}
+
+let choose = flag => if flag {
+  option_type.some(user_type { name: input })
+} else {
+  option_type.none()
+}
+
+len((if let .some(user) = choose(flag) {
+  user
+} else {
+  user_type { name: other }
+}).name)
+`)),
+  );
+  assert_includes(union_payload_struct_text_len, "load(");
+  assert_includes(union_payload_struct_text_len, "if flag");
+  assert_includes(union_payload_struct_text_len, "input");
+  assert_includes(union_payload_struct_text_len, "other");
+  assert_includes(union_payload_struct_text_len, "field_name");
+
+  const union_payload_struct_text_get = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const user_type = struct {
+  name: Text
+}
+
+const option_type = union {
+  some: user_type,
+  none: Unit
+}
+
+let choose = flag => if flag {
+  option_type.some(user_type { name: input })
+} else {
+  option_type.none()
+}
+
+get((if let .some(user) = choose(flag) {
+  user
+} else {
+  user_type { name: other }
+}).name, index)
+`)),
+  );
+  assert_includes(union_payload_struct_text_get, "load8_u");
+  assert_includes(union_payload_struct_text_get, "field_name");
+  assert_includes(union_payload_struct_text_get, "index");
+
+  assert_throws(
+    () =>
+      compile(`
+const user_type = struct {
+  name: Text
+}
+
+const option_type = union {
+  some: user_type,
+  none: Unit
+}
+
+let choose = flag => if flag {
+  option_type.some(user_type { name: input })
+} else {
+  option_type.none()
+}
+
+len((if let .some(user) = choose(flag) {
+  1
+} else {
+  user_type { name: other }
+}).name)
+`),
+    "len requires a compile-time collection value",
+  );
 
   const nested_if_let = compile(`
 const name_type = struct {
@@ -2797,6 +3378,64 @@ if let .none = option {
 
   assert_equals(Ic.reduce(unit_ic), { tag: "num", type: "i32", value: 42 });
 
+  const unit_field_ic = compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let option = option_type.none
+
+if let .none = option {
+  42
+} else {
+  0
+}
+`);
+
+  assert_equals(Ic.reduce(unit_field_ic), {
+    tag: "num",
+    type: "i32",
+    value: 42,
+  });
+
+  const dynamic_unit_field_ic = compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let option = if input {
+  option_type.some(1)
+} else {
+  option_type.none
+}
+
+if let .some(value) = option {
+  value
+} else {
+  0
+}
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(dynamic_unit_field_ic)),
+    "if input then 1:i32 else 0:i32",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+option_type.some
+`),
+    "Union case some expects 1 payload",
+  );
+
   const annotated = compile(`
 const result_type = union {
   ok: Int,
@@ -3190,6 +3829,19 @@ x
 
   assert_equals(text_if_text, 'if input then "Ada" else ""');
 
+  const block_final_if = compile(`
+let x = {
+  if input {
+    42
+  }
+}
+
+x
+`);
+  const block_final_if_text = Format.fmt(Ic, Ic.reduce(block_final_if));
+
+  assert_includes(block_final_if_text, "if input then 42:i32 else 0:i32");
+
   const known_some = compile(`
 let result = .ok(41)
 let value = if let .ok(found) = result {
@@ -3238,6 +3890,68 @@ value
     tag: "text",
     value: "",
   });
+
+  const nested_text_if_let = compile(`
+const inner_type = union {
+  some: Text,
+  none: Unit
+}
+
+const outer_type = union {
+  ok: inner_type,
+  err: Unit
+}
+
+let outer: outer_type = source
+let text = if let .ok(inner) = outer {
+  if let .some(value) = inner {
+    value
+  }
+}
+
+len(text)
+`);
+  const nested_text_if_let_text = Format.fmt(
+    Ic,
+    Ic.reduce(nested_text_if_let),
+  );
+
+  assert_includes(nested_text_if_let_text, "payload_ok");
+  assert_includes(nested_text_if_let_text, "payload_some");
+  assert_includes(nested_text_if_let_text, 'λpayload_err#0. ""');
+
+  const nested_struct_if_let = compile(`
+const user_type = struct {
+  age: Int
+}
+
+const inner_type = union {
+  some: user_type,
+  none: Unit
+}
+
+const outer_type = union {
+  ok: inner_type,
+  err: Unit
+}
+
+let outer: outer_type = source
+let user = if let .ok(inner) = outer {
+  if let .some(value) = inner {
+    value
+  }
+}
+
+user.age
+`);
+  const nested_struct_if_let_text = Format.fmt(
+    Ic,
+    Ic.reduce(nested_struct_if_let),
+  );
+
+  assert_includes(nested_struct_if_let_text, "payload_ok");
+  assert_includes(nested_struct_if_let_text, "payload_some");
+  assert_includes(nested_struct_if_let_text, "field_age");
 
   const known_wide_miss = compile(`
 const result_type = union {
@@ -3345,6 +4059,65 @@ value
     Format.fmt(Ic, Ic.reduce(dynamic_text)),
     'if input then "Ada" else ""',
   );
+
+  const dynamic_struct = compile(`
+let value = if input {
+  { age: 1 }
+}
+
+value.age
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(dynamic_struct)),
+    "if input then 1:i32 else 0:i32",
+  );
+
+  const dynamic_if_let_struct = compile(`
+const result_type = union {
+  ok: Int,
+  err: Int
+}
+
+let result = if input {
+  result_type.ok(41)
+} else {
+  result_type.err(0)
+}
+
+let value = if let .ok(found) = result {
+  { age: found }
+}
+
+value.age
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(dynamic_if_let_struct)),
+    "if input then 41:i32 else 0:i32",
+  );
+
+  const dynamic_union = compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let value = if input {
+  option_type.some(7)
+}
+
+if let .some(found) = value {
+  found
+} else {
+  0
+}
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(dynamic_union)),
+    "if input then 7:i32 else 0:i32",
+  );
 });
 
 Deno.test("Source lowers typed union if let through Ic handlers", () => {
@@ -3389,6 +4162,43 @@ unwrap(result_type.err(99))
 `);
 
   assert_equals(Ic.reduce(err), { tag: "num", type: "i32", value: 0 });
+
+  const call_only_union_helper = compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let choose = flag => if flag {
+  input
+} else {
+  other
+}
+
+let option: option_type = choose(flag)
+
+if let .some(value) = option {
+  value
+} else {
+  0
+}
+`);
+  const call_only_union_helper_text = Format.fmt(
+    Ic,
+    Ic.reduce(call_only_union_helper),
+  );
+
+  assert_includes(call_only_union_helper_text, "if flag then");
+  assert_includes(call_only_union_helper_text, "input");
+  assert_includes(call_only_union_helper_text, "other");
+  assert_includes(call_only_union_helper_text, "payload_some");
+
+  if (call_only_union_helper_text.includes("choose#")) {
+    throw new Error(
+      "Expected call-only union helper to inline before Ic lowering:\n" +
+        call_only_union_helper_text,
+    );
+  }
 
   const typed_object_field = compile(`
 const result_type = union {
@@ -3509,6 +4319,58 @@ if let .ok(value) = {
   );
 
   assert_includes(block_dynamic_cases_text, "if input then 42:i32 else 7:i32");
+
+  const block_local_union_call = compile(`
+const result_type = union {
+  ok: Int,
+  err: Text
+}
+
+const make = x => {
+  result_type.ok(x + 1)
+}
+
+let result = {
+  let made = make(input)
+  made
+}
+
+if let .ok(value) = result {
+  value
+} else {
+  0
+}
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(block_local_union_call)),
+    "input + 1:i32",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+const result_type = union {
+  ok: Int
+}
+
+const make = x => {
+  result_type.ok(x + 1)
+}
+
+let result = {
+  const made = make(input)
+  made
+}
+
+if let .ok(value) = result {
+  value
+} else {
+  0
+}
+`),
+    "Const binding captures runtime value: input",
+  );
 
   const direct_dynamic_object_field = compile(`
 let user = if let .ok(value) = if input {
@@ -4421,8 +5283,171 @@ if let .ok(value) = result {
 
   assert_throws(
     () => compile(source),
+    "Cannot lower dynamic if let without typed union target to Ic frontend",
+  );
+  assert_throws(
+    () => compile(source),
     "use Source.core, Source.mod, or Source.wat",
   );
+});
+
+Deno.test("Source lowers dynamic if let through result type context", () => {
+  const text_result = compile(`
+let result = if flag {
+  .ok(input)
+} else {
+  .err(other)
+}
+
+let value: Text = if let .ok(found) = result {
+  message
+} else {
+  other_text
+}
+
+len(value)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(text_result)),
+    "load(if flag then message else other_text)",
+  );
+
+  const direct_text_result = compile(`
+let result = if flag {
+  .ok(input)
+} else {
+  .err(other)
+}
+
+len(if let .ok(found) = result {
+  message
+} else {
+  other_text
+})
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(direct_text_result)),
+    "load(if flag then message else other_text)",
+  );
+
+  const no_else_text_result = compile(`
+let result = if flag {
+  .ok(input)
+} else {
+  .err(other)
+}
+
+len(if let .ok(found) = result {
+  message
+})
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(no_else_text_result)),
+    'load(if flag then message else "")',
+  );
+
+  const direct_get_result = compile(`
+let result = if flag {
+  .ok(input)
+} else {
+  .err(other)
+}
+
+get(if let .ok(found) = result {
+  message
+} else {
+  other_text
+}, 0)
+`);
+  const direct_get_text = Format.fmt(Ic, Ic.reduce(direct_get_result));
+  assert_includes(direct_get_text, "load8_u(if flag");
+  assert_includes(direct_get_text, "else other_text");
+
+  const direct_index_result = compile(`
+let result = if flag {
+  .ok(input)
+} else {
+  .err(other)
+}
+
+(if let .ok(found) = result {
+  message
+} else {
+  other_text
+})[index]
+`);
+  const direct_index_text = Format.fmt(Ic, Ic.reduce(direct_index_result));
+  assert_includes(direct_index_text, "load8_u(if flag");
+  assert_includes(direct_index_text, "+ index");
+
+  const no_else_get_result = compile(`
+let result = if flag {
+  .ok(input)
+} else {
+  .err(other)
+}
+
+get(if let .ok(found) = result {
+  message
+}, 0)
+`);
+  const no_else_get_text = Format.fmt(Ic, Ic.reduce(no_else_get_result));
+  assert_includes(no_else_get_text, "load8_u(if flag");
+  assert_includes(no_else_get_text, 'else ""');
+
+  const struct_field_result = compile(`
+const user_type = struct {
+  age: Int
+}
+
+let result = if flag {
+  .ok(input)
+} else {
+  .err(other)
+}
+
+let user: user_type = if let .ok(found) = result {
+  user_type { age: found }
+} else {
+  user_type { age: 0 }
+}
+
+user.age + 1
+`);
+
+  const struct_field_text = Format.fmt(Ic, Ic.reduce(struct_field_result));
+  assert_includes(struct_field_text, "if flag then input else 0:i32");
+  assert_includes(struct_field_text, "+ 1:i32");
+
+  const consumed_struct_field_result = compile(`
+const user_type = struct {
+  age: Int
+}
+
+let result = if flag {
+  .ok(input)
+} else {
+  .err(other)
+}
+
+let user = if let .ok(found) = result {
+  user_type { age: found }
+} else {
+  user_type { age: 0 }
+}
+
+user.age + 1
+`);
+
+  const consumed_struct_field_text = Format.fmt(
+    Ic,
+    Ic.reduce(consumed_struct_field_result),
+  );
+  assert_includes(consumed_struct_field_text, "if flag then input else 0:i32");
+  assert_includes(consumed_struct_field_text, "+ 1:i32");
 });
 
 Deno.test("Source specializes calls with const parameters", () => {
@@ -4721,6 +5746,258 @@ choose(40i64)
     "if input then 42:i64 else 43:i64",
   );
 
+  const direct_wrapped_arg = compile(`
+(if flag {
+  (x: Int) => x + 1
+} else {
+  (x: Int) => x - 1
+})(borrow input)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(direct_wrapped_arg)),
+    "! x#0_share0 &share_x_0_0 = input;\n" +
+      "if flag then x#0_share00 + 1:i32 else x#0_share01 - 1:i32",
+  );
+
+  const bound_wrapped_arg = compile(`
+let choose = if flag {
+  (x: Int) => x + 1
+} else {
+  (x: Int) => x - 1
+}
+
+choose(borrow input)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(bound_wrapped_arg)),
+    "! x#0_share0 &share_x_0_0 = input;\n" +
+      "if flag then x#0_share00 + 1:i32 else x#0_share01 - 1:i32",
+  );
+
+  const bound_wrapped_wide_arg = compile(`
+let choose = if flag {
+  (x: I64) => x + 1i64
+} else {
+  (x: I64) => x - 1i64
+}
+
+choose(freeze input)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(bound_wrapped_wide_arg)),
+    "! x#0_share0 &share_x_0_0 = input;\n" +
+      "if flag then x#0_share00 + 1:i64 else x#0_share01 - 1:i64",
+  );
+
+  const bound_wrapped_text_arg = compile(`
+let choose = if flag {
+  (x: Text) => len(x)
+} else {
+  (x: Text) => get(x, 0)
+}
+
+choose(scratch { input })
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(bound_wrapped_text_arg)),
+    "! x#0_share0 &share_x_0_0 = input;\n" +
+      "! x#0_share1 &share_x_0_1 = x#0_share01;\n" +
+      "if flag then load(x#0_share00) else if 0:i32 < load(x#0_share11) then load8_u(x#0_share10 + 4:i32 + 0:i32) else trap",
+  );
+
+  const bound_wrapped_struct_arg = compile(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+
+let choose = if flag {
+  (user: user_type) => user.age
+} else {
+  (user: user_type) => len(user.name)
+}
+
+choose(borrow input)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(bound_wrapped_struct_arg)),
+    "! user#0_share0 &share_user_0_0 = input;\n" +
+      "if flag then (user#0_share00)(λfield_age#0. λfield_name#0. field_age#0) else load((user#0_share01)(λfield_age#0. λfield_name#0. field_name#0))",
+  );
+
+  const bound_wrapped_union_arg = compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let choose = if flag {
+  (option: option_type) => if let .some(value) = option {
+    value
+  } else {
+    0
+  }
+} else {
+  (option: option_type) => 1
+}
+
+choose(borrow input)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(bound_wrapped_union_arg)),
+    "if flag then ((input)(λpayload_some#0. payload_some#0))(λpayload_none#0. 0:i32) else 1:i32",
+  );
+
+  const branch_wrapped_arg = compile(`
+let choose = if flag {
+  (x: Int) => x + 1
+} else {
+  (x: Int) => x - 1
+}
+
+choose(if pick {
+  borrow input
+} else {
+  other
+})
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(branch_wrapped_arg)),
+    "! x#0_share0 &share_x_0_0 = if pick then input else other;\n" +
+      "if flag then x#0_share00 + 1:i32 else x#0_share01 - 1:i32",
+  );
+
+  const text_branch_wrapped_arg = compile(`
+let choose = if flag {
+  (x: Text) => len(x)
+} else {
+  (x: Text) => get(x, 0)
+}
+
+choose(if pick {
+  scratch { input }
+} else {
+  other
+})
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(text_branch_wrapped_arg)),
+    "! x#0_share0 &share_x_0_0 = if pick then input else other;\n" +
+      "! x#0_share1 &share_x_0_1 = x#0_share01;\n" +
+      "if flag then load(x#0_share00) else if 0:i32 < load(x#0_share11) then load8_u(x#0_share10 + 4:i32 + 0:i32) else trap",
+  );
+
+  const struct_branch_wrapped_arg = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+
+let choose = if flag {
+  (user: user_type) => user.age
+} else {
+  (user: user_type) => len(user.name)
+}
+
+choose(if pick {
+  borrow input
+} else {
+  other
+})
+`)),
+  );
+  assert_includes(struct_branch_wrapped_arg, "if pick");
+  assert_includes(struct_branch_wrapped_arg, "field_age");
+  assert_includes(struct_branch_wrapped_arg, "field_name");
+  assert_includes(struct_branch_wrapped_arg, "if flag then");
+  assert_includes(struct_branch_wrapped_arg, "else load");
+
+  const union_branch_wrapped_arg = compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let choose = if flag {
+  (option: option_type) => if let .some(value) = option {
+    value
+  } else {
+    0
+  }
+} else {
+  (option: option_type) => 1
+}
+
+choose(if pick {
+  scratch { input }
+} else {
+  other
+})
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(union_branch_wrapped_arg)),
+    "if flag then if pick then ((input)(λ_payload_some#01. _payload_some#01))(λ_payload_none#04. 0:i32) else ((other)(λ_payload_some#02. _payload_some#02))(λ_payload_none#05. 0:i32) else 1:i32",
+  );
+
+  const frozen_wrapped_union_arg = compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let choose = if flag {
+  (option: option_type) => if let .some(value) = option {
+    value
+  } else {
+    0
+  }
+} else {
+  (option: option_type) => 1
+}
+
+choose(freeze input)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(frozen_wrapped_union_arg)),
+    "if flag then ((input)(λpayload_some#0. payload_some#0))(λpayload_none#0. 0:i32) else 1:i32",
+  );
+
+  const scratch_wrapped_union_arg = compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let choose = if flag {
+  (option: option_type) => if let .some(value) = option {
+    value
+  } else {
+    0
+  }
+} else {
+  (option: option_type) => 1
+}
+
+choose(scratch { input })
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(scratch_wrapped_union_arg)),
+    "if flag then ((input)(λpayload_some#0. payload_some#0))(λpayload_none#0. 0:i32) else 1:i32",
+  );
+
   const text = compile(`
 let choose = if input {
   x => "Ada"
@@ -4850,6 +6127,64 @@ choose(41)
   assert_equals(
     Format.fmt(Ic, Ic.reduce(captured_aliases)),
     "if input then 42:i32 else -59:i32",
+  );
+
+  const linear_param_branches = compile(`
+let choose = if input {
+  (!x) => !x
+} else {
+  (!x) => !x + 1
+}
+
+choose(41)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(linear_param_branches)),
+    "if input then 41:i32 else 42:i32",
+  );
+
+  const annotated_linear_param_branches = compile(`
+let choose = if input {
+  (!x: Int) => !x
+} else {
+  (!x: Int) => !x + 1
+}
+
+choose(41)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(annotated_linear_param_branches)),
+    "if input then 41:i32 else 42:i32",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let choose = if input {
+  (!x) => x
+} else {
+  (!x) => x + 1
+}
+
+choose(41)
+`),
+    "Linear value x used without explicit consumption",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let choose = if input {
+  (!x) => !x
+} else {
+  x => x + 1
+}
+
+choose(41)
+`),
+    "Dynamic function branches must have compatible parameters",
   );
 
   const annotated_aliases = compile(`
@@ -5044,11 +6379,11 @@ pair.first + pair.second
 
   assert_includes(
     struct_result_text,
-    "if input_share00 then 40:i32 else 42:i32",
+    "then 40:i32 else 42:i32",
   );
   assert_includes(
     struct_result_text,
-    "if input_share01 then 41:i32 else 43:i32",
+    "then 41:i32 else 43:i32",
   );
 
   const union_result = compile(`
@@ -5132,7 +6467,27 @@ let choose = if let .ok(value) = result {
 
 choose(message)
 `),
-    "Cannot lower dynamic if let with non-scalar branches yet",
+    "Cannot lower dynamic if let function branches with incompatible " +
+      "parameter shapes to Ic frontend",
+  );
+  assert_throws(
+    () =>
+      compile(`
+let result = if flag {
+  .ok(input)
+} else {
+  .err(other)
+}
+
+let choose = if let .ok(value) = result {
+  (x: Int) => x + value
+} else {
+  (x: Text) => len(x) + 1
+}
+
+choose(message)
+`),
+    "use Source.core, Source.mod, or Source.wat",
   );
 });
 
@@ -5544,7 +6899,9 @@ Deno.test("Source rejects excluded grammar families explicitly", () => {
     assert_includes(formatted, "<unsupported " + item.feature + ">");
     assert_throws(
       () => compile(item.text),
-      "Cannot lower " + item.feature + " to Ic frontend yet",
+      "Cannot lower " + item.feature + " to Ic frontend yet" +
+        "; use Source.core, Source.mod, or Source.wat for structured " +
+        "Core/Wasm lowering",
     );
   }
 
@@ -5646,6 +7003,20 @@ let !x = 41
   assert_throws(
     () => compile("const !x = 1\n0"),
     "Linear value x was not consumed",
+  );
+
+  assert_throws(
+    () => compile("!input"),
+    "Unbound linear value: input",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let x = 1
+!missing
+`),
+    "Unbound linear value: missing",
   );
 
   assert_throws(
@@ -5754,6 +7125,42 @@ inc_once(41)
     type: "i32",
     value: 42,
   });
+
+  const dynamic_linear_if = compile(`
+let main = (!x: Int, flag) => {
+  if flag {
+    !x
+  } else {
+    !x
+  }
+}
+
+main(input, flag)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(dynamic_linear_if)),
+    "(! x#0_share0 &share_x_0_0 = input;\n" +
+      "λflag#0. if flag#0 then x#0_share00 else x#0_share01)(flag)",
+  );
+
+  const dynamic_linear_return = compile(`
+let main = (!x: Int, flag) => {
+  if flag {
+    return !x
+  }
+
+  x
+}
+
+main(input, flag)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(dynamic_linear_return)),
+    "(! x#0_share0 &share_x_0_0 = input;\n" +
+      "λflag#0. if flag#0 then x#0_share00 else x#0_share01)(flag)",
+  );
 
   const captured_once = compile(`
 let main = (!x) => {
@@ -6034,6 +7441,20 @@ main(40)
     () =>
       compile(`
 let main = (!x) => {
+  let recurse = () => recurse()
+  recurse()
+  !x
+}
+
+main(41)
+`),
+    "Cannot validate recursive linear closure call yet: recurse",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let main = (!x) => {
   let consume = () => !x
   consume
 }
@@ -6043,9 +7464,7 @@ main(41)
     "Linear value x was not consumed",
   );
 
-  assert_throws(
-    () =>
-      compile(`
+  const captured_dynamic_if = compile(`
 let main = (!x, flag) => {
   let f = if flag {
     () => !x
@@ -6057,8 +7476,191 @@ let main = (!x, flag) => {
 }
 
 main(42, 1)
+`);
+
+  assert_equals(Ic.reduce(captured_dynamic_if), {
+    tag: "num",
+    type: "i32",
+    value: 42,
+  });
+
+  const captured_dynamic_if_param_names = compile(`
+let main = (!x, flag) => {
+  let f = if flag {
+    a => !x + a
+  } else {
+    b => !x + b
+  }
+
+  f(2)
+}
+
+main(40, 0)
+`);
+
+  assert_equals(Ic.reduce(captured_dynamic_if_param_names), {
+    tag: "num",
+    type: "i32",
+    value: 42,
+  });
+
+  const captured_dynamic_if_equivalent_param_annotations = compile(`
+let main = (!x, flag) => {
+  let f = if flag {
+    (a: Int) => !x + a
+  } else {
+    (b: I32) => !x + b
+  }
+
+  f(2)
+}
+
+main(40, 0)
+`);
+
+  assert_equals(Ic.reduce(captured_dynamic_if_equivalent_param_annotations), {
+    tag: "num",
+    type: "i32",
+    value: 42,
+  });
+
+  const captured_dynamic_if_type_alias_param_annotations = compile(`
+const user_type = struct { age: Int }
+const user_alias = user_type
+
+let main = (!x, flag) => {
+  let f = if flag {
+    (a: user_type) => !x + a.age
+  } else {
+    (b: user_alias) => !x + b.age
+  }
+
+  f(user_type { age: 2 })
+}
+
+main(40, 0)
+`);
+
+  assert_equals(Ic.reduce(captured_dynamic_if_type_alias_param_annotations), {
+    tag: "num",
+    type: "i32",
+    value: 42,
+  });
+
+  assert_throws(
+    () =>
+      compile(`
+const user_type = struct { age: Int }
+const other_type = struct { score: Int }
+
+let main = (!x, flag) => {
+  let f = if flag {
+    (a: user_type) => !x + a.age
+  } else {
+    (b: other_type) => !x + b.score
+  }
+
+  f(user_type { age: 2 })
+}
+
+main(40, 0)
 `),
-    "Linear value x was not consumed",
+    "Dynamic function branches must have compatible parameters",
+  );
+
+  const captured_static_if_let = compile(`
+const result_type = union {
+  ok: Int,
+  err: Int
+}
+
+let main = (!x) => {
+  const result = result_type.ok(0)
+  let f = if let .ok(value) = result {
+    () => !x + value
+  } else {
+    () => !x + 1
+  }
+
+  f()
+}
+
+main(42)
+`);
+
+  assert_equals(Ic.reduce(captured_static_if_let), {
+    tag: "num",
+    type: "i32",
+    value: 42,
+  });
+
+  const captured_dynamic_if_let = compile(`
+const result_type = union {
+  ok: Int,
+  err: Int
+}
+
+let main = (!x: Int, result: result_type) => {
+  let f = if let .ok(value) = result {
+    () => !x + value
+  } else {
+    () => !x + 1
+  }
+
+  f()
+}
+
+main(input, result)
+`);
+
+  const captured_dynamic_if_let_text = Format.fmt(
+    Ic,
+    Ic.reduce(captured_dynamic_if_let),
+  );
+
+  assert_includes(
+    captured_dynamic_if_let_text,
+    "λresult#0. ((result#0)(λpayload_ok#0.",
+  );
+  assert_includes(captured_dynamic_if_let_text, " + payload_ok#0");
+  assert_includes(captured_dynamic_if_let_text, " + 1:i32");
+
+  const captured_return_fallthrough = compile(`
+let main = (!x: Int, flag) => {
+  let consume = () => !x
+
+  if flag {
+    return consume()
+  }
+
+  consume()
+}
+
+main(input, flag)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(captured_return_fallthrough)),
+    "(! x#0_share1 &share_x_0_1 = input;\n" +
+      "λflag#0. if flag#0 then x#0_share10 else x#0_share11)(flag)",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let main = (!x, flag) => {
+  let f = if flag {
+    () => !x
+  } else {
+    () => 0
+  }
+
+  f()
+}
+
+main(42, 1)
+`),
+    "Linear branches must consume the same values",
   );
 
   assert_throws(
@@ -6212,6 +7814,17 @@ let main = (!io) => {
 main
 `),
     "Cannot lower linear function to Ic frontend yet",
+  );
+  assert_throws(
+    () =>
+      compile(`
+let main = (!io) => {
+  io = io.print("hello")
+  io
+}
+main
+`),
+    "use Source.core, Source.mod, or Source.wat",
   );
 
   assert_throws(
@@ -6925,6 +8538,402 @@ main(flag)
     "else 4:i32",
   );
 
+  const dynamic_deferred_numeric_binding_after_break_ic = compile(`
+let main = flag => {
+  let total = 0
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    let value = if choose {
+      input
+    } else {
+      other
+    }
+    total = value + 1
+  }
+
+  total
+}
+
+main(flag)
+`);
+  const dynamic_deferred_numeric_binding_after_break_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_deferred_numeric_binding_after_break_ic),
+  );
+
+  assert_includes(
+    dynamic_deferred_numeric_binding_after_break_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_deferred_numeric_binding_after_break_text,
+    "choose",
+  );
+  assert_includes(
+    dynamic_deferred_numeric_binding_after_break_text,
+    "input",
+  );
+  assert_includes(
+    dynamic_deferred_numeric_binding_after_break_text,
+    "other",
+  );
+
+  const dynamic_deferred_text_if_let_binding_after_break_ic = compile(`
+const option_type = union {
+  some: Text,
+  none: Unit
+}
+
+let main = flag => {
+  let total = 0
+  let maybe = if choose {
+    option_type.some(input)
+  } else {
+    option_type.none()
+  }
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    let value = if let .some(message) = maybe {
+      message
+    } else {
+      other
+    }
+    total = len(value)
+  }
+
+  total
+}
+
+main(flag)
+`);
+  const dynamic_deferred_text_if_let_binding_after_break_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_deferred_text_if_let_binding_after_break_ic),
+  );
+
+  assert_includes(
+    dynamic_deferred_text_if_let_binding_after_break_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_deferred_text_if_let_binding_after_break_text,
+    "load(",
+  );
+  assert_includes(
+    dynamic_deferred_text_if_let_binding_after_break_text,
+    "other",
+  );
+
+  const dynamic_deferred_no_else_text_binding_after_break_ic = compile(`
+const option_type = union {
+  some: Text,
+  none: Unit
+}
+
+let main = flag => {
+  let total = 0
+  let maybe = if choose {
+    option_type.some(input)
+  } else {
+    option_type.none()
+  }
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    let value = if let .some(message) = maybe {
+      message
+    }
+    total = len(value)
+  }
+
+  total
+}
+
+main(flag)
+`);
+  const dynamic_deferred_no_else_text_binding_after_break_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_deferred_no_else_text_binding_after_break_ic),
+  );
+
+  assert_includes(
+    dynamic_deferred_no_else_text_binding_after_break_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_deferred_no_else_text_binding_after_break_text,
+    'else ""',
+  );
+
+  const dynamic_function_call_after_top_level_binding_ic = compile(`
+let main = flag => {
+  let total = 0
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    let id = x => x
+    let value = id(i)
+    total = value
+  }
+
+  total
+}
+
+main(flag)
+`);
+  const dynamic_function_call_after_top_level_binding_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_function_call_after_top_level_binding_ic),
+  );
+
+  assert_includes(
+    dynamic_function_call_after_top_level_binding_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_function_call_after_top_level_binding_text,
+    "else 1:i32",
+  );
+
+  const dynamic_annotated_text_call_after_binding_ic = compile(`
+let main = flag => {
+  let total = 0
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    let id = (text: Text) => text
+    let value = id(input)
+    total = len(value)
+  }
+
+  total
+}
+
+main(flag)
+`);
+  const dynamic_annotated_text_call_after_binding_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_annotated_text_call_after_binding_ic),
+  );
+
+  assert_includes(
+    dynamic_annotated_text_call_after_binding_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_annotated_text_call_after_binding_text,
+    "load(",
+  );
+  assert_includes(
+    dynamic_annotated_text_call_after_binding_text,
+    "input",
+  );
+
+  const dynamic_function_branch_text_after_binding_ic = compile(`
+let main = flag => {
+  let total = 0
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    let id = if choose {
+      (text: Text) => text
+    } else {
+      (other: Text) => other
+    }
+    let value = id(input)
+    total = len(value)
+  }
+
+  total
+}
+
+main(flag)
+`);
+  const dynamic_function_branch_text_after_binding_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_function_branch_text_after_binding_ic),
+  );
+
+  assert_includes(
+    dynamic_function_branch_text_after_binding_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_function_branch_text_after_binding_text,
+    "load(",
+  );
+  assert_includes(
+    dynamic_function_branch_text_after_binding_text,
+    "choose",
+  );
+
+  const dynamic_function_branch_capture_after_binding_ic = compile(`
+let main = flag => {
+  let total = 0
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    let id = if choose {
+      {
+        let saved: Text = input
+        (text: Text) => saved
+      }
+    } else {
+      (other: Text) => other
+    }
+    let value = id(input)
+    total = len(value)
+  }
+
+  total
+}
+
+main(flag)
+`);
+  const dynamic_function_branch_capture_after_binding_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_function_branch_capture_after_binding_ic),
+  );
+
+  assert_includes(
+    dynamic_function_branch_capture_after_binding_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_function_branch_capture_after_binding_text,
+    "load(",
+  );
+  assert_includes(
+    dynamic_function_branch_capture_after_binding_text,
+    "choose",
+  );
+
+  const dynamic_function_branch_struct_after_binding_ic = compile(`
+const pair_type = struct {
+  first: Int,
+  label: Text
+}
+
+let main = flag => {
+  let total = 0
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    let make = if choose {
+      x => pair_type {
+        first: x + 1,
+        label: input
+      }
+    } else {
+      y => pair_type {
+        first: y,
+        label: input
+      }
+    }
+    let pair = make(i)
+    total = pair.first + len(pair.label)
+  }
+
+  total
+}
+
+main(flag)
+`);
+  const dynamic_function_branch_struct_after_binding_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_function_branch_struct_after_binding_ic),
+  );
+
+  assert_includes(
+    dynamic_function_branch_struct_after_binding_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_function_branch_struct_after_binding_text,
+    "load(",
+  );
+  assert_includes(
+    dynamic_function_branch_struct_after_binding_text,
+    "choose",
+  );
+
+  const dynamic_if_let_function_branch_after_binding_ic = compile(`
+const maybe_type = union {
+  some: Text,
+  none: Unit
+}
+
+let main = flag => {
+  let total = 0
+  let maybe = if choose {
+    maybe_type.some(input)
+  } else {
+    maybe_type.none()
+  }
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    let id = if let .some(saved) = maybe {
+      (text: Text) => saved
+    } else {
+      (other: Text) => other
+    }
+    let value = id(input)
+    total = len(value)
+  }
+
+  total
+}
+
+main(flag)
+`);
+  const dynamic_if_let_function_branch_after_binding_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_if_let_function_branch_after_binding_ic),
+  );
+
+  assert_includes(
+    dynamic_if_let_function_branch_after_binding_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_if_let_function_branch_after_binding_text,
+    "load(",
+  );
+  assert_includes(
+    dynamic_if_let_function_branch_after_binding_text,
+    "choose",
+  );
+
   const dynamic_struct_break_after_top_level_binding_ic = compile(`
 const pair_type = struct {
   first: Int,
@@ -7003,6 +9012,199 @@ main(flag)
     dynamic_union_break_after_top_level_binding_text,
     "else 3:i32",
   );
+
+  const dynamic_union_assignment_after_break_ic = compile(`
+const option_type = union {
+  some: Text,
+  none: Unit
+}
+
+let main = flag => {
+  let option: option_type = option_type.none()
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    option = option_type.some(input)
+  }
+
+  if let .some(value) = option {
+    len(value)
+  }
+}
+
+main(flag)
+`);
+  const dynamic_union_assignment_after_break_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_union_assignment_after_break_ic),
+  );
+
+  assert_includes(
+    dynamic_union_assignment_after_break_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_union_assignment_after_break_text,
+    "load(",
+  );
+
+  const dynamic_union_no_else_assignment_after_break_ic = compile(`
+const option_type = union {
+  some: Text,
+  none: Unit
+}
+
+let main = flag => {
+  let option: option_type = option_type.none()
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    option = if choose {
+      option_type.some(input)
+    }
+  }
+
+  if let .some(value) = option {
+    len(value)
+  }
+}
+
+main(flag)
+`);
+  const dynamic_union_no_else_assignment_after_break_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_union_no_else_assignment_after_break_ic),
+  );
+
+  assert_includes(
+    dynamic_union_no_else_assignment_after_break_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_union_no_else_assignment_after_break_text,
+    "load(",
+  );
+  assert_includes(
+    dynamic_union_no_else_assignment_after_break_text,
+    "choose",
+  );
+
+  const dynamic_union_change_assignment_after_break_ic = compile(`
+const option_type = union {
+  some: Text,
+  none: Unit
+}
+
+let main = flag => {
+  let option: option_type = option_type.none()
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    option := option_type.some(input)
+  }
+
+  if let .some(value) = option {
+    len(value)
+  }
+}
+
+main(flag)
+`);
+  const dynamic_union_change_assignment_after_break_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_union_change_assignment_after_break_ic),
+  );
+
+  assert_includes(
+    dynamic_union_change_assignment_after_break_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_union_change_assignment_after_break_text,
+    "load(",
+  );
+
+  const dynamic_union_no_else_change_assignment_after_break_ic = compile(`
+const option_type = union {
+  some: Text,
+  none: Unit
+}
+
+let main = flag => {
+  let option: option_type = option_type.none()
+
+  for i in 0..2 {
+    if flag {
+      break
+    }
+
+    option := if choose {
+      option_type.some(input)
+    }
+  }
+
+  if let .some(value) = option {
+    len(value)
+  }
+}
+
+main(flag)
+`);
+  const dynamic_union_no_else_change_assignment_after_break_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_union_no_else_change_assignment_after_break_ic),
+  );
+
+  assert_includes(
+    dynamic_union_no_else_change_assignment_after_break_text,
+    "then 0:i32",
+  );
+  assert_includes(
+    dynamic_union_no_else_change_assignment_after_break_text,
+    "load(",
+  );
+  assert_includes(
+    dynamic_union_no_else_change_assignment_after_break_text,
+    "choose",
+  );
+
+  const dynamic_final_if_let_after_break_ic = compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let main = (flag, option: option_type) => {
+  for i in 0..1 {
+    if flag {
+      break
+    }
+  }
+
+  if let .some(value) = option {
+    value + 1
+  }
+}
+
+main(flag, option)
+`);
+  const dynamic_final_if_let_after_break_text = Format.fmt(
+    Ic,
+    Ic.reduce(dynamic_final_if_let_after_break_ic),
+  );
+
+  assert_includes(dynamic_final_if_let_after_break_text, "then");
+  assert_includes(dynamic_final_if_let_after_break_text, "payload_some");
+  assert_includes(dynamic_final_if_let_after_break_text, "0:i32");
 
   const nested_dynamic_break_ic = compile(`
 let main = (flag, other) => {
@@ -8788,7 +10990,970 @@ sum
 
   assert_throws(
     () => compile(dynamic_source),
+    "Cannot lower dynamic for end to Ic frontend yet",
+  );
+
+  assert_throws(
+    () => compile(dynamic_source),
     "use Source.core, Source.mod, or Source.wat",
+  );
+
+  const dynamic_control_binding_source = `
+for i in 0..3 {
+  if input {
+    break
+  }
+
+  let f = x => x
+}
+
+1
+`;
+
+  const dynamic_control_binding_core = Source.core(
+    dynamic_control_binding_source,
+  );
+  assert_equals(dynamic_control_binding_core.statements[0]?.tag, "range_loop");
+
+  assert_throws(
+    () =>
+      compile(`
+for x in xs {
+  x
+}
+
+0
+`),
+    "Cannot lower collection loop to Ic frontend yet: xs",
+  );
+
+  const dynamic_control_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_binding_source)),
+  );
+  assert_includes(dynamic_control_binding_ic, "1:i32");
+  assert_equals(dynamic_control_binding_ic.includes("f#"), false);
+
+  const dynamic_control_function_call_source = `
+let total = 41
+
+for i in 0..3 {
+  if input {
+    break
+  }
+
+  let f = x => x
+  total = f(total)
+}
+
+total
+`;
+
+  const dynamic_control_function_call_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_function_call_source)),
+  );
+  assert_includes(dynamic_control_function_call_ic, "41:i32");
+  assert_equals(dynamic_control_function_call_ic.includes("f#"), false);
+
+  const dynamic_control_block_function_call_source = `
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let f = {
+    let id = x => x
+    id
+  }
+
+  total = f(total + 1)
+}
+
+total
+`;
+
+  const dynamic_control_block_function_call_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_block_function_call_source)),
+  );
+  assert_equals(
+    dynamic_control_block_function_call_ic,
+    `! input_share0 &share_input_0 = input;
+if input_share01 then 0:i32 else if input_share00 then 1:i32 else 2:i32`,
+  );
+  assert_equals(dynamic_control_block_function_call_ic.includes("f#"), false);
+
+  const dynamic_control_block_captured_function_call_source = `
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let f = {
+    let offset = i + 1
+    let add = x => x + offset
+    add
+  }
+
+  total = f(total)
+}
+
+total
+`;
+
+  const dynamic_control_block_captured_function_call_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_block_captured_function_call_source)),
+  );
+  assert_equals(
+    dynamic_control_block_captured_function_call_ic,
+    `! input_share0 &share_input_0 = input;
+if input_share01 then 0:i32 else if input_share00 then 1:i32 else 3:i32`,
+  );
+  assert_equals(
+    dynamic_control_block_captured_function_call_ic.includes("f#"),
+    false,
+  );
+  assert_equals(
+    dynamic_control_block_captured_function_call_ic.includes("offset#"),
+    false,
+  );
+
+  const dynamic_control_block_returned_function_call_source = `
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let f = {
+    let offset = i + 1
+    return x => x + offset
+  }
+
+  total = f(total)
+}
+
+total
+`;
+
+  const dynamic_control_block_returned_function_call_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_block_returned_function_call_source)),
+  );
+  assert_equals(
+    dynamic_control_block_returned_function_call_ic,
+    `! input_share0 &share_input_0 = input;
+if input_share01 then 0:i32 else if input_share00 then 1:i32 else 3:i32`,
+  );
+  assert_equals(
+    dynamic_control_block_returned_function_call_ic.includes("f#"),
+    false,
+  );
+  assert_equals(
+    dynamic_control_block_returned_function_call_ic.includes("offset#"),
+    false,
+  );
+
+  const dynamic_control_block_binding_source = `
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let amount = {
+    let inner = i + 1
+    inner
+  }
+  total = total + amount
+}
+
+total
+`;
+
+  const dynamic_control_block_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_block_binding_source)),
+  );
+  assert_equals(
+    dynamic_control_block_binding_ic,
+    `! input_share0 &share_input_0 = input;
+if input_share01 then 0:i32 else if input_share00 then 1:i32 else 3:i32`,
+  );
+
+  const dynamic_control_annotated_text_binding_source = `
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let label: Text = text
+  total = total + len(label)
+}
+
+total
+`;
+
+  const dynamic_control_annotated_text_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_annotated_text_binding_source)),
+  );
+  assert_includes(dynamic_control_annotated_text_binding_ic, "load(text");
+  assert_includes(
+    dynamic_control_annotated_text_binding_ic,
+    "if input_share01 then 0:i32",
+  );
+
+  const dynamic_control_annotated_int_binding_source = `
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let amount: Int = value
+  total = total + amount
+}
+
+total
+`;
+
+  const dynamic_control_annotated_int_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_annotated_int_binding_source)),
+  );
+  assert_includes(dynamic_control_annotated_int_binding_ic, "value_share");
+  assert_includes(
+    dynamic_control_annotated_int_binding_ic,
+    "if input_share01 then 0:i32",
+  );
+
+  const dynamic_control_annotated_i64_binding_source = `
+let total: I64 = 0i64
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let amount: I64 = value
+  total = total + amount
+}
+
+total
+`;
+
+  const dynamic_control_annotated_i64_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_annotated_i64_binding_source)),
+  );
+  assert_includes(dynamic_control_annotated_i64_binding_ic, "value_share");
+  assert_includes(
+    dynamic_control_annotated_i64_binding_ic,
+    "if input_share01 then 0:i64",
+  );
+
+  const dynamic_control_annotated_struct_binding_source = `
+const pair_type = struct {
+  first: Int,
+  label: Text
+}
+
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let pair: pair_type = source
+  total = total + pair.first + len(pair.label)
+}
+
+total
+`;
+
+  const dynamic_control_annotated_struct_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_annotated_struct_binding_source)),
+  );
+  assert_includes(dynamic_control_annotated_struct_binding_ic, "field_first");
+  assert_includes(dynamic_control_annotated_struct_binding_ic, "field_label");
+  assert_includes(dynamic_control_annotated_struct_binding_ic, "source_share");
+  assert_includes(
+    dynamic_control_annotated_struct_binding_ic,
+    "if input_share01 then 0:i32",
+  );
+
+  const dynamic_control_annotated_union_binding_source = `
+const result_type = union {
+  ok: Int,
+  err: Text
+}
+
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let result: result_type = source
+  if let .ok(value) = result {
+    total = total + value
+  }
+}
+
+total
+`;
+
+  const dynamic_control_annotated_union_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_annotated_union_binding_source)),
+  );
+  assert_includes(dynamic_control_annotated_union_binding_ic, "payload_ok");
+  assert_includes(dynamic_control_annotated_union_binding_ic, "source_share");
+  assert_includes(
+    dynamic_control_annotated_union_binding_ic,
+    "if input_share",
+  );
+
+  const dynamic_control_annotated_nested_struct_binding_source = `
+const name_type = struct {
+  first: Text
+}
+
+const user_type = struct {
+  name: name_type,
+  age: Int
+}
+
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let user: user_type = source
+  total = total + user.age + len(user.name.first)
+}
+
+total
+`;
+
+  const dynamic_control_annotated_nested_struct_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_annotated_nested_struct_binding_source)),
+  );
+  assert_includes(
+    dynamic_control_annotated_nested_struct_binding_ic,
+    "field_age",
+  );
+  assert_includes(
+    dynamic_control_annotated_nested_struct_binding_ic,
+    "field_name",
+  );
+  assert_includes(
+    dynamic_control_annotated_nested_struct_binding_ic,
+    "field_first",
+  );
+  assert_includes(
+    dynamic_control_annotated_nested_struct_binding_ic,
+    "if input_share01 then 0:i32",
+  );
+
+  const dynamic_control_annotated_struct_block_if_let_binding_source = `
+const maybe_type = union {
+  some: Int,
+  none: Unit
+}
+
+const user_type = struct {
+  age: Int
+}
+
+let maybe: maybe_type = source
+let total = 33
+
+for i in 0..2 {
+  if i == input {
+    break
+  }
+
+  let user: user_type = {
+    let selected = if let .some(found) = maybe {
+      borrow input_user
+    } else {
+      scratch { other_user }
+    }
+
+    return selected
+  }
+
+  total = user.age
+}
+
+total
+`;
+
+  const dynamic_control_annotated_struct_block_if_let_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(
+      compile(dynamic_control_annotated_struct_block_if_let_binding_source),
+    ),
+  );
+  assert_includes(
+    dynamic_control_annotated_struct_block_if_let_binding_ic,
+    "field_age",
+  );
+  assert_includes(
+    dynamic_control_annotated_struct_block_if_let_binding_ic,
+    "input_user",
+  );
+  assert_includes(
+    dynamic_control_annotated_struct_block_if_let_binding_ic,
+    "other_user",
+  );
+
+  const dynamic_control_annotated_union_block_if_let_binding_source = `
+const maybe_type = union {
+  some: Int,
+  none: Unit
+}
+
+const option_type = union {
+  ok: Int,
+  err: Unit
+}
+
+let maybe: maybe_type = source
+let total = 33
+
+for i in 0..2 {
+  if i == input {
+    break
+  }
+
+  let option: option_type = {
+    let selected = if let .some(found) = maybe {
+      borrow input_option
+    } else {
+      scratch { other_option }
+    }
+
+    return selected
+  }
+
+  if let .ok(value) = option {
+    total = value
+  }
+}
+
+total
+`;
+
+  const dynamic_control_annotated_union_block_if_let_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(
+      compile(dynamic_control_annotated_union_block_if_let_binding_source),
+    ),
+  );
+  assert_includes(
+    dynamic_control_annotated_union_block_if_let_binding_ic,
+    "payload_ok",
+  );
+  assert_includes(
+    dynamic_control_annotated_union_block_if_let_binding_ic,
+    "input_option",
+  );
+  assert_includes(
+    dynamic_control_annotated_union_block_if_let_binding_ic,
+    "other_option",
+  );
+
+  const dynamic_control_const_call_binding_source = `
+const id = x => x
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let amount = id(i + 1)
+  total = total + amount
+}
+
+total
+`;
+
+  const dynamic_control_const_call_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_const_call_binding_source)),
+  );
+  assert_equals(
+    dynamic_control_const_call_binding_ic,
+    `! input_share0 &share_input_0 = input;
+if input_share01 then 0:i32 else if input_share00 then 1:i32 else 3:i32`,
+  );
+
+  const dynamic_control_struct_call_binding_source = `
+const pair_type = struct {
+  first: Int,
+  label: Text
+}
+
+const make = x => {
+  pair_type {
+    first: x + 1,
+    label: "ok"
+  }
+}
+
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let pair = make(i)
+  total = total + pair.first + len(pair.label)
+}
+
+total
+`;
+
+  const dynamic_control_struct_call_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_struct_call_binding_source)),
+  );
+  assert_equals(
+    dynamic_control_struct_call_binding_ic,
+    `! input_share0 &share_input_0 = input;
+if input_share01 then 0:i32 else if input_share00 then 3:i32 else 7:i32`,
+  );
+
+  const dynamic_control_struct_block_call_binding_source = `
+const pair_type = struct {
+  first: Int,
+  label: Text
+}
+
+const make = x => {
+  pair_type {
+    first: x + 1,
+    label: "ok"
+  }
+}
+
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let pair = {
+    let made = make(i)
+    made
+  }
+  total = total + pair.first + len(pair.label)
+}
+
+total
+`;
+
+  const dynamic_control_struct_block_call_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_struct_block_call_binding_source)),
+  );
+  assert_equals(
+    dynamic_control_struct_block_call_binding_ic,
+    `! input_share0 &share_input_0 = input;
+if input_share01 then 0:i32 else if input_share00 then 3:i32 else 7:i32`,
+  );
+
+  const dynamic_control_union_block_call_binding_source = `
+const result_type = union {
+  ok: Int,
+  err: Text
+}
+
+const make = x => {
+  result_type.ok(x + 1)
+}
+
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let result = {
+    let made = make(i)
+    made
+  }
+
+  if let .ok(value) = result {
+    total = total + value
+  }
+}
+
+total
+`;
+
+  const dynamic_control_union_block_call_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_union_block_call_binding_source)),
+  );
+  assert_equals(
+    dynamic_control_union_block_call_binding_ic,
+    `! input_share0 &share_input_0 = input;
+if input_share01 then 0:i32 else if input_share00 then 1:i32 else 3:i32`,
+  );
+
+  const dynamic_control_no_else_union_binding_source = `
+const result_type = union {
+  ok: Int,
+  err: Text
+}
+
+let total = 0
+
+for i in 0..2 {
+  if input {
+    break
+  }
+
+  let result = if flag {
+    result_type.ok(i + 1)
+  }
+
+  if let .ok(value) = result {
+    total = total + value
+  }
+}
+
+total
+`;
+
+  const dynamic_control_no_else_union_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_no_else_union_binding_source)),
+  );
+  assert_equals(
+    dynamic_control_no_else_union_binding_ic,
+    `! input_share0 &share_input_0 = input;
+! flag_share0 &share_flag_0 = flag;
+if input_share01 then 0:i32 else ! total#1_share0 &share_total_1_0 = 0:i32 + if flag_share00 then 1:i32 else 0:i32;
+if input_share00 then total#1_share00 else total#1_share01 + if flag_share01 then 2:i32 else 0:i32`,
+  );
+
+  const dynamic_control_no_else_if_let_union_binding_source = `
+const result_type = union {
+  ok: Int,
+  err: Unit
+}
+
+const maybe_type = union {
+  some: Int,
+  none: Unit
+}
+
+let total = 0
+
+for i in 0..1 {
+  if input {
+    break
+  }
+
+  let maybe = if flag {
+    maybe_type.some(1)
+  } else {
+    maybe_type.none()
+  }
+
+  let result = if let .some(value) = maybe {
+    result_type.ok(value + 1)
+  }
+
+  if let .ok(amount) = result {
+    total = total + amount
+  }
+}
+
+total
+`;
+
+  const dynamic_control_no_else_if_let_union_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_no_else_if_let_union_binding_source)),
+  );
+  assert_equals(
+    dynamic_control_no_else_if_let_union_binding_ic,
+    "if input then 0:i32 else if flag then 2:i32 else 0:i32",
+  );
+
+  const dynamic_control_no_else_if_let_text_binding_source = `
+const maybe_type = union {
+  some: Text,
+  none: Unit
+}
+
+let maybe: maybe_type = source
+let total = 0
+
+for i in 0..1 {
+  if input {
+    break
+  }
+
+  let text = if let .some(value) = maybe {
+    value
+  }
+
+  total = total + len(text)
+}
+
+total
+`;
+
+  const dynamic_control_no_else_if_let_text_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_no_else_if_let_text_binding_source)),
+  );
+  assert_equals(
+    dynamic_control_no_else_if_let_text_binding_ic,
+    'if input then 0:i32 else 0:i32 + load(((source)(λpayload_some#0. payload_some#0))(λpayload_none#0. ""))',
+  );
+
+  const dynamic_control_no_else_if_let_struct_binding_source = `
+const user_type = struct {
+  age: Int
+}
+
+const maybe_type = union {
+  some: user_type,
+  none: Unit
+}
+
+let maybe: maybe_type = source
+let total = 0
+
+for i in 0..1 {
+  if input {
+    break
+  }
+
+  let user = if let .some(value) = maybe {
+    value
+  }
+
+  total = total + user.age
+}
+
+total
+`;
+
+  const dynamic_control_no_else_if_let_struct_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_no_else_if_let_struct_binding_source)),
+  );
+  assert_equals(
+    dynamic_control_no_else_if_let_struct_binding_ic,
+    "if input then 0:i32 else 0:i32 + (((source)(λpayload_some#0. payload_some#0))(λpayload_none#0. λpick#0. (pick#0)(0:i32)))(λfield_age#0. field_age#0)",
+  );
+
+  const dynamic_control_shorthand_if_let_union_binding_source = `
+const maybe_type = union {
+  some: Int,
+  none: Unit
+}
+
+let maybe: maybe_type = source
+let total = 33
+
+for i in 0..1 {
+  if i == input {
+    break
+  }
+
+  let result = if let .some(value) = maybe {
+    .ok(value)
+  }
+
+  if let .ok(amount) = result {
+    total = amount
+  }
+}
+
+total
+`;
+
+  const dynamic_control_shorthand_if_let_union_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_shorthand_if_let_union_binding_source)),
+  );
+  assert_includes(
+    dynamic_control_shorthand_if_let_union_binding_ic,
+    "0:i32 == input",
+  );
+  assert_includes(
+    dynamic_control_shorthand_if_let_union_binding_ic,
+    "λcase_ok",
+  );
+  assert_includes(
+    dynamic_control_shorthand_if_let_union_binding_ic,
+    "λpayload_ok",
+  );
+
+  const dynamic_control_const_binding_source = `
+let total = 0
+
+for i in 0..3 {
+  if input {
+    break
+  }
+
+  const amount = i + 1
+  total = total + amount
+}
+
+total
+`;
+
+  const dynamic_control_const_binding_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_const_binding_source)),
+  );
+  assert_equals(
+    dynamic_control_const_binding_ic,
+    `! input_share0 &share_input_0 = input;
+! input_share1 &share_input_1 = input_share01;
+if input_share11 then 0:i32 else if input_share10 then 1:i32 else if input_share00 then 3:i32 else 6:i32`,
+  );
+
+  const dynamic_control_const_function_source = `
+let total = 41
+
+for i in 0..3 {
+  if input {
+    break
+  }
+
+  const f = x => x
+  total = f(total)
+}
+
+total
+`;
+
+  const dynamic_control_const_function_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_const_function_source)),
+  );
+  assert_includes(dynamic_control_const_function_ic, "41:i32");
+  assert_equals(dynamic_control_const_function_ic.includes("f#"), false);
+
+  const dynamic_control_nested_loop_source = `
+for i in 0..3 {
+  if input {
+    break
+  }
+
+  for j in 0..2 {
+    j
+  }
+}
+
+1
+`;
+
+  const dynamic_control_nested_loop_core = Source.core(
+    dynamic_control_nested_loop_source,
+  );
+  assert_equals(
+    dynamic_control_nested_loop_core.statements[0]?.tag,
+    "range_loop",
+  );
+
+  const dynamic_control_nested_loop_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_nested_loop_source)),
+  );
+  assert_includes(dynamic_control_nested_loop_ic, "1:i32");
+
+  const dynamic_control_nested_loop_guard_source = `
+let total = 0
+
+for i in 0..3 {
+  if input {
+    break
+  }
+
+  for j in 0..2 {
+    total = total + 1
+  }
+}
+
+total
+`;
+
+  const dynamic_control_nested_loop_guard_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_nested_loop_guard_source)),
+  );
+  assert_equals(
+    dynamic_control_nested_loop_guard_ic,
+    `! input_share0 &share_input_0 = input;
+! input_share1 &share_input_1 = input_share01;
+if input_share11 then 0:i32 else if input_share10 then 2:i32 else if input_share00 then 4:i32 else 6:i32`,
+  );
+
+  const dynamic_control_nested_collection_source = `
+const xs = {
+  first: 10,
+  second: 20
+}
+
+let total = 0
+
+for i in 0..3 {
+  if input {
+    break
+  }
+
+  for x in xs {
+    total = total + x
+  }
+}
+
+total
+`;
+
+  const dynamic_control_nested_collection_ic = Format.fmt(
+    Ic,
+    Ic.reduce(compile(dynamic_control_nested_collection_source)),
+  );
+  assert_equals(
+    dynamic_control_nested_collection_ic,
+    `! input_share0 &share_input_0 = input;
+! input_share1 &share_input_1 = input_share01;
+if input_share11 then 0:i32 else if input_share10 then 30:i32 else if input_share00 then 60:i32 else 90:i32`,
   );
 
   const structured_source = `
@@ -8932,7 +12097,7 @@ for i, x in xs {
 Deno.test("Source reserves field effects for capability lowering", () => {
   assert_throws(
     () => compile('io.print("hello")'),
-    "Cannot lower field access to Ic frontend yet: print",
+    "Cannot lower method call to Ic frontend yet: print",
   );
   assert_throws(
     () => compile('io.print("hello")'),
@@ -9002,6 +12167,78 @@ grow(1, 0)
     value: 52,
   });
 
+  const direct_struct_rec_field = compile(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+
+let make = rec (n: Int) => {
+  if n == 0 {
+    if flag {
+      user_type { age: input, name: message }
+    } else {
+      user_type { age: other, name: message }
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+make(0).age
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(direct_struct_rec_field)),
+    "if flag then input else other",
+  );
+
+  const direct_struct_rec_get = compile(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+
+let make = rec (n: Int) => {
+  if n == 0 {
+    if flag {
+      user_type { age: input, name: message }
+    } else {
+      user_type { age: other, name: message }
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+get(make(0), 0)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(direct_struct_rec_get)),
+    "if flag then input else other",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+const user_type = struct {
+  age: Int
+}
+
+let make = rec (n: Int) => {
+  if n == 0 {
+    user_type { age: input }
+  } else {
+    rec(n - 1)
+  }
+}
+
+make(0).score
+`),
+    "Missing struct field: score",
+  );
+
   const const_param = compile(`
 let add_step = rec (n, total, const step) => {
   if n == 0 {
@@ -9037,6 +12274,238 @@ loop(message, 0)
     "load(message)",
   );
 
+  const borrowed_rec_arg = compile(`
+let loop = rec (value: Int, n: Int) => {
+  if n == 0 {
+    value
+  } else {
+    rec(value + 1, n - 1)
+  }
+}
+
+loop(borrow input, 2)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(borrowed_rec_arg)),
+    "input + 1:i32 + 1:i32",
+  );
+
+  const frozen_rec_arg = compile(`
+let loop = rec (value: I64, n: Int) => {
+  if n == 0 {
+    value
+  } else {
+    rec(value + 1i64, n - 1)
+  }
+}
+
+loop(freeze input, 2)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(frozen_rec_arg)),
+    "input + 1:i64 + 1:i64",
+  );
+
+  const scratch_rec_arg = compile(`
+let loop = rec (value: Text, n: Int) => {
+  if n == 0 {
+    len(value)
+  } else {
+    rec(value, n - 1)
+  }
+}
+
+loop(scratch { input }, 2)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(scratch_rec_arg)),
+    "load(input)",
+  );
+
+  const borrowed_struct_rec_arg = compile(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+
+let loop = rec (user: user_type, n: Int) => {
+  if n == 0 {
+    user.age
+  } else {
+    rec(user, n - 1)
+  }
+}
+
+loop(borrow input, 2)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(borrowed_struct_rec_arg)),
+    "(input)(λfield_age#0. λfield_name#0. field_age#0)",
+  );
+
+  const scratch_union_rec_arg = compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let loop = rec (option: option_type, n: Int) => {
+  if n == 0 {
+    if let .some(value) = option {
+      value
+    } else {
+      0
+    }
+  } else {
+    rec(option, n - 1)
+  }
+}
+
+loop(scratch { input }, 2)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(scratch_union_rec_arg)),
+    "((input)(λpayload_some#0. payload_some#0))(λpayload_none#0. 0:i32)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+
+let loop = rec (user: user_type, n: Int) => {
+  if n == 0 {
+    user.age
+  } else {
+    rec(user, n - 1)
+  }
+}
+
+loop(if flag {
+  borrow input
+}, 0)
+`)),
+    ),
+    "if flag then (input)(λfield_age#0. λfield_name#0. field_age#0) else 0:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let loop = rec (option: option_type, n: Int) => {
+  if n == 0 {
+    if let .some(value) = option {
+      value
+    } else {
+      0
+    }
+  } else {
+    rec(option, n - 1)
+  }
+}
+
+loop(if flag {
+  scratch { input }
+}, 0)
+`)),
+    ),
+    "if flag then ((input)(λ_payload_some#01. _payload_some#01))(λpayload_none#0. 0:i32) else 0:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+
+let loop = rec (user: user_type, n: Int) => {
+  if n == 0 {
+    user.age
+  } else {
+    rec(user, n - 1)
+  }
+}
+
+loop(if flag {
+  borrow input
+} else {
+  other
+}, 0)
+`)),
+    ),
+    "if flag then (input)(λfield_age#0. λfield_name#0. field_age#0) else (other)(λfield_age#1. λfield_name#1. field_age#1)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let loop = rec (option: option_type, n: Int) => {
+  if n == 0 {
+    if let .some(value) = option {
+      value
+    } else {
+      0
+    }
+  } else {
+    rec(option, n - 1)
+  }
+}
+
+loop(if flag {
+  scratch { input }
+} else {
+  other
+}, 0)
+`)),
+    ),
+    "if flag then ((input)(λ_payload_some#01. _payload_some#01))(λ_payload_none#04. 0:i32) else ((other)(λ_payload_some#02. _payload_some#02))(λ_payload_none#05. 0:i32)",
+  );
+
+  const branch_wrapped_rec_arg = compile(`
+let loop = rec (value: Int, n: Int) => {
+  if n == 0 {
+    value + 1
+  } else {
+    rec(value, n - 1)
+  }
+}
+
+loop(if flag {
+  borrow input
+} else {
+  other
+}, 0)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(branch_wrapped_rec_arg)),
+    "if flag then input else other + 1:i32",
+  );
+
   const text_local_annotation = compile(`
 let loop = rec (n) => {
   let value: Text = message
@@ -9056,6 +12525,147 @@ loop(0)
     Format.fmt(Ic, Ic.reduce(text_local_annotation)),
     "load(other)",
   );
+
+  const rec_local_borrowed_binding = compile(`
+let loop = rec (n: Int) => {
+  let value: Int = borrow input
+
+  if n == 0 {
+    value + 1
+  } else {
+    rec(n - 1)
+  }
+}
+
+loop(0)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(rec_local_borrowed_binding)),
+    "input + 1:i32",
+  );
+
+  const rec_local_scratch_assignment = compile(`
+let loop = rec (n: Int) => {
+  let value: Text = ""
+  value = scratch { input }
+
+  if n == 0 {
+    len(value)
+  } else {
+    rec(n - 1)
+  }
+}
+
+loop(0)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(rec_local_scratch_assignment)),
+    "load(input)",
+  );
+
+  const rec_local_branch_wrapped_binding = compile(`
+let loop = rec (n: Int) => {
+  let value: Text = if flag {
+    scratch { input }
+  } else {
+    other
+  }
+
+  if n == 0 {
+    len(value)
+  } else {
+    rec(n - 1)
+  }
+}
+
+loop(0)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(rec_local_branch_wrapped_binding)),
+    "load(if flag then input else other)",
+  );
+
+  const rec_local_deferred_numeric_binding = compile(`
+let loop = rec (n, acc) => {
+  if n == 0 {
+    acc
+  } else {
+    let value = if choose {
+      input
+    } else {
+      other
+    }
+    rec(n - 1, acc + value)
+  }
+}
+
+loop(2, 0)
+`);
+
+  const rec_local_deferred_numeric_binding_text = Format.fmt(
+    Ic,
+    Ic.reduce(rec_local_deferred_numeric_binding),
+  );
+  assert_includes(rec_local_deferred_numeric_binding_text, "0:i32");
+  assert_includes(rec_local_deferred_numeric_binding_text, "choose");
+  assert_includes(rec_local_deferred_numeric_binding_text, "input");
+  assert_includes(rec_local_deferred_numeric_binding_text, "other");
+
+  const rec_local_deferred_i64_binding = compile(`
+let loop = rec (n, acc) => {
+  if n == 0 {
+    acc
+  } else {
+    let value = if choose {
+      input
+    } else {
+      other
+    }
+    rec(n - 1, acc + value)
+  }
+}
+
+loop(2, 0i64)
+`);
+
+  const rec_local_deferred_i64_binding_text = Format.fmt(
+    Ic,
+    Ic.reduce(rec_local_deferred_i64_binding),
+  );
+  assert_includes(rec_local_deferred_i64_binding_text, "0:i64");
+  assert_includes(rec_local_deferred_i64_binding_text, "choose");
+  assert_includes(rec_local_deferred_i64_binding_text, "input");
+  assert_includes(rec_local_deferred_i64_binding_text, "other");
+
+  const rec_local_deferred_text_binding = compile(`
+let loop = rec (n, acc) => {
+  if n == 0 {
+    acc
+  } else {
+    let value = if choose {
+      input
+    } else {
+      other
+    }
+    rec(n - 1, acc + len(value))
+  }
+}
+
+loop(2, 0)
+`);
+
+  const rec_local_deferred_text_binding_text = Format.fmt(
+    Ic,
+    Ic.reduce(rec_local_deferred_text_binding),
+  );
+  assert_includes(rec_local_deferred_text_binding_text, "0:i32");
+  assert_includes(rec_local_deferred_text_binding_text, "load(");
+  assert_includes(rec_local_deferred_text_binding_text, "choose");
+  assert_includes(rec_local_deferred_text_binding_text, "input");
+  assert_includes(rec_local_deferred_text_binding_text, "other");
 
   const text_param_byte_index = compile(`
 let loop = rec (value: Text, n) => {
@@ -9175,6 +12785,266 @@ loop(input, 0)
     "if flag then input else other",
   );
 
+  const direct_static_rec_text_len = compile(`
+let make = rec (n: Int) => {
+  if n == 0 {
+    if flag {
+      message
+    } else {
+      other
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+len(make(1))
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(direct_static_rec_text_len)),
+    "load(if flag then message else other)",
+  );
+
+  const direct_static_rec_text_get = compile(`
+let make = rec (n: Int) => {
+  if n == 0 {
+    if flag {
+      message
+    } else {
+      other
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+get(make(1), 0)
+`);
+
+  const direct_static_rec_text_get_text = Format.fmt(
+    Ic,
+    Ic.reduce(direct_static_rec_text_get),
+  );
+  assert_includes(direct_static_rec_text_get_text, "load(");
+  assert_includes(direct_static_rec_text_get_text, "load8_u(");
+  assert_includes(direct_static_rec_text_get_text, "message");
+  assert_includes(direct_static_rec_text_get_text, "other");
+
+  const direct_static_rec_text_index = compile(`
+let make = rec (n: Int) => {
+  if n == 0 {
+    if flag {
+      message
+    } else {
+      other
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+make(1)[0]
+`);
+
+  const direct_static_rec_text_index_text = Format.fmt(
+    Ic,
+    Ic.reduce(direct_static_rec_text_index),
+  );
+  assert_includes(direct_static_rec_text_index_text, "load(");
+  assert_includes(direct_static_rec_text_index_text, "load8_u(");
+  assert_includes(direct_static_rec_text_index_text, "message");
+  assert_includes(direct_static_rec_text_index_text, "other");
+
+  const annotated_static_rec_text_result = compile(`
+let make = rec (n: Int) => {
+  if n == 0 {
+    if flag {
+      message
+    } else {
+      other
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+let text: Text = make(0)
+len(text)
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(annotated_static_rec_text_result)),
+    "load(if flag then message else other)",
+  );
+
+  const annotated_static_rec_call_arg = compile(`
+let make = rec (n: Int) => {
+  if n == 0 {
+    if flag {
+      message
+    } else {
+      other
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+let use = (text: Text) => {
+  len(text)
+}
+
+use(make(0))
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(annotated_static_rec_call_arg)),
+    "load(if flag then message else other)",
+  );
+
+  const annotated_static_rec_scalar_result = compile(`
+let make = rec (n: Int) => {
+  if n == 0 {
+    if flag {
+      input
+    } else {
+      other
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+let value: Int = make(0)
+value + 1
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(annotated_static_rec_scalar_result)),
+    "if flag then input else other + 1:i32",
+  );
+
+  const annotated_static_rec_struct_result = compile(`
+const user_type = struct {
+  age: Int
+}
+
+let make = rec (n: Int) => {
+  if n == 0 {
+    if flag {
+      input
+    } else {
+      other
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+let user: user_type = make(0)
+user.age
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(annotated_static_rec_struct_result)),
+    "if flag then (input)(λfield_age#0. field_age#0) else (other)(λfield_age#1. field_age#1)",
+  );
+
+  const annotated_static_rec_union_result = compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let make = rec (n: Int) => {
+  if n == 0 {
+    if flag {
+      input
+    } else {
+      other
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+let option: option_type = make(0)
+if let .some(value) = option {
+  value
+} else {
+  0
+}
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(annotated_static_rec_union_result)),
+    "if flag then ((input)(λ_payload_some#01. _payload_some#01))(λ_payload_none#04. 0:i32) else ((other)(λ_payload_some#02. _payload_some#02))(λ_payload_none#05. 0:i32)",
+  );
+
+  const annotated_static_rec_struct_block_alias_result = compile(`
+const user_type = struct {
+  age: Int
+}
+
+let make = rec (n: Int) => {
+  if n == 0 {
+    {
+      let selected = if flag {
+        borrow input
+      } else {
+        scratch { other }
+      }
+      return selected
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+let user: user_type = make(0)
+user.age
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(annotated_static_rec_struct_block_alias_result)),
+    "if flag then (input)(λfield_age#0. field_age#0) else (other)(λfield_age#1. field_age#1)",
+  );
+
+  const annotated_static_rec_union_block_alias_result = compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let make = rec (n: Int) => {
+  if n == 0 {
+    {
+      let selected = if flag {
+        borrow input
+      } else {
+        scratch { other }
+      }
+      return selected
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+let option: option_type = make(0)
+if let .some(value) = option {
+  value
+} else {
+  0
+}
+`);
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(annotated_static_rec_union_block_alias_result)),
+    "if flag then ((input)(λ_payload_some#01. _payload_some#01))(λ_payload_none#04. 0:i32) else ((other)(λ_payload_some#02. _payload_some#02))(λ_payload_none#05. 0:i32)",
+  );
+
   const scalar_dynamic_if_statement = compile(`
 let loop = rec (n, total: Int) => {
   if n == 0 {
@@ -9291,6 +13161,33 @@ loop(0)
     Format.fmt(Ic, Ic.reduce(struct_local_annotation)),
     "(other)(λfield_age#0. λfield_name#0. field_age#0) + 1:i32",
   );
+
+  const struct_return_field_order = compile(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+
+let make = rec (n) => {
+  if n == 0 {
+    user_type {
+      score: 2,
+      age: 40
+    }
+  } else {
+    rec(n - 1)
+  }
+}
+
+let user = make(0)
+user.age
+`);
+
+  assert_equals(Ic.reduce(struct_return_field_order), {
+    tag: "num",
+    type: "i32",
+    value: 40,
+  });
 
   const struct_param_static_index = compile(`
 const pair_type = struct {
@@ -9970,8 +13867,170 @@ let gcd = rec (a, b) => {
 }
 gcd
 `),
+    "Cannot lower rec function value to Ic frontend yet",
+  );
+  assert_throws(
+    () =>
+      compile(`
+let gcd = rec (a, b) => {
+  if b == 0 {
+    a
+  } else {
+    rec(b, a - b)
+  }
+}
+gcd
+`),
     "use Source.core, Source.mod, or Source.wat",
   );
+
+  assert_throws(
+    () => compile("rec (n) => n"),
+    "Cannot lower rec function value to Ic frontend yet",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let step = rec (n) => n
+`),
+    "Cannot lower rec function value to Ic frontend yet",
+  );
+
+  const missing_rec_body_result = `
+let step = rec (n) => {
+}
+
+step(0)
+`;
+
+  assert_throws(
+    () => compile(missing_rec_body_result),
+    "Cannot lower rec body without result to Ic frontend yet",
+  );
+  assert_throws(
+    () => compile(missing_rec_body_result),
+    "use Source.core, Source.mod, or Source.wat",
+  );
+
+  const rec_final_if_result = compile(`
+let step = rec (n) => {
+  if 0 {
+    n
+  }
+}
+
+step(0)
+`);
+
+  assert_equals(Ic.reduce(rec_final_if_result), {
+    tag: "num",
+    type: "i32",
+    value: 0,
+  });
+
+  assert_throws(
+    () =>
+      compile(`
+let step = rec (n) => {
+  let value = {
+  }
+
+  value
+}
+
+step(0)
+`),
+    "Cannot lower rec block without result to Ic frontend yet",
+  );
+  assert_throws(
+    () =>
+      compile(`
+let step = rec (n) => {
+  let value = {
+  }
+
+  value
+}
+
+step(0)
+`),
+    "use Source.core, Source.mod, or Source.wat",
+  );
+
+  const linear_rec_param = compile(`
+let step = rec (!state, n) => {
+  if n == 0 {
+    state
+  } else {
+    rec(!state, n - 1)
+  }
+}
+
+step(input, 2)
+`);
+
+  assert_equals(Ic.reduce(linear_rec_param), {
+    tag: "var",
+    name: "input",
+  });
+
+  assert_throws(
+    () =>
+      compile(`
+let step = rec (!state, n) => {
+  if n == 0 {
+    state
+  } else {
+    rec(state, n - 1)
+  }
+}
+
+step(input, 2)
+`),
+    "Linear value state used without explicit consumption",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let step = rec (!state, n) => {
+  if n == 0 {
+    0
+  } else {
+    rec(!state, n - 1)
+  }
+}
+
+step(input, 0)
+`),
+    "Linear branches must consume the same values",
+  );
+
+  for (const control of ["break", "continue"]) {
+    assert_throws(
+      () =>
+        compile(`
+let step = rec (n) => {
+  ${control}
+}
+
+step(0)
+`),
+      "Cannot lower rec " + control + " body yet",
+    );
+    assert_throws(
+      () =>
+        compile(`
+let step = rec (n) => {
+  ${control}
+}
+
+step(0)
+`),
+      "use Source.core, Source.mod, or Source.wat",
+    );
+  }
 
   assert_throws(
     () =>
@@ -10028,7 +14087,7 @@ app.value
 Deno.test("Source rejects unresolved imports without a loader", () => {
   assert_throws(
     () => compile('import logger from "./logger"'),
-    "Cannot lower unresolved import; use Source.load or Source.compile_file",
+    "Cannot lower unresolved import; use Source.load, Source.compile_file, Source.core_file, Source.mod_file, or Source.wat_file",
   );
 
   assert_equals(
@@ -10340,6 +14399,48 @@ app.log
   }
 });
 
+Deno.test("Source exposes structured file routes for imported programs", () => {
+  const dir = Deno.makeTempDirSync();
+
+  try {
+    Deno.writeTextFileSync(
+      dir + "/math",
+      `
+let sum_to = n => {
+  let sum = 0
+
+  for i in 0..n {
+    sum = sum + i
+  }
+
+  sum
+}
+`,
+    );
+    Deno.writeTextFileSync(
+      dir + "/main",
+      `
+import sum_to from "./math"
+
+let n = 5
+sum_to(n)
+`,
+    );
+
+    const core = Source.core_file(dir + "/main");
+    assert_includes(Format.fmt(Core, core), "range_loop i in 0:i32..n");
+
+    const mod = Source.mod_file(dir + "/main");
+    assert_equals(mod.exports, ["main"]);
+
+    const wat = Source.wat_file(dir + "/main");
+    assert_includes(wat, "(module");
+    assert_includes(wat, "loop $range_loop_0");
+  } finally {
+    Deno.removeSync(dir, { recursive: true });
+  }
+});
+
 Deno.test("Source rejects missing imported exports", () => {
   const dir = Deno.makeTempDirSync();
 
@@ -10369,6 +14470,16 @@ logger
 
 Deno.test("Source reserves type values and lowers inferred shorthand unions", () => {
   assert_throws(
+    () => compile("Int"),
+    "Compile-time type name cannot be emitted as an Ic result: Int",
+  );
+
+  assert_throws(
+    () => compile("Text"),
+    "Compile-time type name cannot be emitted as an Ic result: Text",
+  );
+
+  assert_throws(
     () =>
       compile(`
 const user_type = struct {
@@ -10376,7 +14487,31 @@ const user_type = struct {
 }
 user_type
 `),
-    "Cannot lower struct type to Ic frontend yet",
+    "Compile-time struct type cannot be emitted as an Ic result",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+union {
+  ok: Int
+}
+`),
+    "Compile-time union type cannot be emitted as an Ic result",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+const user_type = struct {
+  name: Text
+}
+
+user_type with {
+  alias: user_type
+}
+`),
+    "Compile-time extension value cannot be emitted as an Ic result",
   );
 
   const unused_type_value = compile(`
@@ -10466,6 +14601,11 @@ user_type with {
   assert_includes(shorthand_text, "λcase_ok#");
   assert_includes(shorthand_text, "(case_ok#");
   assert_includes(shorthand_text, "1:i32");
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(compile(".none"))),
+    "λcase_none#0. (case_none#0)(0:i32)",
+  );
 
   const bound = compile(`
 let result = .ok(41)
@@ -10801,10 +14941,15 @@ let get_name = (user: user_type) => {
 get_name(user)
 `);
 
-  assert_equals(
-    Format.fmt(Ic, Ic.reduce(helper_direct_type)),
-    "(user)(λfield_name#0. λfield_age#0. field_name#0) + 1:i32",
+  const helper_direct_type_text = Format.fmt(
+    Ic,
+    Ic.reduce(helper_direct_type),
   );
+
+  assert_includes(helper_direct_type_text, "(user)(λfield_name#");
+  assert_includes(helper_direct_type_text, "λfield_age#");
+  assert_includes(helper_direct_type_text, "field_name#");
+  assert_includes(helper_direct_type_text, "+ 1:i32");
 
   assert_throws(
     () =>
@@ -11610,7 +15755,17 @@ xs[0]
 
   assert_throws(
     () => compile("buf[i] = x"),
+    "Cannot lower index update to Ic frontend yet: buf",
+  );
+
+  assert_throws(
+    () => compile("buf[i] = x"),
     "use Source.core, Source.mod, or Source.wat",
+  );
+
+  assert_throws(
+    () => compile("buf[i]"),
+    "Cannot lower index access to Ic frontend yet: buf",
   );
 
   const unknown_index_update_core = Source.core(Source.parse(`
@@ -11711,6 +15866,956 @@ Deno.test("Source reserves ownership and scratchpad syntax", () => {
     value: 42,
   });
 
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(compile("borrow input + 1"))),
+    "input + 1:i32",
+  );
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(compile("freeze input == 0"))),
+    "input == 0:i32",
+  );
+
+  assert_equals(
+    Format.fmt(Ic, Ic.reduce(compile("scratch { input } + 1"))),
+    "input + 1:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+if borrow input {
+  1
+} else {
+  0
+}
+`)),
+    ),
+    "if input then 1:i32 else 0:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+if scratch { input } {
+  1
+} else {
+  0
+}
+`)),
+    ),
+    "if input then 1:i32 else 0:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let inc = (x: Int) => x + 1
+inc(borrow input)
+`)),
+    ),
+    "input + 1:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let inc = (x: I64) => x + 1i64
+inc(freeze input)
+`)),
+    ),
+    "input + 1:i64",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let size = (message: Text) => len(message)
+size(scratch { input })
+`)),
+    ),
+    "load(input)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: Int = borrow input
+value + 1
+`)),
+    ),
+    "input + 1:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: Int = if flag {
+  borrow input
+} else {
+  other
+}
+
+value + 1
+`)),
+    ),
+    "if flag then input else other + 1:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: I64 = freeze input
+value + 1i64
+`)),
+    ),
+    "input + 1:i64",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: Text = scratch { input }
+len(value)
+`)),
+    ),
+    "load(input)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: Text = if flag {
+  scratch { input }
+} else {
+  other
+}
+
+len(value)
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: Text = {
+  if flag {
+    input
+  } else {
+    other
+  }
+}
+
+len(value)
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: Text = {
+  let selected = if flag {
+    input
+  } else {
+    other
+  }
+  selected
+}
+
+len(value)
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: Text = {
+  let selected: Text = if flag {
+    input
+  } else {
+    other
+  }
+  selected
+}
+
+len(value)
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: Text = {
+  return if flag {
+    input
+  } else {
+    other
+  }
+}
+
+len(value)
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: Text = {
+  let selected: Text = if flag {
+    borrow input
+  } else {
+    scratch { other }
+  }
+  return selected
+}
+
+len(value)
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+len({
+  let selected: Text = if flag {
+    input
+  } else {
+    other
+  }
+  selected
+})
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+len({
+  let selected: Text = if flag {
+    input
+  } else {
+    other
+  }
+  return selected
+})
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let value: Text = {
+  let selected: Int = if flag {
+    input
+  } else {
+    other
+  }
+  selected
+}
+
+len(value)
+`),
+    "Binding annotation expects Text, got I32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: I64 = {
+  let selected: I64 = if flag {
+    input
+  } else {
+    other
+  }
+  selected
+}
+
+value + 1i64
+`)),
+    ),
+    "if flag then input else other + 1:i64",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: I64 = {
+  let selected = if flag {
+    freeze input
+  } else {
+    scratch { other }
+  }
+  return selected
+}
+
+value + 1i64
+`)),
+    ),
+    "if flag then input else other + 1:i64",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: I64 = {
+  return if flag {
+    input
+  } else {
+    other
+  }
+}
+
+value + 1i64
+`)),
+    ),
+    "if flag then input else other + 1:i64",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let size = (message: Text) => len(message)
+size({
+  if flag {
+    input
+  } else {
+    other
+  }
+})
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let size = (message: Text) => len(message)
+size({
+  return if flag {
+    input
+  } else {
+    other
+  }
+})
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let size = (message: Text) => len(message)
+size({
+  let selected: Text = if flag {
+    borrow input
+  } else {
+    scratch { other }
+  }
+  return selected
+})
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  const borrowed_annotated_struct_branch_binding = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+
+let user: user_type = if flag {
+  borrow input
+} else {
+  other
+}
+
+user.age
+`)),
+  );
+  assert_includes(borrowed_annotated_struct_branch_binding, "if flag");
+  assert_includes(borrowed_annotated_struct_branch_binding, "input");
+  assert_includes(borrowed_annotated_struct_branch_binding, "other");
+  assert_includes(borrowed_annotated_struct_branch_binding, "field_age");
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const user_type = struct {
+  age: Int
+}
+
+let user: user_type = {
+  if flag {
+    input
+  } else {
+    other
+  }
+}
+
+user.age
+`)),
+    ),
+    "if flag then (input)(λfield_age#0. field_age#0) else (other)(λfield_age#1. field_age#1)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const user_type = struct {
+  age: Int
+}
+
+let user: user_type = {
+  let selected = if flag {
+    borrow input
+  } else {
+    scratch { other }
+  }
+  return selected
+}
+
+user.age
+`)),
+    ),
+    "if flag then (input)(λfield_age#0. field_age#0) else (other)(λfield_age#1. field_age#1)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const user_type = struct {
+  age: Int
+}
+
+let user: user_type = {
+  return if flag {
+    input
+  } else {
+    other
+  }
+}
+
+user.age
+`)),
+    ),
+    "if flag then (input)(λfield_age#0. field_age#0) else (other)(λfield_age#1. field_age#1)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const user_type = struct {
+  age: Int
+}
+
+let user: user_type = {
+  let selected: user_type = if flag {
+    input
+  } else {
+    other
+  }
+  selected
+}
+
+user.age
+`)),
+    ),
+    "if flag then (input)(λfield_age#0. field_age#0) else (other)(λfield_age#1. field_age#1)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+
+let user: user_type = if flag {
+  borrow input
+}
+
+user.age
+`)),
+    ),
+    "if flag then (input)(λfield_age#0. λfield_name#0. field_age#0) else 0:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let option: option_type = if flag {
+  scratch { input }
+} else {
+  other
+}
+
+if let .some(value) = option {
+  value
+} else {
+  0
+}
+`)),
+    ),
+    "if flag then ((input)(λ_payload_some#01. _payload_some#01))(λ_payload_none#04. 0:i32) else ((other)(λ_payload_some#02. _payload_some#02))(λ_payload_none#05. 0:i32)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let option: option_type = {
+  let selected = if flag {
+    borrow input
+  } else {
+    scratch { other }
+  }
+  return selected
+}
+
+if let .some(value) = option {
+  value
+} else {
+  0
+}
+`)),
+    ),
+    "if flag then ((input)(λ_payload_some#01. _payload_some#01))(λ_payload_none#04. 0:i32) else ((other)(λ_payload_some#02. _payload_some#02))(λ_payload_none#05. 0:i32)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let option: option_type = {
+  return if flag {
+    input
+  } else {
+    other
+  }
+}
+
+if let .some(value) = option {
+  value
+} else {
+  0
+}
+`)),
+    ),
+    "if flag then ((input)(λ_payload_some#01. _payload_some#01))(λ_payload_none#04. 0:i32) else ((other)(λ_payload_some#02. _payload_some#02))(λ_payload_none#05. 0:i32)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let option: option_type = {
+  if flag {
+    input
+  } else {
+    other
+  }
+}
+
+if let .some(value) = option {
+  value
+} else {
+  0
+}
+`)),
+    ),
+    "if flag then ((input)(λ_payload_some#01. _payload_some#01))(λ_payload_none#04. 0:i32) else ((other)(λ_payload_some#02. _payload_some#02))(λ_payload_none#05. 0:i32)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let option: option_type = if flag {
+  scratch { input }
+}
+
+if let .some(value) = option {
+  value
+} else {
+  0
+}
+`)),
+    ),
+    "if flag then ((input)(λ_payload_some#01. _payload_some#01))(λpayload_none#0. 0:i32) else 0:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+
+let choose = (user: user_type) => user.age
+choose(if flag {
+  borrow input
+})
+`)),
+    ),
+    "if flag then (input)(λfield_age#0. λfield_name#0. field_age#0) else 0:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const user_type = struct {
+  age: Int
+}
+
+let choose = (user: user_type) => user.age
+choose({
+  let selected = if flag {
+    borrow input
+  } else {
+    scratch { other }
+  }
+  return selected
+})
+`)),
+    ),
+    "if flag then (input)(λfield_age#0. field_age#0) else (other)(λfield_age#1. field_age#1)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let pick = (option: option_type) => if let .some(value) = option {
+  value
+} else {
+  0
+}
+
+pick(if flag {
+  scratch { input }
+})
+`)),
+    ),
+    "if flag then ((input)(λ_payload_some#01. _payload_some#01))(λpayload_none#0. 0:i32) else 0:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let pick = (option: option_type) => if let .some(value) = option {
+  value
+} else {
+  0
+}
+
+pick({
+  let selected = if flag {
+    borrow input
+  } else {
+    scratch { other }
+  }
+  return selected
+})
+`)),
+    ),
+    "if flag then ((input)(λ_payload_some#01. _payload_some#01))(λ_payload_none#04. 0:i32) else ((other)(λ_payload_some#02. _payload_some#02))(λ_payload_none#05. 0:i32)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const maybe_type = union {
+  some: Int,
+  none: Unit
+}
+
+let maybe: maybe_type = source
+let value: Text = {
+  let selected: Text = if let .some(found) = maybe {
+    borrow input
+  } else {
+    scratch { other }
+  }
+  return selected
+}
+
+len(value)
+`)),
+    ),
+    "load(((source)(λpayload_some#0. input))(λpayload_none#0. other))",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const maybe_type = union {
+  some: Int,
+  none: Unit
+}
+
+const user_type = struct {
+  age: Int
+}
+
+let maybe: maybe_type = source
+let user: user_type = {
+  let selected = if let .some(found) = maybe {
+    borrow input
+  } else {
+    scratch { other }
+  }
+  return selected
+}
+
+user.age
+`)),
+    ),
+    "(((source)(λpayload_some#0. input))(λpayload_none#0. other))(λfield_age#0. field_age#0)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const maybe_type = union {
+  some: Int,
+  none: Unit
+}
+
+const option_type = union {
+  ok: Int,
+  err: Unit
+}
+
+let maybe: maybe_type = source
+let option: option_type = {
+  let selected = if let .some(found) = maybe {
+    borrow input
+  } else {
+    scratch { other }
+  }
+  return selected
+}
+
+if let .ok(value) = option {
+  value
+} else {
+  0
+}
+`)),
+    ),
+    "((((source)(λpayload_some#0. input))(λpayload_none#0. other))(λpayload_ok#0. payload_ok#0))(λpayload_err#0. 0:i32)",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+const user_type = struct {
+  age: Int
+}
+
+let user: user_type = if flag {
+  1
+}
+
+user.age
+`),
+    "Binding annotation expects user_type, got I32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: Int = 0
+value = borrow input
+value + 1
+`)),
+    ),
+    "input + 1:i32",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: Text = ""
+value = scratch { input }
+len(value)
+`)),
+    ),
+    "load(input)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let value: Int = 0
+value = if flag {
+  borrow input
+} else {
+  other
+}
+
+value + 1
+`)),
+    ),
+    "if flag then input else other + 1:i32",
+  );
+
+  const borrowed_annotated_struct_binding = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const user_type = struct {
+  age: Int
+}
+
+let user: user_type = borrow input
+user.age
+`)),
+  );
+  assert_includes(borrowed_annotated_struct_binding, "input");
+  assert_includes(borrowed_annotated_struct_binding, "field_age");
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+const option_type = union {
+  some: Int,
+  none: Unit
+}
+
+let option: option_type = scratch { input }
+if let .some(value) = option {
+  value
+} else {
+  0
+}
+`)),
+    ),
+    "((input)(λpayload_some#0. payload_some#0))(λpayload_none#0. 0:i32)",
+  );
+
+  const borrowed_annotated_struct_arg = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const user_type = struct {
+  age: Int
+}
+
+let age = (user: user_type) => user.age
+age(borrow input)
+`)),
+  );
+  assert_includes(borrowed_annotated_struct_arg, "input");
+  assert_includes(borrowed_annotated_struct_arg, "field_age");
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let apply = (x: Int, const f) => f(x)
+const inc = x => x + 1
+apply(borrow input, inc)
+`)),
+    ),
+    "input + 1:i32",
+  );
+
   const borrowed_arg = compile(`
 let inc = x => x + 1
 let value = 41
@@ -11734,6 +16839,379 @@ size(input)
       args: [{ tag: "var", name: "input" }],
     },
   );
+
+  assert_equals(
+    Ic.reduce(compile(`
+let identity = value => value
+len(identity(input))
+`)),
+    {
+      tag: "prim",
+      prim: "i32.load",
+      args: [{ tag: "var", name: "input" }],
+    },
+  );
+
+  const unannotated_identity_get = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+let identity = value => value
+get(identity(input), index)
+`)),
+  );
+  assert_includes(unannotated_identity_get, "load8_u");
+  assert_includes(unannotated_identity_get, "input");
+  assert_includes(unannotated_identity_get, "index");
+
+  const unannotated_identity_index = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+let identity = value => value
+identity(input)[0]
+`)),
+  );
+  assert_includes(unannotated_identity_index, "load8_u");
+  assert_includes(unannotated_identity_index, "input");
+  assert_includes(unannotated_identity_index, "0:i32");
+
+  assert_equals(
+    Ic.reduce(compile(`
+let identity = {
+  let id = value => value
+  id
+}
+
+len(identity(input))
+`)),
+    {
+      tag: "prim",
+      prim: "i32.load",
+      args: [{ tag: "var", name: "input" }],
+    },
+  );
+
+  const block_alias_identity_get = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+let identity = {
+  let id = value => value
+  id
+}
+
+get(identity(input), index)
+`)),
+  );
+  assert_includes(block_alias_identity_get, "load8_u");
+  assert_includes(block_alias_identity_get, "input");
+  assert_includes(block_alias_identity_get, "index");
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let choose = flag => if flag {
+  input
+} else {
+  other
+}
+
+len(choose(flag))
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  const unannotated_dynamic_if_get = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+let choose = flag => if flag {
+  input
+} else {
+  other
+}
+
+get(choose(flag), index)
+`)),
+  );
+  assert_includes(unannotated_dynamic_if_get, "load8_u");
+  assert_includes(unannotated_dynamic_if_get, "if flag");
+  assert_includes(unannotated_dynamic_if_get, "input");
+  assert_includes(unannotated_dynamic_if_get, "other");
+  assert_includes(unannotated_dynamic_if_get, "index");
+
+  const unannotated_dynamic_if_index = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+let choose = flag => if flag {
+  input
+} else {
+  other
+}
+
+choose(flag)[index]
+`)),
+  );
+  assert_includes(unannotated_dynamic_if_index, "load8_u");
+  assert_includes(unannotated_dynamic_if_index, "if flag");
+  assert_includes(unannotated_dynamic_if_index, "input");
+  assert_includes(unannotated_dynamic_if_index, "other");
+  assert_includes(unannotated_dynamic_if_index, "index");
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let choose = flag => {
+  let selected = if flag {
+    input
+  } else {
+    other
+  }
+
+  selected
+}
+
+len(choose(flag))
+`)),
+    ),
+    "load(if flag then input else other)",
+  );
+
+  assert_equals(
+    Format.fmt(
+      Ic,
+      Ic.reduce(compile(`
+let choose = flag => if flag {
+  input
+}
+
+len(choose(flag))
+`)),
+    ),
+    'load(if flag then input else "")',
+  );
+
+  const unannotated_no_else_get = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+let choose = flag => if flag {
+  input
+}
+
+get(choose(flag), 0)
+`)),
+  );
+  assert_includes(unannotated_no_else_get, "load8_u");
+  assert_includes(unannotated_no_else_get, "if flag");
+  assert_includes(unannotated_no_else_get, "input");
+  assert_includes(unannotated_no_else_get, 'else ""');
+  assert_includes(unannotated_no_else_get, "0:i32");
+
+  const unannotated_no_else_index = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+let choose = flag => if flag {
+  input
+}
+
+choose(flag)[index]
+`)),
+  );
+  assert_includes(unannotated_no_else_index, "load8_u");
+  assert_includes(unannotated_no_else_index, "if flag");
+  assert_includes(unannotated_no_else_index, "input");
+  assert_includes(unannotated_no_else_index, 'else ""');
+  assert_includes(unannotated_no_else_index, "index");
+
+  assert_throws(
+    () =>
+      compile(`
+let shifted = value => value + 1
+len(shifted(input))
+`),
+    "len requires a compile-time collection value",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let choose = flag => if flag {
+  input + 1
+}
+
+len(choose(flag))
+`),
+    "len requires a compile-time collection value",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let choose = flag => if flag {
+  input + 1
+} else {
+  other
+}
+
+len(choose(flag))
+`),
+    "len requires a compile-time collection value",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let choose = flag => if flag {
+  input
+} else {
+  other
+}
+
+choose
+`),
+    "Cannot lower dynamic if with unknown branches to Ic frontend",
+  );
+
+  assert_throws(
+    () =>
+      compile(`
+let choose = flag => if flag {
+  input
+}
+
+choose
+`),
+    "No-else if implicit fallback supports Int, I64, Text, struct, or union, got unknown",
+  );
+
+  assert_equals(
+    Ic.reduce(compile(`
+let identity = (message: Text) => {
+  borrow message
+}
+
+identity(input)
+`)),
+    {
+      tag: "var",
+      name: "input",
+    },
+  );
+
+  assert_equals(
+    Ic.reduce(compile(`
+let identity = (message: Text) => {
+  borrow message
+}
+
+len(identity(input))
+`)),
+    {
+      tag: "prim",
+      prim: "i32.load",
+      args: [{ tag: "var", name: "input" }],
+    },
+  );
+
+  const borrowed_identity_index = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+let identity = (message: Text) => {
+  borrow message
+}
+
+identity(input)[index]
+`)),
+  );
+  assert_includes(borrowed_identity_index, "load8_u");
+  assert_includes(borrowed_identity_index, "input");
+  assert_includes(borrowed_identity_index, "index");
+
+  assert_equals(
+    Ic.reduce(compile(`
+let identity = (message: Text) => {
+  freeze message
+}
+
+identity(input)
+`)),
+    {
+      tag: "var",
+      name: "input",
+    },
+  );
+
+  assert_equals(
+    Ic.reduce(compile(`
+let identity = (message: Text) => {
+  freeze message
+}
+
+len(identity(input))
+`)),
+    {
+      tag: "prim",
+      prim: "i32.load",
+      args: [{ tag: "var", name: "input" }],
+    },
+  );
+
+  const frozen_identity_get = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+let identity = (message: Text) => {
+  freeze message
+}
+
+get(identity(input), index)
+`)),
+  );
+  assert_includes(frozen_identity_get, "load8_u");
+  assert_includes(frozen_identity_get, "input");
+  assert_includes(frozen_identity_get, "index");
+
+  assert_equals(
+    Ic.reduce(compile(`
+let identity = (message: Text) => {
+  scratch { message }
+}
+
+identity(input)
+`)),
+    {
+      tag: "var",
+      name: "input",
+    },
+  );
+
+  assert_equals(
+    Ic.reduce(compile(`
+let identity = (message: Text) => {
+  scratch { message }
+}
+
+len(identity(input))
+`)),
+    {
+      tag: "prim",
+      prim: "i32.load",
+      args: [{ tag: "var", name: "input" }],
+    },
+  );
+
+  const scratch_identity_get = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+let identity = (message: Text) => {
+  scratch { message }
+}
+
+get(identity(input), index)
+`)),
+  );
+  assert_includes(scratch_identity_get, "load8_u");
+  assert_includes(scratch_identity_get, "input");
+  assert_includes(scratch_identity_get, "index");
 
   assert_equals(
     Ic.reduce(compile(`
@@ -11790,6 +17268,65 @@ byte_at(input)
   assert_includes(nested_index, "load8_u");
   assert_includes(nested_index, "input");
   assert_includes(nested_index, "1:i32");
+
+  const borrowed_runtime_struct_field = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const user_type = struct {
+  age: Int
+}
+
+let user: user_type = input
+(borrow user).age
+`)),
+  );
+  assert_includes(borrowed_runtime_struct_field, "input");
+  assert_includes(borrowed_runtime_struct_field, "field_age");
+
+  const frozen_runtime_struct_field = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const user_type = struct {
+  age: Int
+}
+
+let user: user_type = input
+(freeze user).age
+`)),
+  );
+  assert_includes(frozen_runtime_struct_field, "input");
+  assert_includes(frozen_runtime_struct_field, "field_age");
+
+  const scratch_runtime_struct_field = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const user_type = struct {
+  age: Int
+}
+
+let user: user_type = input
+(scratch { user }).age
+`)),
+  );
+  assert_includes(scratch_runtime_struct_field, "input");
+  assert_includes(scratch_runtime_struct_field, "field_age");
+
+  const scratch_runtime_struct_index = Format.fmt(
+    Ic,
+    Ic.reduce(compile(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+
+let user: user_type = input
+(scratch { user })[index]
+`)),
+  );
+  assert_includes(scratch_runtime_struct_index, "input");
+  assert_includes(scratch_runtime_struct_index, "field_age");
+  assert_includes(scratch_runtime_struct_index, "field_score");
+  assert_includes(scratch_runtime_struct_index, "trap");
 
   assert_equals(
     Ic.reduce(compile(`
@@ -11899,18 +17436,6 @@ len(message)
     },
   );
 
-  assert_throws(
-    () =>
-      compile(`
-let identity = (message: Text) => {
-  borrow message
-}
-
-identity(input)
-`),
-    "use Source.core, Source.mod, or Source.wat",
-  );
-
   const frozen_object = Format.fmt(Ic, Ic.reduce(compile("freeze { age: 1 }")));
   assert_includes(frozen_object, "λpick#");
   assert_includes(frozen_object, "1:i32");
@@ -11992,5 +17517,32 @@ inc
   assert_throws(
     () => compile('freeze ((!io) => io.print("x"))'),
     "Cannot lower linear function to Ic frontend yet",
+  );
+
+  assert_throws(
+    () => compile("borrow input"),
+    "Cannot lower borrow view result through pure Ic",
+  );
+  assert_throws(
+    () => compile("borrow input"),
+    "use Source.core, Source.mod, or Source.wat",
+  );
+
+  assert_throws(
+    () => compile("freeze input"),
+    "Cannot lower freeze result through pure Ic",
+  );
+  assert_throws(
+    () => compile("freeze input"),
+    "use Source.core, Source.mod, or Source.wat",
+  );
+
+  assert_throws(
+    () => compile("scratch { input }"),
+    "Cannot lower scratch result through pure Ic",
+  );
+  assert_throws(
+    () => compile("scratch { input }"),
+    "use Source.core, Source.mod, or Source.wat",
   );
 });

@@ -44,6 +44,10 @@ function format_stmt(stmt: Stmt): string {
   if (stmt.tag === "bind") {
     let text = stmt.kind + " ";
 
+    if (stmt.is_recursive) {
+      text += "rec ";
+    }
+
     if (stmt.is_linear) {
       text += "!";
     }

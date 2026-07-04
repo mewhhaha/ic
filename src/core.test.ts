@@ -740,6 +740,60 @@ f(40i64)
     "call_indirect (type $closure_i32_i64_to_i64)",
   );
 
+  const aggregate_param_closure_core = Source.core(Source.parse(`
+const user_type = struct { age: Int }
+const user_alias = user_type
+
+let make = flag => {
+  if flag {
+    (user: user_type) => user.age + 1
+  } else {
+    (user: user_alias) => user.age + 2
+  }
+}
+
+let f = make(0)
+f(user_type { age: 40 })
+`));
+  const aggregate_param_closure_wat = Emit.emit(
+    Mod,
+    Core.mod(aggregate_param_closure_core),
+  );
+
+  assert_equals(Core.proof(aggregate_param_closure_core).issues, []);
+  assert_equals(Typed.type(Core, aggregate_param_closure_core), "i32");
+  assert_includes(
+    aggregate_param_closure_wat,
+    "call_indirect (type $closure_i32_i32_to_i32)",
+  );
+
+  const union_param_closure_core = Source.core(Source.parse(`
+const result_type = union { ok: Int, err: Int }
+const result_alias = result_type
+
+let make = flag => {
+  if flag {
+    (result: result_type) => if let .ok(value) = result { value + 1 } else { 0 }
+  } else {
+    (result: result_alias) => if let .ok(value) = result { value + 2 } else { 0 }
+  }
+}
+
+let f = make(0)
+f(result_type.ok(40))
+`));
+  const union_param_closure_wat = Emit.emit(
+    Mod,
+    Core.mod(union_param_closure_core),
+  );
+
+  assert_equals(Core.proof(union_param_closure_core).issues, []);
+  assert_equals(Typed.type(Core, union_param_closure_core), "i32");
+  assert_includes(
+    union_param_closure_wat,
+    "call_indirect (type $closure_i32_i32_to_i32)",
+  );
+
   const captured_text_assign_core = Source.core(Source.parse(`
 let run = (text: Text, flag: Int) => {
   let f = if flag {
@@ -769,12 +823,7 @@ run("Ada", 1)
   assert_includes(captured_text_assign_wat, "i32.store8");
   assert_includes(captured_text_assign_wat, "i32.load8_u");
 
-  assert_throws(
-    () =>
-      Emit.emit(
-        Mod,
-        Core.mod(
-          Source.core(Source.parse(`
+  const invalid_captured_assignment_core = Source.core(Source.parse(`
 let flag = 1
 let x = 1
 let f = if flag {
@@ -787,10 +836,29 @@ let f = if flag {
 }
 
 f()
-`)),
-        ),
-      ),
-    "Core closure captured assignment only supports",
+`));
+  const invalid_captured_assignment_message =
+    "Core closure captured assignment only supports same-type scalar " +
+    "rebinding, runtime Text byte assignment, runtime aggregate scalar/Text " +
+    "index assignment, and static aggregate rebuilds";
+
+  assert_equals(
+    Core.proof(invalid_captured_assignment_core).issues.map((issue) =>
+      issue.message
+    ),
+    [invalid_captured_assignment_message],
+  );
+  assert_throws(
+    () => Core.check_proof(invalid_captured_assignment_core),
+    invalid_captured_assignment_message,
+  );
+  assert_throws(
+    () => Emit.emit(Core, invalid_captured_assignment_core),
+    invalid_captured_assignment_message,
+  );
+  assert_throws(
+    () => Core.mod(invalid_captured_assignment_core),
+    invalid_captured_assignment_message,
   );
 
   const one_sided_core = Source.core(Source.parse(`
@@ -910,6 +978,43 @@ f(2)
   );
   assert_includes(if_let_runtime_target_wat, "i32.load");
   assert_includes(if_let_runtime_target_wat, "local.set $value");
+
+  const linear_if_let_runtime_target_core = Source.core(Source.parse(`
+let flag = 1
+const result_type = union {
+  ok: Int,
+  err: Int
+}
+
+let !base: I32 = 1
+let result: result_type = if flag {
+  .ok(40)
+} else {
+  .err(1)
+}
+
+let f = if let .ok(value) = result {
+  () => !base + value + 1
+} else {
+  () => !base + 1
+}
+
+base = f()
+base
+`));
+  const linear_if_let_runtime_target_wat = Emit.emit(
+    Mod,
+    Core.mod(linear_if_let_runtime_target_core),
+  );
+
+  assert_equals(Core.proof(linear_if_let_runtime_target_core).issues, []);
+  assert_equals(Typed.type(Core, linear_if_let_runtime_target_core), "i32");
+  assert_includes(
+    linear_if_let_runtime_target_wat,
+    "call_indirect (type $closure_i32_to_i32)",
+  );
+  assert_includes(linear_if_let_runtime_target_wat, "i32.load");
+  assert_includes(linear_if_let_runtime_target_wat, "local.set $value");
 
   assert_throws(
     () =>
@@ -1071,6 +1176,56 @@ len(pair) * 1000 + get(pair, i) * 100 + pair[0] * 10 + total
   assert_includes(wat, "local.get $pair");
   assert_includes(wat, "i32.load offset=0");
   assert_includes(wat, "i32.load offset=4");
+
+  const control_core = Source.core(Source.parse(`
+const pair_type = struct {
+  first: Int,
+  second: Int
+}
+
+let flag = 1
+let make = if flag {
+  (first: Int, second: Int) => pair_type {
+    first: first,
+    second: second
+  }
+} else {
+  (first: Int, second: Int) => pair_type {
+    first: second,
+    second: first
+  }
+}
+
+let pair: pair_type = make(10, 31)
+let total = 0
+
+for index, value in pair {
+  if index == 0 {
+    continue
+  }
+
+  total = total + value
+
+  if index == 1 {
+    break
+  }
+
+  total = total + 100
+}
+
+total
+`));
+  const control_proof = Core.proof(control_core);
+  const control_wat = Emit.emit(Mod, Core.mod(control_core));
+
+  assert_equals(control_proof.ok, true);
+  assert_equals(control_proof.managed_storage, "disabled");
+  assert_equals(Typed.type(Core, control_core), "i32");
+  assert_includes(control_wat, "block $collection_exit_");
+  assert_includes(control_wat, "block $collection_continue_");
+  assert_includes(control_wat, "br $collection_continue_");
+  assert_includes(control_wat, "br $collection_exit_");
+  assert_includes(control_wat, "local.set $total");
 
   const nested_core = Source.core(Source.parse(`
 const scores_type = struct {
@@ -1908,6 +2063,16 @@ let user = { age: 40, score: 2 }
   assert_equals(Typed.type(Core, direct_core), "i32");
   assert_equals(Emit.emit(Core, direct_core), "\ni32.const 41");
 
+  const assignment_core = Source.core(Source.parse(`
+let user = { age: 40, score: 2 }
+user = user { age: 41 }
+user.age
+`));
+
+  assert_equals(Core.proof(assignment_core).issues, []);
+  assert_equals(Typed.type(Core, assignment_core), "i32");
+  assert_equals(Emit.emit(Core, assignment_core).trim(), "i32.const 41");
+
   assert_throws(
     () =>
       Emit.emit(
@@ -2291,17 +2456,25 @@ user.age + len(user.name)
       "leave scratch without freeze or explicit promotion",
   );
 
-  assert_throws(
-    () =>
-      Typed.type(
-        Core,
-        Source.core(Source.parse(`
+  const frozen_text_mutation_core = Source.core(Source.parse(`
 let message = "Ada"
 message[0] = 66
 len(message)
-`)),
-      ),
-    "Cannot mutate frozen/shareable core binding: message",
+`));
+  const frozen_text_mutation_message =
+    "Cannot mutate frozen/shareable core binding: message";
+
+  assert_equals(
+    Core.proof(frozen_text_mutation_core).issues.map((issue) => issue.message),
+    [frozen_text_mutation_message],
+  );
+  assert_throws(
+    () => Core.check_proof(frozen_text_mutation_core),
+    frozen_text_mutation_message,
+  );
+  assert_throws(
+    () => Typed.type(Core, frozen_text_mutation_core),
+    frozen_text_mutation_message,
   );
 
   assert_throws(
@@ -3044,6 +3217,20 @@ len(text)
   assert_equals(Typed.type(Core, text), "i32");
   assert_includes(Emit.emit(Core, text), "i32.const 3");
 
+  const scratch_text = Source.core(Source.parse(`
+let prefix: Text = slice("Ada", 0, 3)
+let text: Text = scratch {
+  let temp: Text = append(prefix, "!")
+  freeze temp
+}
+len(text)
+`));
+
+  assert_equals(Typed.type(Core, scratch_text), "i32");
+  assert_equals(Core.proof(scratch_text).issues, []);
+  Core.check_proof(scratch_text);
+  assert_includes(Emit.emit(Core, scratch_text), "global.set $__scratch_heap");
+
   const type_value = Source.core(Source.parse(`
 const user_type: Type = struct {
   age: Int
@@ -3076,6 +3263,36 @@ x
 `)),
       ),
     "Core binding annotation expects Int, got Text",
+  );
+
+  assert_throws(
+    () =>
+      Typed.type(
+        Core,
+        Source.core(Source.parse(`
+let value: Text = {
+  let inner: Text = 1
+  inner
+}
+value
+`)),
+      ),
+    "Core binding annotation expects Text, got I32",
+  );
+
+  assert_throws(
+    () =>
+      Typed.type(
+        Core,
+        Source.core(Source.parse(`
+let prefix: Text = slice("Ada", 0, 3)
+let text: Text = scratch {
+  append(prefix, "!")
+}
+len(text)
+`)),
+      ),
+    "unique_heap text cannot leave scratch without freeze or explicit promotion",
   );
 
   assert_throws(
@@ -3551,13 +3768,938 @@ if let .ok(found) = result {
     Mod,
     Core.mod(aggregate_payload_core),
   );
+  const aggregate_payload_proof = Core.proof(aggregate_payload_core);
 
   assert_equals(Typed.type(Core, aggregate_payload_core), "i32");
+  assert_equals(aggregate_payload_proof.ok, true);
+  assert_equals(aggregate_payload_proof.transfers, {
+    transfers: [
+      {
+        id: "transfer#0",
+        scope: "program#0",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+    ],
+    issues: [],
+  });
+  assert_equals(aggregate_payload_proof.drops.steps, [
+    {
+      tag: "heap_drop",
+      id: "drop#0",
+      edge: "scope_exit",
+      scope: "program#0",
+      owner: "result",
+      ownership: {
+        tag: "unique_heap",
+        reason: "runtime_union",
+      },
+      storage: "persistent_unique_heap",
+      runtime: "no_op_bump_allocator",
+      reason: "unique_heap runtime_union scope exit lowers to no-op with " +
+        "bump allocator",
+    },
+  ]);
   assert_includes(aggregate_payload_wat, "(local $found i32)");
   assert_includes(aggregate_payload_wat, "local.set $found");
   assert_includes(aggregate_payload_wat, "local.get $found");
   assert_includes(aggregate_payload_wat, "i32.load offset=0");
   assert_includes(aggregate_payload_wat, "i32.load offset=4");
+
+  const use_after_payload_transfer = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let result: result_type = result_type.ok(user)
+let total = if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+
+total + user.age
+`));
+  const use_after_payload_transfer_proof = Core.proof(
+    use_after_payload_transfer,
+  );
+
+  assert_equals(use_after_payload_transfer_proof.ok, false);
+  assert_equals(use_after_payload_transfer_proof.transfers.issues, [
+    {
+      tag: "use_after_transfer",
+      owner: "user",
+      transfer: {
+        id: "transfer#0",
+        scope: "program#0",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+      use: "value use",
+      message: "Use of transferred owner user after ownership transfer " +
+        "transfer#0 to union_case.ok",
+    },
+  ]);
+  assert_throws(
+    () => Core.check_proof(use_after_payload_transfer),
+    "Use of transferred owner user after ownership transfer transfer#0 to " +
+      "union_case.ok",
+  );
+
+  const branch_assignment_payload_transfer = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let flag = 1
+let user: user_type = user_type {
+  age: flag,
+  score: 2
+}
+let result: result_type = result_type.err()
+if flag {
+  result = result_type.ok(user)
+} else {
+  result = result_type.ok(user)
+}
+let total = if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+
+total
+`));
+  const branch_assignment_payload_transfer_proof = Core.proof(
+    branch_assignment_payload_transfer,
+  );
+  const branch_assignment_payload_transfer_wat = Emit.emit(
+    Mod,
+    Core.mod(branch_assignment_payload_transfer),
+  );
+
+  assert_equals(branch_assignment_payload_transfer_proof.ok, true);
+  assert_equals(branch_assignment_payload_transfer_proof.transfers, {
+    transfers: [
+      {
+        id: "transfer#0",
+        scope: "program#0/if_then",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+      {
+        id: "transfer#1",
+        scope: "program#0/if_else",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+    ],
+    issues: [],
+  });
+  assert_includes(branch_assignment_payload_transfer_wat, "if");
+  assert_includes(branch_assignment_payload_transfer_wat, "(local $found i32)");
+  assert_includes(branch_assignment_payload_transfer_wat, "i32.load offset=0");
+  assert_includes(branch_assignment_payload_transfer_wat, "i32.load offset=4");
+
+  const branch_assignment_payload_transfer_use_after = Source.core(
+    Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let flag = 1
+let user: user_type = user_type {
+  age: flag,
+  score: 2
+}
+let result: result_type = result_type.err()
+if flag {
+  result = result_type.ok(user)
+} else {
+  result = result_type.ok(user)
+}
+let total = if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+
+total + user.age
+`),
+  );
+  const branch_assignment_payload_transfer_use_after_proof = Core.proof(
+    branch_assignment_payload_transfer_use_after,
+  );
+
+  assert_equals(branch_assignment_payload_transfer_use_after_proof.ok, false);
+  assert_equals(
+    branch_assignment_payload_transfer_use_after_proof.transfers.issues,
+    [
+      {
+        tag: "use_after_transfer",
+        owner: "user",
+        transfer: {
+          id: "transfer#1",
+          scope: "program#0/if_else",
+          owner: "user",
+          callee: "union_case.ok",
+          argument: 0,
+        },
+        use: "value use",
+        message: "Use of transferred owner user after ownership transfer " +
+          "transfer#1 to union_case.ok",
+      },
+    ],
+  );
+  assert_throws(
+    () => Core.check_proof(branch_assignment_payload_transfer_use_after),
+    "Use of transferred owner user after ownership transfer transfer#1 to " +
+      "union_case.ok",
+  );
+
+  const one_sided_branch_assignment_payload_transfer = Source.core(
+    Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let flag = 1
+let user: user_type = user_type {
+  age: flag,
+  score: 2
+}
+let result: result_type = result_type.err()
+if flag {
+  result = result_type.ok(user)
+} else {
+  result = result_type.err()
+}
+let total = if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+
+total
+`),
+  );
+  const one_sided_branch_assignment_payload_transfer_proof = Core.proof(
+    one_sided_branch_assignment_payload_transfer,
+  );
+
+  assert_equals(one_sided_branch_assignment_payload_transfer_proof.ok, false);
+  assert_equals(
+    one_sided_branch_assignment_payload_transfer_proof.transfers.issues,
+    [
+      {
+        tag: "conditional_transfer_requires_cleanup",
+        owner: "user",
+        transfer: {
+          id: "transfer#0",
+          scope: "program#0/if_then",
+          owner: "user",
+          callee: "union_case.ok",
+          argument: 0,
+        },
+        message: "Conditional transfer of owner user through transfer#0 to " +
+          "union_case.ok requires conditional cleanup/drop facts",
+      },
+    ],
+  );
+  assert_throws(
+    () => Core.check_proof(one_sided_branch_assignment_payload_transfer),
+    "Conditional transfer of owner user through transfer#0 to union_case.ok " +
+      "requires conditional cleanup/drop facts",
+  );
+  assert_throws(
+    () => Core.mod(one_sided_branch_assignment_payload_transfer),
+    "Conditional transfer of owner user through transfer#0 to union_case.ok " +
+      "requires conditional cleanup/drop facts",
+  );
+
+  const loop_payload_transfer = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let xs = { first: 1 }
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let result: result_type = result_type.err()
+for x in xs {
+  result = result_type.ok(user)
+}
+let total = if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+
+total
+`));
+  const loop_payload_transfer_proof = Core.proof(loop_payload_transfer);
+
+  assert_equals(loop_payload_transfer_proof.ok, false);
+  assert_equals(loop_payload_transfer_proof.transfers.issues, [
+    {
+      tag: "conditional_transfer_requires_cleanup",
+      owner: "user",
+      transfer: {
+        id: "transfer#0",
+        scope: "program#0/loop",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+      message: "Conditional transfer of owner user through transfer#0 to " +
+        "union_case.ok requires conditional cleanup/drop facts",
+    },
+  ]);
+  assert_throws(
+    () => Core.check_proof(loop_payload_transfer),
+    "Conditional transfer of owner user through transfer#0 to union_case.ok " +
+      "requires conditional cleanup/drop facts",
+  );
+  assert_throws(
+    () => Core.mod(loop_payload_transfer),
+    "Conditional transfer of owner user through transfer#0 to union_case.ok " +
+      "requires conditional cleanup/drop facts",
+  );
+
+  const alias_payload_transfer = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let alias: user_type = user
+let result: result_type = result_type.ok(alias)
+
+if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+`));
+  const alias_payload_transfer_proof = Core.proof(alias_payload_transfer);
+  const alias_payload_transfer_wat = Emit.emit(
+    Mod,
+    Core.mod(alias_payload_transfer),
+  );
+
+  assert_equals(alias_payload_transfer_proof.ok, true);
+  assert_equals(alias_payload_transfer_proof.transfers, {
+    transfers: [
+      {
+        id: "transfer#0",
+        scope: "program#0",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+    ],
+    issues: [],
+  });
+  assert_includes(alias_payload_transfer_wat, "(local $found i32)");
+
+  const use_after_alias_payload_transfer = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let alias: user_type = user
+let result: result_type = result_type.ok(alias)
+let total = if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+
+total + user.age
+`));
+  const use_after_alias_payload_transfer_proof = Core.proof(
+    use_after_alias_payload_transfer,
+  );
+
+  assert_equals(use_after_alias_payload_transfer_proof.ok, false);
+  assert_equals(use_after_alias_payload_transfer_proof.transfers.issues, [
+    {
+      tag: "use_after_transfer",
+      owner: "user",
+      transfer: {
+        id: "transfer#0",
+        scope: "program#0",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+      use: "value use",
+      message: "Use of transferred owner user after ownership transfer " +
+        "transfer#0 to union_case.ok",
+    },
+  ]);
+
+  const wrapper_payload_transfer = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let wrap = (payload: user_type) => result_type.ok(payload)
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let result: result_type = wrap(user)
+
+if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+`));
+  const wrapper_payload_transfer_proof = Core.proof(wrapper_payload_transfer);
+  const wrapper_payload_transfer_wat = Emit.emit(
+    Mod,
+    Core.mod(wrapper_payload_transfer),
+  );
+
+  assert_equals(wrapper_payload_transfer_proof.ok, true);
+  assert_equals(wrapper_payload_transfer_proof.transfers, {
+    transfers: [
+      {
+        id: "transfer#0",
+        scope: "program#0/static_call/wrap",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+    ],
+    issues: [],
+  });
+  assert_equals(wrapper_payload_transfer_proof.drops.steps, [
+    {
+      tag: "heap_drop",
+      id: "drop#0",
+      edge: "scope_exit",
+      scope: "program#0",
+      owner: "result",
+      ownership: {
+        tag: "unique_heap",
+        reason: "runtime_union",
+      },
+      storage: "persistent_unique_heap",
+      runtime: "no_op_bump_allocator",
+      reason: "unique_heap runtime_union scope exit lowers to no-op with " +
+        "bump allocator",
+    },
+    {
+      tag: "heap_drop",
+      id: "drop#1",
+      edge: "scope_exit",
+      scope: "program#0",
+      owner: "wrap",
+      ownership: {
+        tag: "unique_heap",
+        reason: "closure",
+      },
+      storage: "persistent_unique_heap",
+      runtime: "no_op_bump_allocator",
+      reason: "unique_heap closure scope exit lowers to no-op with " +
+        "bump allocator",
+    },
+  ]);
+  assert_includes(wrapper_payload_transfer_wat, "(local $found i32)");
+
+  const wrapper_payload_transfer_use_after = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let wrap = (payload: user_type) => result_type.ok(payload)
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let result: result_type = wrap(user)
+let total = if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+
+total + user.age
+`));
+  const wrapper_payload_transfer_use_after_proof = Core.proof(
+    wrapper_payload_transfer_use_after,
+  );
+
+  assert_equals(wrapper_payload_transfer_use_after_proof.ok, false);
+  assert_equals(wrapper_payload_transfer_use_after_proof.transfers.issues, [
+    {
+      tag: "use_after_transfer",
+      owner: "user",
+      transfer: {
+        id: "transfer#0",
+        scope: "program#0/static_call/wrap",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+      use: "value use",
+      message: "Use of transferred owner user after ownership transfer " +
+        "transfer#0 to union_case.ok",
+    },
+  ]);
+
+  const branch_wrapper_payload_transfer = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let flag = 1
+let wrap = if flag {
+  (payload: user_type) => result_type.ok(payload)
+} else {
+  (payload: user_type) => result_type.ok(payload)
+}
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let result: result_type = wrap(user)
+
+if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+`));
+  const branch_wrapper_payload_transfer_proof = Core.proof(
+    branch_wrapper_payload_transfer,
+  );
+  const branch_wrapper_payload_transfer_wat = Emit.emit(
+    Mod,
+    Core.mod(branch_wrapper_payload_transfer),
+  );
+
+  assert_equals(branch_wrapper_payload_transfer_proof.ok, true);
+  assert_equals(branch_wrapper_payload_transfer_proof.transfers, {
+    transfers: [
+      {
+        id: "transfer#0",
+        scope: "program#0/static_call/wrap/if_then",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+      {
+        id: "transfer#1",
+        scope: "program#0/static_call/wrap/if_else",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+    ],
+    issues: [],
+  });
+  assert_equals(branch_wrapper_payload_transfer_proof.drops.steps, [
+    {
+      tag: "heap_drop",
+      id: "drop#0",
+      edge: "scope_exit",
+      scope: "program#0",
+      owner: "result",
+      ownership: {
+        tag: "unique_heap",
+        reason: "runtime_union",
+      },
+      storage: "persistent_unique_heap",
+      runtime: "no_op_bump_allocator",
+      reason: "unique_heap runtime_union scope exit lowers to no-op with " +
+        "bump allocator",
+    },
+  ]);
+  assert_includes(branch_wrapper_payload_transfer_wat, "if (result i32)");
+  assert_includes(branch_wrapper_payload_transfer_wat, "i32.add");
+
+  const branch_wrapper_payload_transfer_use_after = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let flag = 1
+let wrap = if flag {
+  (payload: user_type) => result_type.ok(payload)
+} else {
+  (payload: user_type) => result_type.ok(payload)
+}
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let result: result_type = wrap(user)
+let total = if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+
+total + user.age
+`));
+  const branch_wrapper_payload_transfer_use_after_proof = Core.proof(
+    branch_wrapper_payload_transfer_use_after,
+  );
+
+  assert_equals(branch_wrapper_payload_transfer_use_after_proof.ok, false);
+  assert_equals(
+    branch_wrapper_payload_transfer_use_after_proof.transfers.issues,
+    [
+      {
+        tag: "use_after_transfer",
+        owner: "user",
+        transfer: {
+          id: "transfer#1",
+          scope: "program#0/static_call/wrap/if_else",
+          owner: "user",
+          callee: "union_case.ok",
+          argument: 0,
+        },
+        use: "value use",
+        message: "Use of transferred owner user after ownership transfer " +
+          "transfer#1 to union_case.ok",
+      },
+    ],
+  );
+
+  const branch_wrapper_alias_payload_transfer_use_after = Source.core(
+    Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let flag = 1
+let wrap = if flag {
+  (payload: user_type) => result_type.ok(payload)
+} else {
+  (payload: user_type) => result_type.ok(payload)
+}
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let alias: user_type = user
+let result: result_type = wrap(alias)
+let total = if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+
+total + user.age
+`),
+  );
+  const branch_wrapper_alias_payload_transfer_use_after_proof = Core.proof(
+    branch_wrapper_alias_payload_transfer_use_after,
+  );
+
+  assert_equals(
+    branch_wrapper_alias_payload_transfer_use_after_proof.ok,
+    false,
+  );
+  assert_equals(
+    branch_wrapper_alias_payload_transfer_use_after_proof.transfers.issues,
+    [
+      {
+        tag: "use_after_transfer",
+        owner: "user",
+        transfer: {
+          id: "transfer#1",
+          scope: "program#0/static_call/wrap/if_else",
+          owner: "user",
+          callee: "union_case.ok",
+          argument: 0,
+        },
+        use: "value use",
+        message: "Use of transferred owner user after ownership transfer " +
+          "transfer#1 to union_case.ok",
+      },
+    ],
+  );
+
+  const higher_order_alias_payload_transfer = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let wrap = (payload: user_type) => result_type.ok(payload)
+let relay = (const f, payload: user_type) => {
+  let g = f
+  g(payload)
+}
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let result: result_type = relay(wrap, user)
+
+if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+`));
+  const higher_order_alias_payload_transfer_proof = Core.proof(
+    higher_order_alias_payload_transfer,
+  );
+
+  assert_equals(higher_order_alias_payload_transfer_proof.ok, true);
+  assert_equals(
+    higher_order_alias_payload_transfer_proof.transfers.transfers,
+    [
+      {
+        id: "transfer#0",
+        scope: "program#0/static_call/relay/block/static_call/g",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+    ],
+  );
+  assert_includes(
+    Emit.emit(Mod, Core.mod(higher_order_alias_payload_transfer)),
+    "(local $found i32)",
+  );
+
+  const higher_order_alias_payload_transfer_use_after = Source.core(
+    Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let wrap = (payload: user_type) => result_type.ok(payload)
+let relay = (const f, payload: user_type) => {
+  let g = f
+  g(payload)
+}
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let result: result_type = relay(wrap, user)
+let total = if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+
+total + user.age
+`),
+  );
+
+  assert_throws(
+    () => Core.check_proof(higher_order_alias_payload_transfer_use_after),
+    "Use of transferred owner user after ownership transfer transfer#0 to " +
+      "union_case.ok",
+  );
+
+  const branch_higher_order_alias_payload_transfer = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let wrap = (payload: user_type) => result_type.ok(payload)
+let flag = 1
+let relay = if flag {
+  (const f, payload: user_type) => {
+    let g = f
+    g(payload)
+  }
+} else {
+  (const f, payload: user_type) => {
+    let g = f
+    g(payload)
+  }
+}
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let result: result_type = relay(wrap, user)
+
+if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+`));
+  const branch_higher_order_alias_payload_transfer_proof = Core.proof(
+    branch_higher_order_alias_payload_transfer,
+  );
+
+  assert_equals(branch_higher_order_alias_payload_transfer_proof.ok, true);
+  assert_equals(
+    branch_higher_order_alias_payload_transfer_proof.transfers.transfers,
+    [
+      {
+        id: "transfer#0",
+        scope: "program#0/static_call/relay/if_then/block/static_call/g",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+      {
+        id: "transfer#1",
+        scope: "program#0/static_call/relay/if_else/block/static_call/g",
+        owner: "user",
+        callee: "union_case.ok",
+        argument: 0,
+      },
+    ],
+  );
+  assert_includes(
+    Emit.emit(Mod, Core.mod(branch_higher_order_alias_payload_transfer)),
+    "if (result i32)",
+  );
+
+  const branch_higher_order_alias_payload_transfer_use_after = Source.core(
+    Source.parse(`
+const user_type = struct {
+  age: Int,
+  score: Int
+}
+const result_type = union {
+  ok: user_type,
+  err: Unit
+}
+
+let wrap = (payload: user_type) => result_type.ok(payload)
+let flag = 1
+let relay = if flag {
+  (const f, payload: user_type) => {
+    let g = f
+    g(payload)
+  }
+} else {
+  (const f, payload: user_type) => {
+    let g = f
+    g(payload)
+  }
+}
+let user: user_type = user_type {
+  age: 40,
+  score: 2
+}
+let result: result_type = relay(wrap, user)
+let total = if let .ok(found) = result {
+  found.age + found.score
+} else {
+  0
+}
+
+total + user.age
+`),
+  );
+
+  assert_throws(
+    () =>
+      Core.check_proof(
+        branch_higher_order_alias_payload_transfer_use_after,
+      ),
+    "Use of transferred owner user after ownership transfer transfer#1 to " +
+      "union_case.ok",
+  );
 });
 
 Deno.test("Core.emit materializes runtime aggregate values", () => {
@@ -3744,10 +4886,31 @@ let frozen: user_type = freeze user
 frozen[1] = 1
 frozen.age
 `));
+  const frozen_runtime_pointer_mutation_message =
+    "Cannot mutate frozen/shareable core binding: frozen";
+  const frozen_runtime_pointer_mutation_proof = Core.proof(
+    frozen_runtime_pointer_mutation_core,
+  );
+
+  assert_equals(frozen_runtime_pointer_mutation_proof.ok, false);
+  assert_equals(
+    frozen_runtime_pointer_mutation_proof.issues.map((issue) => issue.message),
+    [frozen_runtime_pointer_mutation_message],
+  );
+
+  assert_throws(
+    () => Core.check_proof(frozen_runtime_pointer_mutation_core),
+    frozen_runtime_pointer_mutation_message,
+  );
+
+  assert_throws(
+    () => Emit.emit(Core, frozen_runtime_pointer_mutation_core),
+    frozen_runtime_pointer_mutation_message,
+  );
 
   assert_throws(
     () => Core.mod(frozen_runtime_pointer_mutation_core),
-    "Cannot mutate frozen/shareable core binding: frozen",
+    frozen_runtime_pointer_mutation_message,
   );
 
   const nested_field_core = Source.core(Source.parse(`
@@ -4456,6 +5619,165 @@ total
     "Cannot emit core index expression yet",
   );
 
+  const index_assign_core = Source.core(Source.parse(`
+let xs = 1
+xs[0] = 2
+0
+`));
+  const index_assign_proof = Core.proof(index_assign_core);
+  assert_equals(
+    index_assign_proof.issues[0]?.message,
+    "Cannot emit core index_assign statement yet",
+  );
+  assert_throws(
+    () => Core.check_proof(index_assign_core),
+    "Cannot emit core index_assign statement yet",
+  );
+  assert_throws(
+    () => Emit.emit(Core, index_assign_core),
+    "Cannot emit core index_assign statement yet",
+  );
+
+  const unbound_index_assign_core = Source.core(Source.parse(`
+xs[0] = 2
+0
+`));
+  const unbound_index_assign_proof = Core.proof(unbound_index_assign_core);
+  assert_equals(
+    unbound_index_assign_proof.issues[0]?.message,
+    "Cannot emit core index_assign statement yet",
+  );
+  assert_throws(
+    () => Core.check_proof(unbound_index_assign_core),
+    "Cannot emit core index_assign statement yet",
+  );
+  assert_throws(
+    () => Emit.emit(Core, unbound_index_assign_core),
+    "Cannot emit core index_assign statement yet",
+  );
+
+  const comptime_bind_core = Source.core(Source.parse(`
+let x = comptime 1
+x
+`));
+  const comptime_bind_proof = Core.proof(comptime_bind_core);
+  assert_equals(
+    comptime_bind_proof.issues[0]?.message,
+    "Cannot emit core comptime expression yet",
+  );
+  assert_throws(
+    () => Core.check_proof(comptime_bind_core),
+    "Cannot emit core comptime expression yet",
+  );
+  assert_throws(
+    () => Emit.emit(Core, comptime_bind_core),
+    "Cannot emit core comptime expression yet",
+  );
+
+  const comptime_assign_core = Source.core(Source.parse(`
+let x = 0
+x = comptime 1
+x
+`));
+  const comptime_assign_proof = Core.proof(comptime_assign_core);
+  assert_equals(
+    comptime_assign_proof.issues[0]?.message,
+    "Cannot emit core comptime expression yet",
+  );
+  assert_throws(
+    () => Core.check_proof(comptime_assign_core),
+    "Cannot emit core comptime expression yet",
+  );
+  assert_throws(
+    () => Emit.emit(Core, comptime_assign_core),
+    "Cannot emit core comptime expression yet",
+  );
+
+  const nonfinal_field_core = Source.core(Source.parse(`
+user.name
+0
+`));
+  const nonfinal_field_proof = Core.proof(nonfinal_field_core);
+  assert_equals(
+    nonfinal_field_proof.issues[0]?.message,
+    "Cannot emit core field expression yet",
+  );
+  assert_throws(
+    () => Core.check_proof(nonfinal_field_core),
+    "Cannot emit core field expression yet",
+  );
+  assert_throws(
+    () => Emit.emit(Core, nonfinal_field_core),
+    "Cannot emit core field expression yet",
+  );
+
+  const nonfinal_index_core = Source.core(Source.parse(`
+xs[i]
+0
+`));
+  const nonfinal_index_proof = Core.proof(nonfinal_index_core);
+  assert_equals(
+    nonfinal_index_proof.issues[0]?.message,
+    "Cannot emit core index expression yet",
+  );
+  assert_throws(
+    () => Core.check_proof(nonfinal_index_core),
+    "Cannot emit core index expression yet",
+  );
+  assert_throws(
+    () => Emit.emit(Core, nonfinal_index_core),
+    "Cannot emit core index expression yet",
+  );
+
+  const unsupported_builtin_collection_calls = [
+    {
+      source: "let x = 1\nlen(x)",
+      type_message: "Cannot type core len over unknown collection or text",
+      emit_message: "Cannot emit core len over unknown collection or text",
+    },
+    {
+      source: "let x = 1\nget(x, 0)",
+      type_message: "Cannot type core get over unknown collection",
+      emit_message: "Cannot emit core get over unknown collection",
+    },
+  ];
+
+  for (const item of unsupported_builtin_collection_calls) {
+    const builtin_core = Source.core(Source.parse(item.source));
+    assert_equals(
+      Core.proof(builtin_core).issues[0]?.message,
+      item.emit_message,
+    );
+    assert_throws(
+      () => Typed.type(Core, builtin_core),
+      item.type_message,
+    );
+    assert_throws(
+      () => Core.check_proof(builtin_core),
+      item.emit_message,
+    );
+    assert_throws(
+      () => Emit.emit(Core, builtin_core),
+      item.emit_message,
+    );
+
+    const nonfinal_builtin_core = Source.core(
+      Source.parse(item.source + "\n0"),
+    );
+    assert_equals(
+      Core.proof(nonfinal_builtin_core).issues[0]?.message,
+      item.emit_message,
+    );
+    assert_throws(
+      () => Core.check_proof(nonfinal_builtin_core),
+      item.emit_message,
+    );
+    assert_throws(
+      () => Emit.emit(Core, nonfinal_builtin_core),
+      item.emit_message,
+    );
+  }
+
   const if_let_expr_core = Source.core(Source.parse(`
 if let .ok(value) = result {
   value
@@ -4551,6 +5873,342 @@ user_type
   assert_throws(
     () => Emit.emit(Core, named_type_core),
     "Cannot emit core type value expression yet",
+  );
+
+  const runtime_type_expr_core: CoreNode = {
+    tag: "program",
+    statements: [
+      {
+        tag: "expr",
+        expr: {
+          tag: "struct_type",
+          fields: [{ name: "name", type_name: "Text" }],
+        },
+      },
+      { tag: "expr", expr: { tag: "num", type: "i32", value: 1 } },
+    ],
+  };
+  const runtime_type_expr_proof = Core.proof(runtime_type_expr_core);
+  assert_equals(
+    runtime_type_expr_proof.issues[0]?.message,
+    "Cannot emit core type value expression yet",
+  );
+  assert_throws(
+    () => Core.check_proof(runtime_type_expr_core),
+    "Cannot emit core type value expression yet",
+  );
+  assert_throws(
+    () => Emit.emit(Core, runtime_type_expr_core),
+    "Cannot emit core type value expression yet",
+  );
+
+  const runtime_type_bind_core: CoreNode = {
+    tag: "program",
+    statements: [
+      {
+        tag: "bind",
+        kind: "let",
+        name: "runtime_type",
+        is_linear: false,
+        annotation: undefined,
+        value: {
+          tag: "struct_type",
+          fields: [{ name: "name", type_name: "Text" }],
+        },
+      },
+      { tag: "expr", expr: { tag: "num", type: "i32", value: 1 } },
+    ],
+  };
+  const runtime_type_bind_proof = Core.proof(runtime_type_bind_core);
+  assert_equals(
+    runtime_type_bind_proof.issues[0]?.message,
+    "Cannot emit core type value expression yet",
+  );
+  assert_throws(
+    () => Core.check_proof(runtime_type_bind_core),
+    "Cannot emit core type value expression yet",
+  );
+  assert_throws(
+    () => Emit.emit(Core, runtime_type_bind_core),
+    "Cannot emit core type value expression yet",
+  );
+
+  const static_type_bind_core: CoreNode = {
+    tag: "program",
+    statements: [
+      {
+        tag: "bind",
+        kind: "const",
+        name: "static_type",
+        is_linear: false,
+        annotation: undefined,
+        value: {
+          tag: "struct_type",
+          fields: [{ name: "name", type_name: "Text" }],
+        },
+      },
+      { tag: "expr", expr: { tag: "num", type: "i32", value: 1 } },
+    ],
+  };
+  assert_equals(Core.proof(static_type_bind_core).issues, []);
+  assert_equals(Emit.emit(Core, static_type_bind_core).trim(), "i32.const 1");
+
+  const direct_linear_core: CoreNode = {
+    tag: "program",
+    statements: [
+      {
+        tag: "bind",
+        kind: "let",
+        name: "x",
+        is_linear: true,
+        annotation: "I32",
+        value: { tag: "num", type: "i32", value: 42 },
+      },
+      { tag: "expr", expr: { tag: "linear", name: "x" } },
+    ],
+  };
+  assert_equals(Core.proof(direct_linear_core).issues, []);
+  assert_includes(Emit.emit(Core, direct_linear_core), "local.get $x");
+
+  const direct_unsupported_exprs: {
+    expr: CoreExpr;
+    message: string;
+  }[] = [
+    {
+      expr: {
+        tag: "rec",
+        params: [],
+        body: { tag: "num", type: "i32", value: 1 },
+      },
+      message: "Cannot emit core rec expression yet",
+    },
+    {
+      expr: {
+        tag: "comptime",
+        expr: { tag: "num", type: "i32", value: 1 },
+      },
+      message: "Cannot emit core comptime expression yet",
+    },
+    {
+      expr: { tag: "with", base: { tag: "var", name: "x" }, fields: [] },
+      message: "Cannot emit core with expression yet",
+    },
+    {
+      expr: {
+        tag: "struct_update",
+        base: { tag: "var", name: "x" },
+        fields: [],
+      },
+      message: "Cannot emit core struct_update expression yet",
+    },
+  ];
+
+  for (const item of direct_unsupported_exprs) {
+    const core: CoreNode = {
+      tag: "program",
+      statements: [{ tag: "expr", expr: item.expr }],
+    };
+    assert_equals(Core.proof(core).issues[0]?.message, item.message);
+    assert_throws(() => Core.check_proof(core), item.message);
+    assert_throws(() => Emit.emit(Core, core), item.message);
+  }
+
+  const final_lam_core = Source.core(Source.parse("x => x"));
+  assert_equals(
+    Core.proof(final_lam_core).issues[0]?.message,
+    "Cannot emit core lam expression yet",
+  );
+  assert_throws(
+    () => Core.check_proof(final_lam_core),
+    "Cannot emit core lam expression yet",
+  );
+  assert_throws(
+    () => Emit.emit(Core, final_lam_core),
+    "Cannot emit core lam expression yet",
+  );
+
+  const nonfinal_lam_core = Source.core(Source.parse(`
+(x => x)
+0
+`));
+  assert_equals(
+    Core.proof(nonfinal_lam_core).issues[0]?.message,
+    "Cannot emit core lam expression yet",
+  );
+  assert_throws(
+    () => Core.check_proof(nonfinal_lam_core),
+    "Cannot emit core lam expression yet",
+  );
+  assert_throws(
+    () => Emit.emit(Core, nonfinal_lam_core),
+    "Cannot emit core lam expression yet",
+  );
+
+  const final_collection_loop_core = Source.core(Source.parse(`
+for x in xs {
+  x
+}
+`));
+  assert_equals(
+    Core.proof(final_collection_loop_core).issues[0]?.message,
+    "Cannot emit core collection_loop statement yet",
+  );
+  assert_throws(
+    () => Core.check_proof(final_collection_loop_core),
+    "Cannot emit core collection_loop statement yet",
+  );
+  assert_throws(
+    () => Emit.emit(Core, final_collection_loop_core),
+    "Cannot emit core collection_loop statement yet",
+  );
+
+  const final_if_let_stmt_core = Source.core(Source.parse(`
+if let .ok(value) = result {
+  value
+}
+`));
+  assert_equals(
+    Core.proof(final_if_let_stmt_core).issues[0]?.message,
+    "Cannot emit core if_let_stmt statement yet",
+  );
+  assert_throws(
+    () => Core.check_proof(final_if_let_stmt_core),
+    "Cannot emit core if_let_stmt statement yet",
+  );
+  assert_throws(
+    () => Emit.emit(Core, final_if_let_stmt_core),
+    "Cannot emit core if_let_stmt statement yet",
+  );
+
+  const outside_loop_controls: {
+    stmt: Extract<
+      CoreNode["statements"][number],
+      { tag: "break" | "continue" }
+    >;
+    message: string;
+  }[] = [
+    {
+      stmt: { tag: "break" },
+      message: "Cannot emit core break outside loop",
+    },
+    {
+      stmt: { tag: "continue" },
+      message: "Cannot emit core continue outside loop",
+    },
+  ];
+
+  for (const item of outside_loop_controls) {
+    const nonfinal_core: CoreNode = {
+      tag: "program",
+      statements: [
+        item.stmt,
+        { tag: "expr", expr: { tag: "num", type: "i32", value: 0 } },
+      ],
+    };
+    assert_equals(Core.proof(nonfinal_core).issues[0]?.message, item.message);
+    assert_throws(() => Core.check_proof(nonfinal_core), item.message);
+    assert_throws(() => Emit.emit(Core, nonfinal_core), item.message);
+
+    const final_core: CoreNode = {
+      tag: "program",
+      statements: [item.stmt],
+    };
+    assert_equals(Core.proof(final_core).issues[0]?.message, item.message);
+    assert_throws(() => Core.check_proof(final_core), item.message);
+    assert_throws(() => Emit.emit(Core, final_core), item.message);
+  }
+
+  const unsupported_binding_values: {
+    name: string;
+    value: CoreExpr;
+    message: string;
+  }[] = [
+    {
+      name: "with",
+      value: { tag: "with", base: { tag: "var", name: "x" }, fields: [] },
+      message: "Cannot emit core with expression yet",
+    },
+    {
+      name: "unsupported",
+      value: { tag: "unsupported", feature: "demo", text: "demo" },
+      message: "Cannot emit core unsupported expression yet",
+    },
+    {
+      name: "struct_update",
+      value: {
+        tag: "struct_update",
+        base: { tag: "var", name: "x" },
+        fields: [],
+      },
+      message: "Cannot emit core struct_update expression yet",
+    },
+  ];
+
+  for (const item of unsupported_binding_values) {
+    const let_core: CoreNode = {
+      tag: "program",
+      statements: [
+        {
+          tag: "bind",
+          kind: "let",
+          name: item.name,
+          is_linear: false,
+          annotation: undefined,
+          value: item.value,
+        },
+        { tag: "expr", expr: { tag: "num", type: "i32", value: 0 } },
+      ],
+    };
+    assert_equals(Core.proof(let_core).issues[0]?.message, item.message);
+    assert_throws(() => Core.check_proof(let_core), item.message);
+    assert_throws(() => Emit.emit(Core, let_core), item.message);
+
+    const assign_core: CoreNode = {
+      tag: "program",
+      statements: [
+        {
+          tag: "bind",
+          kind: "let",
+          name: item.name,
+          is_linear: false,
+          annotation: undefined,
+          value: { tag: "num", type: "i32", value: 0 },
+        },
+        {
+          tag: "assign",
+          name: item.name,
+          mode: "same",
+          value: item.value,
+        },
+        { tag: "expr", expr: { tag: "num", type: "i32", value: 0 } },
+      ],
+    };
+    assert_equals(Core.proof(assign_core).issues[0]?.message, item.message);
+    assert_throws(() => Core.check_proof(assign_core), item.message);
+    assert_throws(() => Emit.emit(Core, assign_core), item.message);
+  }
+
+  const direct_struct_update_core = Source.core(Source.parse(`
+let user = { age: 40, score: 2 }
+user { age: 41 }
+`));
+  assert_equals(
+    Core.proof(direct_struct_update_core).issues[0]?.message,
+    "Cannot emit core struct_update expression yet",
+  );
+  assert_throws(
+    () => Core.check_proof(direct_struct_update_core),
+    "Cannot emit core struct_update expression yet",
+  );
+
+  const struct_update_projection_core = Source.core(Source.parse(`
+let user = { age: 40, score: 2 }
+(user { age: 41 }).age
+`));
+  assert_equals(Core.proof(struct_update_projection_core).issues, []);
+  assert_equals(
+    Emit.emit(Core, struct_update_projection_core).trim(),
+    "i32.const 41",
   );
 });
 
@@ -4795,6 +6453,41 @@ Deno.test("Core.emit preserves scalar ownership and scratchpad nodes", () => {
     scratch_mod_wat,
     "(global $__scratch_heap (mut i32) (i32.const 0))",
   );
+
+  const closure_scratch = Source.core(Source.parse(`
+let f = (value: Int) => {
+  scratch { value + 1 }
+}
+
+f(1)
+`));
+  assert_equals(Core.cleanup(closure_scratch), {
+    steps: [
+      {
+        tag: "scratch_reset",
+        scope: "scratch#0",
+        exit_edges: ["fallthrough"],
+        return_value: {
+          edge: "scratch_return",
+          ownership: {
+            tag: "scalar_local",
+            type: "i32",
+          },
+          storage: "scalar_local",
+          escapes: false,
+          decision: {
+            tag: "allowed",
+            reason: "scalar locals can leave a scratch scope",
+          },
+        },
+      },
+    ],
+  });
+  assert_equals(
+    Core.proof(closure_scratch).cleanup,
+    Core.cleanup(closure_scratch),
+  );
+  Core.check_proof(closure_scratch);
 
   const text_literal = Source.core(Source.parse('"text"'));
   assert_equals(Core.ownership(text_literal), {
@@ -5986,6 +7679,35 @@ user = user_type { name: "B", age: 2 }
     "Cannot move or replace borrowed owner user in program#0 while borrow#0 is active",
   );
 
+  const unreachable_loop_field_alias_allows_owner_assignment = Source.core(
+    Source.parse(`
+const user_type = struct {
+  name: Text,
+  age: Int
+}
+
+let user: user_type = user_type { name: "A", age: 1 }
+let name: Text = "fallback"
+for i in 0..1 {
+  break
+  name = user.name
+}
+borrow name
+user = user_type { name: "B", age: 2 }
+1
+`),
+  );
+  assert_equals(
+    Core.validate_borrows(
+      unreachable_loop_field_alias_allows_owner_assignment,
+    ),
+    {
+      ok: true,
+      issues: [],
+    },
+  );
+  Core.check_borrows(unreachable_loop_field_alias_allows_owner_assignment);
+
   const merged_field_alias_blocks_all_possible_owners = Source.core(
     Source.parse(`
 const user_type = struct {
@@ -6828,6 +8550,77 @@ len(view)
     issues: [],
   });
 
+  const unreachable_break_loop_borrowed_text = Source.core(Source.parse(`
+(message: Text) => {
+  let view: Text = "fallback"
+  for i in 0..1 {
+    break
+    view = borrow message
+  }
+  message[0] = 65
+  1
+}
+`));
+  assert_equals(Core.validate_borrows(unreachable_break_loop_borrowed_text), {
+    ok: true,
+    issues: [],
+  });
+  Core.check_borrows(unreachable_break_loop_borrowed_text);
+
+  const unreachable_continue_loop_borrowed_text = Source.core(Source.parse(`
+(message: Text) => {
+  let view: Text = "fallback"
+  for i in 0..1 {
+    continue
+    view = borrow message
+  }
+  message[0] = 65
+  1
+}
+`));
+  assert_equals(
+    Core.validate_borrows(unreachable_continue_loop_borrowed_text),
+    {
+      ok: true,
+      issues: [],
+    },
+  );
+  Core.check_borrows(unreachable_continue_loop_borrowed_text);
+
+  const mutate_break_carried_borrowed_text = Source.core(Source.parse(`
+(message: Text) => {
+  let view: Text = "fallback"
+  for i in 0..1 {
+    view = borrow message
+    break
+  }
+  message[0] = 65
+  1
+}
+`));
+  assert_equals(Core.validate_borrows(mutate_break_carried_borrowed_text), {
+    ok: false,
+    issues: [
+      {
+        tag: "borrowed_owner_barrier",
+        barrier: {
+          scope: "block#0",
+          owner: "message",
+          action: "index_assign",
+          borrow_id: "borrow#0",
+          message:
+            "Cannot mutate borrowed owner message in block#0 while borrow#0 is active",
+        },
+        message:
+          "Cannot mutate borrowed owner message in block#0 while borrow#0 is active",
+      },
+    ],
+  });
+  assert_throws(
+    () => Core.check_borrows(mutate_break_carried_borrowed_text),
+    "Cannot mutate borrowed owner message in block#0 while borrow#0 is active",
+  );
+
   const manual_barrier_core: CoreNode = {
     tag: "program",
     statements: [
@@ -7308,6 +9101,261 @@ user.age + len(user.name)
   });
   Core.check_proof(annotated_scratch_static_aggregate);
 
+  const unsafe_annotated_scratch_static_aggregate = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+let x = 40
+let user: user_type = scratch {
+  user_type { age: x + 1, name: append("A", "da") }
+}
+user.age + len(user.name)
+`));
+  const unsafe_annotated_scratch_static_aggregate_proof = Core.proof(
+    unsafe_annotated_scratch_static_aggregate,
+  );
+  const unsafe_annotated_scratch_static_aggregate_message =
+    "Rejected baseline proof scratch#0 scratch_return: unsafe scratch return " +
+    "field name may reference unique_heap text and unique_heap " +
+    "runtime_aggregate cannot leave scratch without freeze or explicit " +
+    "promotion";
+  assert_equals({
+    ok: unsafe_annotated_scratch_static_aggregate_proof.ok,
+    managed_storage:
+      unsafe_annotated_scratch_static_aggregate_proof.managed_storage,
+    issue_count: unsafe_annotated_scratch_static_aggregate_proof.issues.length,
+    issue_message: unsafe_annotated_scratch_static_aggregate_proof.issues[0]
+      ?.message,
+    scratch_return: unsafe_annotated_scratch_static_aggregate_proof.cleanup
+      .steps.map((step) => {
+        return {
+          scope: step.scope,
+          return_detail: step.return_detail,
+          storage: step.return_value.storage,
+          ownership: step.return_value.ownership,
+          decision: step.return_value.decision,
+        };
+      }),
+  }, {
+    ok: false,
+    managed_storage: "disabled",
+    issue_count: 1,
+    issue_message: unsafe_annotated_scratch_static_aggregate_message,
+    scratch_return: [
+      {
+        scope: "scratch#0",
+        return_detail: "field name may reference unique_heap text",
+        storage: "rejected",
+        ownership: {
+          tag: "unique_heap",
+          reason: "runtime_aggregate",
+        },
+        decision: {
+          tag: "rejected",
+          reason:
+            "unique_heap runtime_aggregate cannot leave scratch without " +
+            "freeze or explicit promotion",
+        },
+      },
+    ],
+  });
+  assert_throws(
+    () => Core.check_proof(unsafe_annotated_scratch_static_aggregate),
+    unsafe_annotated_scratch_static_aggregate_message,
+  );
+
+  const scratch_static_aggregate_block_setup = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+let user: user_type = scratch {
+  let temp: Text = freeze append("Ada", "!")
+  user_type { age: 40, name: temp }
+}
+user.age + len(user.name)
+`));
+  const scratch_static_aggregate_block_setup_proof = Core.proof(
+    scratch_static_aggregate_block_setup,
+  );
+  assert_equals({
+    ok: scratch_static_aggregate_block_setup_proof.ok,
+    managed_storage: scratch_static_aggregate_block_setup_proof.managed_storage,
+    issue_count: scratch_static_aggregate_block_setup_proof.issues.length,
+    final_storage:
+      scratch_static_aggregate_block_setup_proof.final_result.storage,
+    scratch_return: scratch_static_aggregate_block_setup_proof.cleanup.steps
+      .map((step) => {
+        return {
+          scope: step.scope,
+          storage: step.return_value.storage,
+          ownership: step.return_value.ownership,
+          decision: step.return_value.decision,
+        };
+      }),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "scalar_local",
+    scratch_return: [
+      {
+        scope: "scratch#0",
+        storage: "frozen_heap",
+        ownership: {
+          tag: "frozen_shareable",
+          reason: "runtime_aggregate",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "frozen_shareable values do not reference scratch storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(scratch_static_aggregate_block_setup);
+  const scratch_static_aggregate_block_setup_wat = Emit.emit(
+    Mod,
+    Core.mod(scratch_static_aggregate_block_setup),
+  );
+  assert_includes(scratch_static_aggregate_block_setup_wat, "local.set $temp");
+  assert_includes(
+    scratch_static_aggregate_block_setup_wat,
+    "global.set $__scratch_heap",
+  );
+
+  const scratch_static_aggregate_block_alias = Source.core(Source.parse(`
+const user_type = struct {
+  age: Int,
+  name: Text
+}
+let user: user_type = scratch {
+  let name: Text = freeze append("Ada", "!")
+  let temp: user_type = user_type { age: 40, name: name }
+  temp
+}
+user.age + len(user.name)
+`));
+  const scratch_static_aggregate_block_alias_proof = Core.proof(
+    scratch_static_aggregate_block_alias,
+  );
+  assert_equals({
+    ok: scratch_static_aggregate_block_alias_proof.ok,
+    managed_storage: scratch_static_aggregate_block_alias_proof.managed_storage,
+    issue_count: scratch_static_aggregate_block_alias_proof.issues.length,
+    final_storage:
+      scratch_static_aggregate_block_alias_proof.final_result.storage,
+    scratch_return: scratch_static_aggregate_block_alias_proof.cleanup.steps
+      .map(
+        (step) => {
+          return {
+            scope: step.scope,
+            storage: step.return_value.storage,
+            ownership: step.return_value.ownership,
+            decision: step.return_value.decision,
+          };
+        },
+      ),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "scalar_local",
+    scratch_return: [
+      {
+        scope: "scratch#0",
+        storage: "frozen_heap",
+        ownership: {
+          tag: "frozen_shareable",
+          reason: "runtime_aggregate",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "frozen_shareable values do not reference scratch storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(scratch_static_aggregate_block_alias);
+  const scratch_static_aggregate_block_alias_wat = Emit.emit(
+    Mod,
+    Core.mod(scratch_static_aggregate_block_alias),
+  );
+  assert_includes(scratch_static_aggregate_block_alias_wat, "local.set $name");
+  assert_includes(
+    scratch_static_aggregate_block_alias_wat,
+    "global.set $__scratch_heap",
+  );
+
+  const scratch_static_nested_aggregate_block_alias = Source.core(Source.parse(`
+const name_type = struct {
+  first: Text,
+  last: Text
+}
+const user_type = struct {
+  age: Int,
+  name: name_type
+}
+let user: user_type = scratch {
+  let first: Text = freeze append("A", "da")
+  let name: name_type = name_type { first: first, last: "Lovelace" }
+  let temp: user_type = user_type { age: 40, name: name }
+  temp
+}
+len(user.name.first) + len(user.name.last) + user.age
+`));
+  const scratch_static_nested_aggregate_block_alias_proof = Core.proof(
+    scratch_static_nested_aggregate_block_alias,
+  );
+  assert_equals({
+    ok: scratch_static_nested_aggregate_block_alias_proof.ok,
+    managed_storage:
+      scratch_static_nested_aggregate_block_alias_proof.managed_storage,
+    issue_count:
+      scratch_static_nested_aggregate_block_alias_proof.issues.length,
+    scratch_return: scratch_static_nested_aggregate_block_alias_proof.cleanup
+      .steps.map(
+        (step) => {
+          return {
+            scope: step.scope,
+            return_detail: step.return_detail,
+            storage: step.return_value.storage,
+            ownership: step.return_value.ownership,
+            decision: step.return_value.decision,
+          };
+        },
+      ),
+  }, {
+    ok: false,
+    managed_storage: "disabled",
+    issue_count: 1,
+    scratch_return: [
+      {
+        scope: "scratch#0",
+        return_detail: "field name may reference unique_heap runtime_aggregate",
+        storage: "rejected",
+        ownership: {
+          tag: "unique_heap",
+          reason: "runtime_aggregate",
+        },
+        decision: {
+          tag: "rejected",
+          reason:
+            "unique_heap runtime_aggregate cannot leave scratch without " +
+            "freeze or explicit promotion",
+        },
+      },
+    ],
+  });
+  assert_throws(
+    () => Core.check_proof(scratch_static_nested_aggregate_block_alias),
+    "Rejected baseline proof scratch#0 scratch_return: " +
+      "unsafe scratch return field name may reference unique_heap " +
+      "runtime_aggregate and unique_heap runtime_aggregate cannot leave " +
+      "scratch without freeze or explicit promotion",
+  );
+
   const scratch_static_union = Source.core(Source.parse(`
 const result_type = union {
   ok: Int,
@@ -7353,6 +9401,127 @@ if let .ok(x) = value { x } else { 0 }
     drop_count: 0,
   });
   Core.check_proof(scratch_static_union);
+
+  const scratch_static_union_block_setup = Source.core(Source.parse(`
+const result_type = union {
+  ok: Text,
+  err: Int
+}
+let result: result_type = scratch {
+  let temp: Text = freeze append("Ada", "!")
+  result_type.ok(temp)
+}
+if let .ok(value) = result { len(value) } else { 0 }
+`));
+  const scratch_static_union_block_setup_proof = Core.proof(
+    scratch_static_union_block_setup,
+  );
+  assert_equals({
+    ok: scratch_static_union_block_setup_proof.ok,
+    managed_storage: scratch_static_union_block_setup_proof.managed_storage,
+    issue_count: scratch_static_union_block_setup_proof.issues.length,
+    final_storage: scratch_static_union_block_setup_proof.final_result.storage,
+    scratch_return: scratch_static_union_block_setup_proof.cleanup.steps.map(
+      (step) => {
+        return {
+          scope: step.scope,
+          storage: step.return_value.storage,
+          ownership: step.return_value.ownership,
+          decision: step.return_value.decision,
+        };
+      },
+    ),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "scalar_local",
+    scratch_return: [
+      {
+        scope: "scratch#0",
+        storage: "frozen_heap",
+        ownership: {
+          tag: "frozen_shareable",
+          reason: "runtime_union",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "frozen_shareable values do not reference scratch storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(scratch_static_union_block_setup);
+  const scratch_static_union_block_setup_wat = Emit.emit(
+    Mod,
+    Core.mod(scratch_static_union_block_setup),
+  );
+  assert_includes(scratch_static_union_block_setup_wat, "local.set $temp");
+  assert_includes(
+    scratch_static_union_block_setup_wat,
+    "global.set $__scratch_heap",
+  );
+
+  const scratch_static_union_block_alias = Source.core(Source.parse(`
+const result_type = union {
+  ok: Text,
+  err: Int
+}
+let result: result_type = scratch {
+  let name: Text = freeze append("Ada", "!")
+  let temp: result_type = result_type.ok(name)
+  temp
+}
+if let .ok(value) = result { len(value) } else { 0 }
+`));
+  const scratch_static_union_block_alias_proof = Core.proof(
+    scratch_static_union_block_alias,
+  );
+  assert_equals({
+    ok: scratch_static_union_block_alias_proof.ok,
+    managed_storage: scratch_static_union_block_alias_proof.managed_storage,
+    issue_count: scratch_static_union_block_alias_proof.issues.length,
+    final_storage: scratch_static_union_block_alias_proof.final_result.storage,
+    scratch_return: scratch_static_union_block_alias_proof.cleanup.steps.map(
+      (step) => {
+        return {
+          scope: step.scope,
+          storage: step.return_value.storage,
+          ownership: step.return_value.ownership,
+          decision: step.return_value.decision,
+        };
+      },
+    ),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "scalar_local",
+    scratch_return: [
+      {
+        scope: "scratch#0",
+        storage: "frozen_heap",
+        ownership: {
+          tag: "frozen_shareable",
+          reason: "runtime_union",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "frozen_shareable values do not reference scratch storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(scratch_static_union_block_alias);
+  const scratch_static_union_block_alias_wat = Emit.emit(
+    Mod,
+    Core.mod(scratch_static_union_block_alias),
+  );
+  assert_includes(scratch_static_union_block_alias_wat, "local.set $name");
+  assert_includes(
+    scratch_static_union_block_alias_wat,
+    "global.set $__scratch_heap",
+  );
 
   const scratch_dynamic_static_union = Source.core(Source.parse(`
 const result_type = union {
@@ -7864,6 +10033,431 @@ scratch {
     ],
   });
   Core.check_proof(bound_scratch_frozen_runtime_text);
+
+  const alias_scratch_frozen_runtime_text = Source.core(Source.parse(`
+let prefix: Text = slice("Ada", 0, 3)
+scratch {
+  let temp: Text = append(prefix, "!")
+  let alias: Text = temp
+  freeze alias
+}
+`));
+  const alias_scratch_frozen_runtime_text_proof = Core.proof(
+    alias_scratch_frozen_runtime_text,
+  );
+  assert_equals({
+    ok: alias_scratch_frozen_runtime_text_proof.ok,
+    managed_storage: alias_scratch_frozen_runtime_text_proof.managed_storage,
+    issue_count: alias_scratch_frozen_runtime_text_proof.issues.length,
+    final_storage: alias_scratch_frozen_runtime_text_proof.final_result.storage,
+    scratch_return_storage: alias_scratch_frozen_runtime_text_proof.cleanup
+      .steps[0]
+      ?.return_value.storage,
+    allocations: alias_scratch_frozen_runtime_text_proof.allocations.facts.map(
+      (fact) => {
+        return {
+          scope: fact.scope,
+          storage: fact.storage,
+          ownership: fact.ownership,
+          reason: fact.reason,
+          expression: fact.expression,
+        };
+      },
+    ),
+    freeze_edges: alias_scratch_frozen_runtime_text_proof.freeze_edges.map(
+      (edge) => {
+        return {
+          id: edge.id,
+          storage: edge.analysis.storage,
+          ownership: edge.analysis.ownership,
+          decision: edge.analysis.decision,
+        };
+      },
+    ),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "frozen_heap",
+    scratch_return_storage: "frozen_heap",
+    allocations: [
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "freeze",
+      },
+    ],
+    freeze_edges: [
+      {
+        id: "freeze#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "freeze of unique_heap text consumes the owned buffer as " +
+            "immutable shareable storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(alias_scratch_frozen_runtime_text);
+
+  const block_scratch_frozen_runtime_text = Source.core(Source.parse(`
+let prefix: Text = slice("Ada", 0, 3)
+scratch {
+  let temp: Text = {
+    let inner: Text = append(prefix, "!")
+    inner
+  }
+  freeze temp
+}
+`));
+  const block_scratch_frozen_runtime_text_proof = Core.proof(
+    block_scratch_frozen_runtime_text,
+  );
+  assert_equals({
+    ok: block_scratch_frozen_runtime_text_proof.ok,
+    managed_storage: block_scratch_frozen_runtime_text_proof.managed_storage,
+    issue_count: block_scratch_frozen_runtime_text_proof.issues.length,
+    final_storage: block_scratch_frozen_runtime_text_proof.final_result.storage,
+    scratch_return_storage: block_scratch_frozen_runtime_text_proof.cleanup
+      .steps[0]
+      ?.return_value.storage,
+    allocations: block_scratch_frozen_runtime_text_proof.allocations.facts.map(
+      (fact) => {
+        return {
+          scope: fact.scope,
+          storage: fact.storage,
+          ownership: fact.ownership,
+          reason: fact.reason,
+          expression: fact.expression,
+        };
+      },
+    ),
+    freeze_edges: block_scratch_frozen_runtime_text_proof.freeze_edges.map(
+      (edge) => {
+        return {
+          id: edge.id,
+          storage: edge.analysis.storage,
+          ownership: edge.analysis.ownership,
+          decision: edge.analysis.decision,
+        };
+      },
+    ),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "frozen_heap",
+    scratch_return_storage: "frozen_heap",
+    allocations: [
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#1",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "freeze",
+      },
+    ],
+    freeze_edges: [
+      {
+        id: "freeze#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "freeze of unique_heap text consumes the owned buffer as " +
+            "immutable shareable storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(block_scratch_frozen_runtime_text);
+
+  const static_call_scratch_frozen_runtime_text = Source.core(Source.parse(`
+let freeze_suffix = (value: Text) => {
+  scratch {
+    let temp: Text = append(value, "!")
+    temp = append(temp, "?")
+    freeze temp
+  }
+}
+
+freeze_suffix("hi")
+`));
+  const static_call_scratch_frozen_runtime_text_proof = Core.proof(
+    static_call_scratch_frozen_runtime_text,
+  );
+  assert_equals({
+    ok: static_call_scratch_frozen_runtime_text_proof.ok,
+    managed_storage:
+      static_call_scratch_frozen_runtime_text_proof.managed_storage,
+    issue_count: static_call_scratch_frozen_runtime_text_proof.issues.length,
+    final_storage:
+      static_call_scratch_frozen_runtime_text_proof.final_result.storage,
+    scratch_return_storage: static_call_scratch_frozen_runtime_text_proof
+      .cleanup.steps[0]
+      ?.return_value.storage,
+    allocations: static_call_scratch_frozen_runtime_text_proof.allocations
+      .facts.map((fact) => {
+        return {
+          scope: fact.scope,
+          storage: fact.storage,
+          ownership: fact.ownership,
+          reason: fact.reason,
+          expression: fact.expression,
+        };
+      }),
+    drops: static_call_scratch_frozen_runtime_text_proof.drops.steps.map(
+      (step) => {
+        return {
+          edge: step.edge,
+          scope: step.scope,
+          owner: step.owner,
+          storage: step.storage,
+          ownership: step.ownership,
+        };
+      },
+    ),
+    freeze_edges: static_call_scratch_frozen_runtime_text_proof.freeze_edges
+      .map((edge) => {
+        return {
+          id: edge.id,
+          storage: edge.analysis.storage,
+          ownership: edge.analysis.ownership,
+          decision: edge.analysis.decision,
+        };
+      }),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "frozen_heap",
+    scratch_return_storage: "frozen_heap",
+    allocations: [
+      {
+        scope: "block#1",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#1",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#1",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "freeze",
+      },
+    ],
+    drops: [
+      {
+        edge: "assignment_replace",
+        scope: "block#0",
+        owner: "temp",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+      },
+    ],
+    freeze_edges: [
+      {
+        id: "freeze#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "freeze of unique_heap text consumes the owned buffer as " +
+            "immutable shareable storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(static_call_scratch_frozen_runtime_text);
+
+  const branch_closure_scratch_frozen_runtime_text = Source.core(Source.parse(`
+let flag = 1
+let freeze_suffix = if flag {
+  (value: Text) => {
+    scratch {
+      let temp: Text = append(value, "!")
+      freeze temp
+    }
+  }
+} else {
+  (value: Text) => {
+    scratch {
+      let temp: Text = append(value, "?")
+      freeze temp
+    }
+  }
+}
+
+let result: Text = freeze_suffix("hi")
+len(result)
+`));
+  const branch_closure_scratch_frozen_runtime_text_proof = Core.proof(
+    branch_closure_scratch_frozen_runtime_text,
+  );
+  assert_equals({
+    ok: branch_closure_scratch_frozen_runtime_text_proof.ok,
+    managed_storage:
+      branch_closure_scratch_frozen_runtime_text_proof.managed_storage,
+    issue_count: branch_closure_scratch_frozen_runtime_text_proof.issues.length,
+    final_storage:
+      branch_closure_scratch_frozen_runtime_text_proof.final_result.storage,
+    scratch_returns: branch_closure_scratch_frozen_runtime_text_proof.cleanup
+      .steps.map((step) => {
+        return {
+          scope: step.scope,
+          storage: step.return_value.storage,
+        };
+      }),
+    freeze_edges: branch_closure_scratch_frozen_runtime_text_proof.freeze_edges
+      .map((edge) => {
+        return {
+          id: edge.id,
+          storage: edge.analysis.storage,
+          ownership: edge.analysis.ownership,
+          decision: edge.analysis.decision,
+        };
+      }),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "scalar_local",
+    scratch_returns: [
+      {
+        scope: "scratch#0",
+        storage: "frozen_heap",
+      },
+      {
+        scope: "scratch#1",
+        storage: "frozen_heap",
+      },
+    ],
+    freeze_edges: [
+      {
+        id: "freeze#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "freeze of unique_heap text consumes the owned buffer as " +
+            "immutable shareable storage",
+        },
+      },
+      {
+        id: "freeze#1",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "freeze of unique_heap text consumes the owned buffer as " +
+            "immutable shareable storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(branch_closure_scratch_frozen_runtime_text);
+  assert_equals(
+    Typed.type(Core, branch_closure_scratch_frozen_runtime_text),
+    "i32",
+  );
 
   const direct_scratch_frozen_runtime_aggregate = Source.core(Source.parse(`
 const user_type = struct {
@@ -8499,16 +11093,6 @@ scratch {
         storage: "persistent_unique_heap",
         ownership: {
           tag: "unique_heap",
-          reason: "runtime_union",
-        },
-        reason: "runtime_union",
-        expression: "freeze",
-      },
-      {
-        scope: "block#0",
-        storage: "persistent_unique_heap",
-        ownership: {
-          tag: "unique_heap",
           reason: "text",
         },
         reason: "runtime_text",
@@ -8949,6 +11533,119 @@ scratch {
     "block $text_freeze_exit_",
   );
 
+  const branch_assignment_scratch_frozen_runtime_aggregate = Source.core(
+    Source.parse(`
+const user_type = struct {
+  name: Text,
+  age: Int
+}
+
+let flag = 1
+let start = 0
+let prefix: Text = slice("Ada", start, 1)
+let existing: user_type = user_type { name: append(prefix, "da"), age: 40 }
+if flag {
+  existing = user_type { name: append(prefix, "!"), age: 41 }
+} else {
+  existing = user_type { name: append(prefix, "?"), age: 42 }
+}
+let user: user_type = scratch {
+  let temp = existing
+  freeze temp
+}
+
+len(user.name) + user.age
+`),
+  );
+  const branch_assignment_scratch_frozen_runtime_aggregate_proof = Core.proof(
+    branch_assignment_scratch_frozen_runtime_aggregate,
+  );
+  assert_equals({
+    ok: branch_assignment_scratch_frozen_runtime_aggregate_proof.ok,
+    managed_storage:
+      branch_assignment_scratch_frozen_runtime_aggregate_proof.managed_storage,
+    issue_count:
+      branch_assignment_scratch_frozen_runtime_aggregate_proof.issues.length,
+    final_storage:
+      branch_assignment_scratch_frozen_runtime_aggregate_proof.final_result
+        .storage,
+    scratch_return_storage:
+      branch_assignment_scratch_frozen_runtime_aggregate_proof.cleanup
+        .steps[0]?.return_value.storage,
+    freeze_allocations: branch_assignment_scratch_frozen_runtime_aggregate_proof
+      .allocations.facts.filter((fact) => {
+        return fact.expression === "freeze";
+      }).map((fact) => {
+        return {
+          scope: fact.scope,
+          storage: fact.storage,
+          ownership: fact.ownership,
+          reason: fact.reason,
+          expression: fact.expression,
+        };
+      }),
+    freeze_edges: branch_assignment_scratch_frozen_runtime_aggregate_proof
+      .freeze_edges.map((edge) => {
+        return {
+          id: edge.id,
+          storage: edge.analysis.storage,
+          ownership: edge.analysis.ownership,
+          decision: edge.analysis.decision,
+        };
+      }),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "scalar_local",
+    scratch_return_storage: "frozen_heap",
+    freeze_allocations: [
+      {
+        scope: "block#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "runtime_aggregate",
+        },
+        reason: "runtime_aggregate",
+        expression: "freeze",
+      },
+      {
+        scope: "block#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "freeze",
+      },
+    ],
+    freeze_edges: [
+      {
+        id: "freeze#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "runtime_aggregate",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "freeze of unique_heap runtime_aggregate consumes the " +
+            "owned buffer as immutable shareable storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(branch_assignment_scratch_frozen_runtime_aggregate);
+  assert_includes(
+    Emit.emit(
+      Mod,
+      Core.mod(branch_assignment_scratch_frozen_runtime_aggregate),
+    ),
+    "block $text_freeze_exit_",
+  );
+
   const branch_alias_scratch_frozen_runtime_union = Source.core(Source.parse(`
 const result_type = union {
   ok: Text,
@@ -9029,6 +11726,39 @@ if let .ok(value) = result {
         ownership: {
           tag: "unique_heap",
           reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "runtime_union",
+        },
+        reason: "runtime_union",
+        expression: "union_case",
+      },
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "runtime_union",
+        },
+        reason: "runtime_union",
+        expression: "union_case",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
         },
         reason: "runtime_text",
         expression: "app",
@@ -9189,10 +11919,40 @@ if let .ok(value) = result {
         storage: "persistent_unique_heap",
         ownership: {
           tag: "unique_heap",
+          reason: "runtime_union",
+        },
+        reason: "runtime_union",
+        expression: "union_case",
+      },
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
           reason: "text",
         },
         reason: "runtime_text",
         expression: "app",
+      },
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "runtime_union",
+        },
+        reason: "runtime_union",
+        expression: "union_case",
+      },
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "runtime_union",
+        },
+        reason: "runtime_union",
+        expression: "union_case",
       },
       {
         scope: "block#0",
@@ -9512,6 +12272,836 @@ scratch {
   });
   Core.check_proof(branch_scratch_frozen_runtime_text);
 
+  const branch_result_scratch_frozen_runtime_text = Source.core(Source.parse(`
+let flag = 1
+let prefix: Text = slice("Ada", 0, 3)
+scratch {
+  let temp: Text = if flag {
+    append(prefix, "!")
+  } else {
+    append(prefix, "?")
+  }
+  freeze temp
+}
+`));
+  const branch_result_scratch_frozen_runtime_text_proof = Core.proof(
+    branch_result_scratch_frozen_runtime_text,
+  );
+  assert_equals({
+    ok: branch_result_scratch_frozen_runtime_text_proof.ok,
+    managed_storage:
+      branch_result_scratch_frozen_runtime_text_proof.managed_storage,
+    issue_count: branch_result_scratch_frozen_runtime_text_proof.issues.length,
+    final_storage:
+      branch_result_scratch_frozen_runtime_text_proof.final_result.storage,
+    scratch_return_storage: branch_result_scratch_frozen_runtime_text_proof
+      .cleanup.steps[0]
+      ?.return_value.storage,
+    allocations: branch_result_scratch_frozen_runtime_text_proof.allocations
+      .facts.map((fact) => {
+        return {
+          scope: fact.scope,
+          storage: fact.storage,
+          ownership: fact.ownership,
+          reason: fact.reason,
+          expression: fact.expression,
+        };
+      }),
+    freeze_edges: branch_result_scratch_frozen_runtime_text_proof.freeze_edges
+      .map((edge) => {
+        return {
+          id: edge.id,
+          storage: edge.analysis.storage,
+          ownership: edge.analysis.ownership,
+          decision: edge.analysis.decision,
+        };
+      }),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "frozen_heap",
+    scratch_return_storage: "frozen_heap",
+    allocations: [
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#1",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#2",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "freeze",
+      },
+    ],
+    freeze_edges: [
+      {
+        id: "freeze#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "freeze of unique_heap text consumes the owned buffer as " +
+            "immutable shareable storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(branch_result_scratch_frozen_runtime_text);
+
+  const branch_assignment_scratch_frozen_runtime_text = Source.core(
+    Source.parse(`
+let flag = 1
+let prefix: Text = slice("Ada", 0, 3)
+scratch {
+  let temp: Text = append(prefix, ".")
+  if flag {
+    temp = append(prefix, "!")
+  } else {
+    temp = append(prefix, "?")
+  }
+  freeze temp
+}
+`),
+  );
+  const branch_assignment_scratch_frozen_runtime_text_proof = Core.proof(
+    branch_assignment_scratch_frozen_runtime_text,
+  );
+  assert_equals({
+    ok: branch_assignment_scratch_frozen_runtime_text_proof.ok,
+    managed_storage:
+      branch_assignment_scratch_frozen_runtime_text_proof.managed_storage,
+    issue_count:
+      branch_assignment_scratch_frozen_runtime_text_proof.issues.length,
+    final_storage:
+      branch_assignment_scratch_frozen_runtime_text_proof.final_result.storage,
+    scratch_return_storage: branch_assignment_scratch_frozen_runtime_text_proof
+      .cleanup.steps[0]
+      ?.return_value.storage,
+    allocations: branch_assignment_scratch_frozen_runtime_text_proof.allocations
+      .facts.map(
+        (fact) => {
+          return {
+            scope: fact.scope,
+            storage: fact.storage,
+            ownership: fact.ownership,
+            reason: fact.reason,
+            expression: fact.expression,
+          };
+        },
+      ),
+    drops: branch_assignment_scratch_frozen_runtime_text_proof.drops.steps.map(
+      (step) => {
+        return {
+          edge: step.edge,
+          scope: step.scope,
+          owner: step.owner,
+          storage: step.storage,
+          ownership: step.ownership,
+        };
+      },
+    ),
+    freeze_edges: branch_assignment_scratch_frozen_runtime_text_proof
+      .freeze_edges.map(
+        (edge) => {
+          return {
+            id: edge.id,
+            storage: edge.analysis.storage,
+            ownership: edge.analysis.ownership,
+            decision: edge.analysis.decision,
+          };
+        },
+      ),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "frozen_heap",
+    scratch_return_storage: "frozen_heap",
+    allocations: [
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "freeze",
+      },
+    ],
+    drops: [
+      {
+        edge: "assignment_replace",
+        scope: "block#1",
+        owner: "temp",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+      },
+      {
+        edge: "assignment_replace",
+        scope: "block#2",
+        owner: "temp",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+      },
+      {
+        edge: "scope_exit",
+        scope: "program#0",
+        owner: "prefix",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+      },
+    ],
+    freeze_edges: [
+      {
+        id: "freeze#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "freeze of unique_heap text consumes the owned buffer as " +
+            "immutable shareable storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(branch_assignment_scratch_frozen_runtime_text);
+
+  const loop_assignment_scratch_frozen_runtime_text = Source.core(Source.parse(`
+let prefix: Text = slice("Ada", 0, 3)
+scratch {
+  let temp: Text = append(prefix, ".")
+  for i in 0..1 {
+    temp = append(prefix, "!")
+  }
+  freeze temp
+}
+`));
+  const loop_assignment_scratch_frozen_runtime_text_proof = Core.proof(
+    loop_assignment_scratch_frozen_runtime_text,
+  );
+  assert_equals({
+    ok: loop_assignment_scratch_frozen_runtime_text_proof.ok,
+    managed_storage:
+      loop_assignment_scratch_frozen_runtime_text_proof.managed_storage,
+    issue_count: loop_assignment_scratch_frozen_runtime_text_proof.issues
+      .length,
+    final_storage:
+      loop_assignment_scratch_frozen_runtime_text_proof.final_result.storage,
+    scratch_return_storage: loop_assignment_scratch_frozen_runtime_text_proof
+      .cleanup.steps[0]
+      ?.return_value.storage,
+    allocations: loop_assignment_scratch_frozen_runtime_text_proof.allocations
+      .facts.map((fact) => {
+        return {
+          scope: fact.scope,
+          storage: fact.storage,
+          ownership: fact.ownership,
+          reason: fact.reason,
+          expression: fact.expression,
+        };
+      }),
+    drops: loop_assignment_scratch_frozen_runtime_text_proof.drops.steps.map(
+      (step) => {
+        return {
+          edge: step.edge,
+          scope: step.scope,
+          owner: step.owner,
+          storage: step.storage,
+          ownership: step.ownership,
+        };
+      },
+    ),
+    freeze_edges: loop_assignment_scratch_frozen_runtime_text_proof.freeze_edges
+      .map((edge) => {
+        return {
+          id: edge.id,
+          storage: edge.analysis.storage,
+          ownership: edge.analysis.ownership,
+          decision: edge.analysis.decision,
+        };
+      }),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "frozen_heap",
+    scratch_return_storage: "frozen_heap",
+    allocations: [
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "freeze",
+      },
+    ],
+    drops: [
+      {
+        edge: "scope_exit",
+        scope: "loop#0",
+        owner: "temp",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+      },
+      {
+        edge: "scope_exit",
+        scope: "program#0",
+        owner: "prefix",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+      },
+    ],
+    freeze_edges: [
+      {
+        id: "freeze#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "freeze of unique_heap text consumes the owned buffer as " +
+            "immutable shareable storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(loop_assignment_scratch_frozen_runtime_text);
+
+  const collection_loop_assignment_scratch_frozen_runtime_text = Source.core(
+    Source.parse(`
+const xs_type = struct {
+  first: Int,
+  second: Int
+}
+let prefix: Text = slice("Ada", 0, 3)
+let xs: xs_type = xs_type { first: 1, second: 2 }
+scratch {
+  let temp: Text = append(prefix, ".")
+  for x in xs {
+    temp = append(prefix, "!")
+  }
+  freeze temp
+}
+`),
+  );
+  const collection_loop_assignment_scratch_frozen_runtime_text_proof = Core
+    .proof(
+      collection_loop_assignment_scratch_frozen_runtime_text,
+    );
+  assert_equals({
+    ok: collection_loop_assignment_scratch_frozen_runtime_text_proof.ok,
+    managed_storage:
+      collection_loop_assignment_scratch_frozen_runtime_text_proof
+        .managed_storage,
+    issue_count: collection_loop_assignment_scratch_frozen_runtime_text_proof
+      .issues.length,
+    final_storage:
+      collection_loop_assignment_scratch_frozen_runtime_text_proof.final_result
+        .storage,
+    scratch_return_storage:
+      collection_loop_assignment_scratch_frozen_runtime_text_proof.cleanup
+        .steps[0]
+        ?.return_value.storage,
+    allocations: collection_loop_assignment_scratch_frozen_runtime_text_proof
+      .allocations
+      .facts.map((fact) => {
+        return {
+          scope: fact.scope,
+          storage: fact.storage,
+          ownership: fact.ownership,
+          reason: fact.reason,
+          expression: fact.expression,
+        };
+      }),
+    drops: collection_loop_assignment_scratch_frozen_runtime_text_proof.drops
+      .steps.map((step) => {
+        return {
+          edge: step.edge,
+          scope: step.scope,
+          owner: step.owner,
+          storage: step.storage,
+          ownership: step.ownership,
+        };
+      }),
+    freeze_edges: collection_loop_assignment_scratch_frozen_runtime_text_proof
+      .freeze_edges
+      .map((edge) => {
+        return {
+          id: edge.id,
+          storage: edge.analysis.storage,
+          ownership: edge.analysis.ownership,
+          decision: edge.analysis.decision,
+        };
+      }),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "frozen_heap",
+    scratch_return_storage: "frozen_heap",
+    allocations: [
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "runtime_aggregate",
+          },
+        },
+        reason: "runtime_aggregate",
+        expression: "var",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "freeze",
+      },
+    ],
+    drops: [
+      {
+        edge: "scope_exit",
+        scope: "loop#0",
+        owner: "temp",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+      },
+      {
+        edge: "scope_exit",
+        scope: "program#0",
+        owner: "prefix",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+      },
+    ],
+    freeze_edges: [
+      {
+        id: "freeze#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "freeze of unique_heap text consumes the owned buffer as " +
+            "immutable shareable storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(collection_loop_assignment_scratch_frozen_runtime_text);
+
+  const if_let_assignment_scratch_frozen_runtime_text = Source.core(
+    Source.parse(`
+const result_type = union {
+  ok: Text,
+  err: Text
+}
+let flag = 1
+let result: result_type = if flag {
+  .ok("hi")
+} else {
+  .err("no")
+}
+scratch {
+  let temp: Text = append("no", ".")
+  if let .ok(value) = result {
+    temp = append(value, "!")
+  }
+  if let .err(value) = result {
+    temp = append(value, "?")
+  }
+  freeze temp
+}
+`),
+  );
+  const if_let_assignment_scratch_frozen_runtime_text_proof = Core.proof(
+    if_let_assignment_scratch_frozen_runtime_text,
+  );
+  assert_equals({
+    ok: if_let_assignment_scratch_frozen_runtime_text_proof.ok,
+    managed_storage:
+      if_let_assignment_scratch_frozen_runtime_text_proof.managed_storage,
+    issue_count:
+      if_let_assignment_scratch_frozen_runtime_text_proof.issues.length,
+    final_storage:
+      if_let_assignment_scratch_frozen_runtime_text_proof.final_result.storage,
+    scratch_return_storage: if_let_assignment_scratch_frozen_runtime_text_proof
+      .cleanup.steps[0]
+      ?.return_value.storage,
+    allocations: if_let_assignment_scratch_frozen_runtime_text_proof.allocations
+      .facts.map((fact) => {
+        return {
+          scope: fact.scope,
+          storage: fact.storage,
+          ownership: fact.ownership,
+          reason: fact.reason,
+          expression: fact.expression,
+        };
+      }),
+    drops: if_let_assignment_scratch_frozen_runtime_text_proof.drops.steps.map(
+      (step) => {
+        return {
+          edge: step.edge,
+          scope: step.scope,
+          owner: step.owner,
+          storage: step.storage,
+          ownership: step.ownership,
+        };
+      },
+    ),
+    freeze_edges: if_let_assignment_scratch_frozen_runtime_text_proof
+      .freeze_edges.map(
+        (edge) => {
+          return {
+            id: edge.id,
+            storage: edge.analysis.storage,
+            ownership: edge.analysis.ownership,
+            decision: edge.analysis.decision,
+          };
+        },
+      ),
+  }, {
+    ok: true,
+    managed_storage: "disabled",
+    issue_count: 0,
+    final_storage: "frozen_heap",
+    scratch_return_storage: "frozen_heap",
+    allocations: [
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "runtime_union",
+        },
+        reason: "runtime_union",
+        expression: "union_case",
+      },
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "runtime_union",
+        },
+        reason: "runtime_union",
+        expression: "union_case",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "runtime_union",
+          },
+        },
+        reason: "runtime_union",
+        expression: "union_case",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "runtime_union",
+          },
+        },
+        reason: "runtime_union",
+        expression: "union_case",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "scratch_arena",
+        ownership: {
+          tag: "scratch_backed",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        reason: "runtime_text",
+        expression: "app",
+      },
+      {
+        scope: "block#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        reason: "runtime_text",
+        expression: "freeze",
+      },
+    ],
+    drops: [
+      {
+        edge: "assignment_replace",
+        scope: "block#5",
+        owner: "temp",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+      },
+      {
+        edge: "assignment_replace",
+        scope: "block#6",
+        owner: "temp",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+      },
+    ],
+    freeze_edges: [
+      {
+        id: "freeze#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "freeze of unique_heap text consumes the owned buffer as " +
+            "immutable shareable storage",
+        },
+      },
+    ],
+  });
+  Core.check_proof(if_let_assignment_scratch_frozen_runtime_text);
+
   const if_let_scratch_frozen_runtime_text = Source.core(Source.parse(`
 const result_type = union {
   ok: Text,
@@ -9571,6 +13161,26 @@ scratch {
     final_storage: "frozen_heap",
     scratch_return_storage: "frozen_heap",
     allocations: [
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "runtime_union",
+        },
+        reason: "runtime_union",
+        expression: "union_case",
+      },
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: {
+          tag: "unique_heap",
+          reason: "runtime_union",
+        },
+        reason: "runtime_union",
+        expression: "union_case",
+      },
       {
         scope: "block#0",
         storage: "scratch_arena",
@@ -10450,6 +14060,136 @@ f(1)
     tag: "allowed",
     reason: "all closure captures are copy/share safe",
   });
+  const frozen_proof = Core.proof(frozen_capture_core);
+
+  assert_equals(frozen_proof.closure_ownership, frozen_plan);
+  assert_equals(
+    frozen_proof.issues.map((issue) => {
+      return issue.message;
+    }),
+    [],
+  );
+  Core.check_proof(frozen_capture_core);
+
+  const frozen_union_capture_core = Source.core(Source.parse(`
+const result_type = union {
+  ok: Int,
+  err: Int
+}
+
+let flag = 1
+let result: result_type = freeze result_type.ok(41)
+let read_result = if flag {
+  (x: Int) => if let .ok(value) = result {
+    value + x
+  } else {
+    x
+  }
+} else {
+  (x: Int) => x
+}
+
+read_result(1)
+`));
+  const frozen_union_plan = Core.closure_ownership(
+    frozen_union_capture_core,
+  );
+
+  assert_equals(frozen_union_plan.edges[0]?.captures[0], {
+    name: "result",
+    ownership: { tag: "frozen_shareable", reason: "freeze" },
+    decision: {
+      tag: "allowed",
+      reason: "frozen/shareable capture is reusable",
+    },
+  });
+  assert_equals(frozen_union_plan.edges[0]?.decision, {
+    tag: "allowed",
+    reason: "all closure captures are copy/share safe",
+  });
+  const frozen_union_proof = Core.proof(frozen_union_capture_core);
+
+  assert_equals(frozen_union_proof.closure_ownership, frozen_union_plan);
+  assert_equals(
+    frozen_union_proof.issues.map((issue) => {
+      return issue.message;
+    }),
+    [],
+  );
+  Core.check_proof(frozen_union_capture_core);
+  assert_includes(Emit.emit(Core, frozen_union_capture_core), "call_indirect");
+
+  const frozen_aggregate_text_field_capture_core = Source.core(Source.parse(`
+const user_type = struct {
+  name: Text,
+  age: Int
+}
+
+let flag = 1
+let user: user_type = freeze user_type {
+  name: append("Ad", "a"),
+  age: 41
+}
+let read_user = if flag {
+  (x: Int) => len(user.name) + x
+} else {
+  (x: Int) => x
+}
+
+read_user(1)
+`));
+  const frozen_aggregate_text_field_proof = Core.proof(
+    frozen_aggregate_text_field_capture_core,
+  );
+  const frozen_aggregate_text_field_capture = frozen_aggregate_text_field_proof
+    .closure_ownership.edges[0]?.captures[0];
+
+  if (!frozen_aggregate_text_field_capture) {
+    throw new Error("Missing frozen aggregate text field capture");
+  }
+
+  if (!frozen_aggregate_text_field_capture.name.startsWith("_field_name#")) {
+    throw new Error(
+      "Expected frozen aggregate text field temp capture, got " +
+        frozen_aggregate_text_field_capture.name,
+    );
+  }
+
+  assert_equals(
+    {
+      ownership: frozen_aggregate_text_field_capture.ownership,
+      decision: frozen_aggregate_text_field_capture.decision,
+    },
+    {
+      ownership: { tag: "frozen_shareable", reason: "freeze" },
+      decision: {
+        tag: "allowed",
+        reason: "frozen/shareable capture is reusable",
+      },
+    },
+  );
+  assert_equals(
+    frozen_aggregate_text_field_proof.closure_ownership.edges[0]?.decision,
+    {
+      tag: "allowed",
+      reason: "all closure captures are copy/share safe",
+    },
+  );
+  assert_equals(
+    frozen_aggregate_text_field_proof.issues.map((issue) => {
+      return issue.message;
+    }),
+    [],
+  );
+  Core.check_proof(frozen_aggregate_text_field_capture_core);
+  assert_equals(
+    Typed.type(Core, frozen_aggregate_text_field_capture_core),
+    "i32",
+  );
+  assert_includes(
+    Emit.emit(Core, frozen_aggregate_text_field_capture_core),
+    "call_indirect",
+  );
 
   const unique_capture_core = Source.core(Source.parse(`
 let flag = 1
@@ -10543,6 +14283,49 @@ f(1)
     () => Emit.emit(Core, borrow_capture_core),
     "Rejected baseline proof closure_capture#0: view: borrow_view over " +
       "unique_heap text capture requires linear closure ownership support",
+  );
+
+  const direct_scratch_capture_core = Source.core(Source.parse(`
+scratch {
+  let message: Text = append("he", "llo")
+  ((x: Int) => len(message) + x)(1)
+}
+`));
+  const direct_scratch_plan = Core.closure_ownership(
+    direct_scratch_capture_core,
+  );
+
+  assert_equals(direct_scratch_plan.edges[0]?.captures[0], {
+    name: "message",
+    ownership: {
+      tag: "scratch_backed",
+      source: { tag: "unique_heap", reason: "text" },
+    },
+    decision: {
+      tag: "allowed",
+      reason: "scratch-backed capture is valid for an immediate " +
+        "non-escaping closure call inside scratchpad",
+    },
+  });
+  assert_equals(direct_scratch_plan.edges[0]?.decision, {
+    tag: "allowed",
+    reason: "all closure captures are copy/share safe",
+  });
+  assert_equals(
+    Core.proof(direct_scratch_capture_core).closure_ownership,
+    direct_scratch_plan,
+  );
+  assert_equals(
+    Core.proof(direct_scratch_capture_core).issues.map((issue) => {
+      return issue.message;
+    }),
+    [],
+  );
+  Core.check_proof(direct_scratch_capture_core);
+  assert_equals(Typed.type(Core, direct_scratch_capture_core), "i32");
+  assert_equals(
+    Emit.emit(Core, direct_scratch_capture_core).includes("call_indirect"),
+    false,
   );
 
   const scratch_capture_core = Source.core(Source.parse(`
@@ -10641,6 +14424,15 @@ read_pair(3)
     Core.proof(aggregate_capture_core).issues.map((issue) => issue.message),
     [],
   );
+  const aggregate_capture_wat = Emit.emit(
+    Mod,
+    Core.mod(aggregate_capture_core),
+  );
+
+  assert_equals(Typed.type(Core, aggregate_capture_core), "i32");
+  assert_includes(aggregate_capture_wat, "call_indirect");
+  assert_includes(aggregate_capture_wat, "i32.load offset=0");
+  assert_includes(aggregate_capture_wat, "i32.load offset=4");
 
   const closure_pointer_capture_core = Source.core(Source.parse(`
 let flag = 1
@@ -10766,6 +14558,30 @@ let f = (x: Int) => x
 
 1
 `));
+  const unused_owner_proof = Core.proof(unused_owner);
+
+  assert_equals(unused_owner_proof.ok, true);
+  assert_equals(unused_owner_proof.managed_storage, "disabled");
+  assert_equals(
+    unused_owner_proof.allocations.facts.map((fact) => {
+      return {
+        scope: fact.scope,
+        storage: fact.storage,
+        ownership: fact.ownership,
+        reason: fact.reason,
+        expression: fact.expression,
+      };
+    }),
+    [
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: unique_closure,
+        reason: "closure",
+        expression: "lam",
+      },
+    ],
+  );
   assert_equals(Core.drops(unused_owner), {
     steps: [
       {
@@ -10782,6 +14598,83 @@ let f = (x: Int) => x
       },
     ],
   });
+
+  const captured_closure_owner = Source.core(Source.parse(`
+let n = 1
+let f = (x: Int) => x + n
+
+1
+`));
+  const captured_closure_owner_proof = Core.proof(captured_closure_owner);
+  const captured_closure_owner_drops = {
+    steps: [
+      {
+        tag: "heap_drop" as const,
+        id: "drop#0",
+        edge: "scope_exit" as const,
+        scope: "program#0",
+        owner: "f",
+        ownership: unique_closure,
+        storage: "persistent_unique_heap" as const,
+        runtime: "no_op_bump_allocator" as const,
+        reason:
+          "unique_heap closure scope exit lowers to no-op with bump allocator",
+      },
+    ],
+  };
+
+  assert_equals(captured_closure_owner_proof.ok, true);
+  assert_equals(captured_closure_owner_proof.managed_storage, "disabled");
+  assert_equals(
+    captured_closure_owner_proof.allocations.facts.map((fact) => {
+      return {
+        scope: fact.scope,
+        storage: fact.storage,
+        ownership: fact.ownership,
+        reason: fact.reason,
+        expression: fact.expression,
+      };
+    }),
+    [
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: unique_closure,
+        reason: "closure",
+        expression: "lam",
+      },
+    ],
+  );
+  assert_equals(captured_closure_owner_proof.closure_ownership.edges[0], {
+    id: "closure_capture#0",
+    scope: "program#0",
+    expression: "lam",
+    captures: [
+      {
+        name: "n",
+        ownership: {
+          tag: "scalar_local",
+          type: "i32",
+        },
+        decision: {
+          tag: "allowed",
+          reason: "scalar capture is copyable",
+        },
+      },
+    ],
+    decision: {
+      tag: "allowed",
+      reason: "all closure captures are copy/share safe",
+    },
+  });
+  assert_equals(
+    captured_closure_owner_proof.drops,
+    captured_closure_owner_drops,
+  );
+  assert_equals(
+    Core.drops(captured_closure_owner),
+    captured_closure_owner_drops,
+  );
 
   const final_closure = Source.core(Source.parse("(x: Int) => x"));
   assert_equals(Core.drops(final_closure), { steps: [] });
@@ -10944,22 +14837,48 @@ f = (x: Int) => x + 1
 
 1
 `));
-  assert_equals(Core.drops(discarded_closure), {
+  const discarded_closure_proof = Core.proof(discarded_closure);
+  const discarded_closure_drops = {
     steps: [
       {
-        tag: "heap_drop",
+        tag: "heap_drop" as const,
         id: "drop#0",
-        edge: "discarded_expr",
+        edge: "discarded_expr" as const,
         scope: "program#0",
         owner: undefined,
         ownership: unique_closure,
-        storage: "persistent_unique_heap",
-        runtime: "no_op_bump_allocator",
+        storage: "persistent_unique_heap" as const,
+        runtime: "no_op_bump_allocator" as const,
         reason:
           "unique_heap closure discarded expression lowers to no-op with bump allocator",
       },
     ],
-  });
+  };
+
+  assert_equals(discarded_closure_proof.ok, true);
+  assert_equals(discarded_closure_proof.managed_storage, "disabled");
+  assert_equals(
+    discarded_closure_proof.allocations.facts.map((fact) => {
+      return {
+        scope: fact.scope,
+        storage: fact.storage,
+        ownership: fact.ownership,
+        reason: fact.reason,
+        expression: fact.expression,
+      };
+    }),
+    [
+      {
+        scope: "program#0",
+        storage: "persistent_unique_heap",
+        ownership: unique_closure,
+        reason: "closure",
+        expression: "lam",
+      },
+    ],
+  );
+  assert_equals(discarded_closure_proof.drops, discarded_closure_drops);
+  assert_equals(Core.drops(discarded_closure), discarded_closure_drops);
 
   const discarded_runtime_text_temporary = Source.core(Source.parse(`
 (value: Text) => {
@@ -10967,22 +14886,129 @@ f = (x: Int) => x + 1
   1
 }
 `));
-  assert_equals(Core.drops(discarded_runtime_text_temporary), {
+  const discarded_runtime_text_temporary_proof = Core.proof(
+    discarded_runtime_text_temporary,
+  );
+  const discarded_runtime_text_temporary_drops = {
     steps: [
       {
-        tag: "heap_drop",
+        tag: "heap_drop" as const,
         id: "drop#0",
-        edge: "discarded_expr",
+        edge: "discarded_expr" as const,
         scope: "closure#0",
         owner: undefined,
         ownership: unique_text,
-        storage: "persistent_unique_heap",
-        runtime: "no_op_bump_allocator",
+        storage: "persistent_unique_heap" as const,
+        runtime: "no_op_bump_allocator" as const,
         reason:
           "unique_heap text discarded expression lowers to no-op with bump allocator",
       },
     ],
-  });
+  };
+
+  assert_equals(discarded_runtime_text_temporary_proof.ok, true);
+  assert_equals(
+    discarded_runtime_text_temporary_proof.managed_storage,
+    "disabled",
+  );
+  assert_equals(
+    discarded_runtime_text_temporary_proof.allocations.facts.map((fact) => {
+      return {
+        storage: fact.storage,
+        ownership: fact.ownership,
+        reason: fact.reason,
+        expression: fact.expression,
+      };
+    }),
+    [
+      {
+        storage: "persistent_unique_heap",
+        ownership: unique_closure,
+        reason: "closure",
+        expression: "lam",
+      },
+      {
+        storage: "persistent_unique_heap",
+        ownership: unique_text,
+        reason: "runtime_text",
+        expression: "app",
+      },
+    ],
+  );
+  assert_equals(
+    discarded_runtime_text_temporary_proof.drops,
+    discarded_runtime_text_temporary_drops,
+  );
+  assert_equals(
+    Core.drops(discarded_runtime_text_temporary),
+    discarded_runtime_text_temporary_drops,
+  );
+
+  const discarded_runtime_text_slice_temporary = Source.core(Source.parse(`
+(value: Text) => {
+  slice(value, 0, 1)
+  1
+}
+`));
+  const discarded_runtime_text_slice_temporary_proof = Core.proof(
+    discarded_runtime_text_slice_temporary,
+  );
+  const discarded_runtime_text_slice_temporary_drops = {
+    steps: [
+      {
+        tag: "heap_drop" as const,
+        id: "drop#0",
+        edge: "discarded_expr" as const,
+        scope: "closure#0",
+        owner: undefined,
+        ownership: unique_text,
+        storage: "persistent_unique_heap" as const,
+        runtime: "no_op_bump_allocator" as const,
+        reason:
+          "unique_heap text discarded expression lowers to no-op with bump allocator",
+      },
+    ],
+  };
+
+  assert_equals(discarded_runtime_text_slice_temporary_proof.ok, true);
+  assert_equals(
+    discarded_runtime_text_slice_temporary_proof.managed_storage,
+    "disabled",
+  );
+  assert_equals(
+    discarded_runtime_text_slice_temporary_proof.allocations.facts.map(
+      (fact) => {
+        return {
+          storage: fact.storage,
+          ownership: fact.ownership,
+          reason: fact.reason,
+          expression: fact.expression,
+        };
+      },
+    ),
+    [
+      {
+        storage: "persistent_unique_heap",
+        ownership: unique_closure,
+        reason: "closure",
+        expression: "lam",
+      },
+      {
+        storage: "persistent_unique_heap",
+        ownership: unique_text,
+        reason: "runtime_text",
+        expression: "app",
+      },
+    ],
+  );
+  assert_equals(
+    discarded_runtime_text_slice_temporary_proof.drops,
+    discarded_runtime_text_slice_temporary_drops,
+  );
+  assert_equals(
+    Core.drops(discarded_runtime_text_slice_temporary),
+    discarded_runtime_text_slice_temporary_drops,
+  );
 
   const discarded_runtime_aggregate_temporary = Source.core(Source.parse(`
 const user_type = struct {
@@ -11010,6 +15036,144 @@ const user_type = struct {
       },
     ],
   });
+
+  const discarded_runtime_union_temporary = Source.core(Source.parse(`
+const result_type = union {
+  ok: Text,
+  err: Text
+}
+
+(value: Text) => {
+  result_type.ok(value)
+  1
+}
+`));
+  const discarded_runtime_union_temporary_proof = Core.proof(
+    discarded_runtime_union_temporary,
+  );
+  const discarded_runtime_union_temporary_drops = {
+    steps: [
+      {
+        tag: "heap_drop" as const,
+        id: "drop#0",
+        edge: "discarded_expr" as const,
+        scope: "closure#0",
+        owner: undefined,
+        ownership: unique_runtime_union,
+        storage: "persistent_unique_heap" as const,
+        runtime: "no_op_bump_allocator" as const,
+        reason:
+          "unique_heap runtime_union discarded expression lowers to no-op with bump allocator",
+      },
+    ],
+  };
+
+  assert_equals(discarded_runtime_union_temporary_proof.ok, true);
+  assert_equals(
+    discarded_runtime_union_temporary_proof.managed_storage,
+    "disabled",
+  );
+  assert_equals(
+    discarded_runtime_union_temporary_proof.allocations.facts.map((fact) => {
+      return {
+        storage: fact.storage,
+        ownership: fact.ownership,
+        reason: fact.reason,
+        expression: fact.expression,
+      };
+    }),
+    [
+      {
+        storage: "persistent_unique_heap",
+        ownership: unique_closure,
+        reason: "closure",
+        expression: "lam",
+      },
+      {
+        storage: "persistent_unique_heap",
+        ownership: unique_runtime_union,
+        reason: "runtime_union",
+        expression: "union_case",
+      },
+    ],
+  );
+  assert_equals(
+    discarded_runtime_union_temporary_proof.drops,
+    discarded_runtime_union_temporary_drops,
+  );
+  assert_equals(
+    Core.drops(discarded_runtime_union_temporary),
+    discarded_runtime_union_temporary_drops,
+  );
+
+  const bound_runtime_union_temporary = Source.core(Source.parse(`
+const result_type = union {
+  ok: Text,
+  err: Text
+}
+
+(value: Text) => {
+  let result: result_type = result_type.ok(value)
+  1
+}
+`));
+  const bound_runtime_union_temporary_proof = Core.proof(
+    bound_runtime_union_temporary,
+  );
+  const bound_runtime_union_temporary_drops = {
+    steps: [
+      {
+        tag: "heap_drop" as const,
+        id: "drop#0",
+        edge: "scope_exit" as const,
+        scope: "closure#0",
+        owner: "result",
+        ownership: unique_runtime_union,
+        storage: "persistent_unique_heap" as const,
+        runtime: "no_op_bump_allocator" as const,
+        reason:
+          "unique_heap runtime_union scope exit lowers to no-op with bump allocator",
+      },
+    ],
+  };
+
+  assert_equals(bound_runtime_union_temporary_proof.ok, true);
+  assert_equals(
+    bound_runtime_union_temporary_proof.managed_storage,
+    "disabled",
+  );
+  assert_equals(
+    bound_runtime_union_temporary_proof.allocations.facts.map((fact) => {
+      return {
+        storage: fact.storage,
+        ownership: fact.ownership,
+        reason: fact.reason,
+        expression: fact.expression,
+      };
+    }),
+    [
+      {
+        storage: "persistent_unique_heap",
+        ownership: unique_closure,
+        reason: "closure",
+        expression: "lam",
+      },
+      {
+        storage: "persistent_unique_heap",
+        ownership: unique_runtime_union,
+        reason: "runtime_union",
+        expression: "union_case",
+      },
+    ],
+  );
+  assert_equals(
+    bound_runtime_union_temporary_proof.drops,
+    bound_runtime_union_temporary_drops,
+  );
+  assert_equals(
+    Core.drops(bound_runtime_union_temporary),
+    bound_runtime_union_temporary_drops,
+  );
 
   const discarded_static_aggregate_materialization = Source.core(Source.parse(`
 const user = {
@@ -11043,22 +15207,124 @@ user
   1
 }
 `));
-  assert_equals(Core.drops(bound_runtime_text_temporary), {
+  const bound_runtime_text_temporary_proof = Core.proof(
+    bound_runtime_text_temporary,
+  );
+  const bound_runtime_text_temporary_drops = {
     steps: [
       {
-        tag: "heap_drop",
+        tag: "heap_drop" as const,
         id: "drop#0",
-        edge: "scope_exit",
+        edge: "scope_exit" as const,
         scope: "closure#0",
         owner: "message",
         ownership: unique_text,
-        storage: "persistent_unique_heap",
-        runtime: "no_op_bump_allocator",
+        storage: "persistent_unique_heap" as const,
+        runtime: "no_op_bump_allocator" as const,
         reason:
           "unique_heap text scope exit lowers to no-op with bump allocator",
       },
     ],
-  });
+  };
+
+  assert_equals(bound_runtime_text_temporary_proof.ok, true);
+  assert_equals(bound_runtime_text_temporary_proof.managed_storage, "disabled");
+  assert_equals(
+    bound_runtime_text_temporary_proof.allocations.facts.map((fact) => {
+      return {
+        storage: fact.storage,
+        ownership: fact.ownership,
+        reason: fact.reason,
+        expression: fact.expression,
+      };
+    }),
+    [
+      {
+        storage: "persistent_unique_heap",
+        ownership: unique_closure,
+        reason: "closure",
+        expression: "lam",
+      },
+      {
+        storage: "persistent_unique_heap",
+        ownership: unique_text,
+        reason: "runtime_text",
+        expression: "app",
+      },
+    ],
+  );
+  assert_equals(
+    bound_runtime_text_temporary_proof.drops,
+    bound_runtime_text_temporary_drops,
+  );
+  assert_equals(
+    Core.drops(bound_runtime_text_temporary),
+    bound_runtime_text_temporary_drops,
+  );
+
+  const bound_runtime_text_slice_temporary = Source.core(Source.parse(`
+(value: Text) => {
+  let part: Text = slice(value, 0, 1)
+  1
+}
+`));
+  const bound_runtime_text_slice_temporary_proof = Core.proof(
+    bound_runtime_text_slice_temporary,
+  );
+  const bound_runtime_text_slice_temporary_drops = {
+    steps: [
+      {
+        tag: "heap_drop" as const,
+        id: "drop#0",
+        edge: "scope_exit" as const,
+        scope: "closure#0",
+        owner: "part",
+        ownership: unique_text,
+        storage: "persistent_unique_heap" as const,
+        runtime: "no_op_bump_allocator" as const,
+        reason:
+          "unique_heap text scope exit lowers to no-op with bump allocator",
+      },
+    ],
+  };
+
+  assert_equals(bound_runtime_text_slice_temporary_proof.ok, true);
+  assert_equals(
+    bound_runtime_text_slice_temporary_proof.managed_storage,
+    "disabled",
+  );
+  assert_equals(
+    bound_runtime_text_slice_temporary_proof.allocations.facts.map((fact) => {
+      return {
+        storage: fact.storage,
+        ownership: fact.ownership,
+        reason: fact.reason,
+        expression: fact.expression,
+      };
+    }),
+    [
+      {
+        storage: "persistent_unique_heap",
+        ownership: unique_closure,
+        reason: "closure",
+        expression: "lam",
+      },
+      {
+        storage: "persistent_unique_heap",
+        ownership: unique_text,
+        reason: "runtime_text",
+        expression: "app",
+      },
+    ],
+  );
+  assert_equals(
+    bound_runtime_text_slice_temporary_proof.drops,
+    bound_runtime_text_slice_temporary_drops,
+  );
+  assert_equals(
+    Core.drops(bound_runtime_text_slice_temporary),
+    bound_runtime_text_slice_temporary_drops,
+  );
 
   const discarded_named_owner = Source.core(Source.parse(`
 let f = (x: Int) => x
@@ -12001,6 +16267,416 @@ host_use(message)
   );
 });
 
+Deno.test("Source.core lowers host-backed capability methods", () => {
+  const core = Source.core(Source.parse(`
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+io = io.print("hello")
+io
+`));
+
+  assert_equals(
+    Format.fmt(Core, core),
+    `let !io: I32 = 1:i32
+io = print(!io, "hello")
+io`,
+  );
+  assert_equals(Core.proof(core).issues, []);
+  assert_includes(Emit.emit(Core, core), "call $print");
+
+  const captured_linear_source = `
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let print_once = () => io.print("hello")
+io = print_once()
+io
+`;
+  const captured_linear_core = Source.core(
+    Source.parse(captured_linear_source),
+  );
+
+  assert_equals(Core.proof(captured_linear_core).issues, []);
+  assert_includes(Source.wat(captured_linear_source), "call $print");
+
+  const branch_linear_source = `
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let flag = 0
+let print_once = if flag {
+  () => io.print("hello")
+} else {
+  () => io.print("world")
+}
+io = print_once()
+io
+`;
+  const branch_linear_core = Source.core(Source.parse(branch_linear_source));
+
+  assert_equals(Core.proof(branch_linear_core).issues, []);
+  assert_equals(Data.data(Core, branch_linear_core), [
+    {
+      offset: 0,
+      bytes: [5, 0, 0, 0, 104, 101, 108, 108, 111],
+    },
+    {
+      offset: 12,
+      bytes: [5, 0, 0, 0, 119, 111, 114, 108, 100],
+    },
+  ]);
+  assert_includes(Source.wat(branch_linear_source), "call_indirect");
+
+  const branch_param_linear_source = `
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let flag = 0
+let print_once = if flag {
+  (message: Text) => io.print(borrow message)
+} else {
+  (text: Text) => io.print(borrow text)
+}
+io = print_once("world")
+io
+`;
+  const branch_param_linear_core = Source.core(
+    Source.parse(branch_param_linear_source),
+  );
+
+  assert_equals(Core.proof(branch_param_linear_core).issues, []);
+  assert_includes(Source.wat(branch_param_linear_source), "call_indirect");
+
+  const branch_equivalent_param_linear_source = `
+let !base: I32 = 40
+let flag = 0
+let add = if flag {
+  (a: Int) => !base + a
+} else {
+  (b: I32) => !base + b
+}
+base = add(2)
+base
+`;
+  const branch_equivalent_param_linear_core = Source.core(
+    Source.parse(branch_equivalent_param_linear_source),
+  );
+
+  assert_equals(Core.proof(branch_equivalent_param_linear_core).issues, []);
+  assert_includes(
+    Source.wat(branch_equivalent_param_linear_source),
+    "call_indirect",
+  );
+
+  const if_let_payload_linear_source = `
+const result_type = union {
+  ok: Text,
+  err: Text
+}
+
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let flag = 1
+let result: result_type = if flag {
+  result_type.ok("world")
+} else {
+  result_type.err("fallback")
+}
+let print_once = if let .ok(value) = result {
+  () => io.print(borrow value)
+} else {
+  () => io.print("fallback")
+}
+io = print_once()
+io
+`;
+  const if_let_payload_linear_core = Source.core(
+    Source.parse(if_let_payload_linear_source),
+  );
+
+  assert_equals(Core.proof(if_let_payload_linear_core).issues, []);
+  assert_equals(Typed.type(Core, if_let_payload_linear_core), "i32");
+  assert_equals(Data.data(Core, if_let_payload_linear_core), [
+    {
+      offset: 0,
+      bytes: [5, 0, 0, 0, 119, 111, 114, 108, 100],
+    },
+    {
+      offset: 12,
+      bytes: [8, 0, 0, 0, 102, 97, 108, 108, 98, 97, 99, 107],
+    },
+  ]);
+  assert_includes(Source.wat(if_let_payload_linear_source), "call_indirect");
+  assert_includes(Source.wat(if_let_payload_linear_source), "call $print");
+
+  const runtime_if_let_payload_linear_source = `
+const result_type = union {
+  ok: Text,
+  err: Unit
+}
+
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let flag = 1
+let make = if flag {
+  (x: Text) => result_type.ok(x)
+} else {
+  (x: Text) => result_type.err()
+}
+let result: result_type = make("world")
+let print_once = if let .ok(value) = result {
+  () => io.print(borrow value)
+} else {
+  () => io.print("fallback")
+}
+io = print_once()
+io
+`;
+  const runtime_if_let_payload_linear_core = Source.core(
+    Source.parse(runtime_if_let_payload_linear_source),
+  );
+  const runtime_if_let_payload_linear_wat = Source.wat(
+    runtime_if_let_payload_linear_source,
+  );
+
+  assert_equals(Core.allocations(runtime_if_let_payload_linear_core).facts, [
+    {
+      id: "allocation#0",
+      scope: "block#0",
+      storage: "persistent_unique_heap",
+      ownership: { tag: "unique_heap", reason: "closure" },
+      reason: "closure",
+      expression: "lam",
+    },
+    {
+      id: "allocation#1",
+      scope: "closure#0",
+      storage: "persistent_unique_heap",
+      ownership: { tag: "unique_heap", reason: "runtime_union" },
+      reason: "runtime_union",
+      expression: "union_case",
+    },
+    {
+      id: "allocation#2",
+      scope: "block#1",
+      storage: "persistent_unique_heap",
+      ownership: { tag: "unique_heap", reason: "closure" },
+      reason: "closure",
+      expression: "lam",
+    },
+    {
+      id: "allocation#3",
+      scope: "closure#1",
+      storage: "persistent_unique_heap",
+      ownership: { tag: "unique_heap", reason: "runtime_union" },
+      reason: "runtime_union",
+      expression: "union_case",
+    },
+    {
+      id: "allocation#4",
+      scope: "block#2",
+      storage: "persistent_unique_heap",
+      ownership: { tag: "unique_heap", reason: "closure" },
+      reason: "closure",
+      expression: "lam",
+    },
+    {
+      id: "allocation#5",
+      scope: "block#3",
+      storage: "persistent_unique_heap",
+      ownership: { tag: "unique_heap", reason: "closure" },
+      reason: "closure",
+      expression: "lam",
+    },
+  ]);
+  assert_equals(Core.proof(runtime_if_let_payload_linear_core).issues, []);
+  assert_equals(Typed.type(Core, runtime_if_let_payload_linear_core), "i32");
+  assert_includes(
+    runtime_if_let_payload_linear_wat,
+    "call_indirect (type $closure_i32_i32_to_i32)",
+  );
+  assert_includes(
+    runtime_if_let_payload_linear_wat,
+    "call_indirect (type $closure_i32_to_i32)",
+  );
+  assert_includes(runtime_if_let_payload_linear_wat, "i32.load offset=4");
+  assert_includes(runtime_if_let_payload_linear_wat, "call $print");
+
+  assert_throws(
+    () =>
+      Source.core(Source.parse(`
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let flag = 0
+let print_once = if flag {
+  () => io.print("hello")
+} else {
+  () => io.print("world")
+}
+io = print_once()
+io = print_once()
+io
+`)),
+    "Linear closure print_once was already consumed",
+  );
+
+  assert_throws(
+    () =>
+      Source.core(Source.parse(`
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let flag = 0
+let print_once = if flag {
+  () => io.print("hello")
+} else {
+  () => io.print("world")
+}
+let again = print_once
+io = print_once()
+io = again()
+io
+`)),
+    "Linear closure again was already consumed",
+  );
+
+  assert_throws(
+    () =>
+      Source.core(Source.parse(`
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let print_once = () => io.print("hello")
+io = print_once()
+io = print_once()
+io
+`)),
+    "Linear closure print_once was already consumed",
+  );
+
+  assert_throws(
+    () =>
+      Source.core(Source.parse(`
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let print_once = () => io.print("hello")
+let again = print_once
+io = print_once()
+io = again()
+io
+`)),
+    "Linear closure again was already consumed",
+  );
+
+  assert_throws(
+    () =>
+      Source.core(Source.parse(`
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+let flag = 1
+let print_once = () => io.print("hello")
+io = if flag {
+  print_once()
+} else {
+  io.print("world")
+}
+io
+`)),
+    "Linear branches must consume the same closures",
+  );
+
+  const reusable_linear_param_core = Source.core(Source.parse(`
+let id = (!x: I32) => x
+let !value: I32 = 1
+value = id(!value)
+value = id(!value)
+value
+`));
+  assert_equals(Core.proof(reusable_linear_param_core).issues, []);
+
+  assert_throws(
+    () =>
+      Source.core(Source.parse(`
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+let !io: I32 = 1
+io.print("hello")
+io
+`)),
+    "Linear value io is consumed but not rebound",
+  );
+
+  const missing_method = Source.core(Source.parse(`
+let !io: I32 = 1
+io = io.print("hello")
+io
+`));
+  assert_equals(
+    Core.proof(missing_method).issues[0]?.message,
+    "Missing host capability method: io.print",
+  );
+  assert_throws(
+    () => Core.check_proof(missing_method),
+    "Missing host capability method: io.print",
+  );
+  assert_throws(
+    () =>
+      Source.wat(`
+let !io: I32 = 1
+io = io.print("hello")
+io
+`),
+    "Missing host capability method: io.print",
+  );
+
+  const missing_lambda_method = Source.core(Source.parse(`
+const main = (!io: I32) => {
+  io = io.print("hello")
+  io
+}
+
+main
+`));
+  assert_equals(
+    Core.proof(missing_lambda_method).issues[0]?.message,
+    "Missing host capability method: io.print",
+  );
+
+  const first_class_linear_source = `
+host_import print from "env.print" (I32, bounded_borrow Text) => I32
+
+const main = (!io: I32) => {
+  let print_once = () => io.print("hello")
+  io = print_once()
+  io
+}
+
+let flag = 1
+let run = if flag { main } else { main }
+let !io: I32 = 1
+io = run(!io)
+io
+`;
+  const first_class_linear_core = Source.core(
+    Source.parse(first_class_linear_source),
+  );
+
+  assert_equals(Core.proof(first_class_linear_core).issues, []);
+  assert_equals(Data.data(Core, first_class_linear_core), [
+    {
+      offset: 0,
+      bytes: [5, 0, 0, 0, 104, 101, 108, 108, 111],
+    },
+  ]);
+  assert_includes(Source.wat(first_class_linear_source), "call_indirect");
+});
+
 Deno.test("Core.proof accepts bounded-borrow host import contracts", () => {
   const bounded_borrow_host_call: CoreNode = {
     tag: "program",
@@ -12110,6 +16786,409 @@ Deno.test("Core.proof accepts bounded-borrow host import contracts", () => {
 
   assert_throws(
     () => Core.check_proof(direct_unique_host_call),
+    "bounded-borrow host/import contract cannot accept unique_heap text",
+  );
+
+  const wrapper_borrow_host_call = Source.core(Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let read = msg => host_read(msg)
+let message: Text = append("a", "b")
+read(borrow message)
+`));
+  const wrapper_borrow_proof = Core.proof(wrapper_borrow_host_call);
+
+  assert_equals(wrapper_borrow_proof.ok, true);
+  assert_equals(wrapper_borrow_proof.managed_storage, "disabled");
+  assert_equals(wrapper_borrow_proof.host_boundaries.edges[0], {
+    id: "host#0",
+    callee: "host_read",
+    signature: {
+      name: "host_read",
+      module: "env",
+      field: "read",
+      params: ["i32"],
+      result: "i32",
+      args: [{ tag: "bounded_borrow" }],
+      result_owner: undefined,
+    },
+    args: [
+      {
+        index: 0,
+        ownership: {
+          tag: "borrow_view",
+          source: {
+            tag: "unique_heap",
+            reason: "text",
+          },
+        },
+        decision: {
+          tag: "allowed",
+          reason: "bounded-borrow host/import contract keeps the view inside " +
+            "the call",
+        },
+      },
+    ],
+    decision: {
+      tag: "allowed",
+      reason: "host/import signature for host_read satisfies ownership " +
+        "boundary checks",
+    },
+  });
+  assert_includes(
+    Emit.emit(Mod, Core.mod(wrapper_borrow_host_call)),
+    "call $host_read",
+  );
+
+  const block_wrapper_borrow_host_call = Source.core(Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let read = msg => {
+  host_read(msg)
+}
+let message: Text = append("a", "b")
+read(borrow message)
+`));
+  const block_wrapper_borrow_proof = Core.proof(
+    block_wrapper_borrow_host_call,
+  );
+
+  assert_equals(block_wrapper_borrow_proof.ok, true);
+  assert_equals(
+    block_wrapper_borrow_proof.host_boundaries.edges[0],
+    wrapper_borrow_proof.host_boundaries.edges[0],
+  );
+  assert_includes(
+    Emit.emit(Mod, Core.mod(block_wrapper_borrow_host_call)),
+    "call $host_read",
+  );
+
+  const local_borrow_wrapper_host_call = Source.core(Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let read = (msg: Text) => {
+  let view = borrow msg
+  host_read(view)
+}
+let message: Text = append("a", "b")
+read(message)
+`));
+  const local_borrow_wrapper_proof = Core.proof(
+    local_borrow_wrapper_host_call,
+  );
+
+  assert_equals(local_borrow_wrapper_proof.ok, true);
+  assert_equals(
+    local_borrow_wrapper_proof.host_boundaries.edges[0],
+    wrapper_borrow_proof.host_boundaries.edges[0],
+  );
+  assert_includes(
+    Emit.emit(Mod, Core.mod(local_borrow_wrapper_host_call)),
+    "call $host_read",
+  );
+
+  const rec_wrapper_borrow_host_call = Source.core(Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let read = rec (msg: Text) => host_read(msg)
+let message: Text = append("a", "b")
+read(borrow message)
+`));
+  const rec_wrapper_borrow_proof = Core.proof(rec_wrapper_borrow_host_call);
+
+  assert_equals(rec_wrapper_borrow_proof.ok, true);
+  assert_equals(
+    rec_wrapper_borrow_proof.host_boundaries.edges[0],
+    wrapper_borrow_proof.host_boundaries.edges[0],
+  );
+  assert_includes(
+    Emit.emit(Mod, Core.mod(rec_wrapper_borrow_host_call)),
+    "call $host_read",
+  );
+
+  const branch_wrapper_borrow_host_call = Source.core(Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let flag = 1
+let read = if flag {
+  (msg: Text) => host_read(msg)
+} else {
+  (msg: Text) => host_read(msg)
+}
+let message: Text = append("a", "b")
+read(borrow message)
+`));
+  const branch_wrapper_borrow_proof = Core.proof(
+    branch_wrapper_borrow_host_call,
+  );
+
+  assert_equals(branch_wrapper_borrow_proof.ok, true);
+  assert_equals(
+    branch_wrapper_borrow_proof.host_boundaries.edges.map((edge) =>
+      edge.args[0]
+    ),
+    [
+      wrapper_borrow_proof.host_boundaries.edges[0].args[0],
+      wrapper_borrow_proof.host_boundaries.edges[0].args[0],
+    ],
+  );
+  assert_equals(
+    branch_wrapper_borrow_proof.host_boundaries.edges.map((edge) =>
+      edge.decision.tag
+    ),
+    ["allowed", "allowed"],
+  );
+  assert_includes(
+    Emit.emit(Mod, Core.mod(branch_wrapper_borrow_host_call)),
+    "call $host_read",
+  );
+
+  const higher_order_borrow_wrapper_host_call = Source.core(Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let read = value => host_read(value)
+let relay = (const f, msg: Text) => f(borrow msg)
+let message: Text = append("a", "b")
+relay(read, message)
+`));
+  const higher_order_borrow_wrapper_proof = Core.proof(
+    higher_order_borrow_wrapper_host_call,
+  );
+
+  assert_equals(higher_order_borrow_wrapper_proof.ok, true);
+  assert_equals(
+    higher_order_borrow_wrapper_proof.host_boundaries.edges[0],
+    wrapper_borrow_proof.host_boundaries.edges[0],
+  );
+  assert_includes(
+    Emit.emit(Mod, Core.mod(higher_order_borrow_wrapper_host_call)),
+    "call $host_read",
+  );
+
+  const higher_order_alias_borrow_wrapper_host_call = Source.core(
+    Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let read = value => host_read(value)
+let relay = (const f, msg: Text) => {
+  let g = f
+  g(borrow msg)
+}
+let message: Text = append("a", "b")
+relay(read, message)
+`),
+  );
+  const higher_order_alias_borrow_wrapper_proof = Core.proof(
+    higher_order_alias_borrow_wrapper_host_call,
+  );
+
+  assert_equals(higher_order_alias_borrow_wrapper_proof.ok, true);
+  assert_equals(
+    Core.borrows(higher_order_alias_borrow_wrapper_host_call)
+      .skipped_closures,
+    [],
+  );
+  assert_equals(
+    higher_order_alias_borrow_wrapper_proof.host_boundaries.edges[0],
+    wrapper_borrow_proof.host_boundaries.edges[0],
+  );
+  assert_includes(
+    Emit.emit(Mod, Core.mod(higher_order_alias_borrow_wrapper_host_call)),
+    "call $host_read",
+  );
+
+  const wrapper_unique_host_call = Source.core(Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let read = msg => host_read(msg)
+let message: Text = append("a", "b")
+read(message)
+`));
+  const wrapper_unique_proof = Core.proof(wrapper_unique_host_call);
+
+  assert_equals(wrapper_unique_proof.ok, false);
+  assert_equals(
+    wrapper_unique_proof.issues.map((issue) => issue.message),
+    [
+      "Rejected host/import boundary host#0 host_read: argument 0 to " +
+      "host_read: bounded-borrow host/import contract cannot accept " +
+      "unique_heap text",
+    ],
+  );
+  assert_equals(wrapper_unique_proof.host_boundaries.edges[0].args[0], {
+    index: 0,
+    ownership: {
+      tag: "unique_heap",
+      reason: "text",
+    },
+    decision: {
+      tag: "rejected",
+      reason: "bounded-borrow host/import contract cannot accept " +
+        "unique_heap text",
+    },
+  });
+  assert_throws(
+    () => Core.check_proof(wrapper_unique_host_call),
+    "bounded-borrow host/import contract cannot accept unique_heap text",
+  );
+
+  const local_alias_wrapper_unique_host_call = Source.core(Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let read = msg => {
+  let view = msg
+  host_read(view)
+}
+let message: Text = append("a", "b")
+read(message)
+`));
+  const local_alias_wrapper_unique_proof = Core.proof(
+    local_alias_wrapper_unique_host_call,
+  );
+
+  assert_equals(local_alias_wrapper_unique_proof.ok, false);
+  assert_equals(
+    local_alias_wrapper_unique_proof.issues.map((issue) => issue.message),
+    [
+      "Rejected host/import boundary host#0 host_read: argument 0 to " +
+      "host_read: bounded-borrow host/import contract cannot accept " +
+      "unique_heap text",
+    ],
+  );
+  assert_throws(
+    () => Core.check_proof(local_alias_wrapper_unique_host_call),
+    "bounded-borrow host/import contract cannot accept unique_heap text",
+  );
+
+  const rec_wrapper_unique_host_call = Source.core(Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let read = rec (msg: Text) => host_read(msg)
+let message: Text = append("a", "b")
+read(message)
+`));
+  const rec_wrapper_unique_proof = Core.proof(rec_wrapper_unique_host_call);
+
+  assert_equals(rec_wrapper_unique_proof.ok, false);
+  assert_equals(
+    rec_wrapper_unique_proof.issues.map((issue) => issue.message),
+    [
+      "Rejected host/import boundary host#0 host_read: argument 0 to " +
+      "host_read: bounded-borrow host/import contract cannot accept " +
+      "unique_heap text",
+    ],
+  );
+  assert_equals(
+    rec_wrapper_unique_proof.host_boundaries.edges[0].args[0],
+    wrapper_unique_proof.host_boundaries.edges[0].args[0],
+  );
+  assert_throws(
+    () => Core.check_proof(rec_wrapper_unique_host_call),
+    "bounded-borrow host/import contract cannot accept unique_heap text",
+  );
+
+  const branch_wrapper_unique_host_call = Source.core(Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let flag = 1
+let read = if flag {
+  (msg: Text) => host_read(msg)
+} else {
+  (msg: Text) => host_read(msg)
+}
+let message: Text = append("a", "b")
+read(message)
+`));
+  const branch_wrapper_unique_proof = Core.proof(
+    branch_wrapper_unique_host_call,
+  );
+
+  assert_equals(branch_wrapper_unique_proof.ok, false);
+  assert_equals(
+    branch_wrapper_unique_proof.issues.map((issue) => issue.message),
+    [
+      "Rejected host/import boundary host#0 host_read: argument 0 to " +
+      "host_read: bounded-borrow host/import contract cannot accept " +
+      "unique_heap text",
+      "Rejected host/import boundary host#1 host_read: argument 0 to " +
+      "host_read: bounded-borrow host/import contract cannot accept " +
+      "unique_heap text",
+    ],
+  );
+  assert_equals(
+    branch_wrapper_unique_proof.host_boundaries.edges.map((edge) =>
+      edge.args[0]
+    ),
+    [
+      wrapper_unique_proof.host_boundaries.edges[0].args[0],
+      wrapper_unique_proof.host_boundaries.edges[0].args[0],
+    ],
+  );
+  assert_throws(
+    () => Core.check_proof(branch_wrapper_unique_host_call),
+    "bounded-borrow host/import contract cannot accept unique_heap text",
+  );
+
+  const higher_order_unique_wrapper_host_call = Source.core(Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let read = value => host_read(value)
+let relay = (const f, msg: Text) => f(msg)
+let message: Text = append("a", "b")
+relay(read, message)
+`));
+  const higher_order_unique_wrapper_proof = Core.proof(
+    higher_order_unique_wrapper_host_call,
+  );
+
+  assert_equals(higher_order_unique_wrapper_proof.ok, false);
+  assert_equals(
+    higher_order_unique_wrapper_proof.issues.map((issue) => issue.message),
+    [
+      "Rejected host/import boundary host#0 host_read: argument 0 to " +
+      "host_read: bounded-borrow host/import contract cannot accept " +
+      "unique_heap text",
+    ],
+  );
+  assert_throws(
+    () => Core.check_proof(higher_order_unique_wrapper_host_call),
+    "bounded-borrow host/import contract cannot accept unique_heap text",
+  );
+
+  const higher_order_alias_unique_wrapper_host_call = Source.core(
+    Source.parse(`
+host_import host_read from "env.read" (bounded_borrow Text) => I32
+
+let read = value => host_read(value)
+let relay = (const f, msg: Text) => {
+  let g = f
+  g(msg)
+}
+let message: Text = append("a", "b")
+relay(read, message)
+`),
+  );
+  const higher_order_alias_unique_wrapper_proof = Core.proof(
+    higher_order_alias_unique_wrapper_host_call,
+  );
+
+  assert_equals(higher_order_alias_unique_wrapper_proof.ok, false);
+  assert_equals(
+    higher_order_alias_unique_wrapper_proof.issues.map((issue) =>
+      issue.message
+    ),
+    [
+      "Rejected host/import boundary host#0 host_read: argument 0 to " +
+      "host_read: bounded-borrow host/import contract cannot accept " +
+      "unique_heap text",
+    ],
+  );
+  assert_equals(
+    higher_order_alias_unique_wrapper_proof.host_boundaries.edges[0].args[0],
+    wrapper_unique_proof.host_boundaries.edges[0].args[0],
+  );
+  assert_throws(
+    () => Core.check_proof(higher_order_alias_unique_wrapper_host_call),
     "bounded-borrow host/import contract cannot accept unique_heap text",
   );
 });
@@ -12655,6 +17734,58 @@ send(append("a", "b"))
   ]);
   Core.check_proof(temporary_wrapper_transfer);
 
+  const expression_temporary_wrapper_transfer = Source.core(Source.parse(`
+host_import host_take from "env.take" (ownership_transfer Text) => I32
+
+let send = (msg: Text) => host_take(append(msg, "!"))
+let message: Text = append("a", "b")
+send(message)
+`));
+  const expression_temporary_wrapper_transfer_proof = Core.proof(
+    expression_temporary_wrapper_transfer,
+  );
+
+  assert_equals(expression_temporary_wrapper_transfer_proof.ok, true);
+  assert_equals(
+    expression_temporary_wrapper_transfer_proof.drops.steps
+      .filter((step) => step.tag === "host_transfer")
+      .map((step) => {
+        return {
+          id: step.id,
+          scope: step.scope,
+          callee: step.callee,
+          argument: step.argument,
+          owner: step.owner,
+          ownership: step.ownership,
+        };
+      }),
+    [
+      {
+        id: "transfer#0",
+        scope: "closure#0",
+        callee: "host_take",
+        argument: 0,
+        owner: undefined,
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+      },
+      {
+        id: "transfer#1",
+        scope: "program#0/static_call/send",
+        callee: "host_take",
+        argument: 0,
+        owner: undefined,
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+      },
+    ],
+  );
+  Core.check_proof(expression_temporary_wrapper_transfer);
+
   const branch_temporary_wrapper_transfer = Source.core(Source.parse(`
 host_import host_take from "env.take" (ownership_transfer Text) => I32
 
@@ -12848,6 +17979,63 @@ relay(send, message)
   ]);
   Core.check_proof(higher_order_wrapper_transfer);
 
+  const higher_order_expression_temporary_wrapper_transfer = Source.core(
+    Source.parse(`
+host_import host_take from "env.take" (ownership_transfer Text) => I32
+
+let send = (msg: Text) => host_take(msg)
+let relay = (const f, msg: Text) => f(append(msg, "!"))
+let message: Text = append("a", "b")
+relay(send, message)
+`),
+  );
+  const higher_order_expression_temporary_wrapper_transfer_proof = Core.proof(
+    higher_order_expression_temporary_wrapper_transfer,
+  );
+
+  assert_equals(
+    higher_order_expression_temporary_wrapper_transfer_proof.ok,
+    true,
+  );
+  assert_equals(
+    higher_order_expression_temporary_wrapper_transfer_proof.transfers,
+    {
+      transfers: [
+        {
+          id: "transfer#0",
+          scope: "program#0/static_call/relay/static_call/f",
+          owner: "temporary#0",
+          callee: "host_take",
+          argument: 0,
+        },
+      ],
+      issues: [],
+    },
+  );
+  assert_equals(
+    higher_order_expression_temporary_wrapper_transfer_proof.drops.steps
+      .filter((step) => step.tag === "host_transfer"),
+    [
+      {
+        tag: "host_transfer",
+        id: "transfer#0",
+        edge: "host_transfer",
+        scope: "program#0/static_call/relay/static_call/f",
+        callee: "host_take",
+        argument: 0,
+        owner: undefined,
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        storage: "persistent_unique_heap",
+        runtime: "host_owned",
+        reason: "unique_heap text transfers ownership to host/import host_take",
+      },
+    ],
+  );
+  Core.check_proof(higher_order_expression_temporary_wrapper_transfer);
+
   const higher_order_wrapper_use_after_transfer = Source.core(Source.parse(`
 host_import host_take from "env.take" (ownership_transfer Text) => I32
 
@@ -12912,6 +18100,101 @@ relay(send, message)
   ]);
   assert_includes(
     Emit.emit(Mod, Core.mod(higher_order_alias_wrapper_transfer)),
+    "call $host_take",
+  );
+
+  const branch_higher_order_alias_temporary_wrapper_transfer = Source.core(
+    Source.parse(`
+host_import host_take from "env.take" (ownership_transfer Text) => I32
+
+let send = (msg: Text) => host_take(msg)
+let flag = 1
+let relay = if flag {
+  (const f, msg: Text) => {
+    let g = f
+    g(append(msg, "!"))
+  }
+} else {
+  (const f, msg: Text) => {
+    let g = f
+    g(append(msg, "?"))
+  }
+}
+let message: Text = append("a", "b")
+relay(send, message)
+`),
+  );
+  const branch_higher_order_alias_temporary_wrapper_transfer_proof = Core.proof(
+    branch_higher_order_alias_temporary_wrapper_transfer,
+  );
+
+  assert_equals(
+    branch_higher_order_alias_temporary_wrapper_transfer_proof.ok,
+    true,
+  );
+  assert_equals(
+    branch_higher_order_alias_temporary_wrapper_transfer_proof.transfers
+      .transfers,
+    [
+      {
+        id: "transfer#0",
+        scope: "program#0/static_call/relay/if_then/block/static_call/g",
+        owner: "temporary#0",
+        callee: "host_take",
+        argument: 0,
+      },
+      {
+        id: "transfer#1",
+        scope: "program#0/static_call/relay/if_else/block/static_call/g",
+        owner: "temporary#0",
+        callee: "host_take",
+        argument: 0,
+      },
+    ],
+  );
+  assert_equals(
+    branch_higher_order_alias_temporary_wrapper_transfer_proof.drops.steps
+      .filter((step) => step.tag === "host_transfer"),
+    [
+      {
+        tag: "host_transfer",
+        id: "transfer#0",
+        edge: "host_transfer",
+        scope: "program#0/static_call/relay/if_then/block/static_call/g",
+        callee: "host_take",
+        argument: 0,
+        owner: undefined,
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        storage: "persistent_unique_heap",
+        runtime: "host_owned",
+        reason: "unique_heap text transfers ownership to host/import host_take",
+      },
+      {
+        tag: "host_transfer",
+        id: "transfer#1",
+        edge: "host_transfer",
+        scope: "program#0/static_call/relay/if_else/block/static_call/g",
+        callee: "host_take",
+        argument: 0,
+        owner: undefined,
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        storage: "persistent_unique_heap",
+        runtime: "host_owned",
+        reason: "unique_heap text transfers ownership to host/import host_take",
+      },
+    ],
+  );
+  assert_includes(
+    Emit.emit(
+      Mod,
+      Core.mod(branch_higher_order_alias_temporary_wrapper_transfer),
+    ),
     "call $host_take",
   );
 
@@ -13140,55 +18423,44 @@ send(message)
       argument: 0,
     },
   ]);
-  assert_equals(branch_wrapper_transfer_proof.drops.steps, [
-    {
-      tag: "host_transfer",
-      id: "transfer#0",
-      edge: "host_transfer",
-      scope: "program#0/static_call/send/if_then",
-      callee: "host_take",
-      argument: 0,
-      owner: "message",
-      ownership: {
-        tag: "unique_heap",
-        reason: "text",
+  assert_equals(
+    branch_wrapper_transfer_proof.drops.steps
+      .filter((step) => step.tag === "host_transfer"),
+    [
+      {
+        tag: "host_transfer",
+        id: "transfer#0",
+        edge: "host_transfer",
+        scope: "program#0/static_call/send/if_then",
+        callee: "host_take",
+        argument: 0,
+        owner: "message",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        storage: "persistent_unique_heap",
+        runtime: "host_owned",
+        reason: "unique_heap text transfers ownership to host/import host_take",
       },
-      storage: "persistent_unique_heap",
-      runtime: "host_owned",
-      reason: "unique_heap text transfers ownership to host/import host_take",
-    },
-    {
-      tag: "host_transfer",
-      id: "transfer#1",
-      edge: "host_transfer",
-      scope: "program#0/static_call/send/if_else",
-      callee: "host_take",
-      argument: 0,
-      owner: "message",
-      ownership: {
-        tag: "unique_heap",
-        reason: "text",
+      {
+        tag: "host_transfer",
+        id: "transfer#1",
+        edge: "host_transfer",
+        scope: "program#0/static_call/send/if_else",
+        callee: "host_take",
+        argument: 0,
+        owner: "message",
+        ownership: {
+          tag: "unique_heap",
+          reason: "text",
+        },
+        storage: "persistent_unique_heap",
+        runtime: "host_owned",
+        reason: "unique_heap text transfers ownership to host/import host_take",
       },
-      storage: "persistent_unique_heap",
-      runtime: "host_owned",
-      reason: "unique_heap text transfers ownership to host/import host_take",
-    },
-    {
-      tag: "heap_drop",
-      id: "drop#0",
-      edge: "scope_exit",
-      scope: "program#0",
-      owner: "send",
-      ownership: {
-        tag: "unique_heap",
-        reason: "closure",
-      },
-      storage: "persistent_unique_heap",
-      runtime: "no_op_bump_allocator",
-      reason: "unique_heap closure scope exit lowers to no-op with bump " +
-        "allocator",
-    },
-  ]);
+    ],
+  );
   Core.check_proof(branch_wrapper_transfer);
 
   const branch_wrapper_use_after_transfer = Source.core(Source.parse(`
@@ -13435,10 +18707,24 @@ Deno.test("Core.proof accepts host-returned owner contracts", () => {
       },
     ],
   };
-
-  assert_throws(
-    () => Core.proof(invalid_owner_result),
+  const invalid_owner_result_message =
     "Core host import host_make_wide owner result must use i32 pointer " +
-      "representation",
+    "representation";
+
+  assert_equals(
+    Core.proof(invalid_owner_result).issues.map((issue) => issue.message),
+    [invalid_owner_result_message],
+  );
+  assert_throws(
+    () => Core.check_proof(invalid_owner_result),
+    invalid_owner_result_message,
+  );
+  assert_throws(
+    () => Emit.emit(Core, invalid_owner_result),
+    invalid_owner_result_message,
+  );
+  assert_throws(
+    () => Core.mod(invalid_owner_result),
+    invalid_owner_result_message,
   );
 });

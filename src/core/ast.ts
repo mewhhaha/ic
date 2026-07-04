@@ -41,6 +41,8 @@ export type CoreFnType = {
   tag: "fn";
   params: ValType[];
   param_texts: boolean[];
+  param_structs?: (CoreExpr | undefined)[];
+  param_unions?: (CoreExpr | undefined)[];
   result: ValType;
   result_text: boolean;
   result_struct: CoreExpr | undefined;

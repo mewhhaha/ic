@@ -37,6 +37,42 @@ let add = (x, y) => {
 - Keep closure storage on the baseline linear-memory backend. Do not use GC to
   keep uncertain captures alive; reject captures whose ownership, borrow, or
   scratch lifetime cannot be proven before WAT emission.
+- Treat a first-class closure value as an owner package for its environment. The
+  environment allocation, capture slots, call signature, transfer/freeze
+  decisions, and cleanup/drop facts must be visible in Core before WAT emission.
+- Store first-class runtime closures as an explicit code pointer/table index
+  plus an environment pointer when captures are present. The environment record
+  has its own storage class, lifetime id, and per-slot ownership facts; a
+  capture-free closure may stay as a code pointer with no heap environment.
+- Reusable closure values may capture only scalar or `frozen_shareable` slots by
+  default. Capturing `unique_heap`, `borrow_view`, `scratch_backed`, capability,
+  or ownership-bearing slots either makes the closure linear with explicit
+  move/consume behavior or rejects before WAT emission.
+- Closure environment cleanup is inserted from the same proof surface as other
+  source values and compiler-created temporaries. A missing capture lifetime,
+  environment drop, scratch reset, or promotion edge is a proof gap, not a GC
+  fallback point.
+- A closure returned from `scratch {}` may escape only when the environment is
+  scalar/capture-free, already frozen/shareable, explicitly promoted/frozen, or
+  proven scratch-free. A hidden attached scratch region is not a closure
+  lifetime strategy.
+- Split first-class closure storage into explicit implementation slices:
+  closure value representation, environment layout, per-slot capture
+  classification, call ABI, linear closure participation, and environment
+  cleanup/drop proof.
+- For representation, use a code pointer or function-table index plus an
+  environment pointer when captures exist. Capture-free closures may remain code
+  pointers; captured closures allocate an environment record with storage,
+  lifetime, and cleanup facts.
+- For capture classification, record each slot as scalar, frozen/shareable,
+  unique owner, borrow view, scratch-backed value, capability, or nested
+  ownership-bearing closure. Reusable closure values accept scalar and
+  frozen/shareable slots by default; other slots require linear closure
+  behavior or rejection.
+- For cleanup, treat closure environments and environment-construction
+  temporaries like other owned runtime values. Accepted closure fixtures must
+  expose allocation, capture ownership, freeze/promotion, transfer, and
+  drop/reset facts before WAT emission with `managed_storage: "disabled"`.
 - Support the narrow frontend case where a direct non-escaping local closure
   call, including parameterized calls, simple local aliases, and
   literal-condition static closure branches, consumes an outer linear value
@@ -52,10 +88,14 @@ let add = (x, y) => {
 - `if let .case(value) = expr { ... }` narrows union cases.
 - First-class closure environments record capture storage class and lifetime
   facts before WAT emission.
+- Captured environments expose code pointer/table index, optional environment
+  pointer, environment storage class, lifetime id, and per-slot ownership facts.
 - Capturing a unique value either moves it into a linear closure or rejects if
   the closure can be duplicated.
 - Capturing a borrow or scratch-backed value rejects unless the closure is
   proven not to outlive the borrow/scratch lifetime.
+- Returned or stored first-class closures expose environment ownership and
+  cleanup facts with `managed_storage: "disabled"` in the baseline.
 
 ## Verification
 
@@ -63,6 +103,9 @@ let add = (x, y) => {
 - Add lowering tests for closure environments.
 - Add type tests for runtime capture versus invalid const capture.
 - Add `if let` tests over union values.
+- Add closure ownership fixtures for scalar/frozen captures, unique captures,
+  borrow capture rejection, scratch-backed capture rejection or promotion, and
+  environment cleanup/drop proof rows.
 
 ## Implementation Status
 
@@ -71,7 +114,11 @@ let add = (x, y) => {
   specialized runtime closure calls that preserve the closure binding
   environment, const capture checks, `if`, static and dynamic no-else `if`
   statement fallthrough, no-else integer `if`/`if let` expressions with `0`
-  fallback, no-else text `if`/`if let` expressions with `""` fallback,
+  fallback, no-else text `if`/`if let` expressions with `""` fallback, no-else
+  struct and union `if`/`if let` expressions with synthesized field-wise or
+  case-table fallbacks when every field/payload has an Ic-safe fallback,
+  block-final no-else `if`/`if let` conditionals as value-producing final
+  expressions when their branch block has a value result,
   known-case `if let` including runtime payloads and frontend-known
   field/static-index projections, rejection of known non-i32 conditions before
   Ic lowering, and direct typed pure union `if let` through Ic handlers, plus
@@ -92,10 +139,12 @@ let add = (x, y) => {
   including simple aliases to known closures, eta-expand to Ic lambdas when
   their applied bodies produce scalar/text-pointer results, preserve matching
   parameter annotations, one-sided annotations, and alias-equivalent annotations
-  across selected branches, reject incompatible selected-branch call arguments,
-  reject incompatible dynamic branch parameter shapes before generic dynamic
-  `if` lowering, recover i64 selected bodies from those parameter/capture facts,
-  and calls through those branches inline back to dynamic `if` expressions for
+  across selected branches, use selected-branch parameter facts to erase
+  `borrow`, `freeze`, and simple value-returning `scratch` wrappers at the call
+  boundary, reject incompatible selected-branch call arguments, reject
+  incompatible dynamic branch parameter shapes before generic dynamic `if`
+  lowering, recover i64 selected bodies from those parameter/capture facts, and
+  calls through those branches inline back to dynamic `if` expressions for
   frontend-known struct and union consumers.
 - Implemented static `Core.emit` lowering for `if let` statements and
   expressions over literal or statically bound shorthand and typed-constructor
@@ -145,6 +194,40 @@ let add = (x, y) => {
   memory-backed index assignment remains unsupported.
 - `&&` and `||` are implemented as boolean `if` expressions and lower through
   the existing Ic `select` path for dynamic operands.
+- Direct `Text` consumers now provide caller context through safe inlineable
+  helper calls. Unannotated identity-style helpers such as `value => value`,
+  and callable block aliases such as `{ let id = value => value; id }`, can
+  feed `len(...)`, `get(...)`, and byte-index syntax without an intermediate
+  `Text` annotation. The inline text path rejects helper bodies such as
+  `value + 1` instead of treating arbitrary lowered `i32` expressions as text
+  pointers.
+- Call-only runtime lambda bindings whose body contains an untyped dynamic text
+  branch can stay environment-only until an inline call supplies `Text`
+  context. This covers helpers like `flag => if flag { input } else { other }`
+  feeding direct text consumers, including simple block-local aliases, while
+  escaping the helper as a function value or aliasing it as data still rejects.
+- The same call-only text-helper path now handles no-else dynamic text branches
+  once the direct text consumer supplies `Text` context. `len(choose(flag))`,
+  `get(choose(flag), i)`, and `choose(flag)[i]` synthesize the empty-text
+  fallback at the call site; numeric no-else helper bodies and escaping helper
+  values remain rejected.
+- Non-`Text` expected contexts now use a shared app-as-type hook for call-only
+  helper results. Numeric primitive operands, annotated struct bindings, and
+  annotated union bindings inline unannotated helpers whose bodies contain
+  dynamic branches, so Ic output no longer leaks free helper calls such as
+  `(choose#0)(flag)`. `Text` expected contexts stay on the dedicated text
+  proof path to avoid treating arbitrary `i32` expressions as text pointers.
+- Inlineable helper app-result inference now feeds runtime struct field typing.
+  Direct text consumers such as `len(choose(flag).name)`,
+  `get(choose(flag).name, i)`, and nested field reads can lower when the helper
+  returns declared struct values with `Text` fields. Mixed helper branches that
+  do not consistently return the declared struct shape still reject before text
+  pointer lowering.
+- Direct `if let` results that select a struct payload from an inlineable
+  helper-built union now keep declared struct field facts through field
+  projection. Scalar fields, `Text` fields consumed by `len`, and `Text` fields
+  consumed by `get` lower through pure Ic without leaking a free helper
+  application, while mismatched non-struct result branches reject.
 - Tests cover closure environments, runtime/const capture behavior, specialized
   runtime closure capture snapshots, dynamic `if` lowering, static branch
   folding, no-else fallthrough, dynamic no-else statement lowering, no-else
