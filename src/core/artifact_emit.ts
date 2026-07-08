@@ -118,15 +118,19 @@ export function emit_core_artifact<ctx extends CoreArtifactEmitCtx>(
     heap,
     scratch,
   );
+  const named_rec_funcs = emit_named_rec_functions(
+    core,
+    { text_layout, closures, heap, scratch },
+    {
+      collect_core_ctx: hooks.collect_core_ctx,
+      create_emit_ctx: hooks.create_emit_ctx,
+      emit_stmt: hooks.emit_stmt,
+      stmt_result_type: hooks.stmt_result_type,
+    },
+  );
 
-  // Named rec functions using real emit hooks + child ctx (per restructure)
-  const namedRecFuncs = emit_named_rec_functions(core, ctx, {
-    emit_stmt: hooks.emit_stmt,
-    stmt_result_type: hooks.stmt_result_type,
-    coreCtxForType: core_ctx,
-  });
-  for (const f of namedRecFuncs) {
-    funcs.push(f);
+  for (const func of named_rec_funcs) {
+    funcs.push(func);
   }
 
   let table: Table | undefined;
