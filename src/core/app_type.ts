@@ -1,6 +1,6 @@
 import { expect } from "../expect.ts";
 import type { ValType } from "../op.ts";
-import type { CoreExpr, CoreField, CoreFnType } from "./ast.ts";
+import type { CoreExpr, CoreField, CoreFnType, CoreParam } from "./ast.ts";
 import { maybe_static_i32, static_indexed_field } from "./backend/util.ts";
 import {
   core_host_import_result_type,
@@ -11,6 +11,7 @@ import {
   static_core_call_branch_app,
   type StaticCoreCallCtx,
 } from "./static_call.ts";
+import { core_val_type_from_type_name } from "./type_static.ts";
 
 export type CoreAppTypeHooks<
   ctx extends CoreHostImportCtx & StaticCoreCallCtx,
@@ -74,9 +75,35 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
   ctx: ctx,
   hooks: CoreAppTypeHooks<ctx>,
 ): ValType {
-  if (expr.func && expr.func.tag === "rec_ref") {
+  if (expr.func.tag === "rec_ref") {
+    expect(
+      expr.args.length === expr.func.params.length,
+      "Core named recursive call " + expr.func.name + " expects " +
+        expr.func.params.length.toString() + " arguments",
+    );
+
+    for (let index = 0; index < expr.func.params.length; index += 1) {
+      const param = expr.func.params[index];
+      const arg = expr.args[index];
+      expect(param, "Missing named recursive parameter " + index.toString());
+      expect(arg, "Missing named recursive argument " + index.toString());
+      const param_type = named_rec_param_type(param);
+      expect(
+        param_type === "i32",
+        "Named recursive Core calls only support i32 params for now: " +
+          param.name,
+      );
+      const arg_type = hooks.expr_type(arg, ctx);
+      expect(
+        arg_type === param_type,
+        "Core named recursive call " + expr.func.name + " argument " +
+          index.toString() + " must be " + param_type,
+      );
+    }
+
     return "i32";
   }
+
   let name: string | undefined;
 
   if (expr.func.tag === "var") {
@@ -229,4 +256,14 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
   }
 
   throw new Error("Cannot type core app expression yet");
+}
+
+function named_rec_param_type(param: CoreParam): ValType {
+  if (!param.annotation) {
+    return "i32";
+  }
+
+  const type = core_val_type_from_type_name(param.annotation);
+  expect(type, "Cannot type named recursive parameter annotation: " + param.annotation);
+  return type;
 }
