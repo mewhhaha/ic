@@ -193,10 +193,15 @@ export function emit_core_app<
   }
 
   if (expr.func.tag === "rec_ref") {
-    // direct named rec call (supports non-tail recursion via Wasm call)
-    const argsCode = expr.args.map((a) => hooks.emit_expr(a, ctx)).join("\n");
-    const name = expr.func.name;
-    return (argsCode ? argsCode + "\n" : "") + "call $" + name;
+    hooks.app_type(expr, ctx);
+    const lines: string[] = [];
+
+    for (const arg of expr.args) {
+      lines.push(hooks.emit_expr(arg, ctx));
+    }
+
+    lines.push("call $" + expr.func.name);
+    return lines.join("\n");
   }
 
   const branch_static_call = static_core_call_branch_app(expr, ctx, hooks);
