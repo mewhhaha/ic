@@ -27,11 +27,9 @@ jobs:
 
       - name: lint
         run: |
-          set -e
-          while IFS= read -r -d '' file; do
-            echo "lint-check $file"
-            deno lint "$file"
-          done < <(find . -name '*.ts' ! -path './src/frontend.test.ts' -print0)
+          find . -name '*.ts' \
+            ! -path './src/frontend.test.ts' \
+            -print0 | xargs -0 deno lint
 
       - name: install wabt
         run: |
