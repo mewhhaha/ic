@@ -20,7 +20,8 @@ export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
 
     case "var": {
       const resolved = resolve_core_name(ctx, expr.name);
-      const named_rec = ctx.namedRecs.get(resolved) || ctx.namedRecs.get(expr.name);
+      const named_rec = ctx.namedRecs.get(resolved) ||
+        ctx.namedRecs.get(expr.name);
 
       if (named_rec) {
         return { tag: "rec_ref", name: resolved, params: named_rec.params };
