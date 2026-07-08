@@ -172,8 +172,6 @@ export function create_frontend_lower_graph_value_hooks(
     resolve_union_value: api.resolve_union_value,
   } satisfies UnionInferHooks;
 
-  let struct_value_hooks: StructValueHooks;
-
   const frontend_dynamic_branch = create_frontend_dynamic_branch({
     infer_dynamic_if_let_cases: api.infer_dynamic_if_let_cases,
     infer_dynamic_union_if_cases: api.infer_dynamic_union_if_cases,
@@ -196,7 +194,7 @@ export function create_frontend_lower_graph_value_hooks(
     resolve_dynamic_struct_if_value,
   } = frontend_dynamic_branch;
 
-  struct_value_hooks = {
+  const struct_value_hooks: StructValueHooks = {
     capture_expr: api.capture_expr,
     eval_simple_front_block: api.eval_simple_front_block,
     infer_expr: api.infer_expr,
