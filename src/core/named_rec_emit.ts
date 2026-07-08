@@ -54,7 +54,8 @@ export function emit_named_rec_functions<ctx extends CoreArtifactEmitCtx>(
     const result = hooks.stmt_result_type(stmt, core_ctx);
     expect(
       result === "i32",
-      "Named recursive Core functions only support i32 results for now: " + name,
+      "Named recursive Core functions only support i32 results for now: " +
+        name,
     );
 
     const ctx = hooks.create_emit_ctx({
@@ -124,6 +125,9 @@ function named_rec_param_type(param: CoreParam): ValType {
   }
 
   const type = core_val_type_from_type_name(param.annotation);
-  expect(type, "Cannot emit named recursive parameter annotation: " + param.annotation);
+  expect(
+    type,
+    "Cannot emit named recursive parameter annotation: " + param.annotation,
+  );
   return type;
 }
