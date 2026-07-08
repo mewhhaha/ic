@@ -70,15 +70,13 @@ export function collect_core_expr_locals(
     case "unsupported":
       return;
 
-    case "var":
-      {
-        const struct_value = hooks.static_struct_value(expr, ctx);
+    case "var": {
+      const struct_value = hooks.static_struct_value(expr, ctx);
 
-        if (struct_value) {
-          const plan = runtime_aggregate_plan(ctx);
-          declare_runtime_aggregate_locals(plan, ctx);
-          return;
-        }
+      if (struct_value) {
+        const plan = runtime_aggregate_plan(ctx);
+        declare_runtime_aggregate_locals(plan, ctx);
+        return;
       }
 
       const static_value = ctx.statics.get(expr.name);
@@ -90,6 +88,7 @@ export function collect_core_expr_locals(
 
       hooks.collect_runtime_union_value_locals(expr, ctx);
       return;
+    }
 
     case "lam": {
       const fn_type = local_collect_closure_fn_type(expr, ctx, hooks);
