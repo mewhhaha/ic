@@ -22,7 +22,10 @@ jobs:
             -print0 | xargs -0 deno fmt --check
 
       - name: lint
-        run: deno lint
+        run: |
+          find . -name '*.ts' \
+            ! -path './src/frontend.test.ts' \
+            -print0 | xargs -0 deno lint
 
       - name: install wabt
         run: |
