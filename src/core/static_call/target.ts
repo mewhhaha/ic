@@ -207,6 +207,9 @@ export function static_core_call_target<
   if (expr.tag === "lam") {
     return expr;
   }
+  if (expr.tag === "rec_ref" || expr.tag === "rec") {
+    return undefined;
+  }
 
   if (expr.tag === "block") {
     const value = static_block_result(expr);
@@ -249,6 +252,10 @@ export function static_core_rec_target<
 ): Extract<CoreExpr, { tag: "rec" }> | undefined {
   if (expr.tag === "rec") {
     return expr;
+  }
+  if (expr.tag === "rec_ref") {
+    // handled via direct call emit; not the tail rec form
+    return undefined;
   }
 
   if (expr.tag === "block") {

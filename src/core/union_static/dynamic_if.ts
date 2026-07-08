@@ -10,6 +10,9 @@ export function dynamic_union_if<ctx extends CoreUnionCtx>(
   ctx: ctx,
   hooks: CoreUnionHooks<ctx>,
 ): DynamicUnionIf | undefined {
+  if (expr.tag === "rec" || expr.tag === "rec_ref" || expr.tag === "lam") {
+    return undefined;
+  }
   const inlined = hooks.static_core_call_value(expr, ctx);
 
   if (inlined) {

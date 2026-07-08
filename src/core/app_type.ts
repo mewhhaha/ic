@@ -74,6 +74,9 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
   ctx: ctx,
   hooks: CoreAppTypeHooks<ctx>,
 ): ValType {
+  if (expr.func && expr.func.tag === "rec_ref") {
+    return "i32";
+  }
   let name: string | undefined;
 
   if (expr.func.tag === "var") {

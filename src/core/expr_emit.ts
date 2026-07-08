@@ -205,6 +205,13 @@ export function emit_core_expr<ctx extends CoreExprEmitCtx>(
     case "lam":
       return hooks.emit_runtime_closure(expr, ctx);
 
+    case "rec_ref":
+      // rec_ref stands for a named recursive function. It is only valid in call position
+      // (handled in app_emit to emit direct 'call $name'). Appearing as a value is unsupported
+      // (no runtime closure is materialized for direct-rec names). Emit unreachable to trap
+      // rather than a misleading placeholder.
+      return "unreachable";
+
     case "block": {
       const lines: string[] = [];
 

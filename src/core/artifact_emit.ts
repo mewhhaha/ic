@@ -21,6 +21,7 @@ import {
   type ClosureEmitCtx,
   create_closure_emit_ctx,
 } from "./closure_emit.ts";
+import { emit_named_rec_functions } from "./named_rec_emit.ts";
 import type { CoreCtx } from "./local_collect.ts";
 import type { RuntimeTextHeap } from "./runtime_text.ts";
 import { type CoreScratchHeap, scratch_heap_global } from "./scratch.ts";
@@ -117,6 +118,17 @@ export function emit_core_artifact<ctx extends CoreArtifactEmitCtx>(
     heap,
     scratch,
   );
+
+  // Named rec functions using real emit hooks + child ctx (per restructure)
+  const namedRecFuncs = emit_named_rec_functions(core, ctx, {
+    emit_stmt: hooks.emit_stmt,
+    stmt_result_type: hooks.stmt_result_type,
+    coreCtxForType: core_ctx,
+  });
+  for (const f of namedRecFuncs) {
+    funcs.push(f);
+  }
+
   let table: Table | undefined;
 
   if (closures.table_elements.length > 0) {

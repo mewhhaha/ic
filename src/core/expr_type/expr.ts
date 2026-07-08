@@ -373,6 +373,10 @@ export function expr_type<
 
       throw new Error("Cannot type core " + expr.tag + " expression yet");
     }
+
+    case "rec_ref":
+      // rec name stands for the function; calls are handled specially; type as i32 (ptr-like or direct)
+      return "i32";
   }
 }
 

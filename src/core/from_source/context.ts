@@ -3,7 +3,7 @@ import type {
   FrontHostImportOwnerReason,
   Stmt,
 } from "../../frontend/ast.ts";
-import type { CoreHostImportOwnerReason } from "../ast.ts";
+import type { CoreExpr, CoreHostImportOwnerReason, CoreParam } from "../ast.ts";
 
 export type CoreFromSourceCtx = {
   aliases: Map<string, string>;
@@ -12,6 +12,7 @@ export type CoreFromSourceCtx = {
   host_import_type_values: Map<string, CoreHostImportOwnerReason>;
   linear_names: Set<string>;
   fresh: { next: number };
+  namedRecs: Map<string, { params: CoreParam[]; body: CoreExpr }>;
 };
 
 export function create_core_from_source_ctx(): CoreFromSourceCtx {
@@ -22,6 +23,7 @@ export function create_core_from_source_ctx(): CoreFromSourceCtx {
     host_import_type_values: new Map(),
     linear_names: new Set(),
     fresh: { next: 0 },
+    namedRecs: new Map(),
   };
 }
 
@@ -35,6 +37,7 @@ export function fork_core_from_source_ctx(
     host_import_type_values: new Map(ctx.host_import_type_values),
     linear_names: new Set(ctx.linear_names),
     fresh: ctx.fresh,
+    namedRecs: new Map(ctx.namedRecs),
   };
 }
 

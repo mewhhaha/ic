@@ -9,6 +9,7 @@ import {
   core_host_import_result_contract,
 } from "./from_source/host_import.ts";
 import { core_stmt } from "./from_source/stmt.ts";
+import type { CoreParam } from "./ast.ts"; // for recFunctions shape
 
 export function core_from_source(source: SourceNode): Core {
   const ctx = create_core_from_source_ctx();
@@ -45,6 +46,14 @@ export function core_from_source(source: SourceNode): Core {
 
   if (Object.keys(host_imports).length > 0) {
     core.host_imports = host_imports;
+  }
+
+  if (ctx.namedRecs.size > 0) {
+    const recs: Record<string, { params: CoreParam[]; body: CoreExpr }> = {};
+    for (const [k, v] of ctx.namedRecs) {
+      recs[k] = v;
+    }
+    core.recFunctions = recs;
   }
 
   return core;

@@ -142,6 +142,15 @@ export function emit_core_stmt<ctx extends CoreStmtEmitCtx & StaticCoreCallCtx>(
         return "";
       }
 
+      if (value.tag === "rec_ref") {
+        // non-tail rec bind marker: erase completely (no local, no static entry for the marker)
+        // the recFunctions on the Core carries the body; call sites use rec_ref tag directly in AST
+        ctx.locals.delete(stmt.name);
+        // do not put marker in statics to avoid dead locals or artifacts in main lowering
+        hooks.clear_core_local_facts(stmt.name, ctx);
+        return "";
+      }
+
       if (value.tag !== "lam") {
         const branch_function_value = static_core_call_branch_value(
           value,

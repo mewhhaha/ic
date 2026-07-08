@@ -102,6 +102,13 @@ export function collect_core_expr_locals(
       return;
     }
 
+    case "rec_ref":
+      return;
+
+    case "rec":
+      // rec body collected via dedicated rec local collector to avoid cycles on self refs
+      return;
+
     case "prim":
       for (const arg of expr.args) {
         api.collect_expr_locals(arg, ctx, hooks);

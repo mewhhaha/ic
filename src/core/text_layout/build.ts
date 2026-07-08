@@ -462,6 +462,9 @@ export function build_text_layout(
   }
 
   function visit_expr(expr: CoreExpr): void {
+    if (expr.tag === "rec_ref" || expr.tag === "rec") {
+      return;
+    }
     const inlined = hooks.static_core_call_value(expr, ctx);
 
     if (inlined) {
@@ -477,6 +480,9 @@ export function build_text_layout(
     }
 
     switch (expr.tag) {
+      case "rec_ref":
+        return;
+
       case "prim":
         for (const arg of expr.args) {
           visit_expr(arg);

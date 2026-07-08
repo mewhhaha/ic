@@ -75,6 +75,7 @@ export function is_stable_static_expr(expr: CoreExpr): boolean {
     case "linear":
     case "lam":
     case "rec":
+    case "rec_ref":
     case "app":
     case "block":
     case "comptime":

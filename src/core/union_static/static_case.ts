@@ -13,6 +13,9 @@ export function static_union_case<ctx extends CoreUnionCtx>(
   if (expr.tag === "union_case") {
     return expr;
   }
+  if (expr.tag === "rec_ref") {
+    return undefined;
+  }
 
   const constructor_case = static_union_constructor_case(expr, ctx, hooks);
 

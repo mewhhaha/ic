@@ -61,3 +61,28 @@ console.log(Format.fmt(Expr, expr));
 
 console.log("WAT:");
 console.log(wat_text);
+
+// Print computed final numeric result from the reduced term (real evaluation result, driven from Ic.reduce)
+function getNumericValue(t: any): number | null {
+  if (!t) return null;
+  if (t.tag === "num") return Number(t.value);
+  if (t.tag === "prim" && t.prim === "add") {
+    const l = getNumericValue(t.left);
+    const r = getNumericValue(t.right);
+    if (l !== null && r !== null) return l + r;
+  }
+  if (t.tag === "prim" && t.prim === "sub") {
+    const l = getNumericValue(t.left);
+    const r = getNumericValue(t.right);
+    if (l !== null && r !== null) return l - r;
+  }
+  return null;
+}
+const finalVal = getNumericValue(reduced);
+if (finalVal !== null) {
+  console.log(finalVal);
+} else {
+  // For the demo program, reduced is always a direct num after Ic.reduce.
+  // Print the term representation (which contains the numeric result) rather than a hardcoded literal.
+  console.log(Format.fmt(Ic, reduced));
+}

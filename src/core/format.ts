@@ -152,6 +152,9 @@ function format_expr(expr: CoreExpr): string {
       return "rec (" + expr.params.map(format_param).join(", ") + ") => " +
         format_expr(expr.body);
 
+    case "rec_ref":
+      return expr.name;
+
     case "app":
       return format_expr(expr.func) + "(" +
         expr.args.map(format_expr).join(", ") + ")";

@@ -5,6 +5,7 @@ export type Core = {
   tag: "program";
   host_imports?: Record<string, CoreHostImport>;
   statements: CoreStmt[];
+  recFunctions?: Record<string, { params: CoreParam[]; body: CoreExpr }>;
 };
 
 export type CoreHostImportArgContract =
@@ -107,6 +108,7 @@ export type CoreExpr =
   | { tag: "prim"; prim: Prim; args: CoreExpr[] }
   | { tag: "lam"; params: CoreParam[]; body: CoreExpr }
   | { tag: "rec"; params: CoreParam[]; body: CoreExpr }
+  | { tag: "rec_ref"; name: string }
   | { tag: "app"; func: CoreExpr; args: CoreExpr[] }
   | { tag: "block"; statements: CoreStmt[] }
   | { tag: "comptime"; expr: CoreExpr }
