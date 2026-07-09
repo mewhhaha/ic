@@ -1,5 +1,4 @@
 import { assert_equals, assert_includes, assert_throws } from "./assert.ts";
-import { Expr } from "./expr.ts";
 import { Ic } from "./ic.ts";
 import { Mod } from "./mod.ts";
 import {
@@ -58,10 +57,20 @@ Deno.test("Term.emit inserts duplication for repeated let uses", () => {
     body: add(var_("x"), var_("x")),
   };
 
-  assert_equals(
-    Expr.fmt(Ic.emit(Term.emit(term))),
-    "let _v0:i32 = 21:i32;\n(_v0:i32 +:i32 _v0:i32)",
-  );
+  assert_equals(Term.emit(term), {
+    tag: "dup",
+    label: "S0",
+    name: "_v0",
+    expr: i32(21),
+    body: {
+      tag: "prim",
+      prim: "i32.add",
+      args: [
+        { tag: "var", name: "_v00" },
+        { tag: "var", name: "_v01" },
+      ],
+    },
+  });
 });
 
 Deno.test("Term.emit inserts erasure for unused lambda parameters", () => {
@@ -93,10 +102,28 @@ Deno.test("Term.emit inserts duplication for repeated lambda parameters", () => 
     arg: i32(21),
   };
 
-  assert_equals(
-    Expr.fmt(Ic.emit(Term.emit(term))),
-    "let _v0:i32 = 21:i32;\n(_v0:i32 +:i32 _v0:i32)",
-  );
+  assert_equals(Term.emit(term), {
+    tag: "app",
+    func: {
+      tag: "lam",
+      name: "x",
+      body: {
+        tag: "dup",
+        label: "S0",
+        name: "_v0",
+        expr: { tag: "var", name: "x" },
+        body: {
+          tag: "prim",
+          prim: "i32.add",
+          args: [
+            { tag: "var", name: "_v00" },
+            { tag: "var", name: "_v01" },
+          ],
+        },
+      },
+    },
+    arg: i32(21),
+  });
 });
 
 Deno.test("Term.emit rejects unbound source variables", () => {

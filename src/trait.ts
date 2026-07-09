@@ -1,81 +1,62 @@
+import { call_typeclass_method, typeclass } from "jsr:@mewhhaha/typeclasses";
+
 export type Format<self> = {
   fmt: (value: self) => string;
 };
 
-export function Format() {}
+export const Format = typeclass(Symbol("Format"), {
+  fmt<self>(impl: Format<self>, value: self): string {
+    return call_typeclass_method(impl.fmt, impl, value);
+  },
 
-Format.fmt = function fmt<self>(
-  impl: Format<self>,
-  value: self,
-): string {
-  return impl.fmt(value);
-};
-
-Format.all = function all<self>(
-  impl: Format<self>,
-  values: self[],
-): string[] {
-  return values.map((value) => Format.fmt(impl, value));
-};
+  all<self>(impl: Format<self>, values: self[]): string[] {
+    return values.map((value) => Format.fmt(impl, value));
+  },
+});
 
 export type Emit<from, to> = {
   emit: (value: from) => to;
 };
 
-export function Emit() {}
+export const Emit = typeclass(Symbol("Emit"), {
+  emit<from, to>(impl: Emit<from, to>, value: from): to {
+    return call_typeclass_method(impl.emit, impl, value);
+  },
 
-Emit.emit = function emit<from, to>(
-  impl: Emit<from, to>,
-  value: from,
-): to {
-  return impl.emit(value);
-};
-
-Emit.all = function all<from, to>(
-  impl: Emit<from, to>,
-  values: from[],
-): to[] {
-  return values.map((value) => Emit.emit(impl, value));
-};
+  all<from, to>(impl: Emit<from, to>, values: from[]): to[] {
+    return values.map((value) => Emit.emit(impl, value));
+  },
+});
 
 export type Parse<from, to> = {
   parse: (value: from) => to;
 };
 
-export function Parse() {}
-
-Parse.parse = function parse<from, to>(
-  impl: Parse<from, to>,
-  value: from,
-): to {
-  return impl.parse(value);
-};
+export const Parse = typeclass(Symbol("Parse"), {
+  parse<from, to>(impl: Parse<from, to>, value: from): to {
+    return call_typeclass_method(impl.parse, impl, value);
+  },
+});
 
 export type Data<self, item> = {
   data: (value: self) => item[];
 };
 
-export function Data() {}
-
-Data.data = function data<self, item>(
-  impl: Data<self, item>,
-  value: self,
-): item[] {
-  return impl.data(value);
-};
+export const Data = typeclass(Symbol("Data"), {
+  data<self, item>(impl: Data<self, item>, value: self): item[] {
+    return call_typeclass_method(impl.data, impl, value);
+  },
+});
 
 export type Typed<self, type> = {
   type: (value: self) => type;
 };
 
-export function Typed() {}
-
-Typed.type = function type<self, type>(
-  impl: Typed<self, type>,
-  value: self,
-): type {
-  return impl.type(value);
-};
+export const Typed = typeclass(Symbol("Typed"), {
+  type<self, type>(impl: Typed<self, type>, value: self): type {
+    return call_typeclass_method(impl.type, impl, value);
+  },
+});
 
 export type CallableType<type> = {
   args: type[];
@@ -87,40 +68,37 @@ export type Callable<self, type> = {
   type: (value: self) => CallableType<type>;
 };
 
-export function Callable() {}
+export const Callable = typeclass(Symbol("Callable"), {
+  arity<self, type>(impl: Callable<self, type>, value: self): number {
+    return call_typeclass_method(impl.arity, impl, value);
+  },
 
-Callable.arity = function arity<self, type>(
-  impl: Callable<self, type>,
-  value: self,
-): number {
-  return impl.arity(value);
-};
-
-Callable.type = function type<self, type>(
-  impl: Callable<self, type>,
-  value: self,
-): CallableType<type> {
-  return impl.type(value);
-};
+  type<self, type>(
+    impl: Callable<self, type>,
+    value: self,
+  ): CallableType<type> {
+    return call_typeclass_method(impl.type, impl, value);
+  },
+});
 
 export type Reduce<ctx, from, to> = {
   reduce: (ctx: ctx, value: from) => to;
 };
 
-export function Reduce() {}
+export const Reduce = typeclass(Symbol("Reduce"), {
+  reduce<ctx, from, to>(
+    impl: Reduce<ctx, from, to>,
+    ctx: ctx,
+    value: from,
+  ): to {
+    return call_typeclass_method(impl.reduce, impl, ctx, value);
+  },
 
-Reduce.reduce = function reduce<ctx, from, to>(
-  impl: Reduce<ctx, from, to>,
-  ctx: ctx,
-  value: from,
-): to {
-  return impl.reduce(ctx, value);
-};
-
-Reduce.all = function all<ctx, from, to>(
-  impl: Reduce<ctx, from, to>,
-  ctx: ctx,
-  values: from[],
-): to[] {
-  return values.map((value) => Reduce.reduce(impl, ctx, value));
-};
+  all<ctx, from, to>(
+    impl: Reduce<ctx, from, to>,
+    ctx: ctx,
+    values: from[],
+  ): to[] {
+    return values.map((value) => Reduce.reduce(impl, ctx, value));
+  },
+});
