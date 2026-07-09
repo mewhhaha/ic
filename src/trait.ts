@@ -38,6 +38,19 @@ Emit.all = function all<from, to>(
   return values.map((value) => Emit.emit(impl, value));
 };
 
+export type Parse<from, to> = {
+  parse: (value: from) => to;
+};
+
+export function Parse() {}
+
+Parse.parse = function parse<from, to>(
+  impl: Parse<from, to>,
+  value: from,
+): to {
+  return impl.parse(value);
+};
+
 export type Data<self, item> = {
   data: (value: self) => item[];
 };
