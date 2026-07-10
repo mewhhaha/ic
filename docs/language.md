@@ -3,10 +3,11 @@
 This document is the normalized project specification for the source frontend
 that lowers into the Interaction Calculus IR.
 
-The language is a small capability-oriented value language. Runtime code and
+The language is a small effect-oriented value language. Runtime code and
 compile-time code use the same expression syntax. Values are immutable, while
-source names may be shadowed to provide imperative flow. Effects are represented
-as explicit capability values. Types are compile-time values, and protocol-like
+source names may be shadowed to provide imperative flow. Host effects are opaque
+values passed through explicit module contexts, and the compiler infers
+operation-level effect rows. Types are compile-time values, and protocol-like
 abstractions are ordinary const fact checkers.
 
 ## Naming
@@ -16,6 +17,10 @@ binders, linear-value references, type-values, type constructors, fact checkers,
 protocol values, fields, methods, modules, and ordinary helper functions use
 `snake_case`: a lowercase letter followed by lowercase letters, digits, or
 underscores.
+
+Declared host effects and host context records use type-style names such as `Io`
+and `Init`. Function-local effect context holders use a short uppercase name
+such as `Fx`. The holder name is local and has no built-in spelling.
 
 ```txt
 let read_number = input
@@ -32,9 +37,9 @@ field access, struct fields, union cases, `if let` payload binders, and
 destructuring patterns use `snake_case`. Compiler-internal source marker names
 use `snake_case`, such as `object_type`, `layout_type`, and
 `field_offsets_type`. Excluded language-family keywords such as `class`,
-`trait`, `macro`, `instance`, `extends`, `inherits`, and `where` are reserved so
-they produce explicit unsupported-feature diagnostics instead of becoming
-ordinary names.
+`trait`, `macro`, `instance`, `extends`, and `inherits` are reserved so they
+produce explicit unsupported-feature diagnostics instead of becoming ordinary
+names.
 
 ```txt
 const user_type = struct {
@@ -52,6 +57,47 @@ const functor = f_type => {
   f_type
 }
 ```
+
+## File Modules
+
+Every loaded `.ix` file starts with a module header and ends with an explicit
+export record. A file without inputs uses an empty header:
+
+```txt
+module () where
+
+let answer = 40 + 2
+return { answer }
+```
+
+Host-initialized entry modules declare their input schema and consume the input
+linearly:
+
+```txt
+module (!init: Init) where
+
+let result = 42
+return { result }
+```
+
+The module body is not indented and does not use braces. All top-level paths
+must reach a final `return { ... }`, and branch-produced export records must
+have compatible fields and types. `Source.parse` remains a fragment parser for
+tests and interactive compilation; file loading is what enforces the header and
+final export record.
+
+An import loads a file but does not instantiate it or grant it authority.
+Instantiation is a separate call with an explicit dependency record:
+
+```txt
+import logger from "./logger.ix"
+const { write } = logger({ io: !init.io })
+```
+
+Module invocation is compiler-time wiring and specialization. Its result is the
+imported file's export record, so ordinary record destructuring selects exports.
+The entry module's final record is returned by the managed JavaScript
+`program.run(init)` call.
 
 ## Bindings
 
@@ -588,7 +634,7 @@ let bind_add = (const m_type: monad, value, const f) => {
 Protocol-constrained calls specialize before Ic lowering. There is no runtime
 typeclass or instance search.
 
-## Linear Values And Capabilities
+## Linear Values And Host Effects
 
 Linear parameters are marked with `!`.
 
@@ -609,56 +655,160 @@ const !known_token = 41
 !known_token
 ```
 
-A linear value must be consumed exactly once along every control-flow path. Pure
-linear functions and bindings can lower to Ic when they do not perform reserved
-capability effects. Pure specialized calls with linear parameters also lower
-when the linear value is consumed explicitly. Explicit capability objects can
-provide pure function fields that consume and return linear values when the
-object is known through `const` specialization. Frontend-known runtime
-capability objects can also use method syntax when the method field is known and
-the receiver is a linear runtime binding; the receiver is passed as the implicit
-first argument. This includes direct specialized calls where the linear argument
-resolves to a frontend-known capability object. Ordinary object function fields
-remain ordinary function values and receive only their explicit call arguments.
-Linear closure tracking for local aliases, simple blocks, and static branches is
-separate from path-sensitive consumption validation.
-
-Effects are represented by capability objects. Global IO is not part of the
-language.
+A linear value must be consumed exactly once along every control-flow path. Host
+authority enters through nominal effects declared in the compiler's host
+interface:
 
 ```txt
-let main = (!io) => {
-  io = io.print("hello")
-  io
+module () where
+
+declare effect Io {
+  read: () => Text
+  print: (bounded_borrow Text) => Unit
+}
+
+declare Init {
+  io: Io
+}
+
+return {}
+```
+
+`declare effect Io` creates a nominal effect family, the operations `Io.read`
+and `Io.print`, and an opaque host-handler type that may appear in a context
+record. Ix cannot construct or inspect an `Io`; JavaScript supplies an instance
+through the entry `Init`. `declare` means the operations are host-implemented.
+Only declared effects appear in the managed JavaScript ABI.
+
+An uppercase context holder marks an effectful function. Its name is arbitrary;
+`Fx` is only the convention used in examples:
+
+```txt
+let Fx read_name = () => {
+  let (!Fx, name) = Fx.read()
+  name
 }
 ```
 
-Unknown effectful method-style capability lowering is reserved for a later
-structured-core and Wasm capability stage. The frontend still validates linear
-use before rejecting unknown effectful methods.
-
-Modules are const functions from dependency objects to export objects.
+The compiler infers the holder's minimal structural operation row. A function
+without a holder is pure. An explicit annotation gives an upper bound, so every
+inferred operation must belong to the annotation:
 
 ```txt
-module adder = caps => {
-  {
-    run: caps.value + 1
+let (Fx :: { Io.read, Io.print }) greet = () => {
+  let (!Fx, name) = Fx.read()
+  let (!Fx, ()) = Fx.print(borrow name)
+  name
+}
+```
+
+Primitive effect operations consume and renew the holder's linear proof token,
+which is why their result is bound with `let (!Fx, value) = ...`. A `Unit`
+result uses `let (!Fx, ()) = ...`. Compatible contexts are forwarded lexically
+through ordinary calls, including recursion and higher-order calls, so callers
+do not manually thread `Fx` through their parameter lists.
+
+Rows propagate through branches, callbacks, closures, module initialization, and
+exported function types. Capturing a context or linear host resource makes the
+closure one-shot under the normal linear closure rules. The compiler rejects
+effectful calls from pure functions, operations outside an annotation, missing
+token rebinding, incompatible branch rows, effect-resource duplication, and
+authority hidden inside a reusable closure.
+
+One holder may contain multiple effect resources. `Fx.read()` selects an
+operation when its name is unique. When operation names collide, qualify the
+effect explicitly, for example `Fx.Io.read()`. If multiple instances of the same
+effect type are available, the module must narrow its context before an
+unqualified operation can select an instance.
+
+Imported modules receive only the explicitly passed subset of the caller's
+context:
+
+```txt
+module (!init: Init) where
+
+import logger from "./logger.ix"
+const { write } = logger({ io: !init.io })
+let result = write("hello")
+
+return { result }
+```
+
+Loading `logger.ix` alone grants no authority. Module invocation consumes or
+borrows the resources named by its declared parameters and returns its export
+record.
+
+## Ix-Defined Effects And Handlers
+
+Plain `effect` declares operations implemented inside Ix:
+
+```txt
+effect Counter {
+  get: () => I32
+  add: (I32) => Unit
+}
+```
+
+An effect implementation is a value whose effect name disambiguates its clause
+shape. Bindings before the final implementation literal are persistent handler
+state:
+
+```txt
+let counter = {
+  let count = 0
+
+  Counter {
+    get: (!resume) => {
+      !resume(count)
+    },
+
+    add: (amount, !resume) => {
+      count = count + amount
+      !resume(())
+    },
+
+    return: value => {
+      { value, count }
+    },
   }
 }
 
-let app = adder({ value: 41 })
-app.run
+let result = try run() with counter
 ```
 
-`import` syntax is resolved by the source loader before Ic lowering.
+`Counter { ... }` is an affine handler value because `Counter` names an effect,
+not a data constructor. `try computation with handler` consumes that value.
+Use a function returning a fresh implementation when the same definition must
+be installed more than once.
+
+The mandatory `return` clause handles ordinary completion. Operation clauses
+receive the declared operation arguments followed by an affine resumption. A
+clause may invoke its resumption once, return without invoking it to abort the
+captured computation, pass it to other Ix code, or store it in an internal
+aggregate or union. Calling a resumption reinstalls the captured handler segment,
+so handlers are deep. The matched handler is inactive while its clause runs;
+calling the same effect directly from that clause therefore forwards outward.
+
+Handlers may omit operations. An omitted operation searches the next outer
+handler. Reaching the module boundary with an unresolved plain-effect operation
+is a compile error; it never becomes host authority. Clause dependencies on
+host effects remain in the surrounding operation row and require ordinary
+`declare effect` resources.
+
+Checked multi-shot use is explicit:
 
 ```txt
-import logger from "./logger"
+let (!left, !right) = dup !resume
 ```
 
-The imported file must expose a top-level binding with the imported name.
-Loading imports does not grant effects; capabilities still have to be passed
-explicitly to modules.
+Duplication is accepted only when every live capture is duplicable. Scalar
+state is copied and frozen values are shared. Unique owners, borrows, scratch
+values, host resources, and nested affine resumptions reject duplication. Once
+a clause consumes or duplicates its resumption, that clause can post-process
+the resumed output but cannot access the transferred handler state.
+
+Ix handlers compile only through the Core/managed-Wasm route. The IC-only route
+rejects plain effects, handlers, resumptions, and Unit handler syntax explicitly.
 
 ## Ownership, Borrows, Freezing, And Scratchpads
 
@@ -732,7 +882,7 @@ explicit in the proof. Temporaries introduced during lowering follow the same
 storage, lifetime, and cleanup rules as source values.
 
 Linear analysis applies only where storage or effects require it: source `!`
-capabilities, `unique_heap` owners, active `borrow_view` barriers,
+effect resources, `unique_heap` owners, active `borrow_view` barriers,
 `scratch_backed` values, and closure-environment slots that contain those
 values. Plain scalars and already-frozen values remain copy/share values.
 
@@ -970,8 +1120,10 @@ The current implemented path lowers pure scalar computation directly through the
 frontend into Ic, then into Expr, Mod, and WAT.
 
 The `Mod` layer can also emit Wasm function imports, export imported functions,
-define a single Wasm memory, export it, and emit active data segments. The first
-source-level host ABI declaration is:
+define a single Wasm memory, export it, and emit active data segments. Declared
+host effects lower to ordinary Wasm imports and opaque `i32` registry handles;
+effect rows and renewed proof tokens have no runtime representation. The
+explicit low-level source ABI declaration remains available:
 
 ```txt
 host_import host_read from "env.read" (bounded_borrow Text) => I32
@@ -982,8 +1134,8 @@ The implemented source slice supports scalar numeric ABI parameters/results,
 host-returned `unique_heap Text` or `frozen_shareable Text`. These declarations
 are available on the structured `Source.core`, `Source.mod`, and `Source.wat`
 routes. Pure Ic lowering rejects them because host imports require the
-structured Core/Wasm boundary checks. Capability-style source imports are still
-represented as explicit dependency objects, not ambient Wasm imports.
+structured Core/Wasm boundary checks. Effect resources are still represented as
+explicit module dependencies, not ambient Wasm authority.
 
 Supported Ic-lowerable scalar features include:
 
@@ -1033,8 +1185,8 @@ frontend-known object/typed struct `if let` by field-wise Ic value lowering
 annotated unknown runtime bindings and arguments through scalar/text/struct/union
 Ic paths
 known runtime text/struct/union type facts through unannotated helper calls
-pure explicit capability-function calls over linear values
-frontend-known method-style capability calls over linear values
+pure explicit function calls over linear values
+declared host-effect calls with inferred operation rows
 typed struct values as Ic handler lambdas
 frontend-known object values as Ic handler lambdas
 text literals as length-prefixed UTF-8 data pointers
@@ -1104,8 +1256,8 @@ frontend aggregate memory/codegen representation
 unknown runtime text/string operations outside the supported visible
 literal/concat/data-pointer cases and runtime `Text` length, byte-load, `get`,
 byte assignment, collection-loop, and Core runtime concat subset
-unknown effectful method-style capability calls
+asynchronous host effects without an explicit portable task/poll protocol
 general memory-backed collection index mutation
 excluded keyword families such as classes, traits, macros, instance search,
-inheritance, and `where` clauses
+inheritance, and generic constraint clauses
 ```

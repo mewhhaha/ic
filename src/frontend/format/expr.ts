@@ -13,6 +13,9 @@ export function format_expr_with_stmt(
     case "num":
       return expr.value.toString();
 
+    case "unit":
+      return "()";
+
     case "text":
       return Deno.inspect(expr.value);
 
@@ -56,6 +59,38 @@ export function format_expr_with_stmt(
     case "captured":
       return format_expr(expr.expr);
 
+    case "handler": {
+      const state = expr.state.map((item) => {
+        let text = "let " + item.name;
+
+        if (item.annotation) {
+          text += ": " + item.annotation;
+        }
+
+        return text + " = " + format_expr(item.value);
+      });
+      const clauses = expr.clauses.map((clause) => {
+        return clause.name + ": (" + format_params(clause.params) + ") => " +
+          format_expr(clause.body);
+      });
+      clauses.push(
+        "return: " + format_params([expr.return_clause.param]) + " => " +
+          format_expr(expr.return_clause.body),
+      );
+      const literal = expr.effect + " { " + clauses.join(", ") + " }";
+
+      if (state.length === 0) {
+        return literal;
+      }
+
+      state.push(literal);
+      return "{ " + state.join("; ") + " }";
+    }
+
+    case "try_with":
+      return "try " + format_expr(expr.body) + " with " +
+        format_expr(expr.handler);
+
     case "with":
       return format_expr(expr.base) + " with { " +
         expr.fields.map((field) => format_field(field, format_expr)).join(
@@ -67,6 +102,20 @@ export function format_expr_with_stmt(
         " }";
 
     case "struct_value":
+      if (
+        expr.type_expr.tag === "var" &&
+        expr.type_expr.name === "object_type"
+      ) {
+        const fields = expr.fields.map((field) => {
+          if (field.value.tag === "var" && field.value.name === field.name) {
+            return field.name;
+          }
+
+          return format_field(field, format_expr);
+        });
+        return "{ " + fields.join(", ") + " }";
+      }
+
       return format_expr(expr.type_expr) + " { " +
         expr.fields.map((field) => format_field(field, format_expr)).join(
           ", ",

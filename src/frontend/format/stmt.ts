@@ -21,6 +21,18 @@ export function format_stmt_with_expr(
       text += "rec ";
     }
 
+    if (stmt.effect_context) {
+      if (stmt.effect_context.operations) {
+        const operations = stmt.effect_context.operations.map((operation) =>
+          operation.effect + "." + operation.operation
+        ).join(", ");
+        text += "(" + stmt.effect_context.name + " :: { " + operations +
+          " }) ";
+      } else {
+        text += stmt.effect_context.name + " ";
+      }
+    }
+
     if (stmt.is_linear) {
       text += "!";
     }
@@ -32,6 +44,34 @@ export function format_stmt_with_expr(
     }
 
     return text + " = " + format_expr(stmt.value);
+  }
+
+  if (stmt.tag === "state_bind") {
+    let value_name = "()";
+
+    if (stmt.value_name) {
+      value_name = stmt.value_name;
+    }
+
+    return "let (!" + stmt.context + ", " + value_name + ") = " +
+      format_expr(stmt.value);
+  }
+
+  if (stmt.tag === "bind_pattern") {
+    const items = stmt.items.map((item) => {
+      if (item.is_linear) {
+        return "!" + item.name;
+      }
+
+      return item.name;
+    });
+    return stmt.kind + " { " + items.join(", ") + " } = " +
+      format_expr(stmt.value);
+  }
+
+  if (stmt.tag === "resume_dup") {
+    return "let (!" + stmt.left + ", !" + stmt.right + ") = dup " +
+      format_expr(stmt.value);
   }
 
   if (stmt.tag === "assign") {
@@ -48,6 +88,21 @@ export function format_stmt_with_expr(
   }
 
   if (stmt.tag === "return") {
+    if (
+      stmt.value.tag === "struct_value" &&
+      stmt.value.type_expr.tag === "var" &&
+      stmt.value.type_expr.name === "object_type"
+    ) {
+      const fields = stmt.value.fields.map((field) => {
+        if (field.value.tag === "var" && field.value.name === field.name) {
+          return field.name;
+        }
+
+        return field.name + ": " + format_expr(field.value);
+      });
+      return "return { " + fields.join(", ") + " }";
+    }
+
     return "return " + format_expr(stmt.value);
   }
 
@@ -109,5 +164,10 @@ export function format_stmt_with_expr(
     return format_expr(stmt.expr);
   }
 
-  return "<unsupported " + stmt.feature + ">";
+  if (stmt.tag === "unsupported") {
+    return "<unsupported " + stmt.feature + ">";
+  }
+
+  stmt satisfies never;
+  throw new Error("Cannot format statement");
 }

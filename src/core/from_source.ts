@@ -1,6 +1,15 @@
 import { expect } from "../expect.ts";
-import type { Source as SourceNode } from "../frontend/ast.ts";
-import type { Core, CoreHostImport, CoreRecFunction, CoreStmt } from "./ast.ts";
+import type {
+  FrontHostImportResultContract,
+  Source as SourceNode,
+} from "../frontend/ast.ts";
+import type {
+  Core,
+  CoreExpr,
+  CoreHostImport,
+  CoreRecFunction,
+  CoreStmt,
+} from "./ast.ts";
 import {
   create_core_from_source_ctx,
   record_core_from_source_type_value,
@@ -19,7 +28,7 @@ export function core_from_source(source: SourceNode): Core {
   for (const stmt of source.statements) {
     if (stmt.tag === "host_import") {
       ctx.host_import_names.add(stmt.value.name);
-      host_imports[stmt.value.name] = {
+      const host_import: CoreHostImport = {
         name: stmt.value.name,
         module: stmt.value.module,
         field: stmt.value.field,
@@ -33,6 +42,15 @@ export function core_from_source(source: SourceNode): Core {
           ctx,
         ),
       };
+      const result_type_expr = host_import_result_type_expr(
+        stmt.value.result_owner,
+      );
+
+      if (result_type_expr) {
+        host_import.result_type_expr = result_type_expr;
+      }
+
+      host_imports[stmt.value.name] = host_import;
     } else {
       record_core_from_source_type_value(stmt, ctx);
       const lowered = core_stmt(stmt, ctx);
@@ -89,4 +107,18 @@ export function core_from_source(source: SourceNode): Core {
   }
 
   return core;
+}
+
+function host_import_result_type_expr(
+  contract: FrontHostImportResultContract | undefined,
+): CoreExpr | undefined {
+  if (!contract || contract.tag === "scalar" || contract.reason === "freeze") {
+    return undefined;
+  }
+
+  if (typeof contract.reason === "string") {
+    return undefined;
+  }
+
+  return { tag: "var", name: contract.reason.name };
 }

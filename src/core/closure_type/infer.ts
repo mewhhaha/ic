@@ -1,4 +1,5 @@
 import { expect } from "../../expect.ts";
+import type { ResumeSignature } from "../../frontend/ast.ts";
 import type { CoreExpr, CoreFnType, CoreStmt } from "../ast.ts";
 import { clone_core_host_imports } from "../host_import.ts";
 import { bind_core_if_let_payload_fact } from "../if_let_payload.ts";
@@ -7,6 +8,7 @@ import { dynamic_if_let_can_match } from "../union_static.ts";
 import { check_closure_call_args } from "./args.ts";
 import { same_core_fn_type } from "./compare.ts";
 import { core_lam_fn_type, core_lam_fn_type_with_expected } from "./lambda.ts";
+import { closure_param_info } from "./param.ts";
 import type {
   CoreClosureTypeBlockCtx,
   CoreClosureTypeCtx,
@@ -23,6 +25,10 @@ export function closure_fn_type(
       return core_lam_fn_type(expr, ctx, hooks);
 
     case "var": {
+      if (expr.resume_signature) {
+        return resume_signature_fn_type(expr.resume_signature, ctx, hooks);
+      }
+
       const local_type = ctx.fn_types.get(expr.name);
 
       if (local_type) {
@@ -113,10 +119,23 @@ export function closure_fn_type(
       return closure_fn_type(inlined, ctx, hooks);
     }
 
+    case "linear":
+      if (expr.resume_signature) {
+        return resume_signature_fn_type(expr.resume_signature, ctx, hooks);
+      }
+
+      return undefined;
+
+    case "field":
+      if (expr.resume_signature) {
+        return resume_signature_fn_type(expr.resume_signature, ctx, hooks);
+      }
+
+      return undefined;
+
     case "num":
     case "text":
     case "type_name":
-    case "linear":
     case "prim":
     case "rec":
     case "comptime":
@@ -125,7 +144,6 @@ export function closure_fn_type(
     case "struct_value":
     case "struct_update":
     case "union_type":
-    case "field":
     case "index":
     case "union_case":
     case "unsupported":
@@ -155,6 +173,19 @@ export function closure_fn_type_with_expected(
       return core_lam_fn_type_with_expected(expr, expected, ctx, hooks);
 
     case "var": {
+      if (expr.resume_signature) {
+        const actual = resume_signature_fn_type(
+          expr.resume_signature,
+          ctx,
+          hooks,
+        );
+        expect(
+          same_core_fn_type(actual, expected),
+          "Core closure if branch type mismatch",
+        );
+        return actual;
+      }
+
       const local_type = ctx.fn_types.get(expr.name);
 
       if (local_type) {
@@ -255,10 +286,41 @@ export function closure_fn_type_with_expected(
       return closure_fn_type_with_expected(inlined, expected, ctx, hooks);
     }
 
+    case "linear":
+      if (expr.resume_signature) {
+        const actual = resume_signature_fn_type(
+          expr.resume_signature,
+          ctx,
+          hooks,
+        );
+        expect(
+          same_core_fn_type(actual, expected),
+          "Core closure if branch type mismatch",
+        );
+        return actual;
+      }
+
+      return undefined;
+
+    case "field":
+      if (expr.resume_signature) {
+        const actual = resume_signature_fn_type(
+          expr.resume_signature,
+          ctx,
+          hooks,
+        );
+        expect(
+          same_core_fn_type(actual, expected),
+          "Core closure if branch type mismatch",
+        );
+        return actual;
+      }
+
+      return undefined;
+
     case "num":
     case "text":
     case "type_name":
-    case "linear":
     case "prim":
     case "rec":
     case "comptime":
@@ -267,7 +329,6 @@ export function closure_fn_type_with_expected(
     case "struct_value":
     case "struct_update":
     case "union_type":
-    case "field":
     case "index":
     case "union_case":
     case "unsupported":
@@ -289,6 +350,52 @@ export function closure_fn_type_with_expected(
     case "freeze":
       return closure_fn_type_with_expected(expr.value, expected, ctx, hooks);
   }
+}
+
+function resume_signature_fn_type(
+  signature: ResumeSignature,
+  ctx: CoreClosureTypeCtx,
+  hooks: CoreClosureTypeHooks,
+): CoreFnType {
+  const input = closure_param_info(
+    {
+      name: "__ix_resume_input",
+      is_const: false,
+      is_linear: false,
+      annotation: signature.input_type,
+    },
+    ctx,
+    hooks,
+  );
+  expect(
+    input,
+    "Missing resumption input type: " + signature.input_type,
+  );
+  const output = closure_param_info(
+    {
+      name: "__ix_resume_output",
+      is_const: false,
+      is_linear: false,
+      annotation: signature.output_type,
+    },
+    ctx,
+    hooks,
+  );
+  expect(
+    output,
+    "Missing resumption output type: " + signature.output_type,
+  );
+  return {
+    tag: "fn",
+    params: [input.type],
+    param_texts: [input.is_text],
+    param_structs: [input.struct_type],
+    param_unions: [input.union_type],
+    result: output.type,
+    result_text: output.is_text,
+    result_struct: output.struct_type,
+    result_union: output.union_type,
+  };
 }
 
 function scratch_body_is_freeze(expr: CoreExpr): boolean {

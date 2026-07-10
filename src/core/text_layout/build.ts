@@ -9,6 +9,7 @@ import {
   type StaticTextCtx,
   type StaticTextHooks,
 } from "../text_static.ts";
+import { core_val_type_from_type_name } from "../type_static.ts";
 import { dynamic_if_let_can_match } from "../union_static.ts";
 import { core_text_layout_param_type } from "./param.ts";
 import type { CoreTextLayoutHooks, TextLayout } from "./types.ts";
@@ -305,6 +306,14 @@ export function build_text_layout(
     annotation: string | undefined,
   ): void {
     ctx.statics.delete(name);
+
+    if (annotation) {
+      const type = core_val_type_from_type_name(annotation);
+
+      if (type) {
+        set_local(ctx.locals, name, type);
+      }
+    }
 
     const has_text_fact = layout_value_has_text_fact(value, annotation);
 

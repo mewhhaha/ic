@@ -63,6 +63,13 @@ function scan_call_only_stmt(
       return scan;
     }
 
+    case "state_bind":
+    case "bind_pattern":
+      return scan_call_only_expr(name, stmt.value, false);
+
+    case "resume_dup":
+      return scan_call_only_expr(name, stmt.value, false);
+
     case "assign":
       return scan_call_only_expr(name, stmt.value, false);
 
@@ -132,6 +139,7 @@ function scan_call_only_expr(
 ): CallOnlyUseScan {
   switch (expr.tag) {
     case "num":
+    case "unit":
     case "text":
     case "type_name":
     case "struct_type":
@@ -204,6 +212,62 @@ function scan_call_only_expr(
 
     case "captured":
       return scan_call_only_expr(name, expr.expr, call_target);
+
+    case "handler": {
+      let result: CallOnlyUseScan = { valid: true, used: false };
+      let state_shadows_name = false;
+
+      for (const state of expr.state) {
+        if (!state_shadows_name) {
+          result = merge_call_only_scans(
+            result,
+            scan_call_only_expr(name, state.value, false),
+          );
+
+          if (!result.valid) {
+            return result;
+          }
+        }
+
+        if (state.name === name) {
+          state_shadows_name = true;
+        }
+      }
+
+      if (state_shadows_name) {
+        return result;
+      }
+
+      for (const clause of expr.clauses) {
+        if (params_shadow_name(clause.params, name)) {
+          continue;
+        }
+
+        result = merge_call_only_scans(
+          result,
+          scan_call_only_expr(name, clause.body, false),
+        );
+
+        if (!result.valid) {
+          return result;
+        }
+      }
+
+      if (expr.return_clause.param.name === name) {
+        return result;
+      }
+
+      return merge_call_only_scans(
+        result,
+        scan_call_only_expr(name, expr.return_clause.body, false),
+      );
+    }
+
+    case "try_with":
+      return merge_call_only_scans(
+        scan_call_only_expr(name, expr.body, false),
+        scan_call_only_expr(name, expr.handler, false),
+      );
 
     case "with": {
       let result = scan_call_only_expr(name, expr.base, false);
@@ -320,6 +384,10 @@ function merge_call_only_scans(
 }
 
 function stmt_shadows_name(stmt: Stmt, name: string): boolean {
+  if (stmt.tag === "resume_dup") {
+    return stmt.left === name || stmt.right === name;
+  }
+
   if (stmt.tag !== "bind" && stmt.tag !== "assign") {
     return false;
   }

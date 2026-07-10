@@ -197,6 +197,21 @@ export function core_stmt(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
         text: stmt.value.name,
       };
 
+    case "state_bind":
+      throw new Error(
+        "Effect state binding must be elaborated before Core lowering",
+      );
+
+    case "bind_pattern":
+      throw new Error(
+        "Module binding pattern must be elaborated before Core lowering",
+      );
+
+    case "resume_dup":
+      throw new Error(
+        "Resumption duplication must be elaborated before Core lowering",
+      );
+
     case "unsupported":
       return {
         tag: "unsupported",

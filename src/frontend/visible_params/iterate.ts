@@ -53,6 +53,45 @@ export function expr_iterates_collection_from_names(
     case "scratch":
       return expr_iterates_collection_from_names(expr.body, names);
 
+    case "handler": {
+      const handler_names = new Set(names);
+
+      for (const state of expr.state) {
+        if (
+          expr_iterates_collection_from_names(state.value, handler_names)
+        ) {
+          return true;
+        }
+
+        handler_names.delete(state.name);
+      }
+
+      for (const clause of expr.clauses) {
+        const clause_names = new Set(handler_names);
+
+        for (const param of clause.params) {
+          clause_names.delete(param.name);
+        }
+
+        if (
+          expr_iterates_collection_from_names(clause.body, clause_names)
+        ) {
+          return true;
+        }
+      }
+
+      const return_names = new Set(handler_names);
+      return_names.delete(expr.return_clause.param.name);
+      return expr_iterates_collection_from_names(
+        expr.return_clause.body,
+        return_names,
+      );
+    }
+
+    case "try_with":
+      return expr_iterates_collection_from_names(expr.body, names) ||
+        expr_iterates_collection_from_names(expr.handler, names);
+
     case "with":
       if (expr_iterates_collection_from_names(expr.base, names)) {
         return true;
@@ -118,6 +157,7 @@ export function expr_iterates_collection_from_names(
       return false;
 
     case "num":
+    case "unit":
     case "text":
     case "type_name":
     case "var":
@@ -159,6 +199,11 @@ function stmts_iterate_collection_from_names(
 
     if (stmt.tag === "index_assign") {
       local.delete(stmt.name);
+    }
+
+    if (stmt.tag === "resume_dup") {
+      local.delete(stmt.left);
+      local.delete(stmt.right);
     }
   }
 
@@ -240,6 +285,13 @@ function stmt_iterates_collection_from_names(
 
     case "expr":
       return expr_iterates_collection_from_names(stmt.expr, names);
+
+    case "state_bind":
+    case "bind_pattern":
+      return expr_iterates_collection_from_names(stmt.value, names);
+
+    case "resume_dup":
+      return expr_iterates_collection_from_names(stmt.value, names);
 
     case "type_check":
       return expr_iterates_collection_from_names(stmt.target, names);

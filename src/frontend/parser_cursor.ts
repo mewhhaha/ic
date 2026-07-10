@@ -4,6 +4,7 @@ import type { Token, TokenKind } from "./ast.ts";
 export class ParserCursor {
   protected tokens: Token[];
   protected index = 0;
+  protected effect_names = new Set<string>();
 
   constructor(tokens: Token[]) {
     this.tokens = tokens;

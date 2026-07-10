@@ -148,6 +148,10 @@ export function stmt_value_contains_loop_control(stmt: Stmt): boolean {
     return expr_contains_loop_control(stmt.value);
   }
 
+  if (stmt.tag === "resume_dup") {
+    return expr_contains_loop_control(stmt.value);
+  }
+
   if (stmt.tag === "index_assign") {
     return expr_contains_loop_control(stmt.index) ||
       expr_contains_loop_control(stmt.value);
@@ -257,7 +261,27 @@ function expr_contains_loop_control(expr: FrontExpr): boolean {
     case "rec":
       return expr_contains_loop_control(expr.body);
 
+    case "handler":
+      for (const state of expr.state) {
+        if (expr_contains_loop_control(state.value)) {
+          return true;
+        }
+      }
+
+      for (const clause of expr.clauses) {
+        if (expr_contains_loop_control(clause.body)) {
+          return true;
+        }
+      }
+
+      return expr_contains_loop_control(expr.return_clause.body);
+
+    case "try_with":
+      return expr_contains_loop_control(expr.body) ||
+        expr_contains_loop_control(expr.handler);
+
     case "num":
+    case "unit":
     case "text":
     case "var":
     case "linear":
@@ -299,6 +323,12 @@ export function contains_loop_control(stmts: Stmt[]): boolean {
 
     if (stmt.tag === "return" && stmt.value.tag === "block") {
       if (contains_loop_control(stmt.value.statements)) {
+        return true;
+      }
+    }
+
+    if (stmt.tag === "resume_dup") {
+      if (expr_contains_loop_control(stmt.value)) {
         return true;
       }
     }

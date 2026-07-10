@@ -1,5 +1,5 @@
 import { expect } from "../expect.ts";
-import type { FrontExpr } from "./ast.ts";
+import type { FrontExpr, HandlerClause, HandlerReturnClause } from "./ast.ts";
 import { expect_snake_case } from "./names.ts";
 import { parse_number_expr } from "./numeric.ts";
 import { ParserBlock } from "./parser_block.ts";
@@ -28,6 +28,12 @@ export abstract class ParserPrimary extends ParserBlock {
     if (token.kind === "string") {
       this.advance();
       return { tag: "text", value: token.text };
+    }
+
+    if (this.match_name("handler")) {
+      throw this.error(
+        "Effect handlers use `Effect { ... }` literals instead of `handler`",
+      );
     }
 
     if (this.match_name("comptime")) {
@@ -78,7 +84,7 @@ export abstract class ParserPrimary extends ParserBlock {
         return {
           tag: "struct_value",
           type_expr: { tag: "var", name: "object_type" },
-          fields: this.parse_field_list(),
+          fields: this.parse_record_field_list(),
         };
       }
 
@@ -86,6 +92,10 @@ export abstract class ParserPrimary extends ParserBlock {
     }
 
     if (this.match_symbol("(")) {
+      if (this.match_symbol(")")) {
+        return { tag: "unit" };
+      }
+
       const expr = this.parse_expr();
       this.expect_symbol(")");
       return expr;
@@ -94,8 +104,17 @@ export abstract class ParserPrimary extends ParserBlock {
     if (token.kind === "name") {
       this.advance();
       this.expect_supported_name(token.text, "Name");
+      const effect_literal = this.effect_names.has(token.text) &&
+        this.peek().kind === "symbol" && this.peek().text === "{";
 
-      if (!is_builtin_type_reference_name(token.text)) {
+      if (
+        !is_builtin_type_reference_name(token.text) &&
+        !effect_literal &&
+        !(
+          /^[A-Z][A-Za-z0-9]*$/.test(token.text) &&
+          this.peek().kind === "symbol" && this.peek().text === "."
+        )
+      ) {
         expect_snake_case(token.text, "Name");
       }
 
@@ -103,6 +122,88 @@ export abstract class ParserPrimary extends ParserBlock {
     }
 
     throw this.error("Expected expression");
+  }
+
+  protected parse_effect_handler_literal(effect: string): FrontExpr {
+    this.expect_symbol("{");
+    this.skip_newlines();
+    const clauses: HandlerClause[] = [];
+    let return_clause: HandlerReturnClause | undefined;
+
+    while (!this.match_symbol("}")) {
+      const name = this.expect_name("Expected handler clause name");
+      expect_snake_case(name, "Handler clause");
+      this.expect_symbol(":");
+      const value = this.parse_handler_clause_lambda(name);
+
+      if (name === "return") {
+        expect(
+          value.params.length === 1,
+          "Handler return clause must accept exactly one parameter",
+        );
+        const param = value.params[0];
+        expect(param, "Missing handler return parameter");
+        return_clause = { param, body: value.body };
+        this.match_symbol(",");
+        this.skip_newlines();
+        expect(
+          this.match_symbol("}"),
+          "Handler return clause must be final",
+        );
+        break;
+      }
+
+      clauses.push({ name, params: value.params, body: value.body });
+      this.match_symbol(",");
+      this.skip_newlines();
+    }
+
+    expect(return_clause, "Handler requires a return clause");
+    return { tag: "handler", effect, state: [], clauses, return_clause };
+  }
+
+  private parse_handler_clause_lambda(
+    name: string,
+  ): Extract<FrontExpr, { tag: "lam" }> {
+    const params = [];
+
+    if (this.match_symbol("(")) {
+      if (!this.match_symbol(")")) {
+        while (true) {
+          params.push(this.parse_param());
+
+          if (this.match_symbol(")")) {
+            break;
+          }
+
+          this.expect_symbol(",");
+        }
+      }
+    } else {
+      params.push(this.parse_param());
+    }
+
+    this.expect_symbol("=>");
+    const previous = this.affine_call_names;
+    this.affine_call_names = new Set(previous);
+
+    for (const param of params) {
+      if (param.is_linear) {
+        this.affine_call_names.add(param.name);
+      }
+    }
+
+    try {
+      return { tag: "lam", params, body: this.parse_expr() };
+    } catch (error) {
+      if (error instanceof Error) {
+        error.message = "Handler clause " + name + ": " + error.message;
+      }
+
+      throw error;
+    } finally {
+      this.affine_call_names = previous;
+    }
   }
 
   protected parse_unsupported_expr(feature: string): FrontExpr {

@@ -6842,12 +6842,12 @@ user_layout.size
 
   assert_throws(
     () => Source.parse("{ BadName: 1 }"),
-    "Field must use snake_case: BadName",
+    "Record field must use snake_case: BadName",
   );
 
   assert_throws(
     () => Source.parse("{ _field: 1 }"),
-    "Field must use snake_case: _field",
+    "Record field must use snake_case: _field",
   );
 
   assert_throws(
@@ -14567,6 +14567,7 @@ host_import host_make_frozen_result from "env.make_frozen_result" () => frozen_s
       field: "make_user",
       params: [],
       result: "i32",
+      result_type_expr: { tag: "var", name: "user_type" },
       args: [],
       result_owner: { tag: "unique_heap", reason: "runtime_aggregate" },
     },
@@ -14576,6 +14577,7 @@ host_import host_make_frozen_result from "env.make_frozen_result" () => frozen_s
       field: "make_frozen_result",
       params: [],
       result: "i32",
+      result_type_expr: { tag: "var", name: "result_type" },
       args: [],
       result_owner: { tag: "frozen_shareable", reason: "runtime_union" },
     },

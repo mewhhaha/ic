@@ -17,6 +17,9 @@ export function infer_front_expr(
     case "num":
       return { tag: "int", type: expr.type };
 
+    case "unit":
+      return { tag: "int", type: "i32" };
+
     case "text":
       return { tag: "text" };
 
@@ -124,6 +127,16 @@ export function infer_front_expr(
 
     case "captured":
       return infer_front_expr(expr.expr, expr.env, hooks);
+
+    case "handler":
+      throw new Error(
+        "Handler expression must be elaborated before frontend inference",
+      );
+
+    case "try_with":
+      throw new Error(
+        "Try-with expression must be elaborated before frontend inference",
+      );
 
     case "with":
       return infer_front_expr(expr.base, env, hooks);

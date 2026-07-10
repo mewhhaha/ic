@@ -10,6 +10,7 @@ import {
 } from "../type_static.ts";
 import type { RuntimeUnionCtx, RuntimeUnionHooks } from "./types.ts";
 import { core_runtime_union_value } from "./value.ts";
+import { core_host_import_result_type_expr } from "../host_import.ts";
 
 export function runtime_union_type_expr<ctx extends RuntimeUnionCtx>(
   value: CoreExpr,
@@ -43,6 +44,12 @@ export function runtime_union_type_expr<ctx extends RuntimeUnionCtx>(
   }
 
   if (value.tag === "app") {
+    const host_type = core_host_import_result_type_expr(value, ctx);
+
+    if (host_type) {
+      return host_type;
+    }
+
     const fn_type = hooks.closure_fn_type(value.func, ctx);
 
     if (fn_type) {

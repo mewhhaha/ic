@@ -14,6 +14,9 @@ export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
     case "num":
       return { tag: "num", type: expr.type, value: expr.value };
 
+    case "unit":
+      return { tag: "num", type: "i32", value: 0 };
+
     case "text":
       return { tag: "text", value: expr.value };
 
@@ -29,11 +32,30 @@ export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
         return { tag: "rec_ref", name: resolved, params: named_rec.params };
       }
 
+      if (expr.resume_signature) {
+        return {
+          tag: "var",
+          name: resolved,
+          resume_signature: expr.resume_signature,
+        };
+      }
+
       return { tag: "var", name: resolved };
     }
 
-    case "linear":
-      return { tag: "linear", name: resolve_core_name(ctx, expr.name) };
+    case "linear": {
+      const name = resolve_core_name(ctx, expr.name);
+
+      if (expr.resume_signature) {
+        return {
+          tag: "linear",
+          name,
+          resume_signature: expr.resume_signature,
+        };
+      }
+
+      return { tag: "linear", name };
+    }
 
     case "prim":
       return {
@@ -91,11 +113,17 @@ export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
         return host_method;
       }
 
-      return {
+      const app: Extract<CoreExpr, { tag: "app" }> = {
         tag: "app",
         func: core_expr(expr.func, ctx),
         args: expr.args.map((arg) => core_expr(arg, ctx)),
       };
+
+      if (expr.resume_payload) {
+        app.resume_payload = true;
+      }
+
+      return app;
     }
 
     case "block": {
@@ -120,6 +148,16 @@ export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
 
     case "captured":
       return core_expr(expr.expr, ctx);
+
+    case "handler":
+      throw new Error(
+        "Handler expression must be elaborated before Core lowering",
+      );
+
+    case "try_with":
+      throw new Error(
+        "Try-with expression must be elaborated before Core lowering",
+      );
 
     case "with":
       return {
@@ -190,12 +228,24 @@ export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
       };
     }
 
-    case "field":
-      return {
-        tag: "field",
-        object: core_expr(expr.object, ctx),
-        name: expr.name,
-      };
+    case "field": {
+      let object = core_expr(expr.object, ctx);
+
+      if (expr.resume_signature && object.tag === "linear") {
+        object = { tag: "var", name: object.name };
+      }
+
+      if (expr.resume_signature) {
+        return {
+          tag: "field",
+          object,
+          name: expr.name,
+          resume_signature: expr.resume_signature,
+        };
+      }
+
+      return { tag: "field", object, name: expr.name };
+    }
 
     case "index":
       return {
@@ -205,23 +255,29 @@ export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
       };
 
     case "union_case": {
-      let value: CoreExpr | undefined;
+      let payload: CoreExpr | undefined;
       let type_expr: CoreExpr | undefined;
 
       if (expr.value) {
-        value = core_expr(expr.value, ctx);
+        payload = core_expr(expr.value, ctx);
       }
 
       if (expr.type_expr) {
         type_expr = core_expr(expr.type_expr, ctx);
       }
 
-      return {
+      const value: Extract<CoreExpr, { tag: "union_case" }> = {
         tag: "union_case",
         name: expr.name,
-        value,
+        value: payload,
         type_expr,
       };
+
+      if (expr.resume_payload) {
+        value.resume_payload = true;
+      }
+
+      return value;
     }
 
     case "unsupported":

@@ -265,6 +265,12 @@ function validate_linear_block(
       throw new Error("Cannot lower break outside static range loop");
     } else if (stmt.tag === "continue") {
       throw new Error("Cannot lower continue outside static range loop");
+    } else if (stmt.tag === "state_bind" || stmt.tag === "bind_pattern") {
+      throw new Error("Cannot validate linear " + stmt.tag + " yet");
+    } else if (stmt.tag === "resume_dup") {
+      throw new Error(
+        "Resumption duplication must be elaborated before linear validation",
+      );
     } else {
       throw new Error("Cannot validate linear " + stmt.feature + " yet");
     }

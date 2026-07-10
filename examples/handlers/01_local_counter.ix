@@ -1,0 +1,24 @@
+effect Counter {
+  get: () => I32
+  add: (I32) => Unit
+}
+
+let Fx run = () => {
+  let (!Fx, ()) = Fx.Counter.add(40)
+  let (!Fx, value) = Fx.Counter.get()
+  value + 2
+}
+
+let counter = {
+  let count = 0
+  Counter {
+    get: (!resume) => !resume(count),
+    add: (amount, !resume) => {
+      count = count + amount
+      !resume(())
+    },
+    return: value => value,
+  }
+}
+
+try run() with counter

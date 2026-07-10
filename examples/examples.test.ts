@@ -34,9 +34,9 @@ for (const example of compile_failure_examples) {
 
     try {
       if (example.route === "ic") {
-        Source.ic_wat(Source.load(example.path));
+        Source.ic_wat(Source.load_fragment_file(example.path));
       } else {
-        Source.wat_file(example.path);
+        Source.wat(Source.load_fragment_file(example.path));
       }
     } catch (error) {
       message = error_message(error);
@@ -52,7 +52,7 @@ for (const example of compile_failure_examples) {
 
 for (const example of trap_examples) {
   Deno.test("example traps: " + example.path, async () => {
-    const wat = Source.wat_file(example.path);
+    const wat = Source.wat(Source.load_fragment_file(example.path));
     let imports: WebAssembly.Imports = {};
 
     if (example.imports !== undefined) {
@@ -96,18 +96,18 @@ Deno.test("example manifest accounts for every .ix file", () => {
 
   const actual = new Set(collect_ix_files("examples"));
   assert_equals([...actual].sort(), [...expected].sort());
-  assert_equals(success_examples.length, 60);
+  assert_equals(success_examples.length, 61);
   assert_equals(compile_failure_examples.length, 12);
   assert_equals(trap_examples.length, 4);
 });
 
 function compile_example(example: SuccessExample): string {
   if (example.route === "ic") {
-    return Source.ic_wat(Source.load(example.path));
+    return Source.ic_wat(Source.load_fragment_file(example.path));
   }
 
   if (example.route === "core") {
-    return Source.wat_file(example.path);
+    return Source.wat(Source.load_fragment_file(example.path));
   }
 
   example.route satisfies never;

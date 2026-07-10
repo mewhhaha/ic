@@ -106,6 +106,12 @@ stubs live in `manifest.ts`.
 | `05_host_ownership_contracts.ix`  | bounded borrow and ownership transfer ABI               | Core  | `42`   |
 | `06_multi_file_capability_app.ix` | explicit dependency import and module capability object | Core  | `42`   |
 
+## Effects
+
+| Example                       | Focus                                    | Route | Result |
+| ----------------------------- | ---------------------------------------- | ----- | ------ |
+| `handlers/01_local_counter.ix` | deep stateful Ix-defined effect handler | Core  | `42`   |
+
 ## Showcases
 
 | Example                           | Focus                                                         | Route | Result |

@@ -10,6 +10,7 @@ export function contains_unresolved_linear_effect(
 ): boolean {
   switch (expr.tag) {
     case "num":
+    case "unit":
     case "text":
     case "type_name":
     case "var":
@@ -80,6 +81,50 @@ export function contains_unresolved_linear_effect(
         expr.env,
         hooks,
       );
+
+    case "handler": {
+      const local = new Set(names);
+
+      for (const state of expr.state) {
+        if (
+          contains_unresolved_linear_effect(state.value, local, env, hooks)
+        ) {
+          return true;
+        }
+
+        local.delete(state.name);
+      }
+
+      for (const clause of expr.clauses) {
+        const clause_names = shadow_linear_params(local, clause.params);
+
+        if (
+          contains_unresolved_linear_effect(
+            clause.body,
+            clause_names,
+            env,
+            hooks,
+          )
+        ) {
+          return true;
+        }
+      }
+
+      const return_names = shadow_linear_params(
+        local,
+        [expr.return_clause.param],
+      );
+      return contains_unresolved_linear_effect(
+        expr.return_clause.body,
+        return_names,
+        env,
+        hooks,
+      );
+    }
+
+    case "try_with":
+      return contains_unresolved_linear_effect(expr.body, names, env, hooks) ||
+        contains_unresolved_linear_effect(expr.handler, names, env, hooks);
 
     case "with": {
       if (contains_unresolved_linear_effect(expr.base, names, env, hooks)) {
@@ -198,6 +243,9 @@ function contains_unresolved_linear_stmt(
         break;
 
       case "bind":
+      case "state_bind":
+      case "bind_pattern":
+      case "resume_dup":
         if (contains_unresolved_linear_effect(stmt.value, names, env, hooks)) {
           return true;
         }
@@ -276,6 +324,19 @@ function contains_unresolved_linear_stmt(
   }
 
   return false;
+}
+
+function shadow_linear_params(
+  names: Set<string>,
+  params: { name: string }[],
+): Set<string> {
+  const local = new Set(names);
+
+  for (const param of params) {
+    local.delete(param.name);
+  }
+
+  return local;
 }
 
 function known_linear_method(

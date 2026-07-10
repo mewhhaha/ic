@@ -28,6 +28,32 @@ export abstract class ParserAggregate extends ParserParams {
     return fields;
   }
 
+  protected parse_record_field_list(): Field[] {
+    this.expect_symbol("{");
+    this.skip_newlines();
+    const fields: Field[] = [];
+
+    while (!this.match_symbol("}")) {
+      const name = this.expect_name("Expected record field name");
+      expect_snake_case(name, "Record field");
+      let value: FrontExpr = { tag: "var", name };
+
+      if (this.match_symbol(":")) {
+        value = this.parse_expr();
+      }
+
+      fields.push({ name, value });
+
+      if (this.match_symbol(",")) {
+        this.skip_newlines();
+      } else {
+        this.skip_newlines();
+      }
+    }
+
+    return fields;
+  }
+
   protected is_object_literal(): boolean {
     if (this.peek().kind !== "symbol" || this.peek().text !== "{") {
       return false;
@@ -52,7 +78,12 @@ export abstract class ParserAggregate extends ParserParams {
     }
 
     const second = this.peek(offset);
-    return second.kind === "symbol" && second.text === ":";
+
+    if (second.kind !== "symbol") {
+      return false;
+    }
+
+    return second.text === ":" || second.text === ",";
   }
 
   protected parse_type_field_list(): TypeField[] {

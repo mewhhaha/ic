@@ -12,6 +12,7 @@ import { binary_precedence, can_start_struct_value } from "./parser_support.ts";
 
 export abstract class ParserExpr extends ParserPrimary {
   #stop_postfix_block = 0;
+  #stop_try_with = 0;
 
   protected parse_expr(): FrontExpr {
     return this.parse_arrow();
@@ -32,24 +33,49 @@ export abstract class ParserExpr extends ParserPrimary {
       this.expect_name("Expected rec");
       const params = this.parse_arrow_params();
       this.expect_symbol("=>");
-      return { tag: "rec", params, body: this.parse_closure_body() };
+      return { tag: "rec", params, body: this.parse_arrow_body(params) };
     }
 
     const single = this.try_single_param_arrow();
 
     if (single) {
       this.expect_symbol("=>");
-      return { tag: "lam", params: [single], body: this.parse_closure_body() };
+      return {
+        tag: "lam",
+        params: [single],
+        body: this.parse_arrow_body([single]),
+      };
     }
 
     const params = this.try_param_list_arrow();
 
     if (params) {
       this.expect_symbol("=>");
-      return { tag: "lam", params, body: this.parse_closure_body() };
+      return { tag: "lam", params, body: this.parse_arrow_body(params) };
     }
 
     return this.parse_binary(0);
+  }
+
+  private parse_arrow_body(
+    params: import("./ast.ts").Param[],
+  ): FrontExpr {
+    const previous = this.affine_call_names;
+    this.affine_call_names = new Set(previous);
+
+    for (const param of params) {
+      if (param.is_linear) {
+        this.affine_call_names.add(param.name);
+      } else {
+        this.affine_call_names.delete(param.name);
+      }
+    }
+
+    try {
+      return this.parse_closure_body();
+    } finally {
+      this.affine_call_names = previous;
+    }
   }
 
   private parse_closure_body(): FrontExpr {
@@ -58,7 +84,7 @@ export abstract class ParserExpr extends ParserPrimary {
         return {
           tag: "struct_value",
           type_expr: { tag: "var", name: "object_type" },
-          fields: this.parse_field_list(),
+          fields: this.parse_record_field_list(),
         };
       }
 
@@ -116,6 +142,23 @@ export abstract class ParserExpr extends ParserPrimary {
   }
 
   private parse_unary(): FrontExpr {
+    if (this.match_name("try")) {
+      this.#stop_try_with += 1;
+      let body: FrontExpr;
+
+      try {
+        body = this.parse_expr();
+      } finally {
+        this.#stop_try_with -= 1;
+      }
+
+      if (!this.match_name("with")) {
+        throw this.error("Expected with after try expression");
+      }
+
+      return { tag: "try_with", body, handler: this.parse_expr() };
+    }
+
     if (this.match_name("borrow")) {
       return { tag: "borrow", value: this.parse_unary() };
     }
@@ -165,11 +208,12 @@ export abstract class ParserExpr extends ParserPrimary {
     if (this.peek().kind === "symbol" && this.peek().text === "!") {
       const next = this.peek(1);
       const after = this.peek(2);
+      const non_affine_call = next.kind === "name" &&
+        after.kind === "symbol" && after.text === "(" &&
+        next.text !== "resume" &&
+        !this.affine_call_names.has(next.text);
 
-      if (
-        next.kind === "symbol" ||
-        (next.kind === "name" && after.kind === "symbol" && after.text === "(")
-      ) {
+      if (next.kind === "symbol" || non_affine_call) {
         this.expect_symbol("!");
         return {
           tag: "prim",
@@ -205,7 +249,13 @@ export abstract class ParserExpr extends ParserPrimary {
         expr = { tag: "app", func: expr, args };
       } else if (this.match_symbol(".")) {
         const name = this.expect_name("Expected field name");
-        expect_snake_case(name, "Field");
+
+        if (!/^[A-Z][A-Za-z0-9]*$/.test(name)) {
+          expect_snake_case(name, "Field");
+        } else if (expr.tag !== "var" || !/^[A-Z]/.test(expr.name)) {
+          expect_snake_case(name, "Field");
+        }
+
         expr = { tag: "field", object: expr, name };
       } else if (this.match_symbol("[")) {
         const index = this.parse_expr();
@@ -215,7 +265,9 @@ export abstract class ParserExpr extends ParserPrimary {
         this.#stop_postfix_block === 0 && this.peek().kind === "symbol" &&
         this.peek().text === "{"
       ) {
-        if (can_start_struct_value(expr)) {
+        if (expr.tag === "var" && this.effect_names.has(expr.name)) {
+          expr = this.parse_effect_handler_literal(expr.name);
+        } else if (can_start_struct_value(expr)) {
           expr = {
             tag: "struct_value",
             type_expr: expr,
@@ -228,6 +280,12 @@ export abstract class ParserExpr extends ParserPrimary {
             fields: this.parse_field_list(),
           };
         }
+      } else if (
+        this.#stop_try_with > 0 && this.peek().kind === "name" &&
+        this.peek().text === "with" &&
+        !(this.peek(1).kind === "symbol" && this.peek(1).text === "{")
+      ) {
+        break;
       } else if (this.match_name("with")) {
         expr = { tag: "with", base: expr, fields: this.parse_field_list() };
       } else {

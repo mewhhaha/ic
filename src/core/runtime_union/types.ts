@@ -5,8 +5,9 @@ import type {
   RuntimeUnionPayloadHooks,
 } from "../runtime_union_payload.ts";
 import type { TypeStaticCtx } from "../type_static.ts";
+import type { CoreHostImportCtx } from "../host_import.ts";
 
-export type RuntimeUnionCtx = TypeStaticCtx & {
+export type RuntimeUnionCtx = TypeStaticCtx & CoreHostImportCtx & {
   struct_locals: Map<string, CoreExpr>;
   union_locals: Map<string, CoreExpr>;
 };

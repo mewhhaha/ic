@@ -124,7 +124,8 @@ export function tokenize(text: string): Token[] {
       const two = text.slice(index, index + 2);
 
       if (
-        two === "=>" || two === ":=" || two === "==" || two === ".." ||
+        two === "=>" || two === ":=" || two === "::" || two === "==" ||
+        two === ".." ||
         two === "!=" || two === "<=" || two === ">=" || two === "&&" ||
         two === "||"
       ) {

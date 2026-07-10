@@ -9,6 +9,7 @@ export function is_const_expr_known(
 ): boolean {
   switch (expr.tag) {
     case "num":
+    case "unit":
     case "text":
     case "type_name":
     case "struct_type":
@@ -75,6 +76,10 @@ export function is_const_expr_known(
 
     case "captured":
       return is_const_expr_known(expr.expr, expr.env, bound);
+
+    case "handler":
+    case "try_with":
+      return false;
 
     case "with": {
       if (!is_const_expr_known(expr.base, env, bound)) {

@@ -4,11 +4,15 @@ import type { ValType } from "../op.ts";
 
 export function is_builtin_type_name(name: string): boolean {
   return name === "Unit" || name === "Int" || name === "I32" ||
-    name === "U32" || name === "I64" || name === "Text";
+    name === "U32" || name === "I64" || name === "Text" ||
+    name === "Resume";
 }
 
 export function front_type_from_type_name(name: string): FrontType {
-  if (name === "Int" || name === "I32" || name === "U32") {
+  if (
+    name === "Int" || name === "I32" || name === "U32" ||
+    name === "Resume"
+  ) {
     return { tag: "int", type: "i32" };
   }
 
@@ -32,7 +36,10 @@ export function val_type_from_type_name(name: string): ValType | undefined {
     return "i64";
   }
 
-  if (name === "Int" || name === "I32" || name === "U32") {
+  if (
+    name === "Int" || name === "I32" || name === "U32" ||
+    name === "Resume"
+  ) {
     return "i32";
   }
 

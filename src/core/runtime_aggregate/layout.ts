@@ -209,7 +209,7 @@ function runtime_aggregate_field<ctx extends TypeStaticCtx>(
   if (!type_value || type_value.tag !== "struct_type") {
     throw new Error(
       "Core runtime aggregate field " + name +
-        " must be Int, I32, U32, I64, Text, Unit, a union type, " +
+        " must be Int, I32, U32, I64, Text, Unit, Resume, a union type, " +
         "or a static-shaped struct type",
     );
   }

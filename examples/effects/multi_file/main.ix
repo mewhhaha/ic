@@ -1,0 +1,8 @@
+module (!init: Init) where
+
+import logger from "./logger.ix"
+
+const { write } = logger({ io: !init.io })
+write("hello from Ix")
+
+return {}

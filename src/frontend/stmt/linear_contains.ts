@@ -3,6 +3,7 @@ import type { FrontExpr, Stmt } from "../ast.ts";
 export function expr_contains_linear(expr: FrontExpr): boolean {
   switch (expr.tag) {
     case "num":
+    case "unit":
     case "text":
     case "type_name":
     case "var":
@@ -50,6 +51,25 @@ export function expr_contains_linear(expr: FrontExpr): boolean {
 
     case "captured":
       return expr_contains_linear(expr.expr);
+
+    case "handler":
+      for (const state of expr.state) {
+        if (expr_contains_linear(state.value)) {
+          return true;
+        }
+      }
+
+      for (const clause of expr.clauses) {
+        if (expr_contains_linear(clause.body)) {
+          return true;
+        }
+      }
+
+      return expr_contains_linear(expr.return_clause.body);
+
+    case "try_with":
+      return expr_contains_linear(expr.body) ||
+        expr_contains_linear(expr.handler);
 
     case "with":
       if (expr_contains_linear(expr.base)) {
@@ -140,6 +160,13 @@ function stmt_contains_linear(stmt: Stmt): boolean {
 
     case "bind":
     case "assign":
+      return expr_contains_linear(stmt.value);
+
+    case "state_bind":
+    case "bind_pattern":
+      return expr_contains_linear(stmt.value);
+
+    case "resume_dup":
       return expr_contains_linear(stmt.value);
 
     case "index_assign":

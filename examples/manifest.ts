@@ -308,6 +308,12 @@ export const success_examples: SuccessExample[] = [
   },
 
   {
+    path: "examples/handlers/01_local_counter.ix",
+    route: "core",
+    runs: run(42),
+  },
+
+  {
     path: "examples/showcases/01_numeric_toolkit.ix",
     route: "ic",
     runs: run(42),
@@ -421,4 +427,9 @@ export const trap_examples: TrapExample[] = [
 export const dependency_paths = [
   "examples/ownership_modules/multi_file/score_module.ix",
   "examples/failures/compile/missing_import_dependency.ix",
+  "examples/effects/01_inferred_io.ix",
+  "examples/effects/02_annotated_effect_row.ix",
+  "examples/effects/multi_file/host.ix",
+  "examples/effects/multi_file/logger.ix",
+  "examples/effects/multi_file/main.ix",
 ];

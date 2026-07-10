@@ -235,6 +235,16 @@ export function eval_front_block_impl(
       throw new Error("Cannot evaluate module " + stmt.tag + " yet");
     }
 
+    if (stmt.tag === "state_bind" || stmt.tag === "bind_pattern") {
+      throw new Error("Cannot evaluate module " + stmt.tag + " yet");
+    }
+
+    if (stmt.tag === "resume_dup") {
+      throw new Error(
+        "Resumption duplication must be elaborated before module evaluation",
+      );
+    }
+
     throw new Error("Cannot evaluate module " + stmt.feature + " yet");
   }
 

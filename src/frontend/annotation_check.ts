@@ -162,6 +162,22 @@ function check_builtin_binding_annotation(
   env: Env,
   hooks: AnnotationHooks,
 ): void {
+  if (annotation === "Resume") {
+    const actual = hooks.infer_expr(value, env);
+
+    if (
+      actual.tag !== "fn" &&
+      (actual.tag !== "int" || actual.type !== "i32")
+    ) {
+      throw new Error(
+        "Binding annotation expects Resume, got " +
+          binding_value_type_name(value, env, hooks),
+      );
+    }
+
+    return;
+  }
+
   if (annotation === "Int" || annotation === "I32" || annotation === "U32") {
     const numeric_type = resolve_numeric_expr_type(value, env, hooks);
 

@@ -99,6 +99,23 @@ export function core_host_import_result_type<ctx extends CoreHostImportCtx>(
   return host_import.result;
 }
 
+export function core_host_import_result_type_expr(
+  expr: CoreExpr,
+  ctx: CoreHostImportCtx,
+): CoreExpr | undefined {
+  if (expr.tag !== "app") {
+    return undefined;
+  }
+
+  const host_import = core_host_import_for_app(expr, ctx);
+
+  if (!host_import) {
+    return undefined;
+  }
+
+  return host_import.result_type_expr;
+}
+
 export function core_host_import_result_ownership(
   expr: CoreExpr,
   ctx: CoreHostImportCtx,

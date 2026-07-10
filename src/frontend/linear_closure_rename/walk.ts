@@ -25,6 +25,7 @@ function rename_linear_closure_expr(
 ): FrontExpr {
   switch (expr.tag) {
     case "num":
+    case "unit":
     case "text":
     case "type_name":
     case "struct_type":
@@ -109,6 +110,48 @@ function rename_linear_closure_expr(
 
     case "captured":
       return expr;
+
+    case "handler": {
+      const local = new Map(renames);
+      const state = expr.state.map((item) => {
+        const value = rename_linear_closure_expr(item.value, local);
+        local.delete(item.name);
+        return { ...item, value };
+      });
+      const clauses = expr.clauses.map((clause) => {
+        const clause_renames = shadow_linear_closure_params(
+          local,
+          clause.params,
+        );
+        return {
+          ...clause,
+          body: rename_linear_closure_expr(clause.body, clause_renames),
+        };
+      });
+      const return_renames = shadow_linear_closure_name(
+        local,
+        expr.return_clause.param.name,
+      );
+      return {
+        ...expr,
+        state,
+        clauses,
+        return_clause: {
+          ...expr.return_clause,
+          body: rename_linear_closure_expr(
+            expr.return_clause.body,
+            return_renames,
+          ),
+        },
+      };
+    }
+
+    case "try_with":
+      return {
+        tag: "try_with",
+        body: rename_linear_closure_expr(expr.body, renames),
+        handler: rename_linear_closure_expr(expr.handler, renames),
+      };
 
     case "with":
       return {
@@ -208,6 +251,12 @@ function rename_linear_closure_block(
       local.delete(stmt.name);
       continue;
     }
+
+    if (stmt.tag === "resume_dup") {
+      local.delete(stmt.left);
+      local.delete(stmt.right);
+      continue;
+    }
   }
 
   return result;
@@ -225,6 +274,31 @@ function rename_linear_closure_stmt(
         name: stmt.name,
         is_linear: stmt.is_linear,
         annotation: stmt.annotation,
+        effect_context: stmt.effect_context,
+        value: rename_linear_closure_expr(stmt.value, renames),
+      };
+
+    case "state_bind":
+      return {
+        tag: "state_bind",
+        context: stmt.context,
+        value_name: stmt.value_name,
+        value: rename_linear_closure_expr(stmt.value, renames),
+      };
+
+    case "bind_pattern":
+      return {
+        tag: "bind_pattern",
+        kind: stmt.kind,
+        items: stmt.items,
+        value: rename_linear_closure_expr(stmt.value, renames),
+      };
+
+    case "resume_dup":
+      return {
+        tag: "resume_dup",
+        left: stmt.left,
+        right: stmt.right,
         value: rename_linear_closure_expr(stmt.value, renames),
       };
 

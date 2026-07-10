@@ -1,4 +1,4 @@
-import type { TypePattern } from "../frontend/ast.ts";
+import type { ResumeSignature, TypePattern } from "../frontend/ast.ts";
 import type { Prim, ValType } from "../op.ts";
 
 export type Core = {
@@ -71,6 +71,7 @@ export type CoreHostImport = {
   field: string;
   params: ValType[];
   result: ValType;
+  result_type_expr?: CoreExpr;
   args: CoreHostImportArgContract[];
   result_owner?: CoreHostImportResultContract;
 };
@@ -140,8 +141,8 @@ export type CoreExpr =
   | { tag: "num"; type: ValType; value: number | bigint }
   | { tag: "text"; value: string }
   | { tag: "type_name"; name: string }
-  | { tag: "var"; name: string }
-  | { tag: "linear"; name: string }
+  | { tag: "var"; name: string; resume_signature?: ResumeSignature }
+  | { tag: "linear"; name: string; resume_signature?: ResumeSignature }
   | { tag: "prim"; prim: Prim; args: CoreExpr[] }
   | {
     tag: "lam";
@@ -151,7 +152,12 @@ export type CoreExpr =
   }
   | { tag: "rec"; params: CoreParam[]; body: CoreExpr }
   | { tag: "rec_ref"; name: string; params: CoreParam[] }
-  | { tag: "app"; func: CoreExpr; args: CoreExpr[] }
+  | {
+    tag: "app";
+    func: CoreExpr;
+    args: CoreExpr[];
+    resume_payload?: boolean;
+  }
   | { tag: "block"; statements: CoreStmt[] }
   | { tag: "comptime"; expr: CoreExpr }
   | { tag: "borrow"; value: CoreExpr }
@@ -178,13 +184,19 @@ export type CoreExpr =
     else_branch: CoreExpr;
     implicit_else?: boolean;
   }
-  | { tag: "field"; object: CoreExpr; name: string }
+  | {
+    tag: "field";
+    object: CoreExpr;
+    name: string;
+    resume_signature?: ResumeSignature;
+  }
   | { tag: "index"; object: CoreExpr; index: CoreExpr }
   | {
     tag: "union_case";
     name: string;
     value: CoreExpr | undefined;
     type_expr: CoreExpr | undefined;
+    resume_payload?: boolean;
   }
   | { tag: "unsupported"; feature: string; text: string };
 

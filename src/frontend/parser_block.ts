@@ -1,5 +1,5 @@
 import { expect } from "../expect.ts";
-import type { FrontExpr, Stmt } from "./ast.ts";
+import type { FrontExpr, HandlerState, Stmt } from "./ast.ts";
 import { ParserConditional } from "./parser_conditional.ts";
 
 export abstract class ParserBlock extends ParserConditional {
@@ -27,8 +27,43 @@ export abstract class ParserBlock extends ParserConditional {
       }
     }
 
-    return { tag: "block", statements };
+    const handler = block_handler(statements);
+
+    if (!handler) {
+      return { tag: "block", statements };
+    }
+
+    const state: HandlerState[] = [];
+
+    for (let index = 0; index < statements.length - 1; index += 1) {
+      const stmt = statements[index];
+      expect(stmt, "Missing handler state statement");
+      expect(
+        stmt.tag === "bind" && stmt.kind === "let" && !stmt.is_recursive &&
+          !stmt.is_linear && !stmt.effect_context,
+        "Handler state block may contain only leading ordinary `let` bindings",
+      );
+      state.push({
+        name: stmt.name,
+        annotation: stmt.annotation,
+        value: stmt.value,
+      });
+    }
+
+    return { ...handler, state: [...state, ...handler.state] };
   }
+}
+
+function block_handler(
+  statements: Stmt[],
+): Extract<FrontExpr, { tag: "handler" }> | undefined {
+  const last = statements[statements.length - 1];
+
+  if (!last || last.tag !== "expr" || last.expr.tag !== "handler") {
+    return undefined;
+  }
+
+  return last.expr;
 }
 
 function block_final_conditional_expr(stmt: Stmt): FrontExpr | undefined {

@@ -185,6 +185,19 @@ function lower_statements_with_done(
     );
   }
 
+  if (stmt.tag === "state_bind" || stmt.tag === "bind_pattern") {
+    throw new Error(
+      "Cannot lower " + stmt.tag + " to Ic frontend yet" +
+        structured_core_route,
+    );
+  }
+
+  if (stmt.tag === "resume_dup") {
+    throw new Error(
+      "Resumption duplication must be elaborated before Ic lowering",
+    );
+  }
+
   throw new Error(
     "Cannot lower " + stmt.feature + " to Ic frontend yet" +
       structured_core_route,

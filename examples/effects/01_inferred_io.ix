@@ -1,0 +1,19 @@
+module (!init: Init) where
+
+declare effect Io {
+  read: () => Text
+  print: (bounded_borrow Text) => Unit
+}
+
+declare Init {
+  io: Io
+}
+
+let Fx greet = () => {
+  let (!Fx, name) = Fx.read()
+  let (!Fx, ()) = Fx.print(borrow name)
+  name
+}
+
+let result = greet()
+return { result }

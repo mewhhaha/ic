@@ -148,6 +148,20 @@ function validate_field_type(
     return;
   }
 
+  if (expected === "Resume") {
+    if (
+      actual.tag !== "fn" &&
+      (actual.tag !== "int" || actual.type !== "i32")
+    ) {
+      throw new Error(
+        "Struct field " + name + " expects Resume, got " +
+          front_type_name(actual),
+      );
+    }
+
+    return;
+  }
+
   if (expected === "Int" || expected === "I32" || expected === "U32") {
     if (actual.tag !== "int" || actual.type === "i64") {
       throw new Error(

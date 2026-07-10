@@ -1,0 +1,29 @@
+{
+  "name": "tree-sitter-ix",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for Ix source files.",
+  "license": "MIT",
+  "main": "grammar.js",
+  "keywords": [
+    "parser",
+    "tree-sitter",
+    "ix",
+    "interaction-calculus"
+  ],
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.26.3"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.ix",
+      "file-types": [
+        "ix"
+      ],
+      "highlights": "queries/highlights.scm"
+    }
+  ]
+}

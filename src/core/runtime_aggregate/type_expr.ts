@@ -11,13 +11,17 @@ import {
   static_type_value,
   type TypeStaticCtx,
 } from "../type_static.ts";
+import {
+  core_host_import_result_type_expr,
+  type CoreHostImportCtx,
+} from "../host_import.ts";
 
 export type RuntimeAggregateFieldAccess = {
   base: CoreExpr;
   field: RuntimeAggregateField;
 };
 
-export type RuntimeAggregateTypeCtx = TypeStaticCtx & {
+export type RuntimeAggregateTypeCtx = TypeStaticCtx & CoreHostImportCtx & {
   statics: Map<string, CoreExpr>;
   struct_locals: Map<string, CoreExpr>;
 };
@@ -60,6 +64,12 @@ export function runtime_aggregate_type_expr<
   }
 
   if (value.tag === "app") {
+    const host_type = core_host_import_result_type_expr(value, ctx);
+
+    if (host_type) {
+      return host_type;
+    }
+
     const branch_type = runtime_aggregate_branch_call_type_expr(
       value,
       ctx,

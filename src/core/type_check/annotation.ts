@@ -178,9 +178,7 @@ export function apply_core_direct_type_annotation<
   if (union_case) {
     check_core_union_case_value(type_value, union_case, ctx, hooks);
     return {
-      tag: "union_case",
-      name: union_case.name,
-      value: union_case.value,
+      ...union_case,
       type_expr: { tag: "var", name: annotation },
     };
   }
@@ -194,15 +192,11 @@ export function apply_core_direct_type_annotation<
       tag: "if",
       cond: union_if.cond,
       then_branch: {
-        tag: "union_case",
-        name: union_if.then_case.name,
-        value: union_if.then_case.value,
+        ...union_if.then_case,
         type_expr: { tag: "var", name: annotation },
       },
       else_branch: {
-        tag: "union_case",
-        name: union_if.else_case.name,
-        value: union_if.else_case.value,
+        ...union_if.else_case,
         type_expr: { tag: "var", name: annotation },
       },
     };
@@ -244,6 +238,18 @@ function apply_core_value_annotation<ctx extends CoreTypeCheckCtx>(
   ctx: ctx,
   hooks: CoreTypeCheckHooks<ctx>,
 ): CoreExpr {
+  if (annotation === "Resume") {
+    const actual = hooks.expr_type(value, ctx);
+
+    if (actual !== "i32") {
+      throw new Error(
+        "Core " + label + " annotation expects Resume, got " + actual,
+      );
+    }
+
+    return value;
+  }
+
   if (annotation === "Int" || annotation === "I32" || annotation === "U32") {
     const actual = core_binding_value_type_name(value, ctx, hooks);
 

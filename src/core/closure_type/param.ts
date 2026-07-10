@@ -16,7 +16,14 @@ export function closure_param_info(
     return undefined;
   }
 
-  if (annotation === "Int" || annotation === "I32" || annotation === "U32") {
+  if (
+    annotation === "Int" || annotation === "I32" || annotation === "U32" ||
+    annotation === "Resume"
+  ) {
+    return { type: "i32", is_text: false };
+  }
+
+  if (annotation === "Unit") {
     return { type: "i32", is_text: false };
   }
 

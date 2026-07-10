@@ -1,0 +1,341 @@
+==================
+Inferred host effect
+==================
+
+module (!init: Init) where
+
+declare effect Io {
+  read: () => Text
+  print: (bounded_borrow Text) => Unit
+}
+
+declare Init {
+  io: Io
+}
+
+let Fx greet = () => {
+  let (!Fx, name) = Fx.read()
+  let (!Fx, ()) = Fx.print(borrow name)
+  name
+}
+
+let result = greet()
+return { result }
+
+---
+
+(source_file
+  (module_header
+    (parameter_list
+      (parameter
+        (identifier)
+        (type_reference
+          (identifier)))))
+  (declare_effect_statement
+    (identifier)
+    (effect_operation_block
+      (effect_operation
+        (identifier)
+        (host_parameter_list)
+        (host_result
+          (type_reference
+            (identifier))))
+      (effect_operation
+        (identifier)
+        (host_parameter_list
+          (host_parameter
+            (type_reference
+              (identifier))))
+        (host_result
+          (type_reference
+            (identifier))))))
+  (declare_record_statement
+    (identifier)
+    (type_field_block
+      (type_field
+        (identifier)
+        (type_reference
+          (identifier)))))
+  (context_function_statement
+    (context_holder
+      (identifier))
+    (identifier)
+    (arrow_function
+      (parameter_list)
+      (block
+        (state_binding_statement
+          (context_holder
+            (identifier))
+          (identifier)
+          (call_expression
+            (field_expression
+              (identifier)
+              (identifier))
+            (argument_list)))
+        (state_binding_statement
+          (context_holder
+            (identifier))
+          (unit_pattern)
+          (call_expression
+            (field_expression
+              (identifier)
+              (identifier))
+            (argument_list
+              (unary_expression
+                (identifier)))))
+        (expression_statement
+          (identifier)))))
+  (binding_statement
+    (identifier)
+    (call_expression
+      (identifier)
+      (argument_list)))
+  (module_return_statement
+    (object_literal
+      (field_block
+        (shorthand_field
+          (identifier))))))
+
+==================
+Ix handler and resumptions
+==================
+
+module () where
+
+effect Counter {
+  get: () => I32
+  add: (I32) => Unit
+}
+
+let counter = {
+  let count: I32 = 0
+  Counter {
+    get: (!resume) => !resume(count),
+    add: (amount, !resume) => {
+      count = count + amount
+      !resume(())
+    },
+    return: value => { value, count },
+  }
+}
+
+let make = () => Counter {
+  get: (!resume) => !resume(0),
+  return: value => value,
+}
+
+let result = try run() with counter
+let (!left, !right) = dup !resume
+return { result }
+
+---
+
+(source_file
+  (module_header
+    (parameter_list))
+  (effect_statement
+    (identifier)
+    (effect_operation_block
+      (effect_operation
+        (identifier)
+        (host_parameter_list)
+        (host_result
+          (type_reference
+            (identifier))))
+      (effect_operation
+        (identifier)
+        (host_parameter_list
+          (host_parameter
+            (type_reference
+              (identifier))))
+        (host_result
+          (type_reference
+            (identifier))))))
+  (binding_statement
+    (identifier)
+    (block
+      (binding_statement
+        (identifier)
+        (type_reference
+          (identifier))
+        (number))
+      (expression_statement
+        (effect_handler_expression
+          (identifier)
+          (handler_clause_block
+            (handler_operation_clause
+              (identifier)
+              (arrow_function
+                (parameter_list
+                  (parameter
+                    (identifier)))
+                (call_expression
+                  (linear_reference
+                    (identifier))
+                  (argument_list
+                    (identifier)))))
+            (handler_operation_clause
+              (identifier)
+              (arrow_function
+                (parameter_list
+                  (parameter
+                    (identifier))
+                  (parameter
+                    (identifier)))
+                (block
+                  (assignment
+                    (identifier)
+                    (binary_expression
+                      (identifier)
+                      (identifier)))
+                  (expression_statement
+                    (call_expression
+                      (linear_reference
+                        (identifier))
+                      (argument_list
+                        (unit_pattern)))))))
+            (handler_return_clause
+              (arrow_function
+                (parameter
+                  (identifier))
+                (object_literal
+                  (field_block
+                    (shorthand_field
+                      (identifier))
+                    (shorthand_field
+                      (identifier)))))))))))
+  (binding_statement
+    (identifier)
+    (arrow_function
+      (parameter_list)
+      (effect_handler_expression
+        (identifier)
+        (handler_clause_block
+          (handler_operation_clause
+            (identifier)
+            (arrow_function
+              (parameter_list
+                (parameter
+                  (identifier)))
+              (call_expression
+                (linear_reference
+                  (identifier))
+                (argument_list
+                  (number)))))
+          (handler_return_clause
+            (arrow_function
+              (parameter
+                (identifier))
+              (identifier)))))))
+  (binding_statement
+    (identifier)
+    (try_with_expression
+      (call_expression
+        (identifier)
+        (argument_list))
+      (identifier)))
+  (resume_dup_statement
+    (identifier)
+    (identifier)
+    (linear_reference
+      (identifier)))
+  (module_return_statement
+    (object_literal
+      (field_block
+        (shorthand_field
+          (identifier))))))
+
+==================
+Annotated context and module instantiation
+==================
+
+module (!init: Init) where
+
+import console from "./console.ix"
+
+let (Fx :: { Io.read, Io.print }) greet = () => {
+  let (!Fx, name) = Fx.read()
+  let (!Fx, ()) = Fx.print(borrow name)
+  name
+}
+
+const { run, close } = console({ io: !init.io })
+let result = run()
+return { result, close }
+
+---
+
+(source_file
+  (module_header
+    (parameter_list
+      (parameter
+        (identifier)
+        (type_reference
+          (identifier)))))
+  (import_statement
+    (identifier)
+    (string))
+  (context_function_statement
+    (context_annotation
+      (context_holder
+        (identifier))
+      (effect_row
+        (effect_operation_reference
+          (identifier)
+          (identifier))
+        (effect_operation_reference
+          (identifier)
+          (identifier))))
+    (identifier)
+    (arrow_function
+      (parameter_list)
+      (block
+        (state_binding_statement
+          (context_holder
+            (identifier))
+          (identifier)
+          (call_expression
+            (field_expression
+              (identifier)
+              (identifier))
+            (argument_list)))
+        (state_binding_statement
+          (context_holder
+            (identifier))
+          (unit_pattern)
+          (call_expression
+            (field_expression
+              (identifier)
+              (identifier))
+            (argument_list
+              (unary_expression
+                (identifier)))))
+        (expression_statement
+          (identifier)))))
+  (binding_statement
+    (destructuring_pattern
+      (identifier)
+      (identifier))
+    (call_expression
+      (identifier)
+      (argument_list
+        (object_literal
+          (field_block
+            (field_definition
+              (identifier)
+              (field_expression
+                (linear_reference
+                  (identifier))
+                (identifier))))))))
+  (binding_statement
+    (identifier)
+    (call_expression
+      (identifier)
+      (argument_list)))
+  (module_return_statement
+    (object_literal
+      (field_block
+        (shorthand_field
+          (identifier))
+        (shorthand_field
+          (identifier))))))

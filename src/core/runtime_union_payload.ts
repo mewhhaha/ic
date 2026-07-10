@@ -109,7 +109,7 @@ export function runtime_union_payload<ctx extends TypeStaticCtx>(
 
   throw new Error(
     "Core runtime union payloads must be Int, I32, U32, I64, Text, Unit, " +
-      "a union type, or a struct type",
+      "Resume, a union type, or a struct type",
   );
 }
 
@@ -269,7 +269,7 @@ function runtime_union_struct_payload_fields<ctx extends TypeStaticCtx>(
     if (!type_value || type_value.tag !== "struct_type") {
       throw new Error(
         "Core runtime union struct payload field " + field.name +
-          " must be Int, I32, U32, I64, Text, a union type, " +
+          " must be Int, I32, U32, I64, Text, Resume, a union type, " +
           "or a static-shaped struct type",
       );
     }

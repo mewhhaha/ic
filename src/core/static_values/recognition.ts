@@ -28,7 +28,13 @@ export function is_static_value_expr<ctx extends StaticValueAliasCtx>(
     return is_static_value_expr(block_result.expr, block_result.ctx, hooks);
   }
 
-  if (hooks.static_union_case(value, ctx)) {
+  const union_case = hooks.static_union_case(value, ctx);
+
+  if (union_case) {
+    if (union_case.resume_payload) {
+      return false;
+    }
+
     return true;
   }
 

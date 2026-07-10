@@ -11,7 +11,10 @@ export function resolve_annotation_type(
   env: Env,
   hooks: AnnotationHooks,
 ): FrontType | undefined {
-  if (annotation === "Int" || annotation === "I32" || annotation === "U32") {
+  if (
+    annotation === "Int" || annotation === "I32" || annotation === "U32" ||
+    annotation === "Resume"
+  ) {
     return { tag: "int", type: "i32" };
   }
 

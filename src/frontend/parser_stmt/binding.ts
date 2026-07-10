@@ -1,5 +1,5 @@
 import { expect } from "../../expect.ts";
-import type { Stmt } from "../ast.ts";
+import type { EffectContext, EffectRef, Stmt } from "../ast.ts";
 import { expect_snake_case } from "../names.ts";
 import { module_value } from "../parser_support.ts";
 import { ParserStmtControl } from "./control.ts";
@@ -43,6 +43,24 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
       return { tag: "type_check", pattern, target: this.parse_expr() };
     }
 
+    if (this.peek().kind === "symbol" && this.peek().text === "{") {
+      return this.parse_bind_pattern(kind);
+    }
+
+    if (kind === "let" && this.is_resume_dup()) {
+      return this.parse_resume_dup();
+    }
+
+    if (
+      kind === "let" && this.peek().kind === "symbol" &&
+      this.peek().text === "(" && this.peek(1).kind === "symbol" &&
+      this.peek(1).text === "!"
+    ) {
+      return this.parse_state_bind();
+    }
+
+    const effect_context = this.try_effect_context();
+
     let is_recursive = false;
 
     if (kind === "let" && this.match_name("rec")) {
@@ -77,6 +95,13 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
     }
 
     this.expect_symbol("=");
+    const value = this.parse_expr();
+
+    if (is_linear) {
+      this.affine_call_names.add(name);
+    } else {
+      this.affine_call_names.delete(name);
+    }
 
     return {
       tag: "bind",
@@ -85,8 +110,137 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
       is_recursive,
       is_linear,
       annotation,
-      value: this.parse_expr(),
+      effect_context,
+      value,
     };
+  }
+
+  private is_resume_dup(): boolean {
+    return this.peek().kind === "symbol" && this.peek().text === "(" &&
+      this.peek(1).kind === "symbol" && this.peek(1).text === "!" &&
+      this.peek(2).kind === "name" &&
+      this.peek(3).kind === "symbol" && this.peek(3).text === "," &&
+      this.peek(4).kind === "symbol" && this.peek(4).text === "!" &&
+      this.peek(5).kind === "name" &&
+      this.peek(6).kind === "symbol" && this.peek(6).text === ")" &&
+      this.peek(7).kind === "symbol" && this.peek(7).text === "=" &&
+      this.peek(8).kind === "name" && this.peek(8).text === "dup";
+  }
+
+  private parse_resume_dup(): Stmt {
+    this.expect_symbol("(");
+    this.expect_symbol("!");
+    const left = this.expect_name("Expected left duplicated resumption");
+    expect_snake_case(left, "Duplicated resumption");
+    this.expect_symbol(",");
+    this.expect_symbol("!");
+    const right = this.expect_name("Expected right duplicated resumption");
+    expect_snake_case(right, "Duplicated resumption");
+    this.expect_symbol(")");
+    this.expect_symbol("=");
+    expect(this.match_name("dup"), "Expected dup");
+    this.affine_call_names.add(left);
+    this.affine_call_names.add(right);
+    return { tag: "resume_dup", left, right, value: this.parse_expr() };
+  }
+
+  private parse_bind_pattern(kind: "let" | "const"): Stmt {
+    this.expect_symbol("{");
+    const items = [];
+
+    while (!this.match_symbol("}")) {
+      const is_linear = this.match_symbol("!");
+      const name = this.expect_name("Expected destructured binding name");
+      expect_snake_case(name, "Destructured binding");
+      items.push({ name, is_linear });
+
+      if (!this.match_symbol("}")) {
+        this.expect_symbol(",");
+      } else {
+        break;
+      }
+    }
+
+    this.expect_symbol("=");
+    return { tag: "bind_pattern", kind, items, value: this.parse_expr() };
+  }
+
+  private parse_state_bind(): Stmt {
+    this.expect_symbol("(");
+    this.expect_symbol("!");
+    const context = this.expect_name("Expected renewed effect context");
+    this.expect_effect_context_name(context);
+    this.expect_symbol(",");
+    let value_name: string | undefined;
+
+    if (this.match_symbol("(")) {
+      this.expect_symbol(")");
+    } else {
+      value_name = this.expect_name("Expected state result binding");
+      expect_snake_case(value_name, "State result binding");
+    }
+
+    this.expect_symbol(")");
+    this.expect_symbol("=");
+    return { tag: "state_bind", context, value_name, value: this.parse_expr() };
+  }
+
+  private try_effect_context(): EffectContext | undefined {
+    if (this.peek().kind === "symbol" && this.peek().text === "(") {
+      const context = this.peek(1);
+      const separator = this.peek(2);
+
+      if (
+        context.kind !== "name" || separator.kind !== "symbol" ||
+        separator.text !== "::"
+      ) {
+        return undefined;
+      }
+
+      this.expect_symbol("(");
+      const name = this.expect_name("Expected effect context name");
+      this.expect_effect_context_name(name);
+      this.expect_symbol("::");
+      this.expect_symbol("{");
+      const operations: EffectRef[] = [];
+
+      while (!this.match_symbol("}")) {
+        const effect = this.expect_name("Expected effect name");
+        this.expect_symbol(".");
+        const operation = this.expect_name("Expected effect operation");
+        expect_snake_case(operation, "Effect operation");
+        operations.push({ effect, operation });
+
+        if (!this.match_symbol("}")) {
+          this.expect_symbol(",");
+        } else {
+          break;
+        }
+      }
+
+      this.expect_symbol(")");
+      return { name, operations };
+    }
+
+    const context = this.peek();
+    const binding = this.peek(1);
+
+    if (
+      context.kind !== "name" || binding.kind !== "name" ||
+      !/^[A-Z][A-Za-z0-9]*$/.test(context.text)
+    ) {
+      return undefined;
+    }
+
+    this.advance();
+    return { name: context.text, operations: undefined };
+  }
+
+  private expect_effect_context_name(name: string): void {
+    expect(
+      /^[A-Z][A-Za-z0-9]*$/.test(name),
+      "Effect context must use PascalCase: " + name,
+    );
   }
 
   protected parse_unsupported_stmt(feature: string): Stmt {

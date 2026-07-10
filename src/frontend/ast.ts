@@ -2,7 +2,85 @@ import type { Prim, ValType } from "../op.ts";
 
 export type Source = {
   tag: "program";
+  module?: ModuleHeader;
+  declarations?: Declaration[];
   statements: Stmt[];
+};
+
+export type ModuleHeader = {
+  params: Param[];
+};
+
+export type Declaration = EffectDeclaration | RecordDeclaration;
+
+export type EffectDeclaration = {
+  tag: "effect";
+  implementation: "host" | "ix";
+  name: string;
+  operations: EffectOperation[];
+};
+
+export type EffectOperation = {
+  name: string;
+  params: EffectParam[];
+  result: EffectResult;
+};
+
+export type EffectParam = {
+  type_name: string;
+  ownership:
+    | "scalar"
+    | "bounded_borrow"
+    | "frozen_shareable"
+    | "ownership_transfer";
+};
+
+export type EffectResult = {
+  type_name: string;
+  ownership: "scalar" | "unique_heap" | "frozen_shareable";
+};
+
+export type RecordDeclaration = {
+  tag: "record";
+  name: string;
+  fields: TypeField[];
+};
+
+export type EffectRef = {
+  effect: string;
+  operation: string;
+};
+
+export type EffectContext = {
+  name: string;
+  operations: EffectRef[] | undefined;
+};
+
+export type BindingPatternItem = {
+  name: string;
+  is_linear: boolean;
+};
+
+export type HandlerState = {
+  name: string;
+  annotation: string | undefined;
+  value: FrontExpr;
+};
+
+export type HandlerClause = {
+  name: string;
+  params: Param[];
+  body: FrontExpr;
+};
+
+export type HandlerReturnClause = {
+  param: Param;
+  body: FrontExpr;
+};
+
+export type ResumeSignature = {
+  input_type: string;
+  output_type: string;
 };
 
 export type Stmt =
@@ -15,6 +93,25 @@ export type Stmt =
     is_recursive?: boolean;
     is_linear: boolean;
     annotation: string | undefined;
+    effect_context?: EffectContext;
+    value: FrontExpr;
+  }
+  | {
+    tag: "state_bind";
+    context: string;
+    value_name: string | undefined;
+    value: FrontExpr;
+  }
+  | {
+    tag: "bind_pattern";
+    kind: "let" | "const";
+    items: BindingPatternItem[];
+    value: FrontExpr;
+  }
+  | {
+    tag: "resume_dup";
+    left: string;
+    right: string;
     value: FrontExpr;
   }
   | { tag: "assign"; name: string; mode: "same" | "change"; value: FrontExpr }
@@ -51,19 +148,33 @@ export type Stmt =
 
 export type FrontExpr =
   | { tag: "num"; type: ValType; value: number | bigint }
+  | { tag: "unit" }
   | { tag: "text"; value: string }
   | { tag: "type_name"; name: string }
-  | { tag: "var"; name: string }
+  | { tag: "var"; name: string; resume_signature?: ResumeSignature }
   | { tag: "prim"; prim: Prim; left: FrontExpr; right: FrontExpr }
   | { tag: "lam"; params: Param[]; body: FrontExpr }
   | { tag: "rec"; params: Param[]; body: FrontExpr }
-  | { tag: "app"; func: FrontExpr; args: FrontExpr[] }
+  | {
+    tag: "app";
+    func: FrontExpr;
+    args: FrontExpr[];
+    resume_payload?: boolean;
+  }
   | { tag: "block"; statements: Stmt[] }
   | { tag: "comptime"; expr: FrontExpr }
   | { tag: "borrow"; value: FrontExpr }
   | { tag: "freeze"; value: FrontExpr }
   | { tag: "scratch"; body: FrontExpr }
   | { tag: "captured"; expr: FrontExpr; env: Env }
+  | {
+    tag: "handler";
+    effect: string;
+    state: HandlerState[];
+    clauses: HandlerClause[];
+    return_clause: HandlerReturnClause;
+  }
+  | { tag: "try_with"; body: FrontExpr; handler: FrontExpr }
   | { tag: "with"; base: FrontExpr; fields: Field[] }
   | { tag: "struct_type"; fields: TypeField[] }
   | { tag: "struct_value"; type_expr: FrontExpr; fields: Field[] }
@@ -85,15 +196,21 @@ export type FrontExpr =
     else_branch: FrontExpr;
     implicit_else?: boolean;
   }
-  | { tag: "field"; object: FrontExpr; name: string }
+  | {
+    tag: "field";
+    object: FrontExpr;
+    name: string;
+    resume_signature?: ResumeSignature;
+  }
   | { tag: "index"; object: FrontExpr; index: FrontExpr }
   | {
     tag: "union_case";
     name: string;
     value: FrontExpr | undefined;
     type_expr: FrontExpr | undefined;
+    resume_payload?: boolean;
   }
-  | { tag: "linear"; name: string }
+  | { tag: "linear"; name: string; resume_signature?: ResumeSignature }
   | { tag: "unsupported"; feature: string; text: string };
 
 export type Param = {

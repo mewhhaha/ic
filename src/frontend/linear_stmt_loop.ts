@@ -197,6 +197,12 @@ export function validate_linear_loop_body(
       );
     } else if (stmt.tag === "import" || stmt.tag === "host_import") {
       continue;
+    } else if (stmt.tag === "state_bind" || stmt.tag === "bind_pattern") {
+      throw new Error("Cannot validate linear " + stmt.tag + " yet");
+    } else if (stmt.tag === "resume_dup") {
+      throw new Error(
+        "Resumption duplication must be elaborated before linear validation",
+      );
     } else {
       throw new Error("Cannot validate linear " + stmt.feature + " yet");
     }

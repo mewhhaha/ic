@@ -160,12 +160,18 @@ function static_union_constructor_case<ctx extends CoreUnionCtx>(
     );
   }
 
-  return {
+  const result: Extract<CoreExpr, { tag: "union_case" }> = {
     tag: "union_case",
     name: expr.func.name,
     value,
     type_expr: expr.func.object,
   };
+
+  if (expr.resume_payload) {
+    result.resume_payload = true;
+  }
+
+  return result;
 }
 
 function static_union_type<ctx extends CoreUnionCtx>(

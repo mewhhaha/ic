@@ -29,6 +29,9 @@ export function lower_expr(
     case "num":
       return { tag: "num", type: expr.type, value: expr.value };
 
+    case "unit":
+      return { tag: "num", type: "i32", value: 0 };
+
     case "text":
       return { tag: "text", value: expr.value };
 
@@ -80,6 +83,16 @@ export function lower_expr(
 
     case "captured":
       return lower_expr(expr.expr, expr.env, hooks);
+
+    case "handler":
+      throw new Error(
+        "Handler expression must be elaborated before Ic lowering",
+      );
+
+    case "try_with":
+      throw new Error(
+        "Try-with expression must be elaborated before Ic lowering",
+      );
 
     case "with":
       throw new Error(

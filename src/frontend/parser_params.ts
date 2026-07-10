@@ -12,6 +12,8 @@ import {
 } from "./parser_support.ts";
 
 export class ParserParams extends ParserCursor {
+  protected allow_pascal_type_names = 0;
+  protected affine_call_names = new Set<string>();
   protected try_single_param_arrow(): Param | undefined {
     const token = this.peek();
 
@@ -159,6 +161,13 @@ export class ParserParams extends ParserCursor {
     this.expect_supported_name(name, label);
 
     if (is_builtin_type_reference_name(name)) {
+      return;
+    }
+
+    if (
+      this.allow_pascal_type_names > 0 &&
+      /^[A-Z][A-Za-z0-9]*$/.test(name)
+    ) {
       return;
     }
 

@@ -1,0 +1,19 @@
+{
+  "grammars": [
+    {
+      "name": "ix",
+      "camelcase": "Ix",
+      "scope": "source.ix",
+      "path": ".",
+      "file-types": [
+        "ix"
+      ],
+      "highlights": "queries/highlights.scm"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Tree-sitter grammar for Ix source files."
+  }
+}

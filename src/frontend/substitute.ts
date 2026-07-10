@@ -6,13 +6,23 @@ export function substitute_front_expr(
 ): FrontExpr {
   switch (expr.tag) {
     case "num":
+    case "unit":
     case "text":
     case "type_name":
-    case "linear":
     case "struct_type":
     case "union_type":
     case "unsupported":
       return expr;
+
+    case "linear": {
+      const replacement = replacements.get(expr.name);
+
+      if (replacement) {
+        return replacement;
+      }
+
+      return expr;
+    }
 
     case "var": {
       const replacement = replacements.get(expr.name);
@@ -35,8 +45,7 @@ export function substitute_front_expr(
     case "lam": {
       const local = shadow_params(replacements, expr.params);
       return {
-        tag: "lam",
-        params: expr.params,
+        ...expr,
         body: substitute_front_expr(expr.body, local),
       };
     }
@@ -52,7 +61,7 @@ export function substitute_front_expr(
 
     case "app":
       return {
-        tag: "app",
+        ...expr,
         func: substitute_front_expr(expr.func, replacements),
         args: expr.args.map((arg) => substitute_front_expr(arg, replacements)),
       };
@@ -89,6 +98,45 @@ export function substitute_front_expr(
 
     case "captured":
       return expr;
+
+    case "handler": {
+      const local = new Map(replacements);
+      const state = expr.state.map((item) => {
+        const value = substitute_front_expr(item.value, local);
+        local.delete(item.name);
+        return { ...item, value };
+      });
+      const clauses = expr.clauses.map((clause) => {
+        const clause_replacements = shadow_params(local, clause.params);
+        return {
+          ...clause,
+          body: substitute_front_expr(clause.body, clause_replacements),
+        };
+      });
+      const return_replacements = shadow_name(
+        local,
+        expr.return_clause.param.name,
+      );
+      return {
+        ...expr,
+        state,
+        clauses,
+        return_clause: {
+          ...expr.return_clause,
+          body: substitute_front_expr(
+            expr.return_clause.body,
+            return_replacements,
+          ),
+        },
+      };
+    }
+
+    case "try_with":
+      return {
+        tag: "try_with",
+        body: substitute_front_expr(expr.body, replacements),
+        handler: substitute_front_expr(expr.handler, replacements),
+      };
 
     case "with":
       return {
@@ -165,8 +213,7 @@ export function substitute_front_expr(
       }
 
       return {
-        tag: "union_case",
-        name: expr.name,
+        ...expr,
         value,
         type_expr,
       };
@@ -198,6 +245,12 @@ function substitute_front_block(
       local.delete(stmt.name);
       continue;
     }
+
+    if (stmt.tag === "resume_dup") {
+      local.delete(stmt.left);
+      local.delete(stmt.right);
+      continue;
+    }
   }
 
   return result;
@@ -216,6 +269,31 @@ function substitute_front_stmt(
         is_recursive: stmt.is_recursive,
         is_linear: stmt.is_linear,
         annotation: stmt.annotation,
+        effect_context: stmt.effect_context,
+        value: substitute_front_expr(stmt.value, replacements),
+      };
+
+    case "state_bind":
+      return {
+        tag: "state_bind",
+        context: stmt.context,
+        value_name: stmt.value_name,
+        value: substitute_front_expr(stmt.value, replacements),
+      };
+
+    case "bind_pattern":
+      return {
+        tag: "bind_pattern",
+        kind: stmt.kind,
+        items: stmt.items,
+        value: substitute_front_expr(stmt.value, replacements),
+      };
+
+    case "resume_dup":
+      return {
+        tag: "resume_dup",
+        left: stmt.left,
+        right: stmt.right,
         value: substitute_front_expr(stmt.value, replacements),
       };
 

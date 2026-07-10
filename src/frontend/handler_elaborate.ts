@@ -1,0 +1,3553 @@
+import { expect } from "../expect.ts";
+import type {
+  EffectContext,
+  EffectDeclaration,
+  EffectOperation,
+  EffectRef,
+  FrontExpr,
+  ResumeSignature,
+  Source,
+  Stmt,
+} from "./ast.ts";
+import type { FrontEffectAnalysis } from "./effect_analysis.ts";
+import { substitute_front_expr } from "./substitute.ts";
+
+type HandlerExpr = Extract<FrontExpr, { tag: "handler" }>;
+
+type EffectIndex = {
+  effects: Map<string, EffectDeclaration>;
+  operations: Map<string, EffectRef[]>;
+};
+
+type EffectFunction = {
+  name: string;
+  context: EffectContext;
+  value: Extract<FrontExpr, { tag: "lam" | "rec" }>;
+};
+
+type HandlerRecipe = {
+  key: string;
+  handler: HandlerExpr;
+  context: EffectContext | undefined;
+  prefix: Stmt[];
+  affine: boolean;
+};
+
+type ActiveHandler = {
+  id: number;
+  recipe: HandlerRecipe;
+  effect: EffectDeclaration;
+  state_names: Set<string>;
+  output_type: string | undefined;
+  outer_ctx: CompileCtx;
+  continue_after: CpsCont;
+};
+
+type ValueKind =
+  | "scalar"
+  | "frozen"
+  | "unique"
+  | "borrow"
+  | "scratch"
+  | "resource"
+  | "resume"
+  | "unknown";
+
+type ResumeSpec = {
+  name: string;
+  input_type: string;
+  output_type: string | undefined;
+  handler_id: number;
+  captured_handlers: ActiveHandler[];
+  continue_with: (value: FrontExpr) => CpsResult;
+  captures: Map<string, ValueKind>;
+  used: boolean;
+};
+
+type EscapedResume = {
+  signature: ResumeSignature;
+  used: boolean;
+};
+
+type HandlerUse = {
+  count: number;
+};
+
+type CompileCtx = {
+  active: ActiveHandler[];
+  delimiters: ActiveHandler[];
+  resumptions: Map<string, ResumeSpec>;
+  resume_cases: Map<string, Map<string, ResumeSignature>>;
+  resume_fields: Map<string, Map<string, ResumeSignature>>;
+  escaped_resumptions: Map<string, EscapedResume>;
+  unavailable_state: Set<number>;
+  values: Map<string, ValueKind>;
+  active_calls: Set<string>;
+};
+
+type CpsResult = {
+  expr: FrontExpr;
+  target: number | undefined;
+  ctx: CompileCtx;
+};
+
+type CpsCont = (value: FrontExpr, ctx: CompileCtx) => CpsResult;
+
+export type HandlerElaborationOptions = {
+  providers: Map<string, FrontExpr>;
+  analysis: FrontEffectAnalysis;
+};
+
+type Elaboration = {
+  source: Source;
+  index: EffectIndex;
+  analysis: FrontEffectAnalysis;
+  providers: Map<string, FrontExpr>;
+  functions: Map<string, EffectFunction>;
+  static_names: Set<string>;
+  handlers: Map<string, HandlerRecipe>;
+  handler_uses: Map<string, HandlerUse>;
+  resume_value_signatures: WeakMap<object, ResumeSignature>;
+  next_handler: number;
+  next_resume: number;
+  next_factory: number;
+};
+
+export function elaborate_front_handlers(
+  source: Source,
+  options: HandlerElaborationOptions,
+): Source {
+  if (!has_ix_effects(source) && !source_contains_handlers(source)) {
+    return source;
+  }
+
+  const elaboration = create_elaboration(source, options);
+  collect_top_level_facts(source.statements, elaboration);
+  const ctx = create_compile_ctx(source, elaboration);
+  const statements = rewrite_top_level_statements(
+    source.statements,
+    ctx,
+    elaboration,
+  );
+  validate_handler_uses(elaboration);
+  return { ...source, statements };
+}
+
+function has_ix_effects(source: Source): boolean {
+  for (const declaration of source.declarations || []) {
+    if (
+      declaration.tag === "effect" && declaration.implementation === "ix"
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function source_contains_handlers(source: Source): boolean {
+  for (const stmt of source.statements) {
+    if (stmt_contains_handler(stmt)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function stmt_contains_handler(stmt: Stmt): boolean {
+  if (stmt.tag === "bind") {
+    return expr_contains_handler(stmt.value);
+  }
+
+  if (stmt.tag === "state_bind" || stmt.tag === "bind_pattern") {
+    return expr_contains_handler(stmt.value);
+  }
+
+  if (stmt.tag === "resume_dup") {
+    return true;
+  }
+
+  if (stmt.tag === "assign") {
+    return expr_contains_handler(stmt.value);
+  }
+
+  if (stmt.tag === "index_assign") {
+    return expr_contains_handler(stmt.index) ||
+      expr_contains_handler(stmt.value);
+  }
+
+  if (stmt.tag === "for_range") {
+    if (
+      expr_contains_handler(stmt.start) || expr_contains_handler(stmt.end) ||
+      expr_contains_handler(stmt.step)
+    ) {
+      return true;
+    }
+
+    return stmt.body.some(stmt_contains_handler);
+  }
+
+  if (stmt.tag === "for_collection") {
+    return expr_contains_handler(stmt.collection) ||
+      stmt.body.some(stmt_contains_handler);
+  }
+
+  if (stmt.tag === "if_stmt") {
+    return expr_contains_handler(stmt.cond) ||
+      stmt.body.some(stmt_contains_handler);
+  }
+
+  if (stmt.tag === "if_let_stmt") {
+    return expr_contains_handler(stmt.target) ||
+      stmt.body.some(stmt_contains_handler);
+  }
+
+  if (stmt.tag === "type_check") {
+    return expr_contains_handler(stmt.target);
+  }
+
+  if (stmt.tag === "return") {
+    return expr_contains_handler(stmt.value);
+  }
+
+  if (stmt.tag === "expr") {
+    return expr_contains_handler(stmt.expr);
+  }
+
+  return false;
+}
+
+function expr_contains_handler(expr: FrontExpr): boolean {
+  if (expr.tag === "handler" || expr.tag === "try_with") {
+    return true;
+  }
+
+  if (expr.tag === "prim") {
+    return expr_contains_handler(expr.left) ||
+      expr_contains_handler(expr.right);
+  }
+
+  if (expr.tag === "lam" || expr.tag === "rec") {
+    return expr_contains_handler(expr.body);
+  }
+
+  if (expr.tag === "app") {
+    if (expr_contains_handler(expr.func)) {
+      return true;
+    }
+
+    return expr.args.some(expr_contains_handler);
+  }
+
+  if (expr.tag === "block") {
+    return expr.statements.some(stmt_contains_handler);
+  }
+
+  if (expr.tag === "comptime") {
+    return expr_contains_handler(expr.expr);
+  }
+
+  if (expr.tag === "borrow" || expr.tag === "freeze") {
+    return expr_contains_handler(expr.value);
+  }
+
+  if (expr.tag === "scratch") {
+    return expr_contains_handler(expr.body);
+  }
+
+  if (expr.tag === "captured") {
+    return expr_contains_handler(expr.expr);
+  }
+
+  if (expr.tag === "with" || expr.tag === "struct_update") {
+    if (expr_contains_handler(expr.base)) {
+      return true;
+    }
+
+    return expr.fields.some((field) => expr_contains_handler(field.value));
+  }
+
+  if (expr.tag === "struct_value") {
+    if (expr_contains_handler(expr.type_expr)) {
+      return true;
+    }
+
+    return expr.fields.some((field) => expr_contains_handler(field.value));
+  }
+
+  if (expr.tag === "if") {
+    return expr_contains_handler(expr.cond) ||
+      expr_contains_handler(expr.then_branch) ||
+      expr_contains_handler(expr.else_branch);
+  }
+
+  if (expr.tag === "if_let") {
+    return expr_contains_handler(expr.target) ||
+      expr_contains_handler(expr.then_branch) ||
+      expr_contains_handler(expr.else_branch);
+  }
+
+  if (expr.tag === "field") {
+    return expr_contains_handler(expr.object);
+  }
+
+  if (expr.tag === "index") {
+    return expr_contains_handler(expr.object) ||
+      expr_contains_handler(expr.index);
+  }
+
+  if (expr.tag === "union_case") {
+    if (expr.value && expr_contains_handler(expr.value)) {
+      return true;
+    }
+
+    if (expr.type_expr && expr_contains_handler(expr.type_expr)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function create_elaboration(
+  source: Source,
+  options: HandlerElaborationOptions,
+): Elaboration {
+  const effects = new Map<string, EffectDeclaration>();
+  const operations = new Map<string, EffectRef[]>();
+
+  for (const declaration of source.declarations || []) {
+    if (declaration.tag !== "effect") {
+      continue;
+    }
+
+    effects.set(declaration.name, declaration);
+
+    for (const operation of declaration.operations) {
+      const ref = { effect: declaration.name, operation: operation.name };
+      const refs = operations.get(operation.name);
+
+      if (refs) {
+        refs.push(ref);
+      } else {
+        operations.set(operation.name, [ref]);
+      }
+    }
+  }
+
+  return {
+    source,
+    index: { effects, operations },
+    analysis: options.analysis,
+    providers: options.providers,
+    functions: new Map(),
+    static_names: new Set(),
+    handlers: new Map(),
+    handler_uses: new Map(),
+    resume_value_signatures: new WeakMap(),
+    next_handler: 0,
+    next_resume: 0,
+    next_factory: 0,
+  };
+}
+
+function collect_top_level_facts(
+  statements: Stmt[],
+  elaboration: Elaboration,
+): void {
+  for (const stmt of statements) {
+    if (stmt.tag !== "bind") {
+      continue;
+    }
+
+    elaboration.static_names.add(stmt.name);
+
+    if (
+      stmt.effect_context &&
+      (stmt.value.tag === "lam" || stmt.value.tag === "rec")
+    ) {
+      elaboration.functions.set(stmt.name, {
+        name: stmt.name,
+        context: stmt.effect_context,
+        value: stmt.value,
+      });
+    }
+  }
+
+  for (const stmt of statements) {
+    if (stmt.tag !== "bind") {
+      continue;
+    }
+
+    const recipe = handler_recipe_from_expr(
+      stmt.value,
+      stmt.effect_context,
+      stmt.name,
+      elaboration,
+      new Set(),
+    );
+
+    if (!recipe) {
+      continue;
+    }
+
+    elaboration.handlers.set(stmt.name, recipe);
+    elaboration.handler_uses.set(recipe.key, { count: 0 });
+  }
+}
+
+function create_compile_ctx(
+  source: Source,
+  elaboration: Elaboration,
+): CompileCtx {
+  const values = new Map<string, ValueKind>();
+
+  if (source.module) {
+    for (const param of source.module.params) {
+      if (param.annotation === "Init") {
+        values.set(param.name, "resource");
+      } else {
+        values.set(param.name, kind_from_type_name(param.annotation));
+      }
+    }
+  }
+
+  for (const name of elaboration.static_names) {
+    if (!values.has(name)) {
+      values.set(name, "frozen");
+    }
+  }
+
+  return {
+    active: [],
+    delimiters: [],
+    resumptions: new Map(),
+    resume_cases: new Map(),
+    resume_fields: new Map(),
+    escaped_resumptions: new Map(),
+    unavailable_state: new Set(),
+    values,
+    active_calls: new Set(),
+  };
+}
+
+function rewrite_top_level_statements(
+  statements: Stmt[],
+  input_ctx: CompileCtx,
+  elaboration: Elaboration,
+): Stmt[] {
+  const result: Stmt[] = [];
+  let ctx = clone_compile_ctx(input_ctx);
+
+  for (const stmt of statements) {
+    if (stmt.tag === "bind" && elaboration.handlers.has(stmt.name)) {
+      continue;
+    }
+
+    if (
+      stmt.tag === "bind" &&
+      (stmt.value.tag === "lam" || stmt.value.tag === "rec") &&
+      handler_result_expr(stmt.value.body)
+    ) {
+      continue;
+    }
+
+    if (
+      stmt.tag === "bind" &&
+      (stmt.value.tag === "lam" || stmt.value.tag === "rec") &&
+      stmt.value.params.some((param) => param.annotation === "Resume")
+    ) {
+      continue;
+    }
+
+    if (stmt.tag === "resume_dup") {
+      throw new Error(
+        "Resumption duplication is only valid inside a handler clause",
+      );
+    }
+
+    if (stmt.tag === "bind") {
+      if (
+        stmt.effect_context &&
+        (stmt.value.tag === "lam" || stmt.value.tag === "rec") &&
+        function_has_ix_effects(stmt.name, elaboration)
+      ) {
+        continue;
+      }
+
+      const compiled = compile_expr(
+        stmt.value,
+        ctx,
+        (value, next_ctx) => normal_result(value, next_ctx),
+        elaboration,
+      );
+      expect(
+        compiled.target === undefined,
+        "Local handler escape reached a top-level binding",
+      );
+      result.push({ ...stmt, value: compiled.expr });
+      ctx = clone_compile_ctx(compiled.ctx);
+      ctx.values.set(stmt.name, kind_from_expr(compiled.expr, ctx));
+      record_resume_case_binding(
+        stmt.name,
+        compiled.expr,
+        stmt.annotation,
+        ctx,
+        elaboration,
+      );
+      continue;
+    }
+
+    const compiled = compile_top_level_stmt(stmt, ctx, elaboration);
+    result.push(compiled.stmt);
+    ctx = compiled.ctx;
+  }
+
+  return result;
+}
+
+function compile_top_level_stmt(
+  stmt: Exclude<Stmt, { tag: "bind" | "resume_dup" }>,
+  ctx: CompileCtx,
+  elaboration: Elaboration,
+): { stmt: Stmt; ctx: CompileCtx } {
+  if (stmt.tag === "state_bind") {
+    throw new Error(
+      "Effect operation at module root must be inside an effect function",
+    );
+  }
+
+  if (stmt.tag === "bind_pattern") {
+    const compiled = compile_expr(
+      stmt.value,
+      ctx,
+      (value, next_ctx) => normal_result(value, next_ctx),
+      elaboration,
+    );
+    expect(compiled.target === undefined, "Handler escape in binding pattern");
+    return { stmt: { ...stmt, value: compiled.expr }, ctx: compiled.ctx };
+  }
+
+  if (stmt.tag === "assign") {
+    const compiled = compile_expr(
+      stmt.value,
+      ctx,
+      (value, next_ctx) => normal_result(value, next_ctx),
+      elaboration,
+    );
+    expect(compiled.target === undefined, "Handler escape in assignment");
+    const next_ctx = clone_compile_ctx(compiled.ctx);
+    next_ctx.values.set(stmt.name, kind_from_expr(compiled.expr, next_ctx));
+    record_resume_case_binding(
+      stmt.name,
+      compiled.expr,
+      undefined,
+      next_ctx,
+      elaboration,
+    );
+    return { stmt: { ...stmt, value: compiled.expr }, ctx: next_ctx };
+  }
+
+  if (stmt.tag === "index_assign") {
+    return {
+      stmt: {
+        ...stmt,
+        index: rewrite_pure_expr(stmt.index, ctx, elaboration),
+        value: rewrite_pure_expr(stmt.value, ctx, elaboration),
+      },
+      ctx,
+    };
+  }
+
+  if (stmt.tag === "return" || stmt.tag === "expr") {
+    const value = stmt.tag === "return" ? stmt.value : stmt.expr;
+    const compiled = compile_expr(
+      value,
+      ctx,
+      (item, next_ctx) => normal_result(item, next_ctx),
+      elaboration,
+    );
+    expect(compiled.target === undefined, "Uncaught local handler escape");
+
+    if (stmt.tag === "return") {
+      return {
+        stmt: { tag: "return", value: compiled.expr },
+        ctx: compiled.ctx,
+      };
+    }
+
+    return { stmt: { tag: "expr", expr: compiled.expr }, ctx: compiled.ctx };
+  }
+
+  if (stmt.tag === "if_stmt") {
+    return {
+      stmt: {
+        ...stmt,
+        cond: rewrite_pure_expr(stmt.cond, ctx, elaboration),
+        body: rewrite_top_level_statements(
+          stmt.body,
+          clone_compile_ctx(ctx),
+          elaboration,
+        ),
+      },
+      ctx,
+    };
+  }
+
+  if (stmt.tag === "if_let_stmt") {
+    return {
+      stmt: {
+        ...stmt,
+        target: rewrite_pure_expr(stmt.target, ctx, elaboration),
+        body: rewrite_top_level_statements(
+          stmt.body,
+          clone_compile_ctx(ctx),
+          elaboration,
+        ),
+      },
+      ctx,
+    };
+  }
+
+  if (stmt.tag === "for_range") {
+    return {
+      stmt: {
+        ...stmt,
+        start: rewrite_pure_expr(stmt.start, ctx, elaboration),
+        end: rewrite_pure_expr(stmt.end, ctx, elaboration),
+        step: rewrite_pure_expr(stmt.step, ctx, elaboration),
+        body: rewrite_top_level_statements(
+          stmt.body,
+          clone_compile_ctx(ctx),
+          elaboration,
+        ),
+      },
+      ctx,
+    };
+  }
+
+  if (stmt.tag === "for_collection") {
+    return {
+      stmt: {
+        ...stmt,
+        collection: rewrite_pure_expr(stmt.collection, ctx, elaboration),
+        body: rewrite_top_level_statements(
+          stmt.body,
+          clone_compile_ctx(ctx),
+          elaboration,
+        ),
+      },
+      ctx,
+    };
+  }
+
+  if (stmt.tag === "type_check") {
+    return {
+      stmt: {
+        ...stmt,
+        target: rewrite_pure_expr(stmt.target, ctx, elaboration),
+      },
+      ctx,
+    };
+  }
+
+  return { stmt, ctx };
+}
+
+function compile_expr(
+  expr: FrontExpr,
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  assert_available_state(expr, ctx);
+
+  if (expr.tag === "unit") {
+    return cont(unit_value(), ctx);
+  }
+
+  if (expr.tag === "handler") {
+    throw new Error("Handler value must be consumed by `try ... with ...`");
+  }
+
+  if (expr.tag === "try_with") {
+    return compile_try_with(expr, ctx, cont, elaboration);
+  }
+
+  if (expr.tag === "block") {
+    return compile_statements(expr.statements, ctx, cont, elaboration);
+  }
+
+  if (expr.tag === "app") {
+    const resume = resumption_call(expr, ctx);
+
+    if (resume) {
+      return compile_resume_call(expr, resume, ctx, cont, elaboration);
+    }
+
+    const escaped_resume = escaped_resumption_call(expr, ctx, elaboration);
+
+    if (escaped_resume) {
+      return compile_escaped_resume_call(
+        expr,
+        escaped_resume,
+        ctx,
+        cont,
+        elaboration,
+      );
+    }
+
+    const resume_function = resume_function_call(expr, ctx, elaboration);
+
+    if (resume_function) {
+      return compile_resume_function_call(
+        expr,
+        resume_function,
+        ctx,
+        cont,
+        elaboration,
+      );
+    }
+
+    if (
+      expr.func.tag === "var" && function_has_ix_effects(
+        expr.func.name,
+        elaboration,
+      )
+    ) {
+      return compile_ix_function_call(expr, ctx, cont, elaboration);
+    }
+
+    return compile_expr_list(
+      expr.args,
+      ctx,
+      [],
+      (args, next_ctx) => {
+        const func = rewrite_pure_expr(expr.func, next_ctx, elaboration);
+        const app: Extract<FrontExpr, { tag: "app" }> = {
+          ...expr,
+          func,
+          args,
+        };
+
+        if (func.tag === "field") {
+          for (const arg of args) {
+            if (resume_value_signature(arg, elaboration)) {
+              app.resume_payload = true;
+              break;
+            }
+          }
+        }
+
+        return cont(app, next_ctx);
+      },
+      elaboration,
+    );
+  }
+
+  if (expr.tag === "linear") {
+    const resume = ctx.resumptions.get(expr.name);
+
+    if (resume) {
+      const closure = consume_resume_value(resume, ctx, elaboration);
+      return cont(closure.expr, closure.ctx);
+    }
+
+    return cont(expr, ctx);
+  }
+
+  if (expr.tag === "prim") {
+    return compile_expr(
+      expr.left,
+      ctx,
+      (left, left_ctx) => {
+        return compile_expr(
+          expr.right,
+          left_ctx,
+          (right, right_ctx) => {
+            return cont({ ...expr, left, right }, right_ctx);
+          },
+          elaboration,
+        );
+      },
+      elaboration,
+    );
+  }
+
+  if (expr.tag === "struct_value") {
+    return compile_expr_list(
+      expr.fields.map((field) => field.value),
+      ctx,
+      [],
+      (values, next_ctx) => {
+        return cont({
+          ...expr,
+          type_expr: rewrite_pure_expr(expr.type_expr, next_ctx, elaboration),
+          fields: expr.fields.map((field, index) => {
+            const value = values[index];
+            expect(value, "Missing compiled struct field " + field.name);
+            return { ...field, value };
+          }),
+        }, next_ctx);
+      },
+      elaboration,
+    );
+  }
+
+  if (expr.tag === "with" || expr.tag === "struct_update") {
+    return compile_expr(
+      expr.base,
+      ctx,
+      (base, base_ctx) => {
+        return compile_expr_list(
+          expr.fields.map((field) => field.value),
+          base_ctx,
+          [],
+          (values, next_ctx) => {
+            return cont({
+              ...expr,
+              base,
+              fields: expr.fields.map((field, index) => {
+                const value = values[index];
+                expect(value, "Missing compiled updated field " + field.name);
+                return { ...field, value };
+              }),
+            }, next_ctx);
+          },
+          elaboration,
+        );
+      },
+      elaboration,
+    );
+  }
+
+  if (expr.tag === "union_case") {
+    if (!expr.value) {
+      return cont(expr, ctx);
+    }
+
+    return compile_expr(
+      expr.value,
+      ctx,
+      (value, next_ctx) => {
+        let type_expr: FrontExpr | undefined;
+
+        if (expr.type_expr) {
+          type_expr = rewrite_pure_expr(expr.type_expr, next_ctx, elaboration);
+        }
+
+        return cont({ ...expr, value, type_expr }, next_ctx);
+      },
+      elaboration,
+    );
+  }
+
+  if (expr.tag === "field") {
+    return compile_expr(
+      expr.object,
+      ctx,
+      (object, next_ctx) => {
+        const signature = resume_field_signature(
+          expr.object,
+          expr.name,
+          next_ctx,
+          elaboration,
+        );
+        let value: FrontExpr = { ...expr, object };
+
+        if (signature) {
+          value = { ...expr, object, resume_signature: signature };
+          elaboration.resume_value_signatures.set(value, signature);
+        }
+
+        return cont(value, next_ctx);
+      },
+      elaboration,
+    );
+  }
+
+  if (expr.tag === "if") {
+    const cond = rewrite_pure_expr(expr.cond, ctx, elaboration);
+    const then_result = compile_expr(
+      expr.then_branch,
+      clone_compile_ctx(ctx),
+      cont,
+      elaboration,
+    );
+    const else_result = compile_expr(
+      expr.else_branch,
+      clone_compile_ctx(ctx),
+      cont,
+      elaboration,
+    );
+    expect(
+      then_result.target === else_result.target,
+      "Handler branches escape different delimiters",
+    );
+    return {
+      expr: {
+        ...expr,
+        cond,
+        then_branch: then_result.expr,
+        else_branch: else_result.expr,
+      },
+      target: then_result.target,
+      ctx: merge_branch_ctx(then_result.ctx, else_result.ctx),
+    };
+  }
+
+  if (expr.tag === "if_let") {
+    const target = rewrite_pure_expr(expr.target, ctx, elaboration);
+    const then_ctx = clone_compile_ctx(ctx);
+
+    if (expr.value_name) {
+      bind_matched_resume(
+        expr.value_name,
+        expr.case_name,
+        expr.target,
+        then_ctx,
+        elaboration,
+      );
+    }
+
+    const then_result = compile_expr(
+      expr.then_branch,
+      then_ctx,
+      cont,
+      elaboration,
+    );
+    const else_result = compile_expr(
+      expr.else_branch,
+      clone_compile_ctx(ctx),
+      cont,
+      elaboration,
+    );
+    expect(
+      then_result.target === else_result.target,
+      "Handler union branches escape different delimiters",
+    );
+    return {
+      expr: {
+        ...expr,
+        target,
+        then_branch: then_result.expr,
+        else_branch: else_result.expr,
+      },
+      target: then_result.target,
+      ctx: merge_branch_ctx(then_result.ctx, else_result.ctx),
+    };
+  }
+
+  if (expr.tag === "lam" || expr.tag === "rec") {
+    const body_ctx = clone_compile_ctx(ctx);
+
+    for (const param of expr.params) {
+      body_ctx.values.set(param.name, kind_from_type_name(param.annotation));
+      body_ctx.resumptions.delete(param.name);
+    }
+
+    const body = rewrite_pure_expr(expr.body, body_ctx, elaboration);
+    return cont({ ...expr, body }, ctx);
+  }
+
+  return cont(rewrite_pure_expr(expr, ctx, elaboration), ctx);
+}
+
+function compile_try_with(
+  expr: Extract<FrontExpr, { tag: "try_with" }>,
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  const recipe = resolve_handler_recipe(expr.handler, elaboration, new Set());
+  expect(recipe, "`try ... with ...` requires a statically known handler");
+  const declaration = elaboration.index.effects.get(recipe.handler.effect);
+  expect(declaration, "Unknown handled effect: " + recipe.handler.effect);
+  expect(
+    declaration.implementation === "ix",
+    "Cannot handle host-declared effect: " + declaration.name,
+  );
+  consume_handler_recipe(recipe, elaboration);
+  const frame: ActiveHandler = {
+    id: elaboration.next_handler,
+    recipe,
+    effect: declaration,
+    state_names: new Set(recipe.handler.state.map((state) => state.name)),
+    output_type: handler_use_output_type(
+      expr.body,
+      recipe.handler,
+      elaboration,
+    ),
+    outer_ctx: clone_compile_ctx(ctx),
+    continue_after: cont,
+  };
+  elaboration.next_handler += 1;
+  const body_ctx = clone_compile_ctx(ctx);
+  body_ctx.active.push(frame);
+  body_ctx.delimiters.push(frame);
+  const state_statements: Stmt[] = [];
+
+  for (const stmt of recipe.prefix) {
+    state_statements.push(rewrite_pure_stmt(stmt, body_ctx, elaboration));
+    record_stmt_value_kind(stmt, body_ctx);
+  }
+
+  for (const state of recipe.handler.state) {
+    const value = rewrite_pure_expr(state.value, body_ctx, elaboration);
+    state_statements.push({
+      tag: "bind",
+      kind: "let",
+      name: state.name,
+      is_linear: false,
+      annotation: state.annotation,
+      value,
+    });
+    body_ctx.values.set(state.name, kind_from_expr(value, body_ctx));
+  }
+
+  const body_result = compile_expr(
+    expr.body,
+    body_ctx,
+    (value, return_ctx) => {
+      return compile_handler_return(
+        frame,
+        value,
+        return_ctx,
+        elaboration,
+      );
+    },
+    elaboration,
+  );
+  const handled: FrontExpr = {
+    tag: "block",
+    statements: append_result_statements(state_statements, body_result.expr),
+  };
+
+  if (body_result.target !== frame.id) {
+    expect(
+      body_result.target !== undefined,
+      "Handled computation did not reach its return clause",
+    );
+    return {
+      expr: handled,
+      target: body_result.target,
+      ctx: body_result.ctx,
+    };
+  }
+
+  return cont(handled, ctx);
+}
+
+function compile_handler_return(
+  frame: ActiveHandler,
+  value: FrontExpr,
+  ctx: CompileCtx,
+  elaboration: Elaboration,
+): CpsResult {
+  const clause = frame.recipe.handler.return_clause;
+  const input_type = simple_expr_type_name(value, new Map(), elaboration);
+
+  if (clause.param.annotation && input_type) {
+    expect(
+      same_handler_type(clause.param.annotation, input_type),
+      "Handler return parameter " + clause.param.name + " expects " +
+        clause.param.annotation + ", got " + input_type,
+    );
+  }
+  const clause_ctx = handler_clause_ctx(frame, ctx);
+  const parameter_name = "__ix_handler_return_" + frame.id.toString() + "_" +
+    elaboration.next_resume.toString();
+  elaboration.next_resume += 1;
+  clause_ctx.values.set(
+    parameter_name,
+    kind_from_expr(value, clause_ctx),
+  );
+  const replacements = new Map<string, FrontExpr>();
+  replacements.set(clause.param.name, { tag: "var", name: parameter_name });
+  const clause_body = substitute_front_expr(clause.body, replacements);
+  const output_type = simple_expr_type_name(
+    clause_body,
+    new Map(),
+    elaboration,
+  );
+
+  if (frame.output_type && output_type) {
+    expect(
+      same_handler_type(frame.output_type, output_type),
+      "Handler return clause produces " + output_type + ", expected " +
+        frame.output_type,
+    );
+  } else if (output_type) {
+    frame.output_type = output_type;
+  }
+  const body_result = compile_expr(
+    clause_body,
+    clause_ctx,
+    (output, output_ctx) => targeted_result(output, frame.id, output_ctx),
+    elaboration,
+  );
+  const bind: Stmt = {
+    tag: "bind",
+    kind: "let",
+    name: parameter_name,
+    is_linear: clause.param.is_linear,
+    annotation: clause.param.annotation,
+    value,
+  };
+  return prepend_stmt_result(bind, body_result);
+}
+
+function compile_statements(
+  statements: Stmt[],
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  expect(statements.length > 0, "Effectful block must produce a value");
+  return compile_statement_at(statements, 0, ctx, cont, elaboration);
+}
+
+function compile_statement_at(
+  statements: Stmt[],
+  index: number,
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  const stmt = statements[index];
+  expect(stmt, "Missing handler statement " + index.toString());
+  const is_final = index + 1 >= statements.length;
+
+  function rest(next_ctx: CompileCtx): CpsResult {
+    expect(!is_final, "Handler block has no result expression");
+    return compile_statement_at(
+      statements,
+      index + 1,
+      next_ctx,
+      cont,
+      elaboration,
+    );
+  }
+
+  if (stmt.tag === "state_bind") {
+    return compile_effect_statement(
+      stmt,
+      ctx,
+      (value, next_ctx) => {
+        if (!stmt.value_name) {
+          return rest(next_ctx);
+        }
+
+        const rest_ctx = clone_compile_ctx(next_ctx);
+        const operation = operation_from_state_bind(stmt, elaboration.index);
+        const declaration = elaboration.index.effects.get(operation.effect);
+        expect(declaration, "Missing effect declaration: " + operation.effect);
+        const operation_decl = find_operation(declaration, operation.operation);
+        rest_ctx.values.set(
+          stmt.value_name,
+          kind_from_type_name(operation_decl.result.type_name),
+        );
+        const next = rest(rest_ctx);
+        return prepend_stmt_result({
+          tag: "bind",
+          kind: "let",
+          name: stmt.value_name,
+          is_linear: false,
+          annotation: operation_decl.result.type_name,
+          value,
+        }, next);
+      },
+      elaboration,
+    );
+  }
+
+  if (stmt.tag === "resume_dup") {
+    return compile_resume_dup(stmt, statements, index, ctx, cont, elaboration);
+  }
+
+  if (stmt.tag === "bind") {
+    const alias = direct_resume_ref(stmt.value, ctx);
+
+    if (alias) {
+      expect(stmt.is_linear, "A resumption alias must be affine");
+      expect(!alias.used, "Resumption " + alias.name + " was already consumed");
+      alias.used = true;
+      const next_ctx = clone_compile_ctx(ctx);
+      next_ctx.resumptions.set(stmt.name, {
+        ...alias,
+        name: stmt.name,
+        used: false,
+      });
+      next_ctx.values.set(stmt.name, "resume");
+      return rest(next_ctx);
+    }
+
+    return compile_expr(
+      stmt.value,
+      ctx,
+      (value, next_ctx) => {
+        const rest_ctx = clone_compile_ctx(next_ctx);
+        rest_ctx.values.set(stmt.name, kind_from_expr(value, rest_ctx));
+        record_resume_case_binding(
+          stmt.name,
+          value,
+          stmt.annotation,
+          rest_ctx,
+          elaboration,
+        );
+        const next = rest(rest_ctx);
+        return prepend_stmt_result({ ...stmt, value }, next);
+      },
+      elaboration,
+    );
+  }
+
+  if (stmt.tag === "assign") {
+    return compile_expr(
+      stmt.value,
+      ctx,
+      (value, next_ctx) => {
+        const rest_ctx = clone_compile_ctx(next_ctx);
+        rest_ctx.values.set(stmt.name, kind_from_expr(value, rest_ctx));
+        record_resume_case_binding(
+          stmt.name,
+          value,
+          undefined,
+          rest_ctx,
+          elaboration,
+        );
+        const next = rest(rest_ctx);
+        return prepend_stmt_result({ ...stmt, value }, next);
+      },
+      elaboration,
+    );
+  }
+
+  if (stmt.tag === "expr") {
+    if (is_final) {
+      return compile_expr(stmt.expr, ctx, cont, elaboration);
+    }
+
+    return compile_expr(
+      stmt.expr,
+      ctx,
+      (value, next_ctx) => {
+        const next = rest(next_ctx);
+        return prepend_stmt_result({ tag: "expr", expr: value }, next);
+      },
+      elaboration,
+    );
+  }
+
+  if (stmt.tag === "return") {
+    return compile_expr(stmt.value, ctx, cont, elaboration);
+  }
+
+  if (stmt.tag === "if_stmt") {
+    const cond = rewrite_pure_expr(stmt.cond, ctx, elaboration);
+    const then_statements = [...stmt.body];
+    const remaining = statements.slice(index + 1);
+    then_statements.push(...remaining);
+    const then_result = compile_statements(
+      then_statements,
+      clone_compile_ctx(ctx),
+      cont,
+      elaboration,
+    );
+    const else_result = rest(clone_compile_ctx(ctx));
+    expect(
+      then_result.target === else_result.target,
+      "Handler statement branches escape different delimiters",
+    );
+    return {
+      expr: {
+        tag: "if",
+        cond,
+        then_branch: then_result.expr,
+        else_branch: else_result.expr,
+      },
+      target: then_result.target,
+      ctx: merge_branch_ctx(then_result.ctx, else_result.ctx),
+    };
+  }
+
+  if (stmt.tag === "if_let_stmt") {
+    const target = rewrite_pure_expr(stmt.target, ctx, elaboration);
+    const then_ctx = clone_compile_ctx(ctx);
+
+    if (stmt.value_name) {
+      bind_matched_resume(
+        stmt.value_name,
+        stmt.case_name,
+        stmt.target,
+        then_ctx,
+        elaboration,
+      );
+    }
+
+    const then_result = compile_statements(
+      [...stmt.body, ...statements.slice(index + 1)],
+      then_ctx,
+      cont,
+      elaboration,
+    );
+    const else_result = rest(clone_compile_ctx(ctx));
+    expect(
+      then_result.target === else_result.target,
+      "Handler union branches escape different delimiters",
+    );
+    return {
+      expr: {
+        tag: "if_let",
+        case_name: stmt.case_name,
+        value_name: stmt.value_name,
+        target,
+        then_branch: then_result.expr,
+        else_branch: else_result.expr,
+      },
+      target: then_result.target,
+      ctx: merge_branch_ctx(then_result.ctx, else_result.ctx),
+    };
+  }
+
+  if (stmt.tag === "for_range" || stmt.tag === "for_collection") {
+    expect(
+      !stmt.body.some(stmt_has_ix_operation),
+      "Local effects inside runtime loops require recursive CPS lowering",
+    );
+    const next = rest(ctx);
+    return prepend_stmt_result(rewrite_pure_stmt(stmt, ctx, elaboration), next);
+  }
+
+  if (stmt.tag === "index_assign" || stmt.tag === "type_check") {
+    const next = rest(ctx);
+    return prepend_stmt_result(rewrite_pure_stmt(stmt, ctx, elaboration), next);
+  }
+
+  if (stmt.tag === "bind_pattern") {
+    const value = rewrite_pure_expr(stmt.value, ctx, elaboration);
+    const next_ctx = clone_compile_ctx(ctx);
+
+    for (const item of stmt.items) {
+      next_ctx.values.set(item.name, "unknown");
+    }
+
+    const next = rest(next_ctx);
+    return prepend_stmt_result({ ...stmt, value }, next);
+  }
+
+  if (stmt.tag === "break" || stmt.tag === "continue") {
+    throw new Error("Cannot cross a handler delimiter with " + stmt.tag);
+  }
+
+  if (stmt.tag === "import" || stmt.tag === "host_import") {
+    const next = rest(ctx);
+    return prepend_stmt_result(stmt, next);
+  }
+
+  throw new Error("Cannot lower handler statement: " + stmt.tag);
+}
+
+function compile_effect_statement(
+  stmt: Extract<Stmt, { tag: "state_bind" }>,
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  const ref = operation_from_state_bind(stmt, elaboration.index);
+  const declaration = elaboration.index.effects.get(ref.effect);
+  expect(declaration, "Missing effect declaration: " + ref.effect);
+  const operation = find_operation(declaration, ref.operation);
+  expect(stmt.value.tag === "app", "Effect state binding must contain a call");
+
+  if (declaration.implementation === "host") {
+    return compile_host_operation(
+      ref,
+      operation,
+      stmt.value.args,
+      ctx,
+      cont,
+      elaboration,
+    );
+  }
+
+  return compile_local_operation(
+    ref,
+    operation,
+    stmt.value.args,
+    ctx,
+    cont,
+    elaboration,
+  );
+}
+
+function compile_host_operation(
+  ref: EffectRef,
+  operation: EffectOperation,
+  args: FrontExpr[],
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  const provider = elaboration.providers.get(ref.effect);
+  expect(provider, "Missing lexical provider for effect " + ref.effect);
+  expect(
+    args.length === operation.params.length,
+    "Effect operation argument count mismatch: " + effect_text(ref),
+  );
+  return compile_expr_list(
+    args,
+    ctx,
+    [],
+    (values, next_ctx) => {
+      return cont({
+        tag: "app",
+        func: {
+          tag: "var",
+          name: effect_import_name(ref.effect, ref.operation),
+        },
+        args: [provider, ...values],
+      }, next_ctx);
+    },
+    elaboration,
+  );
+}
+
+function compile_local_operation(
+  ref: EffectRef,
+  operation: EffectOperation,
+  args: FrontExpr[],
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  expect(
+    args.length === operation.params.length,
+    "Effect operation argument count mismatch: " + effect_text(ref),
+  );
+  const match = matching_handler(ref, ctx.active);
+  expect(match, "Unresolved Ix effect operation: " + effect_text(ref));
+  return compile_expr_list(
+    args,
+    ctx,
+    [],
+    (values, next_ctx) => {
+      return invoke_handler_clause(
+        match.frame,
+        match.index,
+        ref,
+        operation,
+        values,
+        next_ctx,
+        cont,
+        elaboration,
+      );
+    },
+    elaboration,
+  );
+}
+
+function invoke_handler_clause(
+  frame: ActiveHandler,
+  frame_index: number,
+  ref: EffectRef,
+  operation: EffectOperation,
+  args: FrontExpr[],
+  operation_ctx: CompileCtx,
+  continuation: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  const clause = frame.recipe.handler.clauses.find((item) => {
+    return item.name === ref.operation;
+  });
+  expect(clause, "Missing selected handler clause: " + effect_text(ref));
+  expect(
+    clause.params.length === operation.params.length + 1,
+    "Handler clause arity mismatch: " + effect_text(ref),
+  );
+  const resume_param = clause.params[clause.params.length - 1];
+  expect(resume_param, "Missing resumption parameter: " + effect_text(ref));
+  expect(
+    resume_param.is_linear,
+    "Handler resumption parameter must be affine: " + resume_param.name,
+  );
+  const resume_name = resume_param.name;
+  const resume_spec: ResumeSpec = {
+    name: resume_name,
+    input_type: operation.result.type_name,
+    output_type: frame.output_type,
+    handler_id: frame.id,
+    captured_handlers: [...operation_ctx.delimiters],
+    continue_with(value) {
+      const continuation_ctx = clone_compile_ctx(operation_ctx);
+
+      if (value.tag === "var" || value.tag === "linear") {
+        continuation_ctx.values.set(
+          value.name,
+          kind_from_type_name(operation.result.type_name),
+        );
+      }
+
+      return continuation(value, continuation_ctx);
+    },
+    captures: new Map(operation_ctx.values),
+    used: false,
+  };
+  const clause_ctx = handler_clause_ctx(frame, operation_ctx);
+  clause_ctx.active = operation_ctx.active.slice(0, frame_index);
+  clause_ctx.resumptions.set(resume_name, resume_spec);
+  clause_ctx.values.set(resume_name, "resume");
+  const param_stmts: Stmt[] = [];
+
+  for (let index = 0; index < operation.params.length; index += 1) {
+    const declared = operation.params[index];
+    const param = clause.params[index];
+    const arg = args[index];
+    expect(declared, "Missing operation parameter");
+    expect(param, "Missing handler clause parameter");
+    expect(arg, "Missing operation argument");
+    clause_ctx.values.set(param.name, kind_from_type_name(declared.type_name));
+    param_stmts.push({
+      tag: "bind",
+      kind: "let",
+      name: param.name,
+      is_linear: param.is_linear,
+      annotation: declared.type_name,
+      value: arg,
+    });
+  }
+
+  const clause_result = compile_expr(
+    clause.body,
+    clause_ctx,
+    (output, output_ctx) => targeted_result(output, frame.id, output_ctx),
+    elaboration,
+  );
+  const clause_output_type = simple_expr_type_name(
+    clause_result.expr,
+    new Map(),
+    elaboration,
+  );
+
+  if (frame.output_type && clause_output_type) {
+    expect(
+      same_handler_type(frame.output_type, clause_output_type),
+      "Handler clause " + ref.effect + "." + ref.operation + " produces " +
+        clause_output_type + ", expected " + frame.output_type,
+    );
+  } else if (clause_output_type) {
+    frame.output_type = clause_output_type;
+  }
+  return {
+    expr: {
+      tag: "block",
+      statements: append_result_statements(param_stmts, clause_result.expr),
+    },
+    target: clause_result.target,
+    ctx: clause_result.ctx,
+  };
+}
+
+function compile_resume_call(
+  expr: Extract<FrontExpr, { tag: "app" }>,
+  resume: ResumeSpec,
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  expect(
+    expr.args.length === 1,
+    "Resumption " + resume.name + " expects exactly one argument",
+  );
+  const arg = expr.args[0];
+  expect(arg, "Missing resumption argument");
+  return compile_expr(
+    arg,
+    ctx,
+    (value, arg_ctx) => {
+      expect(
+        !resume.used,
+        "Resumption " + resume.name + " was already consumed",
+      );
+      resume.used = true;
+      const next_ctx = clone_compile_ctx(arg_ctx);
+      next_ctx.unavailable_state.add(resume.handler_id);
+      const body_result = resume_continuation_result(resume, value);
+
+      if (body_result.target !== resume.handler_id) {
+        expect(
+          body_result.target !== undefined,
+          "Resumption crossed an incompatible handler delimiter",
+        );
+        return targeted_result(
+          body_result.expr,
+          body_result.target,
+          next_ctx,
+        );
+      }
+
+      return cont(body_result.expr, next_ctx);
+    },
+    elaboration,
+  );
+}
+
+function consume_resume_value(
+  resume: ResumeSpec,
+  ctx: CompileCtx,
+  elaboration: Elaboration,
+): { expr: FrontExpr; target: number | undefined; ctx: CompileCtx } {
+  expect(!resume.used, "Resumption " + resume.name + " was already consumed");
+  resume.used = true;
+  const next_ctx = clone_compile_ctx(ctx);
+  next_ctx.unavailable_state.add(resume.handler_id);
+  const parameter_name = "__ix_resume_value_" +
+    elaboration.next_resume.toString();
+  elaboration.next_resume += 1;
+  const body_result = resume_continuation_result(resume, {
+    tag: "var",
+    name: parameter_name,
+  });
+  const output_type = resume.output_type ||
+    simple_expr_type_name(body_result.expr, new Map());
+  expect(
+    output_type,
+    "Missing exact output type for escaped resumption " + resume.name,
+  );
+  let target: number | undefined;
+
+  if (body_result.target !== resume.handler_id) {
+    target = body_result.target;
+  }
+
+  const signature = {
+    input_type: resume.input_type,
+    output_type,
+  };
+  const closure: FrontExpr = {
+    tag: "lam",
+    params: [{
+      name: parameter_name,
+      is_const: false,
+      is_linear: false,
+      annotation: runtime_annotation(resume.input_type),
+    }],
+    body: body_result.expr,
+  };
+  elaboration.resume_value_signatures.set(closure, signature);
+  return {
+    expr: closure,
+    target,
+    ctx: next_ctx,
+  };
+}
+
+function compile_escaped_resume_call(
+  expr: Extract<FrontExpr, { tag: "app" }>,
+  resume: EscapedResume,
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  expect(
+    expr.args.length === 1,
+    "Escaped resumption expects exactly one argument",
+  );
+  expect(!resume.used, "Escaped resumption was already consumed");
+  const arg = expr.args[0];
+  expect(arg, "Missing escaped resumption argument");
+  return compile_expr(
+    arg,
+    ctx,
+    (value, next_ctx) => {
+      expect(!resume.used, "Escaped resumption was already consumed");
+      resume.used = true;
+      expect(
+        expr.func.tag === "linear" || expr.func.tag === "var" ||
+          expr.func.tag === "field",
+        "Escaped resumption call requires an affine value",
+      );
+      return cont({
+        tag: "app",
+        func: { ...expr.func, resume_signature: resume.signature },
+        args: [value],
+      }, next_ctx);
+    },
+    elaboration,
+  );
+}
+
+function resume_continuation_result(
+  resume: ResumeSpec,
+  value: FrontExpr,
+): CpsResult {
+  let body_result = resume.continue_with(value);
+  const handler_index = resume.captured_handlers.findIndex((frame) => {
+    return frame.id === resume.handler_id;
+  });
+  expect(handler_index >= 0, "Missing resumption handler delimiter");
+
+  while (body_result.target !== resume.handler_id) {
+    expect(
+      body_result.target !== undefined,
+      "Resumption crossed an incompatible handler delimiter",
+    );
+    const target_index = resume.captured_handlers.findIndex((frame) => {
+      return frame.id === body_result.target;
+    });
+    expect(
+      target_index >= 0,
+      "Resumption crossed an incompatible handler delimiter",
+    );
+
+    if (target_index < handler_index) {
+      break;
+    }
+
+    expect(
+      target_index > handler_index,
+      "Resumption crossed an incompatible handler delimiter",
+    );
+    const target_frame = resume.captured_handlers[target_index];
+    expect(target_frame, "Missing captured handler delimiter");
+    body_result = target_frame.continue_after(
+      body_result.expr,
+      clone_compile_ctx(target_frame.outer_ctx),
+    );
+  }
+  return body_result;
+}
+
+function compile_resume_dup(
+  stmt: Extract<Stmt, { tag: "resume_dup" }>,
+  statements: Stmt[],
+  index: number,
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  const resume = direct_resume_ref(stmt.value, ctx);
+  expect(resume, "Checked dup requires a resumption value");
+  expect(!resume.used, "Resumption " + resume.name + " was already consumed");
+  assert_resume_duplicable(resume, elaboration);
+  resume.used = true;
+  const next_ctx = clone_compile_ctx(ctx);
+  next_ctx.unavailable_state.add(resume.handler_id);
+  next_ctx.resumptions.set(
+    stmt.left,
+    duplicated_resume_spec(resume, stmt.left),
+  );
+  next_ctx.resumptions.set(
+    stmt.right,
+    duplicated_resume_spec(resume, stmt.right),
+  );
+  next_ctx.values.set(stmt.left, "resume");
+  next_ctx.values.set(stmt.right, "resume");
+  expect(
+    index + 1 < statements.length,
+    "Handler dup must be followed by a result",
+  );
+  return compile_statement_at(
+    statements,
+    index + 1,
+    next_ctx,
+    cont,
+    elaboration,
+  );
+}
+
+function duplicated_resume_spec(
+  resume: ResumeSpec,
+  name: string,
+): ResumeSpec {
+  const state = duplicated_handler_state(resume);
+  return {
+    ...resume,
+    name,
+    used: false,
+    captures: new Map(resume.captures),
+    continue_with(value) {
+      const result = resume.continue_with(value);
+
+      if (state.length === 0) {
+        return result;
+      }
+
+      const snapshots: Stmt[] = state.map((item) => ({
+        tag: "bind",
+        kind: "let",
+        name: item.name,
+        is_linear: false,
+        annotation: item.annotation,
+        value: { tag: "var", name: item.name },
+      }));
+      return {
+        ...result,
+        expr: {
+          tag: "block",
+          statements: append_result_statements(snapshots, result.expr),
+        },
+      };
+    },
+  };
+}
+
+function duplicated_handler_state(
+  resume: ResumeSpec,
+): { name: string; annotation: string | undefined }[] {
+  const delimiter = resume.captured_handlers.findIndex((frame) => {
+    return frame.id === resume.handler_id;
+  });
+  expect(delimiter >= 0, "Missing duplicated resumption delimiter");
+  const result: { name: string; annotation: string | undefined }[] = [];
+  const names = new Set<string>();
+
+  for (
+    let index = delimiter;
+    index < resume.captured_handlers.length;
+    index += 1
+  ) {
+    const frame = resume.captured_handlers[index];
+    expect(frame, "Missing captured handler for resumption duplication");
+
+    for (const item of frame.recipe.handler.state) {
+      if (names.has(item.name)) {
+        continue;
+      }
+
+      names.add(item.name);
+      result.push({ name: item.name, annotation: item.annotation });
+    }
+  }
+
+  return result;
+}
+
+function assert_resume_duplicable(
+  resume: ResumeSpec,
+  elaboration: Elaboration,
+): void {
+  for (const [name, kind] of resume.captures) {
+    if (elaboration.static_names.has(name)) {
+      continue;
+    }
+
+    if (kind === "scalar" || kind === "frozen") {
+      continue;
+    }
+
+    throw new Error(
+      "Cannot duplicate resumption " + resume.name + ": capture " + name +
+        " is " + kind,
+    );
+  }
+}
+
+function compile_ix_function_call(
+  expr: Extract<FrontExpr, { tag: "app" }>,
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  expect(expr.func.tag === "var", "Expected named Ix effect function");
+  const binding = elaboration.functions.get(expr.func.name);
+  expect(binding, "Missing Ix effect function: " + expr.func.name);
+  expect(
+    binding.value.tag === "lam",
+    "Recursive Ix effect CPS is not supported",
+  );
+  expect(
+    !ctx.active_calls.has(binding.name),
+    "Recursive Ix effect CPS is not supported: " + binding.name,
+  );
+  expect(
+    binding.value.params.length === expr.args.length,
+    "Effect function argument count mismatch: " + binding.name,
+  );
+  return compile_expr_list(
+    expr.args,
+    ctx,
+    [],
+    (args, args_ctx) => {
+      const replacements = new Map<string, FrontExpr>();
+      const body_ctx = clone_compile_ctx(args_ctx);
+
+      for (let index = 0; index < binding.value.params.length; index += 1) {
+        const param = binding.value.params[index];
+        const arg = args[index];
+        expect(param, "Missing effect function parameter");
+        expect(arg, "Missing effect function argument");
+        replacements.set(param.name, arg);
+        body_ctx.values.set(param.name, kind_from_type_name(param.annotation));
+      }
+
+      body_ctx.active_calls.add(binding.name);
+      const body = substitute_front_expr(binding.value.body, replacements);
+      const result = compile_expr(body, body_ctx, cont, elaboration);
+      result.ctx.active_calls.delete(binding.name);
+      return result;
+    },
+    elaboration,
+  );
+}
+
+function compile_resume_function_call(
+  expr: Extract<FrontExpr, { tag: "app" }>,
+  binding: EffectFunction,
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  expect(binding.value.tag === "lam", "Resume helper cannot be recursive");
+  expect(
+    binding.value.params.length === expr.args.length,
+    "Resume helper argument count mismatch: " + binding.name,
+  );
+  expect(
+    !ctx.active_calls.has(binding.name),
+    "Recursive Resume helper is not supported: " + binding.name,
+  );
+  const replacements = new Map<string, FrontExpr>();
+
+  for (let index = 0; index < binding.value.params.length; index += 1) {
+    const param = binding.value.params[index];
+    const arg = expr.args[index];
+    expect(param, "Missing Resume helper parameter");
+    expect(arg, "Missing Resume helper argument");
+
+    if (param.annotation === "Resume") {
+      expect(param.is_linear, "Resume helper parameters must be affine");
+    }
+
+    replacements.set(param.name, arg);
+  }
+
+  const body_ctx = clone_compile_ctx(ctx);
+  body_ctx.active_calls.add(binding.name);
+  const body = substitute_front_expr(binding.value.body, replacements);
+  const result = compile_expr(body, body_ctx, cont, elaboration);
+  result.ctx.active_calls.delete(binding.name);
+  return result;
+}
+
+function compile_expr_list(
+  values: FrontExpr[],
+  ctx: CompileCtx,
+  compiled: FrontExpr[],
+  done: (values: FrontExpr[], ctx: CompileCtx) => CpsResult,
+  elaboration: Elaboration,
+): CpsResult {
+  if (compiled.length >= values.length) {
+    return done(compiled, ctx);
+  }
+
+  const value = values[compiled.length];
+  expect(value, "Missing expression list value");
+  return compile_expr(
+    value,
+    ctx,
+    (item, next_ctx) => {
+      return compile_expr_list(
+        values,
+        next_ctx,
+        [...compiled, item],
+        done,
+        elaboration,
+      );
+    },
+    elaboration,
+  );
+}
+
+function rewrite_pure_expr(
+  expr: FrontExpr,
+  ctx: CompileCtx,
+  elaboration: Elaboration,
+): FrontExpr {
+  assert_available_state(expr, ctx);
+
+  if (expr.tag === "unit") {
+    return unit_value();
+  }
+
+  if (expr.tag === "handler" || expr.tag === "try_with") {
+    throw new Error("Handler expression requires CPS elaboration");
+  }
+
+  if (expr.tag === "linear") {
+    const resume = ctx.resumptions.get(expr.name);
+    expect(!resume, "Resumption value requires affine CPS elaboration");
+    return expr;
+  }
+
+  if (expr.tag === "prim") {
+    return {
+      ...expr,
+      left: rewrite_pure_expr(expr.left, ctx, elaboration),
+      right: rewrite_pure_expr(expr.right, ctx, elaboration),
+    };
+  }
+
+  if (expr.tag === "app") {
+    expect(
+      !resumption_call(expr, ctx),
+      "Resumption call requires CPS elaboration",
+    );
+    expect(
+      !(expr.func.tag === "var" &&
+        function_has_ix_effects(expr.func.name, elaboration)),
+      "Ix effect function call requires CPS elaboration",
+    );
+    return {
+      ...expr,
+      func: rewrite_pure_expr(expr.func, ctx, elaboration),
+      args: expr.args.map((arg) => rewrite_pure_expr(arg, ctx, elaboration)),
+    };
+  }
+
+  if (expr.tag === "block") {
+    return {
+      tag: "block",
+      statements: expr.statements.map((stmt) => {
+        return rewrite_pure_stmt(stmt, ctx, elaboration);
+      }),
+    };
+  }
+
+  if (expr.tag === "lam" || expr.tag === "rec") {
+    const body_ctx = clone_compile_ctx(ctx);
+
+    for (const param of expr.params) {
+      body_ctx.resumptions.delete(param.name);
+      body_ctx.values.set(param.name, kind_from_type_name(param.annotation));
+    }
+
+    return {
+      ...expr,
+      body: rewrite_pure_expr(expr.body, body_ctx, elaboration),
+    };
+  }
+
+  if (expr.tag === "comptime") {
+    return {
+      ...expr,
+      expr: rewrite_pure_expr(expr.expr, ctx, elaboration),
+    };
+  }
+
+  if (expr.tag === "borrow" || expr.tag === "freeze") {
+    return {
+      ...expr,
+      value: rewrite_pure_expr(expr.value, ctx, elaboration),
+    };
+  }
+
+  if (expr.tag === "scratch") {
+    return {
+      ...expr,
+      body: rewrite_pure_expr(expr.body, ctx, elaboration),
+    };
+  }
+
+  if (expr.tag === "captured") {
+    return {
+      ...expr,
+      expr: rewrite_pure_expr(expr.expr, ctx, elaboration),
+    };
+  }
+
+  if (expr.tag === "with" || expr.tag === "struct_update") {
+    return {
+      ...expr,
+      base: rewrite_pure_expr(expr.base, ctx, elaboration),
+      fields: expr.fields.map((field) => ({
+        ...field,
+        value: rewrite_pure_expr(field.value, ctx, elaboration),
+      })),
+    };
+  }
+
+  if (expr.tag === "struct_value") {
+    return {
+      ...expr,
+      type_expr: rewrite_pure_expr(expr.type_expr, ctx, elaboration),
+      fields: expr.fields.map((field) => ({
+        ...field,
+        value: rewrite_pure_expr(field.value, ctx, elaboration),
+      })),
+    };
+  }
+
+  if (expr.tag === "if") {
+    return {
+      ...expr,
+      cond: rewrite_pure_expr(expr.cond, ctx, elaboration),
+      then_branch: rewrite_pure_expr(expr.then_branch, ctx, elaboration),
+      else_branch: rewrite_pure_expr(expr.else_branch, ctx, elaboration),
+    };
+  }
+
+  if (expr.tag === "if_let") {
+    return {
+      ...expr,
+      target: rewrite_pure_expr(expr.target, ctx, elaboration),
+      then_branch: rewrite_pure_expr(expr.then_branch, ctx, elaboration),
+      else_branch: rewrite_pure_expr(expr.else_branch, ctx, elaboration),
+    };
+  }
+
+  if (expr.tag === "field") {
+    return {
+      ...expr,
+      object: rewrite_pure_expr(expr.object, ctx, elaboration),
+    };
+  }
+
+  if (expr.tag === "index") {
+    return {
+      ...expr,
+      object: rewrite_pure_expr(expr.object, ctx, elaboration),
+      index: rewrite_pure_expr(expr.index, ctx, elaboration),
+    };
+  }
+
+  if (expr.tag === "union_case") {
+    let value: FrontExpr | undefined;
+    let type_expr: FrontExpr | undefined;
+
+    if (expr.value) {
+      value = rewrite_pure_expr(expr.value, ctx, elaboration);
+    }
+
+    if (expr.type_expr) {
+      type_expr = rewrite_pure_expr(expr.type_expr, ctx, elaboration);
+    }
+
+    return { ...expr, value, type_expr };
+  }
+
+  return expr;
+}
+
+function rewrite_pure_stmt(
+  stmt: Stmt,
+  ctx: CompileCtx,
+  elaboration: Elaboration,
+): Stmt {
+  if (stmt.tag === "bind") {
+    return {
+      ...stmt,
+      value: rewrite_pure_expr(stmt.value, ctx, elaboration),
+    };
+  }
+
+  if (stmt.tag === "state_bind") {
+    throw new Error("Effect operation requires CPS elaboration");
+  }
+
+  if (stmt.tag === "resume_dup") {
+    throw new Error("Resumption duplication requires CPS elaboration");
+  }
+
+  if (stmt.tag === "bind_pattern") {
+    return {
+      ...stmt,
+      value: rewrite_pure_expr(stmt.value, ctx, elaboration),
+    };
+  }
+
+  if (stmt.tag === "assign") {
+    return {
+      ...stmt,
+      value: rewrite_pure_expr(stmt.value, ctx, elaboration),
+    };
+  }
+
+  if (stmt.tag === "index_assign") {
+    return {
+      ...stmt,
+      index: rewrite_pure_expr(stmt.index, ctx, elaboration),
+      value: rewrite_pure_expr(stmt.value, ctx, elaboration),
+    };
+  }
+
+  if (stmt.tag === "for_range") {
+    return {
+      ...stmt,
+      start: rewrite_pure_expr(stmt.start, ctx, elaboration),
+      end: rewrite_pure_expr(stmt.end, ctx, elaboration),
+      step: rewrite_pure_expr(stmt.step, ctx, elaboration),
+      body: stmt.body.map((item) => rewrite_pure_stmt(item, ctx, elaboration)),
+    };
+  }
+
+  if (stmt.tag === "for_collection") {
+    return {
+      ...stmt,
+      collection: rewrite_pure_expr(stmt.collection, ctx, elaboration),
+      body: stmt.body.map((item) => rewrite_pure_stmt(item, ctx, elaboration)),
+    };
+  }
+
+  if (stmt.tag === "if_stmt") {
+    return {
+      ...stmt,
+      cond: rewrite_pure_expr(stmt.cond, ctx, elaboration),
+      body: stmt.body.map((item) => rewrite_pure_stmt(item, ctx, elaboration)),
+    };
+  }
+
+  if (stmt.tag === "if_let_stmt") {
+    return {
+      ...stmt,
+      target: rewrite_pure_expr(stmt.target, ctx, elaboration),
+      body: stmt.body.map((item) => rewrite_pure_stmt(item, ctx, elaboration)),
+    };
+  }
+
+  if (stmt.tag === "type_check") {
+    return {
+      ...stmt,
+      target: rewrite_pure_expr(stmt.target, ctx, elaboration),
+    };
+  }
+
+  if (stmt.tag === "return") {
+    return {
+      ...stmt,
+      value: rewrite_pure_expr(stmt.value, ctx, elaboration),
+    };
+  }
+
+  if (stmt.tag === "expr") {
+    return {
+      ...stmt,
+      expr: rewrite_pure_expr(stmt.expr, ctx, elaboration),
+    };
+  }
+
+  return stmt;
+}
+
+function handler_recipe_from_expr(
+  expr: FrontExpr,
+  context: EffectContext | undefined,
+  key: string,
+  elaboration: Elaboration,
+  seen: Set<string>,
+): HandlerRecipe | undefined {
+  if (expr.tag === "handler") {
+    return {
+      key,
+      handler: expr,
+      context,
+      prefix: [],
+      affine: true,
+    };
+  }
+
+  if (expr.tag === "var" || expr.tag === "linear") {
+    if (seen.has(expr.name)) {
+      throw new Error("Recursive handler alias: " + expr.name);
+    }
+
+    seen.add(expr.name);
+    return elaboration.handlers.get(expr.name);
+  }
+
+  if (expr.tag !== "app" || expr.func.tag !== "var") {
+    return undefined;
+  }
+
+  const factory = find_handler_factory(expr.func.name, elaboration);
+
+  if (!factory) {
+    return undefined;
+  }
+
+  expect(
+    factory.value.tag === "lam",
+    "Handler factory cannot be recursive: " + factory.name,
+  );
+  expect(
+    factory.value.params.length === expr.args.length,
+    "Handler factory argument count mismatch: " + factory.name,
+  );
+  const replacements = new Map<string, FrontExpr>();
+
+  for (let index = 0; index < factory.value.params.length; index += 1) {
+    const param = factory.value.params[index];
+    const arg = expr.args[index];
+    expect(param, "Missing handler factory parameter");
+    expect(arg, "Missing handler factory argument");
+    replacements.set(param.name, arg);
+  }
+
+  const body = substitute_front_expr(factory.value.body, replacements);
+  const result = handler_result_expr(body);
+
+  if (!result) {
+    return undefined;
+  }
+
+  const prefix = handler_result_prefix(body);
+  const recipe = handler_recipe_from_expr(
+    result,
+    factory.context,
+    "__factory_" + elaboration.next_factory.toString(),
+    elaboration,
+    seen,
+  );
+  elaboration.next_factory += 1;
+
+  if (!recipe) {
+    return undefined;
+  }
+
+  return { ...recipe, prefix: [...prefix, ...recipe.prefix], affine: false };
+}
+
+function resolve_handler_recipe(
+  expr: FrontExpr,
+  elaboration: Elaboration,
+  seen: Set<string>,
+): HandlerRecipe | undefined {
+  if (expr.tag === "var" || expr.tag === "linear") {
+    const recipe = elaboration.handlers.get(expr.name);
+
+    if (recipe) {
+      return recipe;
+    }
+  }
+
+  return handler_recipe_from_expr(
+    expr,
+    undefined,
+    "__inline_handler_" + elaboration.next_handler.toString(),
+    elaboration,
+    seen,
+  );
+}
+
+function find_handler_factory(
+  name: string,
+  elaboration: Elaboration,
+): EffectFunction | undefined {
+  const existing = elaboration.functions.get(name);
+
+  if (existing && handler_result_expr(existing.value.body)) {
+    return existing;
+  }
+
+  for (const stmt of elaboration.source.statements) {
+    if (
+      stmt.tag === "bind" && stmt.name === name &&
+      (stmt.value.tag === "lam" || stmt.value.tag === "rec") &&
+      handler_result_expr(stmt.value.body)
+    ) {
+      return {
+        name,
+        context: stmt.effect_context || { name: "Fx", operations: undefined },
+        value: stmt.value,
+      };
+    }
+  }
+
+  return undefined;
+}
+
+function handler_result_expr(expr: FrontExpr): FrontExpr | undefined {
+  if (expr.tag === "handler") {
+    return expr;
+  }
+
+  if (expr.tag !== "block") {
+    return undefined;
+  }
+
+  const final_stmt = expr.statements[expr.statements.length - 1];
+
+  if (final_stmt && final_stmt.tag === "return") {
+    return final_stmt.value;
+  }
+
+  if (final_stmt && final_stmt.tag === "expr") {
+    return final_stmt.expr;
+  }
+
+  return undefined;
+}
+
+function handler_result_prefix(expr: FrontExpr): Stmt[] {
+  if (expr.tag !== "block") {
+    return [];
+  }
+
+  return expr.statements.slice(0, -1);
+}
+
+function consume_handler_recipe(
+  recipe: HandlerRecipe,
+  elaboration: Elaboration,
+): void {
+  if (!recipe.affine) {
+    return;
+  }
+
+  let use = elaboration.handler_uses.get(recipe.key);
+
+  if (!use) {
+    use = { count: 0 };
+    elaboration.handler_uses.set(recipe.key, use);
+  }
+
+  use.count += 1;
+  expect(use.count <= 1, "Handler " + recipe.key + " was already consumed");
+}
+
+function validate_handler_uses(elaboration: Elaboration): void {
+  for (const [key, use] of elaboration.handler_uses) {
+    expect(use.count <= 1, "Handler " + key + " was consumed more than once");
+  }
+}
+
+function function_has_ix_effects(
+  name: string,
+  elaboration: Elaboration,
+): boolean {
+  const fact = elaboration.analysis.functions[name];
+
+  if (!fact) {
+    return false;
+  }
+
+  for (const ref of fact.effects) {
+    const effect = elaboration.index.effects.get(ref.effect);
+
+    if (effect && effect.implementation === "ix") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function resume_function_call(
+  expr: Extract<FrontExpr, { tag: "app" }>,
+  ctx: CompileCtx,
+  elaboration: Elaboration,
+): EffectFunction | undefined {
+  if (expr.func.tag !== "var") {
+    return undefined;
+  }
+
+  let binding: Extract<Stmt, { tag: "bind" }> | undefined;
+
+  for (const stmt of elaboration.source.statements) {
+    if (stmt.tag === "bind" && stmt.name === expr.func.name) {
+      binding = stmt;
+      break;
+    }
+  }
+
+  if (
+    !binding ||
+    (binding.value.tag !== "lam" && binding.value.tag !== "rec")
+  ) {
+    return undefined;
+  }
+
+  let carries_resume = false;
+
+  for (let index = 0; index < binding.value.params.length; index += 1) {
+    const param = binding.value.params[index];
+    const arg = expr.args[index];
+
+    if (!param || param.annotation !== "Resume" || !arg) {
+      continue;
+    }
+
+    if (direct_resume_ref(arg, ctx)) {
+      carries_resume = true;
+      break;
+    }
+
+    if (
+      (arg.tag === "var" || arg.tag === "linear") &&
+      ctx.escaped_resumptions.has(arg.name)
+    ) {
+      carries_resume = true;
+      break;
+    }
+
+    if (
+      arg.tag === "field" &&
+      resume_field_signature(
+        arg.object,
+        arg.name,
+        ctx,
+        elaboration,
+      )
+    ) {
+      carries_resume = true;
+      break;
+    }
+  }
+
+  if (!carries_resume) {
+    return undefined;
+  }
+
+  return {
+    name: binding.name,
+    context: binding.effect_context || { name: "Fx", operations: undefined },
+    value: binding.value,
+  };
+}
+
+function operation_from_state_bind(
+  stmt: Extract<Stmt, { tag: "state_bind" }>,
+  index: EffectIndex,
+): EffectRef {
+  expect(stmt.value.tag === "app", "Effect state binding requires a call");
+  const func = stmt.value.func;
+  expect(func.tag === "field", "Effect state binding requires a method call");
+  const object = func.object;
+
+  if (object.tag === "var" && object.name === stmt.context) {
+    const refs = index.operations.get(func.name) || [];
+    expect(refs.length > 0, "Unknown effect operation: " + func.name);
+    expect(
+      refs.length === 1,
+      "Ambiguous effect operation " + func.name + "; qualify its effect",
+    );
+    const ref = refs[0];
+    expect(ref, "Missing effect operation reference");
+    return ref;
+  }
+
+  if (
+    object.tag === "field" && object.object.tag === "var" &&
+    object.object.name === stmt.context
+  ) {
+    const effect = index.effects.get(object.name);
+    expect(effect, "Unknown effect: " + object.name);
+    find_operation(effect, func.name);
+    return { effect: object.name, operation: func.name };
+  }
+
+  throw new Error(
+    "Effect state binding must call " + stmt.context + ".operation",
+  );
+}
+
+function find_operation(
+  effect: EffectDeclaration,
+  name: string,
+): EffectOperation {
+  const operation = effect.operations.find((item) => item.name === name);
+  expect(operation, "Unknown effect operation: " + effect.name + "." + name);
+  return operation;
+}
+
+function matching_handler(
+  ref: EffectRef,
+  active: ActiveHandler[],
+): { frame: ActiveHandler; index: number } | undefined {
+  for (let index = active.length - 1; index >= 0; index -= 1) {
+    const frame = active[index];
+    expect(frame, "Missing active handler frame");
+
+    if (frame.effect.name !== ref.effect) {
+      continue;
+    }
+
+    const implemented = frame.recipe.handler.clauses.some((clause) => {
+      return clause.name === ref.operation;
+    });
+
+    if (implemented) {
+      return { frame, index };
+    }
+  }
+
+  return undefined;
+}
+
+function handler_clause_ctx(
+  frame: ActiveHandler,
+  ctx: CompileCtx,
+): CompileCtx {
+  const result = clone_compile_ctx(ctx);
+  const active_index = result.active.findIndex((item) => item.id === frame.id);
+
+  if (active_index >= 0) {
+    result.active = result.active.slice(0, active_index);
+  }
+
+  result.unavailable_state.delete(frame.id);
+  return result;
+}
+
+function resumption_call(
+  expr: Extract<FrontExpr, { tag: "app" }>,
+  ctx: CompileCtx,
+): ResumeSpec | undefined {
+  if (expr.func.tag !== "linear" && expr.func.tag !== "var") {
+    return undefined;
+  }
+
+  return ctx.resumptions.get(expr.func.name);
+}
+
+function escaped_resumption_call(
+  expr: Extract<FrontExpr, { tag: "app" }>,
+  ctx: CompileCtx,
+  elaboration: Elaboration,
+): EscapedResume | undefined {
+  if (expr.func.tag === "linear" || expr.func.tag === "var") {
+    return ctx.escaped_resumptions.get(expr.func.name);
+  }
+
+  if (expr.func.tag === "field") {
+    const signature = resume_field_signature(
+      expr.func.object,
+      expr.func.name,
+      ctx,
+      elaboration,
+    );
+
+    if (signature) {
+      return { signature, used: false };
+    }
+  }
+
+  return undefined;
+}
+
+function direct_resume_ref(
+  expr: FrontExpr,
+  ctx: CompileCtx,
+): ResumeSpec | undefined {
+  if (expr.tag !== "linear" && expr.tag !== "var") {
+    return undefined;
+  }
+
+  return ctx.resumptions.get(expr.name);
+}
+
+function prepend_stmt_result(stmt: Stmt, result: CpsResult): CpsResult {
+  return {
+    expr: {
+      tag: "block",
+      statements: append_result_statements([stmt], result.expr),
+    },
+    target: result.target,
+    ctx: result.ctx,
+  };
+}
+
+function append_result_statements(
+  prefix: Stmt[],
+  result: FrontExpr,
+): Stmt[] {
+  if (result.tag === "block") {
+    return [...prefix, ...result.statements];
+  }
+
+  return [...prefix, { tag: "expr", expr: result }];
+}
+
+function normal_result(expr: FrontExpr, ctx: CompileCtx): CpsResult {
+  return { expr, target: undefined, ctx };
+}
+
+function targeted_result(
+  expr: FrontExpr,
+  target: number,
+  ctx: CompileCtx,
+): CpsResult {
+  return { expr, target, ctx };
+}
+
+function clone_compile_ctx(ctx: CompileCtx): CompileCtx {
+  const resumptions = new Map<string, ResumeSpec>();
+
+  for (const [name, resume] of ctx.resumptions) {
+    resumptions.set(name, {
+      ...resume,
+      captures: new Map(resume.captures),
+    });
+  }
+
+  const escaped_resumptions = new Map<string, EscapedResume>();
+
+  for (const [name, resume] of ctx.escaped_resumptions) {
+    escaped_resumptions.set(name, {
+      signature: resume.signature,
+      used: resume.used,
+    });
+  }
+
+  return {
+    active: [...ctx.active],
+    delimiters: [...ctx.delimiters],
+    resumptions,
+    resume_cases: clone_resume_cases(ctx.resume_cases),
+    resume_fields: clone_resume_cases(ctx.resume_fields),
+    escaped_resumptions,
+    unavailable_state: new Set(ctx.unavailable_state),
+    values: new Map(ctx.values),
+    active_calls: new Set(ctx.active_calls),
+  };
+}
+
+function clone_resume_cases(
+  source: Map<string, Map<string, ResumeSignature>>,
+): Map<string, Map<string, ResumeSignature>> {
+  const result = new Map<string, Map<string, ResumeSignature>>();
+
+  for (const [name, cases] of source) {
+    result.set(name, new Map(cases));
+  }
+
+  return result;
+}
+
+function record_resume_case_binding(
+  name: string,
+  value: FrontExpr,
+  annotation: string | undefined,
+  ctx: CompileCtx,
+  elaboration: Elaboration,
+): void {
+  const direct = resume_value_signature(value, elaboration);
+
+  if (direct) {
+    ctx.values.set(name, "resume");
+    ctx.escaped_resumptions.set(name, { signature: direct, used: false });
+  } else {
+    ctx.escaped_resumptions.delete(name);
+  }
+
+  const cases = resume_cases_from_expr(value, annotation, elaboration);
+
+  if (cases.size === 0) {
+    ctx.resume_cases.delete(name);
+  } else {
+    ctx.resume_cases.set(name, cases);
+  }
+
+  const fields = resume_fields_from_expr(value, elaboration);
+
+  if (fields.size === 0) {
+    ctx.resume_fields.delete(name);
+  } else {
+    ctx.resume_fields.set(name, fields);
+  }
+}
+
+function bind_matched_resume(
+  name: string,
+  case_name: string,
+  target: FrontExpr,
+  ctx: CompileCtx,
+  elaboration: Elaboration,
+): void {
+  let signature: ResumeSignature | undefined;
+
+  if (target.tag === "var" || target.tag === "linear") {
+    signature = ctx.resume_cases.get(target.name)?.get(case_name);
+  }
+
+  if (!signature) {
+    signature = resume_cases_from_expr(target, undefined, elaboration).get(
+      case_name,
+    );
+  }
+
+  if (!signature) {
+    ctx.values.set(name, "unknown");
+    ctx.escaped_resumptions.delete(name);
+    return;
+  }
+
+  ctx.values.set(name, "resume");
+  ctx.escaped_resumptions.set(name, { signature, used: false });
+}
+
+function resume_cases_from_expr(
+  expr: FrontExpr,
+  annotation: string | undefined,
+  elaboration: Elaboration,
+): Map<string, ResumeSignature> {
+  const result = new Map<string, ResumeSignature>();
+
+  if (expr.tag === "block") {
+    const final_stmt = expr.statements[expr.statements.length - 1];
+
+    if (final_stmt && final_stmt.tag === "expr") {
+      return resume_cases_from_expr(final_stmt.expr, annotation, elaboration);
+    }
+
+    if (final_stmt && final_stmt.tag === "return") {
+      return resume_cases_from_expr(final_stmt.value, annotation, elaboration);
+    }
+
+    return result;
+  }
+
+  if (expr.tag === "borrow" || expr.tag === "freeze") {
+    return resume_cases_from_expr(expr.value, annotation, elaboration);
+  }
+
+  if (expr.tag === "scratch") {
+    return resume_cases_from_expr(expr.body, annotation, elaboration);
+  }
+
+  if (expr.tag === "captured") {
+    return resume_cases_from_expr(expr.expr, annotation, elaboration);
+  }
+
+  if (expr.tag === "if") {
+    const left = resume_cases_from_expr(
+      expr.then_branch,
+      annotation,
+      elaboration,
+    );
+    const right = resume_cases_from_expr(
+      expr.else_branch,
+      annotation,
+      elaboration,
+    );
+
+    for (const [case_name, signature] of left) {
+      result.set(case_name, signature);
+    }
+
+    for (const [case_name, signature] of right) {
+      const existing = result.get(case_name);
+
+      if (existing) {
+        expect(
+          existing.input_type === signature.input_type &&
+            existing.output_type === signature.output_type,
+          "Conflicting escaped resumption signatures for case " + case_name,
+        );
+      }
+
+      result.set(case_name, signature);
+    }
+
+    return result;
+  }
+
+  if (expr.tag === "union_case") {
+    if (!expr.value) {
+      return result;
+    }
+
+    const signature = resume_value_signature(expr.value, elaboration);
+
+    if (signature) {
+      result.set(expr.name, signature);
+    }
+
+    return result;
+  }
+
+  if (
+    expr.tag === "app" && expr.func.tag === "field" &&
+    expr.args.length === 1
+  ) {
+    const value = expr.args[0];
+    expect(value, "Missing union constructor payload");
+    const signature = resume_value_signature(value, elaboration);
+
+    if (signature) {
+      const object = expr.func.object;
+
+      if (
+        object.tag === "var" || object.tag === "linear" ||
+        object.tag === "type_name"
+      ) {
+        result.set(expr.func.name, signature);
+      } else if (annotation) {
+        result.set(expr.func.name, signature);
+      }
+    }
+  }
+
+  return result;
+}
+
+function resume_value_signature(
+  expr: FrontExpr,
+  elaboration: Elaboration,
+): ResumeSignature | undefined {
+  const direct = elaboration.resume_value_signatures.get(expr);
+
+  if (direct) {
+    return direct;
+  }
+
+  if (expr.tag === "block") {
+    const final_stmt = expr.statements[expr.statements.length - 1];
+
+    if (final_stmt && final_stmt.tag === "expr") {
+      return resume_value_signature(final_stmt.expr, elaboration);
+    }
+
+    if (final_stmt && final_stmt.tag === "return") {
+      return resume_value_signature(final_stmt.value, elaboration);
+    }
+  }
+
+  if (expr.tag === "borrow" || expr.tag === "freeze") {
+    return resume_value_signature(expr.value, elaboration);
+  }
+
+  if (expr.tag === "scratch") {
+    return resume_value_signature(expr.body, elaboration);
+  }
+
+  return undefined;
+}
+
+function resume_fields_from_expr(
+  expr: FrontExpr,
+  elaboration: Elaboration,
+): Map<string, ResumeSignature> {
+  const result = new Map<string, ResumeSignature>();
+
+  if (expr.tag === "block") {
+    const final_stmt = expr.statements[expr.statements.length - 1];
+
+    if (final_stmt && final_stmt.tag === "expr") {
+      return resume_fields_from_expr(final_stmt.expr, elaboration);
+    }
+
+    if (final_stmt && final_stmt.tag === "return") {
+      return resume_fields_from_expr(final_stmt.value, elaboration);
+    }
+
+    return result;
+  }
+
+  if (expr.tag === "borrow" || expr.tag === "freeze") {
+    return resume_fields_from_expr(expr.value, elaboration);
+  }
+
+  if (expr.tag === "scratch") {
+    return resume_fields_from_expr(expr.body, elaboration);
+  }
+
+  if (expr.tag === "captured") {
+    return resume_fields_from_expr(expr.expr, elaboration);
+  }
+
+  if (expr.tag === "if") {
+    const left = resume_fields_from_expr(expr.then_branch, elaboration);
+    const right = resume_fields_from_expr(expr.else_branch, elaboration);
+
+    for (const [name, signature] of left) {
+      result.set(name, signature);
+    }
+
+    for (const [name, signature] of right) {
+      const existing = result.get(name);
+
+      if (existing) {
+        expect(
+          existing.input_type === signature.input_type &&
+            existing.output_type === signature.output_type,
+          "Conflicting escaped resumption signatures for field " + name,
+        );
+      }
+
+      result.set(name, signature);
+    }
+
+    return result;
+  }
+
+  if (expr.tag === "struct_value") {
+    for (const field of expr.fields) {
+      const signature = resume_value_signature(field.value, elaboration);
+
+      if (signature) {
+        result.set(field.name, signature);
+      }
+    }
+
+    return result;
+  }
+
+  if (expr.tag === "with" || expr.tag === "struct_update") {
+    const base = resume_fields_from_expr(expr.base, elaboration);
+
+    for (const [name, signature] of base) {
+      result.set(name, signature);
+    }
+
+    for (const field of expr.fields) {
+      result.delete(field.name);
+      const signature = resume_value_signature(field.value, elaboration);
+
+      if (signature) {
+        result.set(field.name, signature);
+      }
+    }
+  }
+
+  return result;
+}
+
+function resume_field_signature(
+  object: FrontExpr,
+  name: string,
+  ctx: CompileCtx,
+  elaboration: Elaboration,
+): ResumeSignature | undefined {
+  if (object.tag === "var" || object.tag === "linear") {
+    const signature = ctx.resume_fields.get(object.name)?.get(name);
+
+    if (signature) {
+      return signature;
+    }
+  }
+
+  return resume_fields_from_expr(object, elaboration).get(name);
+}
+
+function merge_branch_ctx(left: CompileCtx, right: CompileCtx): CompileCtx {
+  const result = clone_compile_ctx(left);
+
+  for (const [name, left_resume] of left.resumptions) {
+    const right_resume = right.resumptions.get(name);
+
+    if (!right_resume) {
+      result.resumptions.delete(name);
+      continue;
+    }
+
+    expect(
+      left_resume.used === right_resume.used,
+      "Resumption " + name + " is consumed on only one branch",
+    );
+  }
+
+  for (const id of right.unavailable_state) {
+    result.unavailable_state.add(id);
+  }
+
+  for (const [name, left_resume] of left.escaped_resumptions) {
+    const right_resume = right.escaped_resumptions.get(name);
+
+    if (!right_resume) {
+      result.escaped_resumptions.delete(name);
+      continue;
+    }
+
+    expect(
+      left_resume.used === right_resume.used,
+      "Escaped resumption " + name + " is consumed on only one branch",
+    );
+  }
+
+  return result;
+}
+
+function assert_available_state(expr: FrontExpr, ctx: CompileCtx): void {
+  if (ctx.unavailable_state.size === 0) {
+    return;
+  }
+
+  for (const frame of ctx.delimiters) {
+    if (!ctx.unavailable_state.has(frame.id)) {
+      continue;
+    }
+
+    for (const name of frame.state_names) {
+      if (expr_uses_name(expr, name)) {
+        throw new Error(
+          "Handler state " + name +
+            " is unavailable after consuming its resumption",
+        );
+      }
+    }
+  }
+}
+
+function expr_uses_name(expr: FrontExpr, name: string): boolean {
+  if (expr.tag === "var" || expr.tag === "linear") {
+    return expr.name === name;
+  }
+
+  if (expr.tag === "prim") {
+    return expr_uses_name(expr.left, name) || expr_uses_name(expr.right, name);
+  }
+
+  if (expr.tag === "app") {
+    if (expr_uses_name(expr.func, name)) {
+      return true;
+    }
+
+    return expr.args.some((arg) => expr_uses_name(arg, name));
+  }
+
+  if (expr.tag === "block") {
+    return expr.statements.some((stmt) => stmt_uses_name(stmt, name));
+  }
+
+  if (expr.tag === "lam" || expr.tag === "rec") {
+    if (expr.params.some((param) => param.name === name)) {
+      return false;
+    }
+
+    return expr_uses_name(expr.body, name);
+  }
+
+  if (expr.tag === "comptime") {
+    return expr_uses_name(expr.expr, name);
+  }
+
+  if (expr.tag === "borrow" || expr.tag === "freeze") {
+    return expr_uses_name(expr.value, name);
+  }
+
+  if (expr.tag === "scratch") {
+    return expr_uses_name(expr.body, name);
+  }
+
+  if (expr.tag === "captured") {
+    return expr_uses_name(expr.expr, name);
+  }
+
+  if (expr.tag === "handler") {
+    return false;
+  }
+
+  if (expr.tag === "try_with") {
+    return expr_uses_name(expr.body, name) ||
+      expr_uses_name(expr.handler, name);
+  }
+
+  if (expr.tag === "with" || expr.tag === "struct_update") {
+    if (expr_uses_name(expr.base, name)) {
+      return true;
+    }
+
+    return expr.fields.some((field) => expr_uses_name(field.value, name));
+  }
+
+  if (expr.tag === "struct_value") {
+    if (expr_uses_name(expr.type_expr, name)) {
+      return true;
+    }
+
+    return expr.fields.some((field) => expr_uses_name(field.value, name));
+  }
+
+  if (expr.tag === "if") {
+    return expr_uses_name(expr.cond, name) ||
+      expr_uses_name(expr.then_branch, name) ||
+      expr_uses_name(expr.else_branch, name);
+  }
+
+  if (expr.tag === "if_let") {
+    return expr_uses_name(expr.target, name) ||
+      expr_uses_name(expr.then_branch, name) ||
+      expr_uses_name(expr.else_branch, name);
+  }
+
+  if (expr.tag === "field") {
+    return expr_uses_name(expr.object, name);
+  }
+
+  if (expr.tag === "index") {
+    return expr_uses_name(expr.object, name) ||
+      expr_uses_name(expr.index, name);
+  }
+
+  if (expr.tag === "union_case") {
+    if (expr.value && expr_uses_name(expr.value, name)) {
+      return true;
+    }
+
+    if (expr.type_expr && expr_uses_name(expr.type_expr, name)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function stmt_uses_name(stmt: Stmt, name: string): boolean {
+  if (stmt.tag === "bind") {
+    return expr_uses_name(stmt.value, name);
+  }
+
+  if (stmt.tag === "state_bind" || stmt.tag === "bind_pattern") {
+    return expr_uses_name(stmt.value, name);
+  }
+
+  if (stmt.tag === "resume_dup") {
+    return expr_uses_name(stmt.value, name);
+  }
+
+  if (stmt.tag === "assign") {
+    return stmt.name === name || expr_uses_name(stmt.value, name);
+  }
+
+  if (stmt.tag === "index_assign") {
+    return stmt.name === name || expr_uses_name(stmt.index, name) ||
+      expr_uses_name(stmt.value, name);
+  }
+
+  if (stmt.tag === "for_range") {
+    return expr_uses_name(stmt.start, name) ||
+      expr_uses_name(stmt.end, name) || expr_uses_name(stmt.step, name) ||
+      stmt.body.some((item) => stmt_uses_name(item, name));
+  }
+
+  if (stmt.tag === "for_collection") {
+    return expr_uses_name(stmt.collection, name) ||
+      stmt.body.some((item) => stmt_uses_name(item, name));
+  }
+
+  if (stmt.tag === "if_stmt") {
+    return expr_uses_name(stmt.cond, name) ||
+      stmt.body.some((item) => stmt_uses_name(item, name));
+  }
+
+  if (stmt.tag === "if_let_stmt") {
+    return expr_uses_name(stmt.target, name) ||
+      stmt.body.some((item) => stmt_uses_name(item, name));
+  }
+
+  if (stmt.tag === "type_check") {
+    return expr_uses_name(stmt.target, name);
+  }
+
+  if (stmt.tag === "return") {
+    return expr_uses_name(stmt.value, name);
+  }
+
+  if (stmt.tag === "expr") {
+    return expr_uses_name(stmt.expr, name);
+  }
+
+  return false;
+}
+
+function stmt_has_ix_operation(stmt: Stmt): boolean {
+  if (stmt.tag === "state_bind" || stmt.tag === "resume_dup") {
+    return true;
+  }
+
+  if (stmt.tag === "bind") {
+    return expr_contains_handler(stmt.value);
+  }
+
+  if (stmt.tag === "if_stmt" || stmt.tag === "if_let_stmt") {
+    return stmt.body.some(stmt_has_ix_operation);
+  }
+
+  if (stmt.tag === "for_range" || stmt.tag === "for_collection") {
+    return stmt.body.some(stmt_has_ix_operation);
+  }
+
+  return false;
+}
+
+function record_stmt_value_kind(stmt: Stmt, ctx: CompileCtx): void {
+  if (stmt.tag === "bind") {
+    ctx.values.set(stmt.name, kind_from_expr(stmt.value, ctx));
+  }
+
+  if (stmt.tag === "assign") {
+    ctx.values.set(stmt.name, kind_from_expr(stmt.value, ctx));
+  }
+}
+
+function kind_from_expr(expr: FrontExpr, ctx: CompileCtx): ValueKind {
+  if (expr.tag === "num" || expr.tag === "unit" || expr.tag === "prim") {
+    return "scalar";
+  }
+
+  if (expr.tag === "text") {
+    return "frozen";
+  }
+
+  if (expr.tag === "freeze") {
+    return "frozen";
+  }
+
+  if (expr.tag === "borrow") {
+    return "borrow";
+  }
+
+  if (expr.tag === "scratch") {
+    return "scratch";
+  }
+
+  if (expr.tag === "lam" || expr.tag === "rec") {
+    return "unique";
+  }
+
+  if (expr.tag === "var" || expr.tag === "linear") {
+    return ctx.values.get(expr.name) || "unknown";
+  }
+
+  if (expr.tag === "app") {
+    return "unknown";
+  }
+
+  if (expr.tag === "struct_value" || expr.tag === "union_case") {
+    return "unique";
+  }
+
+  return "unknown";
+}
+
+function kind_from_type_name(name: string | undefined): ValueKind {
+  if (!name) {
+    return "unknown";
+  }
+
+  if (
+    name === "Unit" || name === "Int" || name === "I32" || name === "U32" ||
+    name === "I64"
+  ) {
+    return "scalar";
+  }
+
+  return "unique";
+}
+
+function handler_use_output_type(
+  body: FrontExpr,
+  handler: HandlerExpr,
+  elaboration: Elaboration,
+): string | undefined {
+  const input_type = simple_expr_type_name(body, new Map(), elaboration);
+  const types = new Map<string, string>();
+
+  if (handler.return_clause.param.annotation) {
+    types.set(
+      handler.return_clause.param.name,
+      handler.return_clause.param.annotation,
+    );
+  } else if (input_type) {
+    types.set(handler.return_clause.param.name, input_type);
+  }
+
+  return simple_expr_type_name(
+    handler.return_clause.body,
+    types,
+    elaboration,
+  );
+}
+
+function simple_expr_type_name(
+  expr: FrontExpr,
+  types: Map<string, string>,
+  elaboration?: Elaboration,
+): string | undefined {
+  if (expr.tag === "unit") {
+    return "Unit";
+  }
+
+  if (expr.tag === "num") {
+    if (expr.type === "i64") {
+      return "I64";
+    }
+
+    return "I32";
+  }
+
+  if (expr.tag === "text") {
+    return "Text";
+  }
+
+  if (expr.tag === "var" || expr.tag === "linear") {
+    return types.get(expr.name);
+  }
+
+  if (expr.tag === "prim") {
+    if (expr.prim.startsWith("i64.")) {
+      return "I64";
+    }
+
+    return "I32";
+  }
+
+  if (expr.tag === "borrow" || expr.tag === "freeze") {
+    return simple_expr_type_name(expr.value, types, elaboration);
+  }
+
+  if (expr.tag === "scratch") {
+    return simple_expr_type_name(expr.body, types, elaboration);
+  }
+
+  if (expr.tag === "struct_value") {
+    if (expr.type_expr.tag === "var" || expr.type_expr.tag === "type_name") {
+      return expr.type_expr.name;
+    }
+
+    return undefined;
+  }
+
+  if (expr.tag === "union_case") {
+    if (
+      expr.type_expr &&
+      (expr.type_expr.tag === "var" || expr.type_expr.tag === "type_name")
+    ) {
+      return expr.type_expr.name;
+    }
+
+    return undefined;
+  }
+
+  if (
+    expr.tag === "app" && expr.func.tag === "field" &&
+    (expr.func.object.tag === "var" ||
+      expr.func.object.tag === "type_name")
+  ) {
+    return expr.func.object.name;
+  }
+
+  if (
+    expr.tag === "app" &&
+    (expr.func.tag === "var" || expr.func.tag === "linear" ||
+      expr.func.tag === "field") &&
+    expr.func.resume_signature
+  ) {
+    return expr.func.resume_signature.output_type;
+  }
+
+  if (expr.tag === "app" && expr.func.tag === "var" && elaboration) {
+    for (const stmt of elaboration.source.statements) {
+      if (
+        stmt.tag !== "bind" || stmt.name !== expr.func.name ||
+        (stmt.value.tag !== "lam" && stmt.value.tag !== "rec")
+      ) {
+        continue;
+      }
+
+      const call_types = new Map<string, string>();
+
+      for (let index = 0; index < stmt.value.params.length; index += 1) {
+        const param = stmt.value.params[index];
+        const arg = expr.args[index];
+        expect(param, "Missing typed function parameter");
+        expect(arg, "Missing typed function argument");
+        const type = param.annotation ||
+          simple_expr_type_name(arg, types, elaboration);
+
+        if (type) {
+          call_types.set(param.name, type);
+        }
+      }
+
+      return simple_expr_type_name(
+        stmt.value.body,
+        call_types,
+        elaboration,
+      );
+    }
+  }
+
+  if (expr.tag === "block") {
+    const local = new Map(types);
+
+    for (const stmt of expr.statements) {
+      if (stmt.tag === "bind") {
+        const type = stmt.annotation ||
+          simple_expr_type_name(stmt.value, local, elaboration);
+
+        if (type) {
+          local.set(stmt.name, type);
+        }
+      }
+
+      if (stmt.tag === "assign") {
+        const type = simple_expr_type_name(stmt.value, local, elaboration);
+
+        if (type) {
+          local.set(stmt.name, type);
+        }
+      }
+
+      if (stmt.tag === "state_bind" && stmt.value_name && elaboration) {
+        const ref = operation_from_state_bind(stmt, elaboration.index);
+        const effect = elaboration.index.effects.get(ref.effect);
+        expect(effect, "Missing typed effect: " + ref.effect);
+        const operation = find_operation(effect, ref.operation);
+        local.set(stmt.value_name, operation.result.type_name);
+      }
+    }
+
+    const final_stmt = expr.statements[expr.statements.length - 1];
+
+    if (final_stmt && final_stmt.tag === "expr") {
+      return simple_expr_type_name(final_stmt.expr, local, elaboration);
+    }
+
+    if (final_stmt && final_stmt.tag === "return") {
+      return simple_expr_type_name(final_stmt.value, local, elaboration);
+    }
+
+    return undefined;
+  }
+
+  if (expr.tag === "if") {
+    const left = simple_expr_type_name(
+      expr.then_branch,
+      new Map(types),
+      elaboration,
+    );
+    const right = simple_expr_type_name(
+      expr.else_branch,
+      new Map(types),
+      elaboration,
+    );
+
+    if (left === right) {
+      return left;
+    }
+  }
+
+  return undefined;
+}
+
+function same_handler_type(left: string, right: string): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  const i32_names = new Set(["Int", "I32", "U32"]);
+  return i32_names.has(left) && i32_names.has(right);
+}
+
+function runtime_annotation(name: string): string {
+  if (name === "Unit") {
+    return "I32";
+  }
+
+  return name;
+}
+
+function unit_value(): FrontExpr {
+  return { tag: "num", type: "i32", value: 0 };
+}
+
+function effect_import_name(effect: string, operation: string): string {
+  return "__ix_effect_" + effect + "_" + operation;
+}
+
+function effect_text(effect: EffectRef): string {
+  return effect.effect + "." + effect.operation;
+}
