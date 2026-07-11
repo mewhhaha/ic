@@ -398,8 +398,7 @@ Expr.data = function data(expr: Expr): ExprDataSegment[] {
   return build_text_layout(expr).data;
 };
 
-Expr satisfies
-  & Format<Expr>
-  & Emit<Expr, string>
-  & Typed<Expr, ValType>
-  & Data<Expr, ExprDataSegment>;
+Format.register<Expr>(Expr);
+Emit.register<Expr, string>(Expr);
+Typed.register<Expr, ValType>(Expr);
+Data.register<Expr, ExprDataSegment>(Expr);

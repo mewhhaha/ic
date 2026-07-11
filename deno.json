@@ -1,0 +1,11 @@
+{
+  "imports": {
+    "@mewhhaha/typeclasses": "jsr:@mewhhaha/typeclasses@^0.5.0"
+  },
+  "minimumDependencyAge": {
+    "age": "P7D",
+    "exclude": [
+      "jsr:@mewhhaha/*"
+    ]
+  }
+}

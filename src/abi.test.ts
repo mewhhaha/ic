@@ -1146,3 +1146,143 @@ Deno.test("managed ABI wires a narrowed multi-file effect module", async () => {
     { effect: "Io", operation: "print" },
   ]);
 });
+
+Deno.test("effectful helper early return exits the helper, not the module", async () => {
+  const artifact = Source.artifact(`
+module (!init: Init) where
+
+type OpenResult =
+  | .ok
+  | .err = I32
+
+declare effect Host {
+  open: () => OpenResult
+  touch: () => I32
+}
+
+declare Init { host: Host }
+
+let check: () -> <Host.open | Host.touch> I32 = () => {
+  opened <- Host.open()
+
+  if let .err(code) = opened {
+    return code
+  }
+
+  bump <- Host.touch()
+  bump
+}
+
+result <- check()
+return { result }
+`);
+  const wasm = await wasm_from_wat(artifact.wat);
+
+  const err_host = await IxHost.instantiate(wasm, artifact.abi);
+  let err_touches = 0;
+  const err_result = err_host.run({
+    host: {
+      open() {
+        return { tag: "err", value: 9 };
+      },
+      touch() {
+        err_touches += 1;
+        return 41;
+      },
+    },
+  });
+  assert_equals(err_result, { result: 9 });
+  assert_equals(err_touches, 0);
+
+  const ok_host = await IxHost.instantiate(wasm, artifact.abi);
+  let ok_touches = 0;
+  const ok_result = ok_host.run({
+    host: {
+      open() {
+        return { tag: "ok" };
+      },
+      touch() {
+        ok_touches += 1;
+        return 41;
+      },
+    },
+  });
+  assert_equals(ok_result, { result: 41 });
+  assert_equals(ok_touches, 1);
+});
+
+Deno.test("const call conditions with effectful branches compile through loops and if let payloads", async () => {
+  const artifact = Source.artifact(`
+module (!init: Init) where
+
+type FetchResult =
+  | .chunk = Bytes
+  | .none
+
+declare effect Host {
+  fetch: () => FetchResult
+  put: (&Bytes) => I32
+}
+
+declare Init { host: Host }
+
+const has_bytes = (bytes: Bytes, limit: I32) => {
+  let total = 0
+  let byte_count = len(bytes)
+
+  for index in 0..limit {
+    if index < byte_count {
+      total = total + 1
+    }
+  }
+
+  total
+}
+
+fetched <- Host.fetch()
+let hits = 0
+
+if let .chunk(first_bytes) = fetched {
+  let pending: Bytes = first_bytes
+  let flag = 1
+  loop_total <- loop {
+    if flag == 1 && has_bytes(pending, 2) > 0 {
+      let line: Bytes = slice(pending, 0, 1)
+      wrote <- Host.put(&line)
+      hits = hits + wrote
+    }
+
+    break hits
+  }
+
+  hits = loop_total
+  ()
+} else {
+  hits = 0
+  ()
+}
+
+return { hits }
+`);
+  const wasm = await wasm_from_wat(artifact.wat);
+  const host = await IxHost.instantiate(wasm, artifact.abi);
+  const written: number[] = [];
+  const result = host.run({
+    host: {
+      fetch() {
+        return { tag: "chunk", value: new Uint8Array([7, 8, 9]) };
+      },
+      put(value) {
+        if (!(value instanceof Uint8Array)) {
+          throw new Error("Expected effect Bytes argument");
+        }
+
+        written.push(value.length);
+        return 5;
+      },
+    },
+  });
+
+  assert_equals(result, { hits: 5 });
+  assert_equals(written, [1]);
+});

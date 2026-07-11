@@ -1,4 +1,4 @@
-import type { Callable, CallableType, Emit, Format } from "./trait.ts";
+import { Callable, type CallableType, Emit, Format } from "./trait.ts";
 
 export type ValType = "i32" | "i64";
 type PrimOp =
@@ -366,4 +366,6 @@ Prim.emit = function emit(prim: Prim): string {
   return prim;
 };
 
-Prim satisfies Format<Prim> & Callable<Prim, ValType> & Emit<Prim, string>;
+Format.register<Prim>(Prim);
+Callable.register<Prim, ValType>(Prim);
+Emit.register<Prim, string>(Prim);

@@ -51,7 +51,6 @@ Ic.mod = ic_open_mod;
 
 Ic.wat = ic_open_wat;
 
-Ic satisfies
-  & Format<IcNode>
-  & Emit<IcNode, ExprNode>
-  & Reduce<undefined, IcNode, IcNode>;
+Format.register<IcNode>(Ic);
+Emit.register<IcNode, ExprNode>(Ic);
+Reduce.register<undefined, IcNode, IcNode>(Ic);

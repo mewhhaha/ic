@@ -21,6 +21,7 @@ import {
   type FrontEffectAnalysis,
   type FrontEffectFunction,
 } from "./effect_analysis.ts";
+import { scope_inlined_returns } from "./effect_inline_return.ts";
 import { elaborate_front_handlers } from "./handler_elaborate.ts";
 import { is_no_demand_name } from "./names.ts";
 import { substitute_front_expr } from "./substitute.ts";
@@ -361,7 +362,7 @@ function infer_result_type(
     }
   }
 
-  if (expr.tag === "if") {
+  if (expr.tag === "if" || expr.tag === "if_let") {
     const left = infer_result_type(
       expr.then_branch,
       bindings,
@@ -377,6 +378,17 @@ function infer_result_type(
 
     if (left === right) {
       return left;
+    }
+
+    // Branch agreement is checked by the Core type passes; when only one
+    // branch is locally inferable (for example the other ends in an
+    // if let payload binder), its type names the shared result.
+    if (left && !right) {
+      return left;
+    }
+
+    if (right && !left) {
+      return right;
     }
   }
 
@@ -1128,11 +1140,11 @@ function rewrite_expr(
             replacements.set(param.name, arg);
           }
 
-          const body = rewrite_expr(
+          const body = scope_inlined_returns(rewrite_expr(
             effect_function.value.body,
             local_providers,
             elaboration,
-          );
+          ));
           return substitute_front_expr(body, replacements);
         }
 

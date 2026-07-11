@@ -1,0 +1,16 @@
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@mewhhaha/typeclasses@0.5": "0.5.0"
+  },
+  "jsr": {
+    "@mewhhaha/typeclasses@0.5.0": {
+      "integrity": "d6457ea4421979a13896cb9dc03dc0c96a01c119bf34a93c35389bebe40e71c8"
+    }
+  },
+  "workspace": {
+    "dependencies": [
+      "jsr:@mewhhaha/typeclasses@0.5"
+    ]
+  }
+}

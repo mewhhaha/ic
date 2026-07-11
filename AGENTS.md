@@ -197,24 +197,21 @@ The module layer owns Wasm functions and exports. `Expr.emit` should emit only t
 
 Store module functions as a map keyed by function name. This makes export validation a direct lookup instead of a scan.
 
-## Pseudo traits
+## Typeclasses
 
-Types can have ad-hoc pseudo traits attached to empty functions.
-
-Define shared pseudo-trait shapes in `src/trait.ts`:
+Compiler traits are typeclasses built on `@mewhhaha/typeclasses` (JSR). The trait definitions live in `src/trait.ts`: each trait exports its structural type, a token symbol, and a typeclass object created with the library's `typeclass()` whose static methods dispatch through the instance registered under the token.
 
 ```ts
+export const format_typeclass = Symbol("binned.Format");
+
 export type Format<self> = {
   fmt: (value: self) => string;
 };
 
-export type Emit<from, to> = {
-  emit: (value: from) => to;
-};
-
-export type Reduce<self> = {
-  reduce: (value: self) => self;
-};
+export const Format = typeclass(format_typeclass, {
+  register<self>(impl: Format<self>): void {/* install_instance */},
+  fmt<self>(impl: Format<self>, value: self): string {/* dispatch */},
+});
 ```
 
 Define the data type and an empty function with the same exported name:
@@ -244,14 +241,17 @@ IC.fmt = function fmt(ic: IC): string {
 };
 ```
 
-Place `satisfies` checks in the implementation file, immediately after the relevant pseudo-trait methods are assigned:
+Register the companion's instances in the implementation file, immediately after the relevant methods are assigned. Registration checks the trait shape structurally (replacing the old `satisfies` statements) and installs the instance under the typeclass token:
 
 ```ts
 IC.emit = function emit(ic: IC): Expr {
   return lower(ic, new Map());
 };
 
-IC satisfies Format<IC> & Emit<IC, Expr>;
+Format.register<IC>(IC);
+Emit.register<IC, Expr>(IC);
 ```
 
-Do not keep these checks in `main.ts`. Do not replace this pattern with object literals or constructor casts. The empty function is the namespace-like value, and traits are added to it ad hoc.
+Call sites keep the explicit dictionary shape, such as `Format.fmt(IC, node)`. Registering `Format` also installs the library's `Show` instance, so wrapped values created with `as_data(IC, node)` work with the library's `Show.show`. Do not keep registrations in `main.ts`. Do not replace this pattern with object literals or constructor casts. The empty function is the namespace-like value, and typeclass instances are installed onto it.
+
+`@mewhhaha/typeclasses` is excluded from the `minimumDependencyAge` gate in `deno.json` so fresh releases of first-party packages resolve immediately; other dependencies stay behind the age gate.

@@ -135,8 +135,7 @@ Core.proof = core_proof;
 
 Core.check_proof = core_check_proof;
 
-Core satisfies
-  & Format<CoreNode>
-  & Typed<CoreNode, ValType>
-  & Emit<CoreNode, Wat>
-  & Data<CoreNode, DataSegment>;
+Format.register<CoreNode>(Core);
+Typed.register<CoreNode, ValType>(Core);
+Emit.register<CoreNode, Wat>(Core);
+Data.register<CoreNode, DataSegment>(Core);

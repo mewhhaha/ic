@@ -3,7 +3,7 @@ import { Core, type Core as CoreNode } from "../core.ts";
 import { Ic } from "../ic.ts";
 import type { IcOpenOptions } from "../ic/open_term.ts";
 import { Mod, type Mod as ModNode } from "../mod.ts";
-import type { Emit, Format } from "../trait.ts";
+import { Emit, Format } from "../trait.ts";
 import type { Wat } from "../wat.ts";
 import {
   type AbiManifest,
@@ -267,4 +267,5 @@ function reject_public_host_imports(source: SourceNode): void {
   }
 }
 
-Source satisfies Format<SourceNode> & Emit<SourceNode, IcNode>;
+Format.register<SourceNode>(Source);
+Emit.register<SourceNode, IcNode>(Source);

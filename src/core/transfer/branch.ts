@@ -168,13 +168,27 @@ export function scan_transfer_if_let_expr<ctx>(
   state: CoreTransferState<ctx>,
   scan_transfer_expr: ScanTransferExpr<ctx>,
 ): void {
-  const then_branch = clone_transfer_state(state);
-  scan_transfer_expr(
-    expr.then_branch,
-    child_scope(scope, "if_let_then"),
-    host_imports,
-    then_branch,
+  const branch_context = transfer_if_let_branch_ctx(
+    expr.target,
+    expr.case_name,
+    expr.value_name,
+    state,
   );
+  const then_branch = clone_transfer_state(state);
+
+  if (branch_context.tag === "scan") {
+    then_branch.ctx = branch_context.ctx;
+  }
+
+  if (branch_context.tag !== "skip") {
+    scan_transfer_expr(
+      expr.then_branch,
+      child_scope(scope, "if_let_then"),
+      host_imports,
+      then_branch,
+    );
+  }
+
   const else_branch = clone_transfer_state(state);
   else_branch.next_transfer = then_branch.next_transfer;
   scan_transfer_expr(
@@ -190,6 +204,20 @@ function transfer_if_let_stmt_branch_ctx<ctx>(
   stmt: Extract<CoreStmt, { tag: "if_let_stmt" }>,
   state: CoreTransferState<ctx>,
 ): { tag: "scan"; ctx: ctx } | { tag: "skip" } | { tag: "unknown" } {
+  return transfer_if_let_branch_ctx(
+    stmt.target,
+    stmt.case_name,
+    stmt.value_name,
+    state,
+  );
+}
+
+function transfer_if_let_branch_ctx<ctx>(
+  target: CoreExpr,
+  case_name: string,
+  value_name: string | undefined,
+  state: CoreTransferState<ctx>,
+): { tag: "scan"; ctx: ctx } | { tag: "skip" } | { tag: "unknown" } {
   const hooks = state.hooks;
 
   if (
@@ -197,16 +225,16 @@ function transfer_if_let_stmt_branch_ctx<ctx>(
     hooks.if_let_branch_ctx &&
     hooks.bind_core_if_let_payload_fact
   ) {
-    const union_case = hooks.static_union_case(stmt.target, state.ctx);
+    const union_case = hooks.static_union_case(target, state.ctx);
 
     if (union_case) {
-      if (union_case.name !== stmt.case_name) {
+      if (union_case.name !== case_name) {
         return { tag: "skip" };
       }
 
       const branch_ctx = hooks.if_let_branch_ctx(state.ctx);
       hooks.bind_core_if_let_payload_fact(
-        stmt.value_name,
+        value_name,
         union_case,
         branch_ctx,
       );
@@ -219,20 +247,20 @@ function transfer_if_let_stmt_branch_ctx<ctx>(
     hooks.if_let_branch_ctx &&
     hooks.bind_dynamic_if_let_payload
   ) {
-    const dynamic_target = hooks.dynamic_union_if(stmt.target, state.ctx);
+    const dynamic_target = hooks.dynamic_union_if(target, state.ctx);
 
     if (dynamic_target) {
       if (
-        dynamic_target.then_case.name !== stmt.case_name &&
-        dynamic_target.else_case.name !== stmt.case_name
+        dynamic_target.then_case.name !== case_name &&
+        dynamic_target.else_case.name !== case_name
       ) {
         return { tag: "skip" };
       }
 
       const branch_ctx = hooks.if_let_branch_ctx(state.ctx);
       hooks.bind_dynamic_if_let_payload(
-        stmt.case_name,
-        stmt.value_name,
+        case_name,
+        value_name,
         dynamic_target,
         branch_ctx,
       );
@@ -246,18 +274,18 @@ function transfer_if_let_stmt_branch_ctx<ctx>(
     hooks.static_runtime_union_match_branch_ctx
   ) {
     const runtime_target = hooks.runtime_union_target(
-      stmt.target,
+      target,
       state.ctx,
     );
 
     if (runtime_target) {
       const info = hooks.runtime_union_match_info(
-        stmt.case_name,
+        case_name,
         runtime_target,
         state.ctx,
       );
       const branch_ctx = hooks.static_runtime_union_match_branch_ctx(
-        stmt.value_name,
+        value_name,
         info,
         state.ctx,
       );

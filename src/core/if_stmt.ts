@@ -42,6 +42,10 @@ export function emit_core_if_stmt<ctx extends CoreIfStmtCtx>(
 ): Wat {
   const cond_type = hooks.expr_type(stmt.cond, ctx);
   expect(cond_type === "i32", "Core if statement condition must be i32");
+  // The condition must be emitted before the body so plan-generated
+  // temporary names replay in the order the local-collection pass
+  // created them.
+  const cond = hooks.emit_expr(stmt.cond, ctx);
   const body: string[] = [];
 
   for (const item of stmt.body) {
@@ -49,7 +53,7 @@ export function emit_core_if_stmt<ctx extends CoreIfStmtCtx>(
   }
 
   return [
-    hooks.emit_expr(stmt.cond, ctx),
+    cond,
     "if",
     indent_lines(body.join("\n"), 2),
     "end",

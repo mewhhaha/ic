@@ -34,7 +34,7 @@ Func.fmt = function fmt(func: Func): Wat {
   return signature + `\n${indent(func.body, 2)}\n)`;
 };
 
-Func satisfies Format<Func>;
+Format.register<Func>(Func);
 
 export type FuncType = {
   name: string;
@@ -55,7 +55,7 @@ FuncType.fmt = function fmt(type: FuncType): Wat {
   return signature;
 };
 
-FuncType satisfies Format<FuncType>;
+Format.register<FuncType>(FuncType);
 
 export type FuncImport = {
   name: string;
@@ -80,7 +80,7 @@ FuncImport.fmt = function fmt(func: FuncImport): Wat {
   } ${signature})`;
 };
 
-FuncImport satisfies Format<FuncImport>;
+Format.register<FuncImport>(FuncImport);
 
 export type Memory = {
   name: string;
@@ -108,7 +108,7 @@ Memory.fmt = function fmt(memory: Memory): Wat {
   return wat;
 };
 
-Memory satisfies Format<Memory>;
+Format.register<Memory>(Memory);
 
 export type Global = {
   name: string;
@@ -129,7 +129,7 @@ Global.fmt = function fmt(global: Global): Wat {
   return `(global $${global.name} ${type} (${global.type}.const ${global.value.toString()}))`;
 };
 
-Global satisfies Format<Global>;
+Format.register<Global>(Global);
 
 export type Table = {
   name: string;
@@ -154,7 +154,7 @@ Table.fmt = function fmt(table: Table): Wat {
   return lines.join("\n");
 };
 
-Table satisfies Format<Table>;
+Format.register<Table>(Table);
 
 export type DataSegment = {
   offset: number;
@@ -197,7 +197,7 @@ DataSegment.fmt = function fmt(segment: DataSegment): Wat {
   return `(data (i32.const ${segment.offset}) "${wat_bytes(segment.bytes)}")`;
 };
 
-DataSegment satisfies Format<DataSegment>;
+Format.register<DataSegment>(DataSegment);
 
 export type Mod = {
   types?: Record<string, FuncType>;
@@ -304,4 +304,4 @@ Mod.emit = function emit(mod: Mod): Wat {
   return parts.join("\n");
 };
 
-Mod satisfies Emit<Mod, Wat>;
+Emit.register<Mod, Wat>(Mod);

@@ -6,8 +6,11 @@ import {
   Source,
 } from "./source.ts";
 import { Core } from "../core.ts";
+import type { Ic as IcNode } from "../ic/ast.ts";
 import { Mod } from "../mod.ts";
+import { Emit, Format } from "../trait.ts";
 import { parse_source_with_host_imports_for_test } from "./parser.ts";
+import type { Source as SourceNode } from "./ast.ts";
 
 export function TestSource() {}
 
@@ -98,3 +101,6 @@ TestSource.core_file = Source.core_file;
 TestSource.mod_file = Source.mod_file;
 TestSource.wat_file = Source.wat_file;
 TestSource.artifact_file = Source.artifact_file;
+
+Format.register<SourceNode>(TestSource);
+Emit.register<SourceNode, IcNode>(TestSource);
