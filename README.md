@@ -58,8 +58,6 @@ checks.
 ## Example
 
 ```txt
-module () where
-
 const make_adder = n => {
   x => x + n
 }
@@ -68,12 +66,13 @@ const add_three = comptime make_adder(3)
 
 let value = add_three(29)
 value = value + 1
-return { value }
+value
 ```
 
-This module exports `value` with the value `33`. The demo in `main.ts` parses
-source, lowers it through IC and Expr, wraps it in a Wasm module, and writes
-WAT.
+This is the header-free fragment compiled by the demo in `main.ts`: it parses
+source, lowers it through IC and Expr, wraps it in a Wasm module exporting
+`main` with the value `33`, and writes WAT. Loaded `.ix` files use the module
+header and export-record form shown in the next section.
 
 ## Source Language
 

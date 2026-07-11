@@ -25,9 +25,9 @@ Resolved memory/lifetime decision:
 - Ordinary runtime heap values are `unique_heap` owners by default. They can be
   moved, returned, transferred, frozen, dropped, or borrowed, but not implicitly
   copied.
-- `borrow value` and `let view = borrow value` create lexical read-only
-  `borrow_view` values. They are runtime-free analysis facts; a live view blocks
-  owner mutation, move, freeze, transfer, return, and escaping capture.
+- `&value` and `let view = &value` create lexical read-only `borrow_view`
+  values. They are runtime-free analysis facts; a live view blocks owner
+  mutation, move, freeze, transfer, return, and escaping capture.
 - `freeze value` consumes a unique owner and produces immutable
   `frozen_shareable` storage. This is the explicit copy/share boundary for data
   that must be duplicated or captured by reusable closures.

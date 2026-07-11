@@ -59,9 +59,8 @@ an explicit future region/managed-storage profile. The cross-task contract is:
    `frozen_shareable`, or `scratch_backed`.
 2. Treat ordinary runtime heap values as `unique_heap` unless they are static,
    scalar, explicitly frozen, or allocated inside `scratch {}`.
-3. Keep `borrow owner` / `let view = borrow owner` as lexical read-only views.
-   Active views block owner move, mutation, freeze, transfer, return, and
-   escaping capture.
+3. Keep `&owner` / `let view = &owner` as lexical read-only views. Active views
+   block owner move, mutation, freeze, transfer, return, and escaping capture.
 4. Keep `scratch { ... }` as a lexical scratchpad with a value result. It saves
    and restores a scratch pointer on all exit edges and never returns an
    implicit attached region.
@@ -258,7 +257,7 @@ lowering support:
 Fixture source forms should use the same syntax planned for the language:
 
 ```txt
-let view = borrow owner
+let view = &owner
 let shared = freeze owner
 
 let result = scratch {
@@ -393,11 +392,12 @@ operations in `src/frontend/builtin_call/text_ops.ts`. Compile-time structural
 builtins, layout helpers, and `has(...)` fact queries live in
 `src/frontend/const_builtin.ts`. Ic primitive folding and select reduction live
 in `src/ic/prim_reduce.ts`, keeping numeric primitive behavior separate from the
-active-pair rewrite rules in `src/ic/reduce.ts`. IC reducer fresh-name context
-lives in `src/ic/reduce/context.ts`, structural erasure lives in
-`src/ic/reduce/erase.ts`, primitive superposition spreading lives in
-`src/ic/reduce/prim_spread.ts`, and substitution plus name-use counting lives in
-`src/ic/reduce/substitute.ts`; primitive propagation over superpositions
+active-pair rewrite rules in `src/ic/graph_reduce.ts`. IC reducer fresh-name
+context lives in `src/ic/graph_reduce/context.ts`, structural erasure lives in
+`src/ic/graph_reduce/erase.ts`, graph materialization lives in
+`src/ic/graph_reduce/materialize.ts`, and substitution plus name scanning live
+in `src/ic/graph_reduce/substitute.ts` and `src/ic/graph_reduce/scan.ts`;
+primitive propagation over superpositions
 includes unary memory loads, and dynamic selects retag to `i64.select` when
 reduction exposes i64 branches. The exported `Ic` companion also satisfies the
 generic `Reduce<ctx, from, to>` pattern, so context-free top-level reduction can
@@ -1322,7 +1322,7 @@ Implemented and verified:
   unknown host/import calls should be treated as escaping unless marked as
   bounded-borrow consumers, and scratch-to-heap promotion should be explicit in
   Core rather than an implicit fallback.
-- `borrow expr`, `freeze expr`, and `scratch { ... }` are reserved in the
+- `&expr`, `freeze expr`, and `scratch { ... }` are reserved in the
   frontend grammar and source formatter. Source-to-Core now preserves them as
   explicit ownership nodes, and Core type/emit lowers them transparently for
   integer scalar results, already-shareable static text values, persistent
@@ -1339,7 +1339,7 @@ Implemented and verified:
   preserve their inferred frontend type for `=` shadowing checks, so
   wrapper-bound structs, unions, and closures still reject accidental type
   changes. Immediate scalar text reads over annotated runtime `Text` now also
-  erase wrappers on the Ic route, so `len(borrow message)`,
+  erase wrappers on the Ic route, so `len(&message)`,
   `get(freeze message, index)`, and `(scratch { message })[index]` recursively
   lower to the usual Ic memory-read shape without letting the wrapped value
   escape. Wrapper expressions that return a runtime value already known as
@@ -1378,10 +1378,10 @@ Implemented and verified:
   block-local, and branch-selected scratch closure freeze keep the frozen
   closure on persistent heap storage and can leave `scratch {}` as
   `frozen_shareable`. Scratch-backed aggregate, union, broader closure, and
-  remaining text promotion still require future copying work. Core `borrow expr`
+  remaining text promotion still require future copying work. Core `&expr`
   is also accepted for scalar and already-frozen/shareable values, and bounded
   unique-heap borrows can now be used by immediate read-only consumers such as
-  `len(borrow message)` inside annotated closure bodies. Escaping unique-heap
+  `len(&message)` inside annotated closure bodies. Escaping unique-heap
   borrows still reject. The first Core lifetime policy module now lives in
   `src/core/lifetime.ts`; Core type checking and emission use it to explain
   reserved `borrow`, `freeze`, and `scratch` cases in terms of missing lexical
@@ -1547,7 +1547,7 @@ ownership-transfer argument contracts. `Core.host_boundaries(...)` and
 decisions before WAT emission, `Core.drops(...)` records `host_transfer` facts
 for consumed direct unique owners, `Core.proof(...)` reports direct
 use-after-transfer issues, and `Core.mod(...)` emits known host imports and
-direct calls. Bounded-borrow imports accept explicit `borrow owner` views.
+direct calls. Bounded-borrow imports accept explicit `&owner` views.
 Ownership-transfer imports accept direct `unique_heap` arguments and reject
 borrowed views. Host-returned owner contracts are implemented for Core import
 results, including proof-visible signatures, owned final-result escape facts,
