@@ -72,6 +72,9 @@ export type CoreUnsupportedCodegenHooks = {
   index_expr_supported: (
     expr: Extract<CoreExpr, { tag: "index" }>,
   ) => boolean;
+  enter_scope?: () => void;
+  exit_scope?: () => void;
+  observe_stmt?: (stmt: CoreStmt) => void;
 };
 
 export type CoreProofIssue =

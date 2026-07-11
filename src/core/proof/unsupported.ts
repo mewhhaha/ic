@@ -9,11 +9,7 @@ export function core_unsupported_codegen_issues(
   hooks: CoreUnsupportedCodegenHooks,
 ): CoreUnsupportedCodegenIssue[] {
   const issues: CoreUnsupportedCodegenIssue[] = [];
-
-  for (const stmt of core.statements) {
-    scan_unsupported_codegen_stmt(stmt, issues, hooks, 0);
-  }
-
+  scan_unsupported_codegen_stmts(core.statements, issues, hooks, 0);
   return issues;
 }
 
@@ -23,8 +19,23 @@ function scan_unsupported_codegen_stmts(
   hooks: CoreUnsupportedCodegenHooks,
   loop_depth: number,
 ): void {
+  // Support probes consult local facts, so each statement list opens a
+  // fact scope and each scanned statement contributes its facts for the
+  // statements after it.
+  if (hooks.enter_scope) {
+    hooks.enter_scope();
+  }
+
   for (const stmt of statements) {
     scan_unsupported_codegen_stmt(stmt, issues, hooks, loop_depth);
+
+    if (hooks.observe_stmt) {
+      hooks.observe_stmt(stmt);
+    }
+  }
+
+  if (hooks.exit_scope) {
+    hooks.exit_scope();
   }
 }
 

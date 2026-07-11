@@ -34,9 +34,40 @@ export function scan_transfer_stmts<ctx>(
   try {
     for (const stmt of statements) {
       scan_transfer_stmt(stmt, scope, host_imports, state);
+      observe_transfer_stmt_facts(stmt, state);
     }
   } finally {
     state.functions = previous_functions;
+  }
+}
+
+// Ownership probes such as union-payload discovery consult local type
+// facts, so annotated binds contribute their facts to a scan-local child
+// ctx for the statements after them. Unannotated binds are skipped to
+// keep the scan from re-collecting large inlined block values.
+function observe_transfer_stmt_facts<ctx>(
+  stmt: CoreStmt,
+  state: CoreTransferState<ctx>,
+): void {
+  const hooks = state.hooks;
+
+  if (!hooks.collect_stmt_locals || !hooks.block_ctx) {
+    return;
+  }
+
+  if (stmt.tag !== "bind" || !stmt.annotation) {
+    return;
+  }
+
+  const scan_ctx = hooks.block_ctx(state.ctx);
+
+  try {
+    hooks.collect_stmt_locals(stmt, scan_ctx);
+    state.ctx = scan_ctx;
+  } catch (_error) {
+    // A statement whose facts cannot be collected leaves them unknown
+    // for later probes; the statement itself is still validated by the
+    // ordinary analysis passes.
   }
 }
 

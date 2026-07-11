@@ -101,18 +101,49 @@ export function core_backend_proof(
   }
 
   const drop_ctx = ctx;
+  // The unsupported scan walks into block bodies whose local facts are
+  // not part of the top-level ctx, so it maintains its own scoped fact
+  // ctx: statement lists push a child ctx and every scanned statement
+  // contributes its facts for the statements after it.
+  const scan_ctx_stack: CoreCtx[] = [];
+  let scan_ctx = create_child_core_ctx(ctx);
   const unsupported_codegen = core_unsupported_codegen_issues(core, {
     collection_loop_supported: (stmt) =>
-      core_collection_loop_supported(backend, stmt, ctx),
+      core_collection_loop_supported(backend, stmt, scan_ctx),
     index_assign_supported: (stmt) =>
-      core_index_assign_supported(backend, stmt, ctx),
-    type_value_expr: (expr) => core_type_value_expr(expr, ctx),
+      core_index_assign_supported(backend, stmt, scan_ctx),
+    type_value_expr: (expr) => core_type_value_expr(expr, scan_ctx),
     if_let_expr_supported: (expr) =>
-      core_if_let_target_supported(backend, expr.target, ctx),
+      core_if_let_target_supported(backend, expr.target, scan_ctx),
     if_let_stmt_supported: (stmt) =>
-      core_if_let_target_supported(backend, stmt.target, ctx),
+      core_if_let_target_supported(backend, stmt.target, scan_ctx),
     index_expr_supported: (expr) =>
-      core_index_expr_supported(backend, expr, ctx),
+      core_index_expr_supported(backend, expr, scan_ctx),
+    enter_scope: () => {
+      scan_ctx_stack.push(scan_ctx);
+      scan_ctx = create_child_core_ctx(scan_ctx);
+    },
+    exit_scope: () => {
+      const previous = scan_ctx_stack.pop();
+      expect(previous, "Unsupported-codegen scan scope underflow");
+      scan_ctx = previous;
+    },
+    observe_stmt: (stmt) => {
+      // Only annotated binds contribute facts; unannotated binds are
+      // skipped so the scan does not re-collect large inlined block
+      // values at every nesting level.
+      if (stmt.tag !== "bind" || !stmt.annotation) {
+        return;
+      }
+
+      try {
+        backend.local_collect.collect_stmt_locals(stmt, scan_ctx);
+      } catch (_error) {
+        // A statement whose facts cannot be collected leaves them
+        // unknown for later support probes; the statement itself is
+        // still validated by the ordinary analysis passes.
+      }
+    },
   });
 
   if (unsupported_codegen.length > 0) {
