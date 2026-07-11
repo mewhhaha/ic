@@ -116,8 +116,8 @@ Deno.test("Source.emit compiles example source", async () => {
 
   assert_includes(wat, '(export "result" (func $result))');
   assert_includes(wat, '(export "main" (func $main))');
-  assert_includes(wat, "i32.const 21");
-  assert_includes(wat, "i32.add");
+  assert_includes(wat, "i32.const 42");
+  assert_equals(wat.includes("i32.add"), false);
 });
 
 Deno.test("Source.parse rejects untyped numeric literals", () => {

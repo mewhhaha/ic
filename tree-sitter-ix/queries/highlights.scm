@@ -22,6 +22,7 @@
   "declare"
   "effect"
   "struct"
+  "type"
   "union"
 ] @keyword.storage.type
 
@@ -58,6 +59,7 @@
   "borrow"
   "freeze"
   "scratch"
+  "is"
 ] @keyword.operator
 
 "comptime" @keyword.directive
@@ -110,6 +112,7 @@
   ","
   ":"
   "."
+  "#"
 ] @punctuation.delimiter
 
 ; Literals and comments
@@ -117,21 +120,30 @@
 (string) @string
 (character) @constant.character
 (boolean) @constant.builtin.boolean
+(atom_expression
+  name: (identifier) @constant)
+(atom_type
+  name: (identifier) @constant)
 (comment) @comment.line
 
 ; Types
-(type_reference
+(type_difference
   (identifier) @type)
 
 (type_application
   constructor: (identifier) @type
   argument: (identifier) @type)
 
-(type_parenthesized
-  value: (identifier) @type)
+(frozen_type
+  name: (identifier) @type)
 
-(type_tuple
+(borrow_type
   (identifier) @type)
+
+[
+  (top_type)
+  (never_type)
+] @type.builtin
 
 (row_variable) @type.parameter
 
@@ -147,6 +159,16 @@
 
 (declare_record_statement
   name: (identifier) @type)
+
+(type_declaration_statement
+  name: (identifier) @type
+  parameter: (identifier) @type.parameter)
+
+(type_case
+  name: (identifier) @constructor)
+
+(named_type_field
+  name: (identifier) @variable.other.member)
 
 (effect_operation_reference
   effect: (effect_identifier) @type
@@ -200,6 +222,9 @@
 
 (linear_reference
   name: (identifier) @variable)
+
+(atom_expression
+  name: (identifier) @constant)
 
 (resume_dup_statement
   left: (identifier) @variable)
@@ -257,6 +282,9 @@
   field: (identifier) @variable.other.member)
 
 (field_definition
+  name: (identifier) @variable.other.member)
+
+(record_field
   name: (identifier) @variable.other.member)
 
 (shorthand_field

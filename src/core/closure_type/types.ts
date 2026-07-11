@@ -1,5 +1,11 @@
 import type { ValType } from "../../op.ts";
-import type { CoreExpr, CoreFnType, CoreHostImport, CoreStmt } from "../ast.ts";
+import type {
+  CoreExpr,
+  CoreFnType,
+  CoreHostImport,
+  CoreParam,
+  CoreStmt,
+} from "../ast.ts";
 import type { DynamicUnionIf } from "../if_let.ts";
 import type {
   RuntimeUnionMatchInfo,
@@ -22,6 +28,11 @@ export type CoreClosureTypeBlockCtx = CoreClosureTypeCtx & {
 };
 
 export type CoreClosureTypeHooks = {
+  apply_core_parameter_annotation: (
+    param: CoreParam,
+    value: CoreExpr,
+    ctx: CoreClosureTypeCtx,
+  ) => CoreExpr;
   clear_core_local_facts: (name: string, ctx: CoreClosureTypeCtx) => void;
   collect_stmt_locals: (stmt: CoreStmt, ctx: CoreClosureTypeBlockCtx) => void;
   core_expr_is_text: (expr: CoreExpr, ctx: CoreClosureTypeCtx) => boolean;
@@ -85,6 +96,7 @@ export type CoreClosureTypeHooks = {
 export type ClosureParamInfo = {
   type: ValType;
   is_text: boolean;
+  constraint?: string;
   struct_type?: CoreExpr;
   union_type?: CoreExpr;
 };

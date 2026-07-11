@@ -15,6 +15,8 @@ export function create_core_backend_runtime_closure(
   get_union: () => CoreBackendUnion,
 ): CoreBackendClosure {
   return create_core_backend_closure({
+    apply_core_parameter_annotation: (param, value, ctx) =>
+      deps.type_check().apply_core_parameter_annotation(param, value, ctx),
     branch_payload_ctx: create_core_branch_emit_ctx,
     clear_core_local_facts: (name, ctx) =>
       deps.local_facts().clear_core_local_facts(name, ctx),

@@ -15,6 +15,9 @@ export function infer_front_expr(
   hooks: InferHooks,
 ): FrontType {
   switch (expr.tag) {
+    case "atom":
+      return { tag: "atom", name: expr.name };
+
     case "num":
       return { tag: "int", type: expr.type };
 
@@ -26,6 +29,12 @@ export function infer_front_expr(
 
     case "type_name":
       return { tag: "type" };
+
+    case "set_type":
+      return { tag: "set", type_expr: expr.type_expr };
+
+    case "is":
+      return { tag: "int", type: "i32" };
 
     case "var": {
       const binding = lookup(env, expr.name);
@@ -343,11 +352,16 @@ function collect_loop_breaks_from_expr(
     case "unit":
     case "text":
     case "type_name":
+    case "set_type":
     case "var":
     case "linear":
     case "struct_type":
     case "union_type":
     case "unsupported":
+      return;
+
+    case "is":
+      collect_loop_breaks_from_expr(expr.value, env, hooks, breaks);
       return;
 
     case "prim":

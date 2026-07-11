@@ -1,5 +1,5 @@
 let escape = (message: Text) => {
-  borrow message
+  &message
 }
 
 let message: Text = append("a", "b")

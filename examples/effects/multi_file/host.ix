@@ -1,7 +1,7 @@
 module () where
 
 declare effect Io {
-  print: (bounded_borrow Text) => Unit
+  print: (&Text) => Unit
 }
 
 declare Init {

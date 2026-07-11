@@ -25,13 +25,22 @@ function rename_linear_closure_expr(
 ): FrontExpr {
   switch (expr.tag) {
     case "num":
+    case "atom":
     case "unit":
     case "text":
     case "type_name":
+    case "set_type":
     case "struct_type":
     case "union_type":
     case "unsupported":
       return expr;
+
+    case "is":
+      return {
+        tag: "is",
+        value: rename_linear_closure_expr(expr.value, renames),
+        type_expr: expr.type_expr,
+      };
 
     case "var":
       return {
@@ -171,6 +180,7 @@ function rename_linear_closure_expr(
         tag: "struct_value",
         type_expr: rename_linear_closure_expr(expr.type_expr, renames),
         fields: rename_linear_closure_fields(expr.fields, renames),
+        bracketed: expr.bracketed,
       };
 
     case "struct_update":

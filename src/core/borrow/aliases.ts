@@ -658,7 +658,7 @@ function payload_ownership_from_type_name<ctx>(
   return undefined;
 }
 
-function if_let_payload_owner_ctx<ctx>(
+export function if_let_payload_owner_ctx<ctx>(
   case_name: string,
   value_name: string,
   target: CoreExpr,

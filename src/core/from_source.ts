@@ -60,6 +60,14 @@ export function core_from_source(source: SourceNode): Core {
       host_imports[stmt.value.name] = host_import;
     } else {
       record_core_from_source_type_value(stmt, ctx);
+
+      if (
+        stmt.tag === "bind" && stmt.kind === "const" &&
+        ctx.type_set_aliases.has(stmt.name)
+      ) {
+        continue;
+      }
+
       const lowered = core_stmt(stmt, ctx);
 
       if (

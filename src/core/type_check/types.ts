@@ -11,6 +11,7 @@ export type CoreTypeCheckCtx = {
   statics: Map<string, CoreExpr>;
   text_locals: Set<string>;
   struct_locals: Map<string, CoreExpr>;
+  union_locals: Map<string, CoreExpr>;
 };
 
 export type CoreTypeCheckHooks<ctx extends CoreTypeCheckCtx> = {

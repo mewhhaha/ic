@@ -97,8 +97,7 @@ const { write } = logger({ io: !init.io })
 Module invocation is compiler-time wiring and specialization. Its result is the
 imported file's export record, so ordinary record destructuring selects exports.
 An `_` entry in that pattern selects no field and ignores the remaining export
-shape.
-The entry module's final record is returned by the managed JavaScript
+shape. The entry module's final record is returned by the managed JavaScript
 `IxRunner(init).run(program)` call. A runner captures one explicit handler set;
 selecting another runner swaps host or mock effects without recompiling the
 module.
@@ -561,6 +560,148 @@ const result_type = e => t => union {
 const parse_result_type = result_type(Text)(Int)
 ```
 
+The experimental row syntax provides named `type` declarations as surface sugar
+over those same const type-values. Bracket products may be labeled or
+positional:
+
+```txt
+type Vec3 = [.x = Int, .y = Int, .z = Int]
+type Pair = [Int, Int]
+
+let point: Vec3 = [.x = 40, .y = 1, .z = 1]
+let pair: Pair = [point.x, point.y]
+```
+
+Products are ordered even when their slots have names. A field name is an alias
+for its declaration-order index, so `point.x` and `point[0]` select the same
+slot, `point.y` and `point[1]` select the same slot, and so on. Static indexes
+may select any slot. Runtime indexes retain the existing homogeneous
+runtime-index rule: every selectable slot must have a compatible value type.
+Reordering fields therefore changes both their indexes and their layout.
+
+Commas form products. Named and positional entries cannot be mixed when a
+product is declared or constructed, but both named and indexed access work on
+the resulting value. Sum declarations use `|` between cases and need no
+surrounding brackets. A leading `|` is accepted for multiline formatting:
+
+```txt
+type Maybe a = .just = a | .nothing
+
+type Maybe a =
+  | .just = a
+  | .nothing
+
+type MaybeInt = Maybe Int
+```
+
+A bare case has a `Unit` payload. Payload-bearing cases use `=`. Type parameters
+elaborate to the existing compile-time type constructors, and a named alias such
+as `Maybe Int` specializes one before Core lowering. The formatter emits sums in
+the multiline leading-pipe form.
+
+This first experiment supports closed top-level products, sums, aliases, and
+product values. It preserves existing field order, union tags, and ABI layouts;
+it does not implement structural row normalization, row spreads, open row
+variables, or width subtyping yet. Nested product payloads and applied row
+members are rejected before Core lowering. Recursive declarations are parsed but
+rejected explicitly because recursive generic substitution and recursive
+owned-child destruction are not implemented safely yet:
+
+```txt
+type List a =
+  | .nil
+  | .cons = [a, List a]
+```
+
+This reports `Recursive algebraic type declarations are not supported yet: List`
+rather than emitting a partially owned recursive heap layout. Existing
+`struct { ... }` and `union { ... }` syntax remains supported as the underlying
+representation during the experiment.
+
+Types also compose as sets. Union, intersection, and difference use the same
+operators as effect rows, with difference binding most tightly:
+
+```txt
+type Value = Int | Text | I64
+type Number = Value \ Text
+type Answer = Number & Int
+
+let value: Value = 42
+let answer: Answer = if value is Int { value } else { 0 }
+```
+
+`_` is the top type and accepts every value. `Never` is the bottom type and has
+no values. Finite unions use the existing tagged-union runtime layout when their
+members need different runtime interpretations. Intersections of compatible
+product rows merge their fields; finite differences and intersections normalize
+before layout selection.
+
+Set aliases may be generic, and a plain member value is injected into the
+appropriate finite-union case at an annotated binding or function call:
+
+```txt
+type Maybe a = a | #nothing
+type MaybeInt = Maybe Int
+
+let unwrap = (value: MaybeInt) =>
+  if value is Int { value } else { 0 }
+
+unwrap(42)
+```
+
+The specialization may also be used directly as an annotation, as in
+`let value: Maybe Int = 42`. Named specializations are materialized before Core
+and retain the same tagged schema when exposed through the managed ABI.
+
+`value is T` is an ordinary `I32` Boolean expression. In an `if` condition it
+also narrows a named value in both branches. The false branch carries the
+remaining set, so chained `else if` tests can exhaust unions with more than two
+members.
+
+Atoms use `#snake_case` as both a value and its singleton type:
+
+```txt
+type Marker = #ready | #waiting
+let marker: Marker = #ready
+
+if marker is #ready { 1 } else { 0 }
+```
+
+Atoms are allocation-free `i32` identities. A compilation unit rejects the
+extremely rare case where two distinct spellings map to the same identity,
+rather than silently treating them as equal.
+
+The same prefix marks frozen/shareable rich types when followed by a PascalCase
+type name. `&` marks a bounded borrow. Parentheses make compound modalities
+explicit:
+
+```txt
+type FrozenText = #Text
+type FrozenList a = #(List a)
+
+let text: FrozenText = "hello"
+let view: &Text = &text
+```
+
+For host effect contracts, `&T` means a bounded borrow, `#T` means a
+frozen/shareable value, and plain rich `T` means ownership transfer for an
+argument or a unique owned result. The legacy ownership words remain accepted as
+parser aliases, but formatting uses the sigils.
+
+First-class closure parameters retain singleton-atom constraints.
+Ownership-qualified closure parameters such as `#Text` and `&Text` are rejected
+for now because the closure runtime does not yet carry frozen-result ownership
+or the borrow-view source and lifetime into the lifted body. Ordinary bindings,
+effect arguments, freezing, and direct value borrows still use the sigils
+normally.
+
+Recursive algebraic layouts are still rejected, so `#(List a)` is available as
+type syntax but cannot make the currently unsupported recursive `List` layout
+emittable. Ownership-qualified members such as `#Text | Int` are also rejected
+as runtime tagged sets for now: the current union envelope does not encode a
+different ownership policy per tag, and accepting it would make destruction
+unsound.
+
 Struct construction validates field names and field types.
 
 ```txt
@@ -757,7 +898,7 @@ module () where
 
 declare effect Io {
   read: () => Text
-  print: (bounded_borrow Text) => Unit
+  print: (&Text) => Unit
 }
 
 declare Init {
@@ -790,7 +931,7 @@ explicit function type declares the function pure:
 ```txt
 let greet: () -> <Io.read | Io.print> Text = () => {
   name <- Io.read()
-  _ <- Io.print(borrow name)
+  _ <- Io.print(&name)
   name
 }
 
@@ -967,11 +1108,12 @@ unless a more specific allocation fact applies. A unique heap value may be
 moved, consumed, borrowed, frozen, returned, or dropped, but it is not
 implicitly copied.
 
-`borrow value` creates a non-owning read-only view tied to a lexical lifetime. A
-stored view uses ordinary binding syntax.
+`&value` creates a non-owning read-only view tied to a lexical lifetime. The
+legacy `borrow value` spelling remains a parser alias, but formatting emits the
+sigil. A stored view uses ordinary binding syntax.
 
 ```txt
-let view = borrow user
+let view = &user
 ```
 
 The view cannot outlive its owner, cannot be returned or captured by an escaping
@@ -1071,14 +1213,14 @@ sum
 ```
 
 `loop` is an expression form for an unbounded structured loop. `break value`
-returns a scalar result from the nearest `loop`, and every direct
-break value must have the same source type. A loop whose direct exits all use a
-bare `break` has type `Unit`; bare and valued exits cannot be mixed. Owned
-`Text`, `Bytes`, aggregate, union, and closure loop results are not supported
-yet. `break` and `continue` are control-flow statements, not general values.
-Declared host operations and calls to ordinary effectful functions may occur in
-the body. Locally handled effects inside a runtime loop remain reserved until
-the handler pass can lower recursive CPS control flow.
+returns a scalar result from the nearest `loop`, and every direct break value
+must have the same source type. A loop whose direct exits all use a bare `break`
+has type `Unit`; bare and valued exits cannot be mixed. Owned `Text`, `Bytes`,
+aggregate, union, and closure loop results are not supported yet. `break` and
+`continue` are control-flow statements, not general values. Declared host
+operations and calls to ordinary effectful functions may occur in the body.
+Locally handled effects inside a runtime loop remain reserved until the handler
+pass can lower recursive CPS control flow.
 
 ```txt
 let first_even = loop {
@@ -1091,8 +1233,8 @@ let first_even = loop {
 }
 ```
 
-`for` remains statement-only. Its binders may be `_` when an index or element
-is intentionally ignored. A range may omit binders entirely:
+`for` remains statement-only. Its binders may be `_` when an index or element is
+intentionally ignored. A range may omit binders entirely:
 
 ```txt
 for _ in values {
@@ -1104,15 +1246,15 @@ for 0..4 {
 }
 ```
 
-The wildcard binder is a no-demand binding: it does not introduce a usable
-local and does not require the iterated value to be consumed by the body. `_`
-is accepted for ordinary and const bindings, function parameters, record/module
+The wildcard binder is a no-demand binding: it does not introduce a usable local
+and does not require the iterated value to be consumed by the body. `_` is
+accepted for ordinary and const bindings, function parameters, record/module
 destructuring, union payload patterns, and loop binders. It cannot be referenced
-as an expression or marked linear as `!_`. Direct `_ <- Effect.operation()`
-can discard scalar, frozen/shareable, or owned results; owned results still
-produce an explicit cleanup edge. A non-scalar result from an indirect
-effectful function call must still be bound until result ownership and cleanup
-rows can be preserved safely after call inlining.
+as an expression or marked linear as `!_`. Direct `_ <- Effect.operation()` can
+discard scalar, frozen/shareable, or owned results; owned results still produce
+an explicit cleanup edge. A non-scalar result from an indirect effectful
+function call must still be bound until result ownership and cleanup rows can be
+preserved safely after call inlining.
 
 A fold is an ordinary function that accepts an initial accumulator and a step
 function. It does not need a dedicated control-flow form; `for` remains the
@@ -1320,20 +1462,21 @@ effect rows and internal proof tokens have no runtime representation.
 
 ```txt
 declare effect Host {
-  read: (bounded_borrow Text) => I32
-  take: (ownership_transfer Text) => I32
-  make_text: () => unique_heap Text
+  read: (&Text) => I32
+  take: (Text) => I32
+  make_text: () => Text
+  shared_text: () => #Text
 }
 
 declare Init { host: Host }
 ```
 
-Effect operations support scalar numeric ABI parameters/results,
-`bounded_borrow`, `ownership_transfer`, and `frozen_shareable` parameters, plus
-host-returned `unique_heap` or `frozen_shareable` values. The compiler generates
-its internal import descriptors during effect elaboration; source programs do
-not name raw Wasm modules or fields. Effect resources remain explicit module
-dependencies rather than ambient Wasm authority.
+Effect operations support scalar numeric ABI parameters/results, `&T` bounded
+borrows, plain rich `T` ownership transfers, and `#T` frozen/shareable values.
+Plain rich results are unique owned values. The compiler generates its internal
+import descriptors during effect elaboration; source programs do not name raw
+Wasm modules or fields. Effect resources remain explicit module dependencies
+rather than ambient Wasm authority.
 
 Supported Ic-lowerable scalar features include:
 

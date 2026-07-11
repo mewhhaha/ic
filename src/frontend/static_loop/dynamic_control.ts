@@ -288,16 +288,21 @@ function expr_contains_loop_control(expr: FrontExpr): boolean {
         expr_contains_loop_control(expr.handler);
 
     case "num":
+    case "atom":
     case "unit":
     case "text":
     case "var":
     case "linear":
     case "type_name":
+    case "set_type":
     case "struct_type":
     case "union_type":
     case "captured":
     case "unsupported":
       return false;
+
+    case "is":
+      return expr_contains_loop_control(expr.value);
   }
 }
 

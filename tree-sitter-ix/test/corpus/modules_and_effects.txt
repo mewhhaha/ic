@@ -30,7 +30,10 @@ return { result }
       (parameter
         (identifier)
         (type_reference
-          (identifier)))))
+          (type_union
+            (type_intersection
+              (type_difference
+                (identifier))))))))
   (declare_effect_statement
     (effect_identifier)
     (effect_operation_block
@@ -56,7 +59,10 @@ return { result }
     (identifier)
     (type_reference
       (function_type
-        (unit_type)
+        (type_union
+          (type_intersection
+            (type_difference
+              (unit_type))))
         (latent_effect_row
           (effect_row
             (effect_union_expression
@@ -66,7 +72,10 @@ return { result }
               (effect_operation_reference
                 (effect_identifier)
                 (identifier)))))
-        (identifier)))
+        (type_union
+          (type_intersection
+            (type_difference
+              (identifier))))))
     (arrow_function
       (parameter_list)
       (block
@@ -118,7 +127,10 @@ let inspect: () -> <Stdin | Stdout.write_line | Trace \ Debug> Unit = () => ()
     (identifier)
     (type_reference
       (function_type
-        (unit_type)
+        (type_union
+          (type_intersection
+            (type_difference
+              (unit_type))))
         (latent_effect_row
           (effect_row
             (effect_union_expression
@@ -133,7 +145,10 @@ let inspect: () -> <Stdin | Stdout.write_line | Trace \ Debug> Unit = () => ()
                       (effect_identifier))
                     (effect_family_reference
                       (effect_identifier))))))))
-        (identifier)))
+        (type_union
+          (type_intersection
+            (type_difference
+              (identifier))))))
     (arrow_function
       (parameter_list)
       (block
@@ -159,7 +174,10 @@ let inspect: () -> <Stdin | Stdout.write_line | Trace \ Debug> Unit = () => ()
     (identifier)
     (type_reference
       (function_type
-        (unit_type)
+        (type_union
+          (type_intersection
+            (type_difference
+              (unit_type))))
         (latent_effect_row
           (effect_row
             (effect_union_expression
@@ -174,7 +192,10 @@ let inspect: () -> <Stdin | Stdout.write_line | Trace \ Debug> Unit = () => ()
                   (effect_identifier))
                 (effect_family_reference
                   (effect_identifier))))))
-        (identifier)))
+        (type_union
+          (type_intersection
+            (type_difference
+              (identifier))))))
     (arrow_function
       (parameter_list)
       (unit_pattern))))
@@ -255,7 +276,10 @@ return { result }
       (binding_statement
         (identifier)
         (type_reference
-          (identifier))
+          (type_union
+            (type_intersection
+              (type_difference
+                (identifier)))))
         (number))
       (expression_statement
         (struct_expression
@@ -371,7 +395,10 @@ return { result, close }
       (parameter
         (identifier)
         (type_reference
-          (identifier)))))
+          (type_union
+            (type_intersection
+              (type_difference
+                (identifier))))))))
   (import_statement
     (identifier)
     (string))
@@ -379,7 +406,10 @@ return { result, close }
     (identifier)
     (type_reference
       (function_type
-        (unit_type)
+        (type_union
+          (type_intersection
+            (type_difference
+              (unit_type))))
         (latent_effect_row
           (effect_row
             (effect_union_expression
@@ -389,7 +419,10 @@ return { result, close }
               (effect_operation_reference
                 (effect_identifier)
                 (identifier)))))
-        (identifier)))
+        (type_union
+          (type_intersection
+            (type_difference
+              (identifier))))))
     (arrow_function
       (parameter_list)
       (block

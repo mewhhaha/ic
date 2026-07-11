@@ -4,13 +4,34 @@ import type { Env, FrontExpr, FrontType } from "./ast.ts";
 import type { AnnotationHooks } from "./annotation_types.ts";
 import { numeric_expr_type, prim_result_type } from "./numeric.ts";
 import { resolve_extended_type_value } from "./type_patterns.ts";
-import { front_type_name } from "./types.ts";
+import { front_type_from_type_name, front_type_name } from "./types.ts";
+import { parse_type_expr } from "./type_expr.ts";
+import { tokenize } from "./tokenize.ts";
+import { sem_type_from_expr } from "./semantic_type.ts";
+import { front_type_value_for_semantic_type } from "./type_declaration.ts";
 
 export function resolve_annotation_type(
   annotation: string,
   env: Env,
   hooks: AnnotationHooks,
 ): FrontType | undefined {
+  const parsed = parse_type_expr(tokenize(annotation));
+  const inline_set = front_type_value_for_semantic_type(
+    "<inline annotation>",
+    parsed,
+    sem_type_from_expr(parsed),
+  );
+
+  if (inline_set.tag === "union_type") {
+    return { tag: "union_value", cases: inline_set.cases };
+  }
+
+  const direct = direct_annotation_front_type(parsed);
+
+  if (direct) {
+    return direct;
+  }
+
   if (
     annotation === "Int" || annotation === "I32" || annotation === "U32" ||
     annotation === "Resume"
@@ -34,6 +55,12 @@ export function resolve_annotation_type(
     return { tag: "type" };
   }
 
+  const set_value = resolve_annotation_set_type_value(annotation, env, hooks);
+
+  if (set_value) {
+    return { tag: "set", type_expr: set_value.type_expr };
+  }
+
   const value = resolve_annotation_type_value(annotation, env, hooks);
 
   if (!value) {
@@ -53,6 +80,46 @@ export function resolve_annotation_type(
   }
 
   return undefined;
+}
+
+function direct_annotation_front_type(
+  type: import("./ast.ts").TypeExpr,
+): FrontType | undefined {
+  switch (type.tag) {
+    case "atom":
+      return { tag: "atom", name: type.name };
+
+    case "top":
+      return { tag: "unknown" };
+
+    case "never":
+      return { tag: "never" };
+
+    case "frozen":
+    case "borrow":
+      return direct_annotation_front_type(type.value);
+
+    case "union":
+    case "intersection":
+    case "difference":
+      return { tag: "set", type_expr: type };
+
+    case "name":
+      if (
+        type.name === "Unit" || type.name === "Int" || type.name === "I32" ||
+        type.name === "U32" || type.name === "I64" || type.name === "Text" ||
+        type.name === "Bytes" || type.name === "Resume"
+      ) {
+        return front_type_from_type_name(type.name);
+      }
+
+      return undefined;
+
+    case "apply":
+    case "tuple":
+    case "arrow":
+      return undefined;
+  }
 }
 
 export function resolve_numeric_expr_type(
@@ -128,6 +195,34 @@ export function resolve_annotation_type_value(
   }
 
   if (type_value.tag === "union_type") {
+    return type_value;
+  }
+
+  return undefined;
+}
+
+export function resolve_annotation_set_type_value(
+  annotation: string,
+  env: Env,
+  hooks: AnnotationHooks,
+): Extract<FrontExpr, { tag: "set_type" }> | undefined {
+  if (!is_simple_annotation_name(annotation)) {
+    return undefined;
+  }
+
+  const value = hooks.resolve_const_expr({ tag: "var", name: annotation }, env);
+
+  if (!value) {
+    return undefined;
+  }
+
+  const type_value = resolve_extended_type_value(
+    value,
+    env,
+    { resolve_const_expr: hooks.resolve_const_expr },
+  );
+
+  if (type_value.tag === "set_type") {
     return type_value;
   }
 

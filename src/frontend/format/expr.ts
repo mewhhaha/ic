@@ -2,6 +2,7 @@ import type { FrontExpr, Stmt } from "../ast.ts";
 import { format_binding_name } from "../names.ts";
 import { format_field, format_params, format_type_field } from "./common.ts";
 import { prim_symbol } from "./prim.ts";
+import { format_type_expr } from "../type_expr.ts";
 
 export function format_expr_with_stmt(
   expr: FrontExpr,
@@ -23,8 +24,14 @@ export function format_expr_with_stmt(
     case "type_name":
       return expr.name;
 
+    case "set_type":
+      return "set " + format_type_expr(expr.type_expr);
+
     case "var":
       return expr.name;
+
+    case "atom":
+      return "#" + expr.name;
 
     case "prim":
       return format_expr(expr.left) + " " + prim_symbol(expr.prim) + " " +
@@ -49,7 +56,7 @@ export function format_expr_with_stmt(
       return "comptime " + format_expr(expr.expr);
 
     case "borrow":
-      return "borrow " + format_expr(expr.value);
+      return "&" + format_expr(expr.value);
 
     case "freeze":
       return "freeze " + format_expr(expr.value);
@@ -106,6 +113,18 @@ export function format_expr_with_stmt(
         " }";
 
     case "struct_value":
+      if (expr.bracketed === "named") {
+        return "[" + expr.fields.map((field) => {
+          return "." + field.name + " = " + format_expr(field.value);
+        }).join(", ") + "]";
+      }
+
+      if (expr.bracketed === "positional") {
+        return "[" + expr.fields.map((field) => format_expr(field.value)).join(
+          ", ",
+        ) + "]";
+      }
+
       if (
         expr.type_expr.tag === "var" &&
         expr.type_expr.name === "object_type"
@@ -157,6 +176,16 @@ export function format_expr_with_stmt(
 
     case "index":
       return format_expr(expr.object) + "[" + format_expr(expr.index) + "]";
+
+    case "is": {
+      let value = format_expr(expr.value);
+
+      if (expr.value.tag === "if") {
+        value = "(" + value + ")";
+      }
+
+      return value + " is " + format_type_expr(expr.type_expr);
+    }
 
     case "union_case":
       if (expr.value) {

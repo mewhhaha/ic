@@ -2,7 +2,7 @@ module (!init: Init) where
 
 declare effect Io {
   read: () => Text
-  print: (bounded_borrow Text) => Unit
+  print: (&Text) => Unit
 }
 
 declare Init {
@@ -16,7 +16,7 @@ let read_name: () -> <Io.read> Text = () => {
 
 let greet: () -> <Io.read | Io.print> Text = () => {
   name <- read_name()
-  _ <- Io.print(borrow name)
+  _ <- Io.print(&name)
   name
 }
 

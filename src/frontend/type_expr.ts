@@ -25,7 +25,7 @@ class TypeExprParser {
   }
 
   parse_arrow(): TypeExpr {
-    const param = this.parse_apply();
+    const param = this.parse_union();
 
     if (!this.match_symbol("->")) {
       return param;
@@ -46,14 +46,95 @@ class TypeExprParser {
     };
   }
 
-  private parse_apply(): TypeExpr {
-    let type = this.parse_atom();
+  private parse_union(): TypeExpr {
+    let type = this.parse_intersection();
 
-    while (this.starts_atom()) {
-      type = { tag: "apply", func: type, arg: this.parse_atom() };
+    while (this.match_symbol("|")) {
+      type = { tag: "union", left: type, right: this.parse_intersection() };
     }
 
     return type;
+  }
+
+  private parse_intersection(): TypeExpr {
+    let type = this.parse_difference();
+
+    while (this.match_symbol("&")) {
+      type = {
+        tag: "intersection",
+        left: type,
+        right: this.parse_difference(),
+      };
+    }
+
+    return type;
+  }
+
+  private parse_difference(): TypeExpr {
+    let type = this.parse_apply();
+
+    while (this.match_symbol("\\")) {
+      type = {
+        tag: "difference",
+        left: type,
+        right: this.parse_apply(),
+      };
+    }
+
+    return type;
+  }
+
+  private parse_apply(): TypeExpr {
+    let type = this.parse_prefix();
+
+    while (this.starts_atom()) {
+      type = { tag: "apply", func: type, arg: this.parse_prefix() };
+    }
+
+    return type;
+  }
+
+  private parse_prefix(): TypeExpr {
+    if (this.match_symbol("#")) {
+      return this.parse_hash_type();
+    }
+
+    if (this.match_symbol("&")) {
+      return { tag: "borrow", value: this.parse_prefix_value() };
+    }
+
+    return this.parse_atom();
+  }
+
+  private parse_hash_type(): TypeExpr {
+    if (this.match_symbol("(")) {
+      const value = this.parse_arrow();
+      this.expect_symbol(")");
+      return { tag: "frozen", value };
+    }
+
+    const token = this.peek();
+    expect(token && token.kind === "name", "Expected type after `#`");
+    this.index += 1;
+    if (is_snake_case(token.text)) {
+      return { tag: "atom", name: token.text };
+    }
+
+    expect(
+      /^[A-Z][A-Za-z0-9]*$/.test(token.text),
+      "Frozen type name must use PascalCase: " + token.text,
+    );
+    return { tag: "frozen", value: { tag: "name", name: token.text } };
+  }
+
+  private parse_prefix_value(): TypeExpr {
+    if (this.match_symbol("(")) {
+      const value = this.parse_arrow();
+      this.expect_symbol(")");
+      return value;
+    }
+
+    return this.parse_atom();
   }
 
   private parse_atom(): TypeExpr {
@@ -87,6 +168,14 @@ class TypeExprParser {
     const token = this.peek();
     expect(token && token.kind === "name", "Expected type name");
     this.index += 1;
+    if (token.text === "Never") {
+      return { tag: "never" };
+    }
+
+    if (token.text === "_") {
+      return { tag: "top" };
+    }
+
     return { tag: "name", name: token.text };
   }
 
@@ -170,7 +259,8 @@ class TypeExprParser {
 
     return token !== undefined &&
       (token.kind === "name" ||
-        (token.kind === "symbol" && token.text === "("));
+        (token.kind === "symbol" &&
+          (token.text === "(" || token.text === "#")));
   }
 
   private match_symbol(text: string): boolean {
@@ -201,18 +291,68 @@ function format(type: TypeExpr, parent_precedence: number): string {
     return type.name;
   }
 
+  if (type.tag === "atom") {
+    return "#" + type.name;
+  }
+
+  if (type.tag === "top") {
+    return "_";
+  }
+
+  if (type.tag === "never") {
+    return "Never";
+  }
+
+  if (type.tag === "frozen" || type.tag === "borrow") {
+    let prefix = "&";
+    if (type.tag === "frozen") {
+      prefix = "#";
+    }
+    const value = type.value;
+    if (
+      value.tag === "name" &&
+      (type.tag === "borrow" || /^[A-Z][A-Za-z0-9]*$/.test(value.name))
+    ) {
+      return prefix + value.name;
+    }
+
+    return prefix + "(" + format(value, 0) + ")";
+  }
+
   if (type.tag === "tuple") {
     return "(" + type.items.map((item) => format(item, 0)).join(", ") + ")";
   }
 
+  if (
+    type.tag === "union" || type.tag === "intersection" ||
+    type.tag === "difference"
+  ) {
+    let precedence = 1;
+    let operator = " | ";
+
+    if (type.tag === "intersection") {
+      precedence = 2;
+      operator = " & ";
+    }
+
+    if (type.tag === "difference") {
+      precedence = 3;
+      operator = " \\ ";
+    }
+
+    const text = format(type.left, precedence) + operator +
+      format(type.right, precedence + 1);
+    return parenthesize(text, precedence, parent_precedence);
+  }
+
   if (type.tag === "apply") {
-    const precedence = 2;
+    const precedence = 4;
     const text = format(type.func, precedence) + " " +
       format(type.arg, precedence + 1);
     return parenthesize(text, precedence, parent_precedence);
   }
 
-  const precedence = 1;
+  const precedence = 0;
   let text = format(type.param, precedence + 1) + " ->";
 
   if (type.effects) {

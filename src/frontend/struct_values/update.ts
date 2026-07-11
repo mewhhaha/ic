@@ -61,5 +61,6 @@ export function apply_struct_update_with_resolver(
     tag: "struct_value",
     type_expr: target.expr.type_expr,
     fields,
+    bracketed: target.expr.bracketed,
   };
 }

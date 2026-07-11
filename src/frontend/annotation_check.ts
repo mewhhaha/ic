@@ -1,12 +1,21 @@
 import type { Env, FrontExpr, ResolvedFrontExpr } from "./ast.ts";
 import {
   binding_value_type_name,
+  resolve_annotation_set_type_value,
   resolve_annotation_type_value,
   resolve_numeric_expr_type,
 } from "./annotation_resolve.ts";
 import type { AnnotationHooks } from "./annotation_types.ts";
 import { lookup_type_field } from "./fields.ts";
+import { matching_type_set_case } from "./type_set_member.ts";
 import { is_builtin_type_name } from "./types.ts";
+import {
+  sem_type_from_expr,
+  sem_type_from_front_type,
+  sem_type_subtype,
+} from "./semantic_type.ts";
+import { parse_type_expr } from "./type_expr.ts";
+import { tokenize } from "./tokenize.ts";
 
 export function check_binding_annotation(
   annotation: string,
@@ -14,6 +23,10 @@ export function check_binding_annotation(
   env: Env,
   hooks: AnnotationHooks,
 ): void {
+  if (check_semantic_annotation(annotation, value, env, hooks)) {
+    return;
+  }
+
   if (is_builtin_type_name(annotation)) {
     check_builtin_binding_annotation(annotation, value, env, hooks);
     return;
@@ -34,6 +47,76 @@ export function check_binding_annotation(
     annotation,
     hooks.capture_const_ref(value, env),
     env,
+  );
+}
+
+function check_semantic_annotation(
+  annotation: string,
+  value: FrontExpr,
+  env: Env,
+  hooks: AnnotationHooks,
+): boolean {
+  let type_expr = parse_type_expr(tokenize(annotation));
+  let semantic_surface = type_expr.tag !== "name" &&
+    type_expr.tag !== "apply" && type_expr.tag !== "tuple" &&
+    type_expr.tag !== "arrow";
+
+  if (!semantic_surface) {
+    const set_value = resolve_annotation_set_type_value(annotation, env, hooks);
+
+    if (!set_value) {
+      return false;
+    }
+
+    type_expr = set_value.type_expr;
+    semantic_surface = true;
+  }
+
+  if (!semantic_surface) {
+    return false;
+  }
+
+  if (type_expr.tag === "top") {
+    return true;
+  }
+
+  if (type_expr.tag === "never") {
+    throw new Error("Binding annotation Never has no values");
+  }
+
+  let checked_value = value;
+
+  if (type_expr.tag === "frozen") {
+    if (value.tag === "freeze") {
+      checked_value = value.value;
+    } else if (value.tag !== "text") {
+      throw new Error(
+        "Binding annotation expects frozen " + annotation,
+      );
+    }
+
+    type_expr = type_expr.value;
+  } else if (type_expr.tag === "borrow") {
+    if (value.tag !== "borrow") {
+      throw new Error(
+        "Binding annotation expects borrowed " + annotation,
+      );
+    }
+
+    checked_value = value.value;
+    type_expr = type_expr.value;
+  }
+
+  const actual = sem_type_from_front_type(hooks.infer_expr(checked_value, env));
+  const expected = sem_type_from_expr(type_expr);
+
+  if (sem_type_subtype(actual, expected)) {
+    return true;
+  }
+
+  throw new Error(
+    "Binding annotation expects " + annotation + ", got " +
+      binding_value_type_name(value, env, hooks),
   );
 }
 
@@ -105,6 +188,17 @@ function check_direct_type_annotation(
   }
 
   if (type_value.tag === "union_type") {
+    const set_case = matching_type_set_case(
+      type_value.cases,
+      value,
+      env,
+      hooks.infer_expr,
+    );
+
+    if (set_case) {
+      return true;
+    }
+
     const union_value = hooks.resolve_union_value(value, env);
 
     if (!union_value) {

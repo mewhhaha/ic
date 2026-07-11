@@ -6,15 +6,20 @@ export function contains_reserved_linear_effect(
 ): boolean {
   switch (expr.tag) {
     case "num":
+    case "atom":
     case "unit":
     case "text":
     case "type_name":
+    case "set_type":
     case "var":
     case "linear":
     case "struct_type":
     case "union_type":
     case "unsupported":
       return false;
+
+    case "is":
+      return contains_reserved_linear_effect(expr.value, names);
 
     case "prim":
       return contains_reserved_linear_effect(expr.left, names) ||
@@ -257,13 +262,18 @@ function uses_linear_name(expr: FrontExpr, names: Set<string>): boolean {
       return names.has(expr.name);
 
     case "num":
+    case "atom":
     case "unit":
     case "text":
     case "type_name":
+    case "set_type":
     case "struct_type":
     case "union_type":
     case "unsupported":
       return false;
+
+    case "is":
+      return uses_linear_name(expr.value, names);
 
     case "prim":
       return uses_linear_name(expr.left, names) ||

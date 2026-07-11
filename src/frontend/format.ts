@@ -5,10 +5,13 @@ import type {
   FrontExpr,
   Source as SourceNode,
   Stmt,
+  TypeDeclaration,
 } from "./ast.ts";
 import { format_params } from "./format/common.ts";
 import { format_expr_with_stmt } from "./format/expr.ts";
 import { format_stmt_with_expr } from "./format/stmt.ts";
+import { format_type_expr, parse_type_expr } from "./type_expr.ts";
+import { tokenize } from "./tokenize.ts";
 
 export function format_source(source: SourceNode): string {
   const parts: string[] = [];
@@ -35,6 +38,10 @@ function format_declaration(declaration: Declaration): string {
       " }";
   }
 
+  if (declaration.tag === "type") {
+    return format_type_declaration(declaration);
+  }
+
   const operations = declaration.operations.map((operation) => {
     const params = operation.params.map(format_effect_param).join(", ");
     return operation.name + ": (" + params + ") => " +
@@ -50,12 +57,64 @@ function format_declaration(declaration: Declaration): string {
     operations.join(", ") + " }";
 }
 
+function format_type_declaration(declaration: TypeDeclaration): string {
+  let head = "type " + declaration.name;
+
+  if (declaration.params.length > 0) {
+    head += " " + declaration.params.join(" ");
+  }
+
+  if (declaration.body.tag === "product") {
+    const entries: string[] = [];
+
+    for (const field of declaration.body.fields) {
+      if (declaration.body.positional) {
+        entries.push(format_type_text(field.type_name));
+      } else {
+        entries.push(
+          "." + field.name + " = " +
+            format_type_text(field.type_name),
+        );
+      }
+    }
+
+    return head + " = [" + entries.join(", ") + "]";
+  }
+
+  if (declaration.body.tag === "alias") {
+    return head + " = " + format_type_text(declaration.body.type_name);
+  }
+
+  const cases = declaration.body.cases.map((item) => {
+    let text = "  | ." + item.name;
+
+    if (item.type_name !== "Unit") {
+      text += " = " + format_type_text(item.type_name);
+    }
+
+    return text;
+  });
+  return head + " =\n" + cases.join("\n");
+}
+
+function format_type_text(text: string): string {
+  return format_type_expr(parse_type_expr(tokenize(text)));
+}
+
 function format_effect_param(param: EffectParam): string {
   if (param.ownership === "scalar") {
     return param.type_name;
   }
 
-  return param.ownership + " " + param.type_name;
+  if (param.ownership === "ownership_transfer") {
+    return param.type_name;
+  }
+
+  if (param.ownership === "bounded_borrow") {
+    return "&" + param.type_name;
+  }
+
+  return "#" + param.type_name;
 }
 
 function format_effect_result(result: EffectResult): string {
@@ -67,7 +126,7 @@ function format_effect_result(result: EffectResult): string {
     return result.type_name;
   }
 
-  return result.ownership + " " + result.type_name;
+  return "#" + result.type_name;
 }
 
 function format_stmt(stmt: Stmt): string {

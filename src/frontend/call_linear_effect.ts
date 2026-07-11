@@ -10,15 +10,20 @@ export function contains_unresolved_linear_effect(
 ): boolean {
   switch (expr.tag) {
     case "num":
+    case "atom":
     case "unit":
     case "text":
     case "type_name":
+    case "set_type":
     case "var":
     case "linear":
     case "struct_type":
     case "union_type":
     case "unsupported":
       return false;
+
+    case "is":
+      return contains_unresolved_linear_effect(expr.value, names, env, hooks);
 
     case "prim":
       return contains_unresolved_linear_effect(expr.left, names, env, hooks) ||

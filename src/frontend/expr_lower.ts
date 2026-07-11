@@ -17,6 +17,7 @@ import { lower_ownership_wrapper_expr } from "./expr_ownership.ts";
 import { lower_prim_expr } from "./expr_primitive.ts";
 import { validate_rec_tail } from "./rec.ts";
 import { validate_const_expr } from "./constness.ts";
+import { atom_i32 } from "./atom.ts";
 
 export type { ExprLowerHooks } from "./expr_lower_types.ts";
 
@@ -26,6 +27,9 @@ export function lower_expr(
   hooks: ExprLowerHooks,
 ): IcNode {
   switch (expr.tag) {
+    case "atom":
+      return { tag: "num", type: "i32", value: atom_i32(expr.name) };
+
     case "num":
       return { tag: "num", type: expr.type, value: expr.value };
 
@@ -40,6 +44,14 @@ export function lower_expr(
         "Compile-time type name cannot be emitted as an Ic result: " +
           expr.name,
       );
+
+    case "set_type":
+      throw new Error(
+        "Compile-time set type cannot be emitted as an Ic result",
+      );
+
+    case "is":
+      throw new Error("`is` expression must be elaborated before Ic lowering");
 
     case "var":
       return lower_var_expr(expr, env, hooks, lower_expr);

@@ -19,6 +19,8 @@ import {
 import { elaborate_front_effects } from "./effect_elaborate.ts";
 import { validate_ic_route } from "./ic_route.ts";
 import { validate_source_linear } from "./linear.ts";
+import { validate_atom_identities } from "./atom.ts";
+import { elaborate_front_type_sets } from "./type_set_elaborate.ts";
 import { load_source, load_source_fragment_file } from "./load.ts";
 import { lower_program } from "./lower.ts";
 import { parse_source } from "./parser.ts";
@@ -46,8 +48,9 @@ export function Source() {}
 Source.parse = parse_source;
 
 Source.emit = function emit(source: SourceNode): IcNode {
+  validate_atom_identities(source);
   validate_ic_route(source);
-  return lower_program(source);
+  return lower_program(elaborate_front_type_sets(source));
 };
 
 Source.fmt = format_source;
@@ -129,7 +132,8 @@ function artifact_from_source(
     reject_public_host_imports(source);
   }
 
-  const compiled_source = elaborate_front_effects(source);
+  const effect_source = elaborate_front_effects(source);
+  const compiled_source = elaborate_front_type_sets(effect_source);
   const abi = build_abi_manifest(source, compiled_source);
   const core = core_from_elaborated_source(compiled_source);
   const mod = managed_abi_mod(Core.mod(core, name), abi);
@@ -245,10 +249,13 @@ function merge_host_interface(
 }
 
 function core_from_source_with_internal_imports(source: SourceNode): CoreNode {
-  return core_from_elaborated_source(elaborate_front_effects(source));
+  return core_from_elaborated_source(
+    elaborate_front_type_sets(elaborate_front_effects(source)),
+  );
 }
 
 function core_from_elaborated_source(source: SourceNode): CoreNode {
+  validate_atom_identities(source);
   validate_source_linear(source);
   return Core.from_source(source);
 }

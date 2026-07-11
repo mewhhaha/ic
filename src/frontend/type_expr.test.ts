@@ -108,3 +108,55 @@ Deno.test("type expression rows reject variables in closed effect resolution", (
     "Cannot resolve effect row variable in closed context: e",
   );
 });
+
+Deno.test("type expressions parse the structured type surface", () => {
+  const type = parse_type_expr(tokenize("#hello | #Text & &(List a) \\ Never"));
+
+  assert_equals(type, {
+    tag: "union",
+    left: { tag: "atom", name: "hello" },
+    right: {
+      tag: "intersection",
+      left: { tag: "frozen", value: { tag: "name", name: "Text" } },
+      right: {
+        tag: "difference",
+        left: {
+          tag: "borrow",
+          value: {
+            tag: "apply",
+            func: { tag: "name", name: "List" },
+            arg: { tag: "name", name: "a" },
+          },
+        },
+        right: { tag: "never" },
+      },
+    },
+  });
+  assert_equals(format_type_expr(type), "#hello | #Text & &(List a) \\ Never");
+});
+
+Deno.test("type expression set operators bind tighter from union to difference", () => {
+  const type = parse_type_expr(tokenize("A | B & C \\ D"));
+  assert_equals(format_type_expr(type), "A | B & C \\ D");
+  assert_equals(
+    format_type_expr(parse_type_expr(tokenize("(A | B) & (C \\ D)"))),
+    "(A | B) & C \\ D",
+  );
+});
+
+Deno.test("structured type expressions round trip canonical syntax", () => {
+  const source = "#(List a) -> <e> &(List a) | _";
+  assert_equals(format_type_expr(parse_type_expr(tokenize(source))), source);
+  assert_equals(format_type_expr(parse_type_expr(tokenize("#(a)"))), "#(a)");
+});
+
+Deno.test("structured type expressions reject malformed names", () => {
+  assert_throws(
+    () => parse_type_expr(tokenize("#Not-Snake")),
+    "Unexpected token in type annotation",
+  );
+  assert_throws(
+    () => parse_type_expr(tokenize("#123")),
+    "Expected type after `#`",
+  );
+});

@@ -189,6 +189,10 @@ export class ParserParams extends ParserCursor {
       return;
     }
 
+    if (this.type_names.has(name)) {
+      return;
+    }
+
     if (
       this.allow_pascal_type_names > 0 &&
       /^[A-Z][A-Za-z0-9]*$/.test(name)

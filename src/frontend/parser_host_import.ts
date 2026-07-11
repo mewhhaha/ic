@@ -59,6 +59,12 @@ export abstract class ParserHostImport extends ParserExpr {
   } {
     let contract_tag: FrontHostImportArgContract["tag"] = "scalar";
 
+    if (this.match_symbol("&")) {
+      contract_tag = "bounded_borrow";
+    } else if (this.match_symbol("#")) {
+      contract_tag = "frozen_shareable";
+    }
+
     if (this.peek().kind === "name") {
       const name = this.peek().text;
 
@@ -73,14 +79,15 @@ export abstract class ParserHostImport extends ParserExpr {
     if (contract_tag === "scalar") {
       const type = host_import_scalar_value_type(type_name);
 
-      if (!type) {
-        throw new Error(
-          "Host import parameter " + type_name +
-            " needs bounded_borrow, frozen_shareable, or ownership_transfer",
-        );
+      if (type) {
+        return { type, contract: { tag: "scalar" } };
       }
 
-      return { type, contract: { tag: "scalar" } };
+      const reason = host_import_owner_reason(type_name);
+      return {
+        type: host_import_owned_value_type(type_name),
+        contract: { tag: "ownership_transfer", reason },
+      };
     } else {
       const reason = host_import_owner_reason(type_name);
       return {
@@ -94,6 +101,19 @@ export abstract class ParserHostImport extends ParserExpr {
     type: ValType;
     owner: FrontHostImportResultContract | undefined;
   } {
+    if (this.match_symbol("&")) {
+      throw new Error(
+        "Host import results cannot use bounded borrow ownership",
+      );
+    }
+
+    if (this.match_symbol("#")) {
+      const type_name = this.expect_name("Expected host import result type");
+      const reason = host_import_owner_reason(type_name);
+      const type = host_import_owned_value_type(type_name);
+      return { type, owner: { tag: "frozen_shareable", reason } };
+    }
+
     if (this.peek().kind === "name") {
       const contract_name = this.peek().text;
 
@@ -121,16 +141,17 @@ export abstract class ParserHostImport extends ParserExpr {
     const type_name = this.expect_name("Expected host import result type");
     const type = host_import_scalar_value_type(type_name);
 
-    if (!type) {
-      throw new Error(
-        "Host import result " + type_name +
-          " needs unique_heap or frozen_shareable",
-      );
+    if (type) {
+      return {
+        type,
+        owner: undefined,
+      };
     }
 
+    const reason = host_import_owner_reason(type_name);
     return {
-      type,
-      owner: undefined,
+      type: host_import_owned_value_type(type_name),
+      owner: { tag: "unique_heap", reason },
     };
   }
 }

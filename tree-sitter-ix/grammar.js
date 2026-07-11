@@ -12,7 +12,10 @@ const PREC = {
   EFFECT_INTERSECTION: 2,
   EFFECT_DIFFERENCE: 3,
   TYPE_ARROW: 1,
-  TYPE_APPLICATION: 2,
+  TYPE_UNION: 2,
+  TYPE_INTERSECTION: 3,
+  TYPE_DIFFERENCE: 4,
+  TYPE_APPLICATION: 5,
 };
 
 module.exports = grammar({
@@ -31,8 +34,14 @@ module.exports = grammar({
     [$.field_block, $.block],
     [$.parameter, $._primary_expression, $.linear_reference],
     [$.parameter, $._primary_expression, $._type_atom],
+    [$._primary_expression, $.borrow_type],
+    [$.parameter, $.borrow_type],
+    [$.atom_expression, $.atom_type],
+    [$.top_type, $.wildcard],
     [$.condition_expression, $.linear_reference],
     [$._primary_expression, $.shorthand_field],
+    [$.named_type_product, $.positional_type_product],
+    [$.named_type_product, $.positional_type_product, $.tuple_expression],
   ],
 
   rules: {
@@ -58,6 +67,7 @@ module.exports = grammar({
         $.declare_effect_statement,
         $.effect_statement,
         $.declare_record_statement,
+        $.type_declaration_statement,
         $.import_statement,
         $.module_binding_statement,
         $.effect_binding_statement,
@@ -237,6 +247,58 @@ module.exports = grammar({
         field("fields", $.type_field_block),
       ),
 
+    type_declaration_statement: ($) =>
+      seq(
+        "type",
+        field("name", $.identifier),
+        repeat(field("parameter", $.identifier)),
+        "=",
+        field(
+          "definition",
+          choice($.type_sum, $.type_product, $.type_reference),
+        ),
+      ),
+
+    type_sum: ($) =>
+      seq(
+        optional("|"),
+        $.type_case,
+        repeat(seq("|", $.type_case)),
+      ),
+
+    type_case: ($) =>
+      seq(
+        ".",
+        field("name", $.identifier),
+        optional(
+          seq(
+            "=",
+            field("payload", alias($.type_intersection, $.type_reference)),
+          ),
+        ),
+      ),
+
+    type_product: ($) =>
+      choice($.named_type_product, $.positional_type_product),
+
+    named_type_product: ($) =>
+      seq(
+        "[",
+        optional(commaSep1($.named_type_field)),
+        "]",
+      ),
+
+    named_type_field: ($) =>
+      seq(
+        ".",
+        field("name", $.identifier),
+        "=",
+        field("type", $.type_reference),
+      ),
+
+    positional_type_product: ($) =>
+      seq("[", optional(commaSep1($.type_reference)), "]"),
+
     import_statement: ($) =>
       seq(
         "import",
@@ -355,6 +417,7 @@ module.exports = grammar({
         $.recursive_call_expression,
         $.if_expression,
         $.binary_expression,
+        $.is_expression,
         $.unary_expression,
         $.call_expression,
         $.field_expression,
@@ -453,6 +516,7 @@ module.exports = grammar({
     condition_expression: ($) =>
       choice(
         $.condition_binary_expression,
+        $.condition_is_expression,
         $.condition_unary_expression,
         $.condition_call_expression,
         $.condition_field_expression,
@@ -462,6 +526,7 @@ module.exports = grammar({
         $.string,
         $.character,
         $.boolean,
+        $.atom_expression,
         alias("loop", $.identifier),
         $.identifier,
         $.linear_reference,
@@ -492,13 +557,23 @@ module.exports = grammar({
       );
     },
 
+    condition_is_expression: ($) =>
+      prec.left(
+        PREC.COMPARE,
+        seq(
+          field("value", $.condition_expression),
+          field("operator", "is"),
+          field("type", $.type_reference),
+        ),
+      ),
+
     condition_unary_expression: ($) =>
       prec.right(
         PREC.UNARY,
         seq(
           field(
             "operator",
-            choice("-", "!", "borrow", "freeze", "comptime"),
+            choice("-", "!", "&", "borrow", "freeze", "comptime"),
           ),
           field("operand", $.condition_expression),
         ),
@@ -564,13 +639,23 @@ module.exports = grammar({
       );
     },
 
+    is_expression: ($) =>
+      prec.left(
+        PREC.COMPARE,
+        seq(
+          field("value", $._expression),
+          field("operator", "is"),
+          field("type", $.type_reference),
+        ),
+      ),
+
     unary_expression: ($) =>
       prec.right(
         PREC.UNARY,
         seq(
           field(
             "operator",
-            choice("-", "!", "borrow", "freeze", "comptime"),
+            choice("-", "!", "&", "borrow", "freeze", "comptime"),
           ),
           field("operand", $._expression),
         ),
@@ -671,11 +756,14 @@ module.exports = grammar({
         $.boolean,
         alias("loop", $.identifier),
         $.identifier,
+        $.atom_expression,
         $.union_case,
         $.linear_reference,
         $.unit_pattern,
         $.struct_type,
         $.union_type,
+        $.record_expression,
+        $.tuple_expression,
         $.object_literal,
         $.scratch_expression,
         $.block,
@@ -691,9 +779,22 @@ module.exports = grammar({
 
     linear_reference: ($) => seq("!", field("name", $.identifier)),
 
+    atom_expression: ($) =>
+      seq(
+        "#",
+        field("name", alias($.row_variable, $.identifier)),
+      ),
+
     struct_type: ($) => seq("struct", field("fields", $.type_field_block)),
 
     union_type: ($) => seq("union", field("cases", $.type_field_block)),
+
+    record_expression: ($) => seq("[", commaSep1($.record_field), "]"),
+
+    record_field: ($) =>
+      seq(".", field("name", $.identifier), "=", field("value", $._expression)),
+
+    tuple_expression: ($) => seq("[", optional(commaSep1($._expression)), "]"),
 
     object_literal: ($) => field("fields", $.field_block),
 
@@ -740,44 +841,110 @@ module.exports = grammar({
     // as the wrapper so simple annotations retain their old tree shape.
     type_reference: ($) => $._type_expression,
 
-    _type_expression: ($) => choice($.function_type, $._type_application),
+    _type_expression: ($) => choice($.function_type, $.type_union),
 
     function_type: ($) =>
       prec.right(
         PREC.TYPE_ARROW,
         seq(
-          field("parameter", $._type_application),
+          field("parameter", $.type_union),
           "->",
           optional(field("effects", $.latent_effect_row)),
           field("result", $._type_expression),
         ),
       ),
 
+    type_union: ($) =>
+      prec.left(
+        PREC.TYPE_UNION,
+        choice(
+          $.type_intersection,
+          seq(
+            field("left", $.type_union),
+            "|",
+            field("right", $.type_intersection),
+          ),
+        ),
+      ),
+
+    type_intersection: ($) =>
+      prec.left(
+        PREC.TYPE_INTERSECTION,
+        choice(
+          $.type_difference,
+          seq(
+            field("left", $.type_intersection),
+            "&",
+            field("right", $.type_difference),
+          ),
+        ),
+      ),
+
+    type_difference: ($) =>
+      prec.left(
+        PREC.TYPE_DIFFERENCE,
+        choice(
+          $._type_application,
+          seq(
+            field("left", $.type_difference),
+            "\\",
+            field("right", $._type_application),
+          ),
+        ),
+      ),
+
     latent_effect_row: ($) => seq("<", field("row", $.effect_row), ">"),
 
-    _type_application: ($) => choice($.type_application, $._type_atom),
+    _type_application: ($) => choice($.type_application, $._type_prefix),
 
     type_application: ($) =>
       prec.left(
         PREC.TYPE_APPLICATION,
         seq(
-          field("constructor", $._type_atom),
-          repeat1(field("argument", $._type_atom)),
+          field("constructor", $._type_prefix),
+          repeat1(field("argument", $._type_prefix)),
         ),
       ),
+
+    _type_prefix: ($) =>
+      choice($.atom_type, $.frozen_type, $.borrow_type, $._type_atom),
+
+    atom_type: ($) =>
+      seq(
+        "#",
+        field("name", alias($.row_variable, $.identifier)),
+      ),
+
+    frozen_type: ($) =>
+      seq(
+        "#",
+        choice(
+          field("name", alias($.effect_identifier, $.identifier)),
+          $.type_parenthesized,
+        ),
+      ),
+
+    borrow_type: ($) => seq("&", choice($.identifier, $.type_parenthesized)),
 
     _type_atom: ($) =>
       prec(
         -1,
         choice(
           $.identifier,
+          $.top_type,
+          $.never_type,
           $.unit_type,
           $.type_tuple,
           $.type_parenthesized,
+          $.type_product,
         ),
       ),
 
     unit_type: () => prec(-1, seq("(", ")")),
+
+    top_type: () => "_",
+
+    never_type: () => "Never",
 
     type_tuple: ($) => seq("(", commaSep2($._type_expression), ")"),
 

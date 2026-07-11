@@ -11,6 +11,7 @@
 (declare_effect_statement name: (effect_identifier) @name) @definition.type
 (effect_statement name: (effect_identifier) @name) @definition.type
 (declare_record_statement name: (identifier) @name) @definition.type
+(type_declaration_statement name: (identifier) @name) @definition.type
 (effect_operation name: (identifier) @name) @definition.function
 (handler_operation_clause name: (identifier) @name) @definition.function
 

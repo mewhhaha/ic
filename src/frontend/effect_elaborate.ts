@@ -24,11 +24,13 @@ import {
 import { elaborate_front_handlers } from "./handler_elaborate.ts";
 import { is_no_demand_name } from "./names.ts";
 import { substitute_front_expr } from "./substitute.ts";
+import { type_declaration_bindings } from "./type_declaration.ts";
 
 type EffectElaboration = {
   analysis: FrontEffectAnalysis;
   effects: Map<string, EffectDeclaration>;
   records: Map<string, RecordDeclaration>;
+  type_names: Set<string>;
   modules: Map<string, Extract<FrontExpr, { tag: "lam" }>>;
   effect_functions: Map<
     string,
@@ -46,6 +48,8 @@ export function elaborate_front_effects(source: Source): Source {
   for (const declaration of declarations) {
     if (declaration.tag === "record") {
       prefix.push(record_type_binding(declaration, elaboration.effects));
+    } else if (declaration.tag === "type") {
+      continue;
     } else if (declaration.implementation === "host") {
       for (const operation of declaration.operations) {
         prefix.push({
@@ -55,6 +59,8 @@ export function elaborate_front_effects(source: Source): Source {
       }
     }
   }
+
+  prefix.push(...type_declaration_bindings(declarations, elaboration.effects));
 
   const providers = new Map<string, FrontExpr>();
 
@@ -391,6 +397,7 @@ function create_elaboration(source: Source): EffectElaboration {
   const analysis = analyze_front_effects(source);
   const effects = new Map<string, EffectDeclaration>();
   const records = new Map<string, RecordDeclaration>();
+  const type_names = new Set<string>();
   const modules = new Map<string, Extract<FrontExpr, { tag: "lam" }>>();
   const effect_functions = new Map<
     string,
@@ -402,6 +409,24 @@ function create_elaboration(source: Source): EffectElaboration {
   for (const declaration of source.declarations || []) {
     if (declaration.tag === "record") {
       records.set(declaration.name, declaration);
+      type_names.add(declaration.name);
+      continue;
+    }
+
+    if (declaration.tag === "type") {
+      type_names.add(declaration.name);
+      if (
+        declaration.params.length === 0 &&
+        declaration.body.tag === "product" &&
+        !declaration.body.positional
+      ) {
+        records.set(declaration.name, {
+          tag: "record",
+          name: declaration.name,
+          fields: declaration.body.fields,
+        });
+      }
+
       continue;
     }
 
@@ -409,6 +434,13 @@ function create_elaboration(source: Source): EffectElaboration {
   }
 
   for (const stmt of source.statements) {
+    if (
+      stmt.tag === "bind" && stmt.kind === "const" &&
+      front_expr_is_type_constructor(stmt.value)
+    ) {
+      type_names.add(stmt.name);
+    }
+
     if (
       stmt.tag === "bind" && stmt.kind === "const" &&
       stmt.value.tag === "lam" && stmt.value.body.tag === "block"
@@ -435,6 +467,7 @@ function create_elaboration(source: Source): EffectElaboration {
     analysis,
     effects,
     records,
+    type_names,
     modules,
     effect_functions,
   };
@@ -766,18 +799,27 @@ function rewrite_statements(
         continue;
       }
 
-      if (stmt.type_annotation) {
-        expect(
-          stmt.type_annotation.tag === "arrow" &&
-            (stmt.value.tag === "lam" || stmt.value.tag === "rec"),
-          "Rich type annotation is not lowered yet on " + stmt.name,
-        );
-      }
-
       let annotation = stmt.annotation;
 
-      if (stmt.type_annotation) {
+      if (stmt.type_annotation?.tag === "arrow") {
+        expect(
+          stmt.value.tag === "lam" || stmt.value.tag === "rec",
+          "Function type annotation requires a function value: " + stmt.name,
+        );
         annotation = undefined;
+      } else if (
+        stmt.type_annotation?.tag === "apply" &&
+        !elaboration.type_names.has(
+          type_application_root_name(stmt.type_annotation),
+        )
+      ) {
+        throw new Error(
+          "Rich type annotation is not lowered yet on " + stmt.name,
+        );
+      } else if (stmt.type_annotation?.tag === "tuple") {
+        throw new Error(
+          "Rich type annotation is not lowered yet on " + stmt.name,
+        );
       }
 
       result.push({
@@ -798,6 +840,33 @@ function rewrite_statements(
   }
 
   return result;
+}
+
+function type_application_root_name(type: TypeExpr): string {
+  let current = type;
+
+  while (current.tag === "apply") {
+    current = current.func;
+  }
+
+  if (current.tag !== "name") {
+    return "";
+  }
+
+  return current.name;
+}
+
+function front_expr_is_type_constructor(value: FrontExpr): boolean {
+  if (value.tag === "captured" || value.tag === "comptime") {
+    return front_expr_is_type_constructor(value.expr);
+  }
+
+  if (value.tag === "lam") {
+    return front_expr_is_type_constructor(value.body);
+  }
+
+  return value.tag === "struct_type" || value.tag === "union_type" ||
+    value.tag === "set_type";
 }
 
 function apply_binding_function_type(

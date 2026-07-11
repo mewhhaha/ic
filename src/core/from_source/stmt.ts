@@ -5,6 +5,7 @@ import {
   type CoreFromSourceCtx,
   fork_core_from_source_ctx,
   resolve_bound_core_value_name,
+  resolve_core_annotation,
   resolve_core_name,
   shadow_core_name,
 } from "./context.ts";
@@ -28,7 +29,7 @@ export function core_stmt(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
           kind: stmt.kind,
           name,
           is_linear: stmt.is_linear,
-          annotation: stmt.annotation,
+          annotation: resolve_core_annotation(ctx, stmt.annotation),
           value: core_recursive_binding_value(stmt, ctx, name),
         };
       }
@@ -55,7 +56,7 @@ export function core_stmt(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
         kind: stmt.kind,
         name,
         is_linear: stmt.is_linear,
-        annotation: stmt.annotation,
+        annotation: resolve_core_annotation(ctx, stmt.annotation),
         value,
       };
     }
@@ -425,7 +426,7 @@ function core_recursive_binding_value(
 
     return {
       tag: "rec",
-      params: stmt.value.params.map(core_param),
+      params: stmt.value.params.map((param) => core_param(param, ctx)),
       body: core_expr(stmt.value.body, body_ctx),
     };
   }
@@ -434,7 +435,7 @@ function core_recursive_binding_value(
     throw new Error("Cannot lower recursive source binding to Core yet");
   }
 
-  const params = stmt.value.params.map(core_param);
+  const params = stmt.value.params.map((param) => core_param(param, ctx));
   let is_tail = true;
 
   try {

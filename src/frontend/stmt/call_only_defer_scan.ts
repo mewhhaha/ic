@@ -145,13 +145,18 @@ function scan_call_only_expr(
 ): CallOnlyUseScan {
   switch (expr.tag) {
     case "num":
+    case "atom":
     case "unit":
     case "text":
     case "type_name":
+    case "set_type":
     case "struct_type":
     case "union_type":
     case "unsupported":
       return { valid: true, used: false };
+
+    case "is":
+      return scan_call_only_expr(name, expr.value, false);
 
     case "var":
       if (expr.name !== name) {

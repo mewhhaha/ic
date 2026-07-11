@@ -44,6 +44,7 @@ export type {
 } from "./core.ts";
 export type {
   Binding,
+  Declaration,
   EffectRowExpr,
   Env,
   Field,
@@ -59,6 +60,7 @@ export type {
   Stmt,
   Token,
   TokenKind,
+  TypeDeclaration,
   TypeExpr,
   TypeField,
   TypePattern,

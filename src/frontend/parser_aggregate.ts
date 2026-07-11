@@ -6,6 +6,73 @@ import { ParserParams } from "./parser_params.ts";
 export abstract class ParserAggregate extends ParserParams {
   protected abstract parse_expr(): FrontExpr;
 
+  protected parse_bracket_value(): FrontExpr {
+    this.expect_symbol("[");
+    this.skip_newlines();
+    const fields: Field[] = [];
+
+    if (this.match_symbol("]")) {
+      return {
+        tag: "struct_value",
+        type_expr: { tag: "var", name: "object_type" },
+        fields,
+        bracketed: "positional",
+      };
+    }
+
+    const named = this.peek().kind === "symbol" && this.peek().text === ".";
+    let index = 0;
+
+    while (true) {
+      if (named) {
+        this.expect_symbol(".");
+        const name = this.expect_name("Expected product field name");
+        expect_snake_case(name, "Product field");
+        this.expect_symbol("=");
+        fields.push({ name, value: this.parse_expr() });
+      } else {
+        fields.push({
+          name: "item_" + index.toString(),
+          value: this.parse_expr(),
+        });
+      }
+
+      index += 1;
+
+      if (this.match_symbol("]")) {
+        break;
+      }
+
+      this.expect_symbol(",");
+      this.skip_newlines();
+
+      if (named) {
+        expect(
+          this.peek().kind === "symbol" && this.peek().text === ".",
+          "Cannot mix named and positional product entries",
+        );
+      } else {
+        expect(
+          !(this.peek().kind === "symbol" && this.peek().text === "."),
+          "Cannot mix positional and named product entries",
+        );
+      }
+    }
+
+    let bracketed: "named" | "positional" = "positional";
+
+    if (named) {
+      bracketed = "named";
+    }
+
+    return {
+      tag: "struct_value",
+      type_expr: { tag: "var", name: "object_type" },
+      fields,
+      bracketed,
+    };
+  }
+
   protected parse_field_list(): Field[] {
     this.expect_symbol("{");
     this.skip_newlines();

@@ -1,4 +1,8 @@
-import type { ResumeSignature, TypePattern } from "../frontend/ast.ts";
+import type {
+  ResumeSignature,
+  TypeExpr,
+  TypePattern,
+} from "../frontend/ast.ts";
 import type { Prim, ValType } from "../op.ts";
 
 export type Core = {
@@ -80,6 +84,7 @@ export type CoreFnType = {
   tag: "fn";
   params: ValType[];
   param_texts: boolean[];
+  param_constraints?: (string | undefined)[];
   param_structs?: (CoreExpr | undefined)[];
   param_unions?: (CoreExpr | undefined)[];
   result: ValType;
@@ -138,7 +143,12 @@ export type CoreStmt =
   | { tag: "unsupported"; feature: string; text: string };
 
 export type CoreExpr =
-  | { tag: "num"; type: ValType; value: number | bigint }
+  | {
+    tag: "num";
+    type: ValType;
+    value: number | bigint;
+    atom_name?: string;
+  }
   | { tag: "text"; value: string }
   | { tag: "type_name"; name: string }
   | { tag: "var"; name: string; resume_signature?: ResumeSignature }
@@ -216,4 +226,5 @@ export type CoreParam = {
 export type CoreTypeField = {
   name: string;
   type_name: string;
+  set_member?: TypeExpr;
 };

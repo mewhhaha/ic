@@ -5,12 +5,22 @@ import {
   type CoreFromSourceCtx,
   fork_core_from_source_ctx,
   resolve_bound_core_value_name,
+  resolve_core_annotation,
   resolve_core_name,
 } from "./context.ts";
 import { core_stmt } from "./stmt.ts";
+import { atom_i32 } from "../../frontend/atom.ts";
 
 export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
   switch (expr.tag) {
+    case "atom":
+      return {
+        tag: "num",
+        type: "i32",
+        value: atom_i32(expr.name),
+        atom_name: expr.name,
+      };
+
     case "num":
       return { tag: "num", type: expr.type, value: expr.value };
 
@@ -22,6 +32,16 @@ export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
 
     case "type_name":
       return { tag: "type_name", name: expr.name };
+
+    case "set_type":
+      throw new Error(
+        "Compile-time set type cannot be emitted as a Core result",
+      );
+
+    case "is":
+      throw new Error(
+        "`is` expression must be elaborated before Core lowering",
+      );
 
     case "var": {
       const resolved = resolve_bound_core_value_name(ctx, expr.name);
@@ -78,7 +98,7 @@ export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
 
       const value: CoreExpr = {
         tag: "lam",
-        params: expr.params.map(core_param),
+        params: expr.params.map((param) => core_param(param, ctx)),
         body: core_expr(expr.body, body_ctx),
       };
       if (contains_reserved_linear_effect(expr.body, body_ctx.linear_names)) {
@@ -101,7 +121,7 @@ export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
 
       return {
         tag: "rec",
-        params: expr.params.map(core_param),
+        params: expr.params.map((param) => core_param(param, ctx)),
         body: core_expr(expr.body, body_ctx),
       };
     }
@@ -302,12 +322,12 @@ export function core_param(param: {
   is_const: boolean;
   is_linear: boolean;
   annotation: string | undefined;
-}): CoreParam {
+}, ctx: CoreFromSourceCtx): CoreParam {
   return {
     name: param.name,
     is_const: param.is_const,
     is_linear: param.is_linear,
-    annotation: param.annotation,
+    annotation: resolve_core_annotation(ctx, param.annotation),
   };
 }
 
@@ -380,9 +400,22 @@ function core_field(
 }
 
 function core_type_field(
-  field: { name: string; type_name: string },
+  field: {
+    name: string;
+    type_name: string;
+    set_member?: import("../../frontend/ast.ts").TypeExpr;
+  },
 ): CoreTypeField {
-  return { name: field.name, type_name: field.type_name };
+  const result: CoreTypeField = {
+    name: field.name,
+    type_name: field.type_name,
+  };
+
+  if (field.set_member) {
+    result.set_member = field.set_member;
+  }
+
+  return result;
 }
 
 export function block_body(expr: FrontExpr): Stmt[] | undefined {

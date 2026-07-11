@@ -1,5 +1,11 @@
 import { expect } from "../expect.ts";
-import type { Env, FrontExpr, TypeField, TypePattern } from "./ast.ts";
+import type {
+  Env,
+  FrontExpr,
+  TypeExpr,
+  TypeField,
+  TypePattern,
+} from "./ast.ts";
 import { lookup } from "./env.ts";
 import { lookup_type_field } from "./fields.ts";
 import { is_builtin_type_name } from "./types.ts";
@@ -104,10 +110,76 @@ export function substitute_type_fields(
   env: Env,
   hooks: TypePatternHooks,
 ): TypeField[] {
-  return fields.map((field) => ({
-    name: field.name,
-    type_name: resolve_type_name(field.type_name, env, hooks),
-  }));
+  return fields.map((field) => {
+    const result: TypeField = {
+      name: field.name,
+      type_name: resolve_type_name(field.type_name, env, hooks),
+    };
+
+    if (field.set_member) {
+      result.set_member = substitute_type_set_member(
+        field.set_member,
+        env,
+        hooks,
+      );
+    }
+
+    return result;
+  });
+}
+
+function substitute_type_set_member(
+  type: TypeExpr,
+  env: Env,
+  hooks: TypePatternHooks,
+): TypeExpr {
+  switch (type.tag) {
+    case "name":
+      return { tag: "name", name: resolve_type_name(type.name, env, hooks) };
+
+    case "atom":
+    case "top":
+    case "never":
+      return type;
+
+    case "frozen":
+    case "borrow":
+      return {
+        ...type,
+        value: substitute_type_set_member(type.value, env, hooks),
+      };
+
+    case "union":
+    case "intersection":
+    case "difference":
+      return {
+        ...type,
+        left: substitute_type_set_member(type.left, env, hooks),
+        right: substitute_type_set_member(type.right, env, hooks),
+      };
+
+    case "apply":
+      return {
+        tag: "apply",
+        func: substitute_type_set_member(type.func, env, hooks),
+        arg: substitute_type_set_member(type.arg, env, hooks),
+      };
+
+    case "tuple":
+      return {
+        tag: "tuple",
+        items: type.items.map((item) =>
+          substitute_type_set_member(item, env, hooks)
+        ),
+      };
+
+    case "arrow":
+      return {
+        ...type,
+        param: substitute_type_set_member(type.param, env, hooks),
+        result: substitute_type_set_member(type.result, env, hooks),
+      };
+  }
 }
 
 function resolve_type_name(

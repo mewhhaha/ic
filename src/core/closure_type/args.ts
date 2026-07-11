@@ -28,6 +28,7 @@ export function check_closure_call_args(
     const arg = expr.args[index];
     const expected = fn_type.params[index];
     const expected_text = fn_type.param_texts[index];
+    const expected_constraint = fn_type.param_constraints?.[index];
     const expected_struct = fn_type.param_structs?.[index];
     const expected_union = fn_type.param_unions?.[index];
     expect(arg, "Missing core closure call argument " + index.toString());
@@ -36,6 +37,19 @@ export function check_closure_call_args(
       expected_text !== undefined,
       "Missing core closure call parameter text fact " + index.toString(),
     );
+
+    if (expected_constraint) {
+      hooks.apply_core_parameter_annotation(
+        {
+          name: "__ix_closure_arg_" + index.toString(),
+          is_const: false,
+          is_linear: false,
+          annotation: expected_constraint,
+        },
+        arg,
+        ctx,
+      );
+    }
 
     const actual_union = closure_call_arg_union_type(
       arg,

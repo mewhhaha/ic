@@ -35,6 +35,7 @@ export function capture_deferred_expr(expr: FrontExpr, env: Env): FrontExpr {
         name: field.name,
         value: capture_expr(field.value, env),
       })),
+      bracketed: expr.bracketed,
     };
   }
 

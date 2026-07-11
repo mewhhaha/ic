@@ -1,6 +1,7 @@
 import type { DataSegment } from "../../mod.ts";
 import type { CoreExpr, CoreField, CoreParam, CoreStmt } from "../ast.ts";
 import { set_local } from "../backend/util.ts";
+import { closure_param_info } from "../closure_type/param.ts";
 import { align_to } from "../memory.ts";
 import { static_core_call_branch_value } from "../static_call.ts";
 import { align_to_4, text_bytes } from "../text.ts";
@@ -468,19 +469,49 @@ export function build_text_layout(
     };
 
     for (const param of params) {
-      const type = core_text_layout_param_type(param);
+      let type = core_text_layout_param_type(param);
+      let is_text = false;
+      let struct_type: CoreExpr | undefined;
+      let union_type: CoreExpr | undefined;
+
+      if (param.annotation) {
+        const info = closure_param_info(param, body_ctx, {
+          static_annotation_type_value: (annotation, annotation_ctx) =>
+            static_type_value(
+              { tag: "var", name: annotation },
+              annotation_ctx,
+            ),
+        });
+
+        if (info) {
+          type = info.type;
+          is_text = info.is_text;
+          struct_type = info.struct_type;
+          union_type = info.union_type;
+        }
+      }
 
       if (type) {
         body_ctx.statics.delete(param.name);
         body_ctx.fn_types.delete(param.name);
-        body_ctx.struct_locals.delete(param.name);
-        body_ctx.union_locals.delete(param.name);
         set_local(body_ctx.locals, param.name, type);
 
-        if (param.annotation === "Text" || param.annotation === "Bytes") {
+        if (is_text) {
           body_ctx.text_locals.add(param.name);
         } else {
           body_ctx.text_locals.delete(param.name);
+        }
+
+        if (struct_type) {
+          body_ctx.struct_locals.set(param.name, struct_type);
+        } else {
+          body_ctx.struct_locals.delete(param.name);
+        }
+
+        if (union_type) {
+          body_ctx.union_locals.set(param.name, union_type);
+        } else {
+          body_ctx.union_locals.delete(param.name);
         }
       }
     }

@@ -391,7 +391,7 @@ function resume_signature_fn_type(
     output,
     "Missing resumption output type: " + signature.output_type,
   );
-  return {
+  const fn_type: CoreFnType = {
     tag: "fn",
     params: [input.type],
     param_texts: [input.is_text],
@@ -402,6 +402,12 @@ function resume_signature_fn_type(
     result_struct: output.struct_type,
     result_union: output.union_type,
   };
+
+  if (input.constraint) {
+    fn_type.param_constraints = [input.constraint];
+  }
+
+  return fn_type;
 }
 
 function scratch_body_is_freeze(expr: CoreExpr): boolean {

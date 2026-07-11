@@ -176,7 +176,7 @@ export function tokenize(text: string): Token[] {
         tokens.push({ kind: "symbol", text: two, line, column: start_column });
         index += 2;
         column += 2;
-      } else if ("{}()[],:.+-*%=/!<>.;|&\\".includes(char)) {
+      } else if ("{}()[],:.+-*%=/!<>.;|&#\\".includes(char)) {
         if (char === ";") {
           tokens.push({ kind: "newline", text: "\n", line, column });
         } else {

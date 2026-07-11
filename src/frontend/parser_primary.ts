@@ -91,6 +91,12 @@ export abstract class ParserPrimary extends ParserBlock {
       return { tag: "union_case", name, value, type_expr: undefined };
     }
 
+    if (this.match_symbol("#")) {
+      const name = this.expect_name("Expected atom name");
+      expect_snake_case(name, "Atom");
+      return { tag: "atom", name };
+    }
+
     if (this.peek().kind === "symbol" && this.peek().text === "{") {
       if (this.is_object_literal()) {
         return {
@@ -101,6 +107,10 @@ export abstract class ParserPrimary extends ParserBlock {
       }
 
       return this.parse_block();
+    }
+
+    if (this.peek().kind === "symbol" && this.peek().text === "[") {
+      return this.parse_bracket_value();
     }
 
     if (this.match_symbol("(")) {
@@ -130,6 +140,7 @@ export abstract class ParserPrimary extends ParserBlock {
 
       if (
         !is_builtin_type_reference_name(token.text) &&
+        !this.type_names.has(token.text) &&
         !effect_literal &&
         !(
           /^[A-Z][A-Za-z0-9]*$/.test(token.text) &&

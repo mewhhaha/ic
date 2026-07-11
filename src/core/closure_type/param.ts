@@ -1,14 +1,22 @@
 import type { CoreParam } from "../ast.ts";
-import type {
-  ClosureParamInfo,
-  CoreClosureTypeCtx,
-  CoreClosureTypeHooks,
-} from "./types.ts";
+import { sem_type_from_expr } from "../../frontend/semantic_type.ts";
+import { front_type_value_for_semantic_type } from "../../frontend/type_declaration.ts";
+import { parse_type_expr } from "../../frontend/type_expr.ts";
+import { tokenize } from "../../frontend/tokenize.ts";
+import type { CoreExpr } from "../ast.ts";
+import type { ClosureParamInfo } from "./types.ts";
 
-export function closure_param_info(
+type ClosureParamInfoHooks<ctx> = {
+  static_annotation_type_value: (
+    annotation: string,
+    ctx: ctx,
+  ) => CoreExpr | undefined;
+};
+
+export function closure_param_info<ctx>(
   param: CoreParam,
-  ctx: CoreClosureTypeCtx,
-  hooks: CoreClosureTypeHooks,
+  ctx: ctx,
+  hooks: ClosureParamInfoHooks<ctx>,
 ): ClosureParamInfo | undefined {
   const annotation = param.annotation;
 
@@ -50,6 +58,50 @@ export function closure_param_info(
 
     if (type_value.tag === "union_type") {
       return { type: "i32", is_text: false, union_type: type_value };
+    }
+  }
+
+  const parsed = parse_type_expr(tokenize(annotation));
+  const semantic = sem_type_from_expr(parsed);
+
+  if (semantic.tag === "atom") {
+    return { type: "i32", is_text: false, constraint: annotation };
+  }
+
+  if (parsed.tag === "borrow" || parsed.tag === "frozen") {
+    throw new Error(
+      "First-class closure ownership-qualified parameter annotations are " +
+        "not supported yet: " + annotation,
+    );
+  }
+
+  if (semantic.tag === "scalar" && semantic.name !== annotation) {
+    return closure_param_info(
+      { ...param, annotation: semantic.name },
+      ctx,
+      hooks,
+    );
+  }
+
+  if (
+    parsed.tag === "union" || parsed.tag === "intersection" ||
+    parsed.tag === "difference"
+  ) {
+    const front_type = front_type_value_for_semantic_type(
+      "<closure parameter>",
+      parsed,
+      semantic,
+    );
+
+    if (front_type.tag === "union_type") {
+      return {
+        type: "i32",
+        is_text: false,
+        union_type: {
+          tag: "union_type",
+          cases: front_type.cases.map((union_case) => ({ ...union_case })),
+        },
+      };
     }
   }
 

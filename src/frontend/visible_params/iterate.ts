@@ -160,15 +160,20 @@ export function expr_iterates_collection_from_names(
       return false;
 
     case "num":
+    case "atom":
     case "unit":
     case "text":
     case "type_name":
+    case "set_type":
     case "var":
     case "linear":
     case "struct_type":
     case "union_type":
     case "unsupported":
       return false;
+
+    case "is":
+      return expr_iterates_collection_from_names(expr.value, names);
   }
 }
 

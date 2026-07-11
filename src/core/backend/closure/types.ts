@@ -1,7 +1,7 @@
 import type { Func } from "../../../mod.ts";
 import type { ValType } from "../../../op.ts";
 import type { Wat } from "../../../wat.ts";
-import type { CoreExpr, CoreFnType, CoreStmt } from "../../ast.ts";
+import type { CoreExpr, CoreFnType, CoreParam, CoreStmt } from "../../ast.ts";
 import type {
   CoreCaptureInfo,
   CoreLamCapturePlan,
@@ -23,6 +23,11 @@ import type { CoreScratchHeap } from "../../scratch.ts";
 import type { TextLayout } from "../../text_layout.ts";
 
 export type CoreBackendClosureApi = {
+  apply_core_parameter_annotation: (
+    param: CoreParam,
+    value: CoreExpr,
+    ctx: StaticCtx,
+  ) => CoreExpr;
   branch_payload_ctx: (ctx: CoreEmitCtx) => CoreEmitCtx;
   clear_core_local_facts: (name: string, ctx: StaticCtx) => void;
   collect_expr_locals: (expr: CoreExpr, ctx: CoreEmitCtx) => void;

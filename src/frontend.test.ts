@@ -14620,13 +14620,13 @@ host_read(borrow message)
 
   assert_equals(
     Format.fmt(Source, source),
-    'host_import host_read from "env.read" (bounded_borrow Text) => I32\n' +
-      'host_import host_take from "env.take" (ownership_transfer Text) => I32\n' +
-      'host_import host_frozen from "env.frozen" (frozen_shareable Text) => I32\n' +
-      'host_import host_make from "env.make" () => unique_heap Text\n' +
+    'host_import host_read from "env.read" (&Text) => I32\n' +
+      'host_import host_take from "env.take" (Text) => I32\n' +
+      'host_import host_frozen from "env.frozen" (#Text) => I32\n' +
+      'host_import host_make from "env.make" () => Text\n' +
       'host_import host_count from "env.count" (I32, I64) => I32\n' +
       'let message: Text = append("he", "llo")\n' +
-      "host_read(borrow message)",
+      "host_read(&message)",
   );
 
   const core = Source.core(source);
@@ -14689,19 +14689,28 @@ host_import host_read from "env.read" (bounded_borrow Text) => I32
     "Cannot lower host import through pure Ic",
   );
 
-  assert_throws(
-    () => Source.parse('host_import host_bad from "env.bad" (Text) => I32'),
-    "Host import parameter Text needs bounded_borrow, frozen_shareable, or " +
-      "ownership_transfer",
+  assert_equals(
+    Format.fmt(
+      Source,
+      Source.parse('host_import host_take from "env.take" (Text) => I32'),
+    ),
+    'host_import host_take from "env.take" (Text) => I32',
   );
 
-  assert_throws(
-    () =>
-      Source.parse(
-        'host_import host_bad from "env.bad" (runtime_union) => I32',
-      ),
-    "Host import parameter runtime_union needs bounded_borrow, " +
-      "frozen_shareable, or ownership_transfer",
+  const implicit_union_transfer = Source.core(
+    Source.parse(
+      'host_import host_take_union from "env.take_union" (runtime_union) => I32',
+    ),
+  );
+  const implicit_union_imports = implicit_union_transfer.host_imports;
+
+  if (!implicit_union_imports) {
+    throw new Error("Expected implicit union transfer host import");
+  }
+
+  assert_equals(
+    implicit_union_imports.host_take_union?.args,
+    [{ tag: "ownership_transfer" }],
   );
 
   const pointer_contracts = Source.parse(`
@@ -14715,15 +14724,15 @@ host_import host_make_frozen_aggregate from "env.make_frozen_aggregate" () => fr
   assert_equals(
     Format.fmt(Source, pointer_contracts),
     'host_import host_read_aggregate from "env.read_aggregate" ' +
-      "(bounded_borrow runtime_aggregate) => I32\n" +
+      "(&runtime_aggregate) => I32\n" +
       'host_import host_take_union from "env.take_union" ' +
-      "(ownership_transfer runtime_union) => I32\n" +
+      "(runtime_union) => I32\n" +
       'host_import host_frozen_closure from "env.frozen_closure" ' +
-      "(frozen_shareable closure) => I32\n" +
+      "(#closure) => I32\n" +
       'host_import host_make_union from "env.make_union" () => ' +
-      "unique_heap runtime_union\n" +
+      "runtime_union\n" +
       "host_import host_make_frozen_aggregate from " +
-      '"env.make_frozen_aggregate" () => frozen_shareable runtime_aggregate',
+      '"env.make_frozen_aggregate" () => #runtime_aggregate',
   );
 
   assert_equals(Source.core(pointer_contracts).host_imports, {
@@ -14795,15 +14804,15 @@ host_import host_make_frozen_result from "env.make_frozen_result" () => frozen_s
       "const result_type = union { ok: Text, err: Int }\n" +
       "const user_alias = user_type\n" +
       'host_import host_read_user from "env.read_user" ' +
-      "(bounded_borrow user_type) => I32\n" +
+      "(&user_type) => I32\n" +
       'host_import host_take_result from "env.take_result" ' +
-      "(ownership_transfer result_type) => I32\n" +
+      "(result_type) => I32\n" +
       'host_import host_frozen_user from "env.frozen_user" ' +
-      "(frozen_shareable user_alias) => I32\n" +
+      "(#user_alias) => I32\n" +
       'host_import host_make_user from "env.make_user" () => ' +
-      "unique_heap user_type\n" +
+      "user_type\n" +
       "host_import host_make_frozen_result from " +
-      '"env.make_frozen_result" () => frozen_shareable result_type',
+      '"env.make_frozen_result" () => #result_type',
   );
 
   assert_equals(Source.core(type_value_contracts).host_imports, {
@@ -16430,7 +16439,7 @@ xs[0]
 Deno.test("Source reserves ownership and scratchpad syntax", () => {
   assert_equals(
     Format.fmt(Source, Source.parse("borrow user.name")),
-    "borrow user.name",
+    "&user.name",
   );
 
   assert_equals(

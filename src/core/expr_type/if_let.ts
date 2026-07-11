@@ -42,9 +42,14 @@ export function if_let_expr_type<
       return infer_expr_type(expr.else_branch, ctx, hooks);
     }
 
-    hooks.bind_core_if_let_payload_fact(expr.value_name, union_case, ctx);
+    const branch_ctx = hooks.create_block_ctx(ctx);
+    hooks.bind_core_if_let_payload_fact(
+      expr.value_name,
+      union_case,
+      branch_ctx,
+    );
 
-    const then_type = infer_expr_type(expr.then_branch, ctx, hooks);
+    const then_type = infer_expr_type(expr.then_branch, branch_ctx, hooks);
     const else_type = infer_expr_type(expr.else_branch, ctx, hooks);
     if (expr.implicit_else) {
       return then_type;
@@ -79,15 +84,16 @@ export function if_let_expr_type<
       return infer_expr_type(expr.else_branch, ctx, hooks);
     }
 
+    const branch_ctx = hooks.create_block_ctx(ctx);
     hooks.bind_dynamic_if_let_payload(
       expr.case_name,
       expr.value_name,
       dynamic_target,
-      ctx,
+      branch_ctx,
     );
-    hooks.clear_optional_core_union_local(expr.value_name, ctx);
+    hooks.clear_optional_core_union_local(expr.value_name, branch_ctx);
 
-    const then_type = infer_expr_type(expr.then_branch, ctx, hooks);
+    const then_type = infer_expr_type(expr.then_branch, branch_ctx, hooks);
     const else_type = infer_expr_type(expr.else_branch, ctx, hooks);
     if (expr.implicit_else) {
       return then_type;

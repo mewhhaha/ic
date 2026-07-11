@@ -11,7 +11,10 @@ export type ModuleHeader = {
   params: Param[];
 };
 
-export type Declaration = EffectDeclaration | RecordDeclaration;
+export type Declaration =
+  | EffectDeclaration
+  | RecordDeclaration
+  | TypeDeclaration;
 
 export type EffectDeclaration = {
   tag: "effect";
@@ -46,6 +49,17 @@ export type RecordDeclaration = {
   fields: TypeField[];
 };
 
+export type TypeDeclaration = {
+  tag: "type";
+  name: string;
+  params: string[];
+  body:
+    | { tag: "product"; fields: TypeField[]; positional: boolean }
+    | { tag: "sum"; cases: TypeField[] }
+    | { tag: "alias"; type_name: string };
+  recursive: boolean;
+};
+
 export type EffectRef = {
   effect: string;
   operation: string;
@@ -62,6 +76,14 @@ export type EffectRowExpr =
 
 export type TypeExpr =
   | { tag: "name"; name: string }
+  | { tag: "atom"; name: string }
+  | { tag: "top" }
+  | { tag: "never" }
+  | { tag: "frozen"; value: TypeExpr }
+  | { tag: "borrow"; value: TypeExpr }
+  | { tag: "union"; left: TypeExpr; right: TypeExpr }
+  | { tag: "intersection"; left: TypeExpr; right: TypeExpr }
+  | { tag: "difference"; left: TypeExpr; right: TypeExpr }
   | { tag: "apply"; func: TypeExpr; arg: TypeExpr }
   | { tag: "tuple"; items: TypeExpr[] }
   | {
@@ -163,6 +185,7 @@ export type Stmt =
 
 export type FrontExpr =
   | { tag: "num"; type: ValType; value: number | bigint }
+  | { tag: "atom"; name: string }
   | { tag: "unit" }
   | { tag: "text"; value: string }
   | { tag: "type_name"; name: string }
@@ -192,8 +215,14 @@ export type FrontExpr =
   }
   | { tag: "try_with"; body: FrontExpr; handler: FrontExpr }
   | { tag: "with"; base: FrontExpr; fields: Field[] }
+  | { tag: "set_type"; type_expr: TypeExpr }
   | { tag: "struct_type"; fields: TypeField[] }
-  | { tag: "struct_value"; type_expr: FrontExpr; fields: Field[] }
+  | {
+    tag: "struct_value";
+    type_expr: FrontExpr;
+    fields: Field[];
+    bracketed?: "named" | "positional";
+  }
   | { tag: "struct_update"; base: FrontExpr; fields: Field[] }
   | { tag: "union_type"; cases: TypeField[] }
   | {
@@ -219,6 +248,7 @@ export type FrontExpr =
     resume_signature?: ResumeSignature;
   }
   | { tag: "index"; object: FrontExpr; index: FrontExpr }
+  | { tag: "is"; value: FrontExpr; type_expr: TypeExpr }
   | {
     tag: "union_case";
     name: string;
@@ -245,6 +275,7 @@ export type Field = {
 export type TypeField = {
   name: string;
   type_name: string;
+  set_member?: TypeExpr;
 };
 
 export type FrontHostImportArgContract =
@@ -302,9 +333,12 @@ export type Token = {
 };
 
 export type FrontType =
+  | { tag: "never" }
   | { tag: "int"; type: ValType | undefined }
+  | { tag: "atom"; name: string }
   | { tag: "text"; encoding?: "bytes" }
   | { tag: "type" }
+  | { tag: "set"; type_expr: TypeExpr }
   | { tag: "struct"; fields: string[]; field_types: TypeField[] | undefined }
   | { tag: "union"; case_name: string }
   | { tag: "union_value"; cases: TypeField[] }

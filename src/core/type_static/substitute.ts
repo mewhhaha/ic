@@ -1,4 +1,4 @@
-import type { TypePattern } from "../../frontend/ast.ts";
+import type { TypeExpr, TypePattern } from "../../frontend/ast.ts";
 import type {
   CoreExpr,
   CoreField,
@@ -352,10 +352,75 @@ function substitute_core_type_decl(
   field: CoreTypeField,
   type_args: Map<string, string>,
 ): CoreTypeField {
-  return {
+  const result: CoreTypeField = {
     name: field.name,
     type_name: substitute_core_type_name(field.type_name, type_args),
   };
+
+  if (field.set_member) {
+    result.set_member = substitute_core_type_set_member(
+      field.set_member,
+      type_args,
+    );
+  }
+
+  return result;
+}
+
+function substitute_core_type_set_member(
+  type: TypeExpr,
+  type_args: Map<string, string>,
+): TypeExpr {
+  switch (type.tag) {
+    case "name":
+      return {
+        tag: "name",
+        name: substitute_core_type_name(type.name, type_args),
+      };
+
+    case "atom":
+    case "top":
+    case "never":
+      return type;
+
+    case "frozen":
+    case "borrow":
+      return {
+        ...type,
+        value: substitute_core_type_set_member(type.value, type_args),
+      };
+
+    case "union":
+    case "intersection":
+    case "difference":
+      return {
+        ...type,
+        left: substitute_core_type_set_member(type.left, type_args),
+        right: substitute_core_type_set_member(type.right, type_args),
+      };
+
+    case "apply":
+      return {
+        tag: "apply",
+        func: substitute_core_type_set_member(type.func, type_args),
+        arg: substitute_core_type_set_member(type.arg, type_args),
+      };
+
+    case "tuple":
+      return {
+        tag: "tuple",
+        items: type.items.map((item) =>
+          substitute_core_type_set_member(item, type_args)
+        ),
+      };
+
+    case "arrow":
+      return {
+        ...type,
+        param: substitute_core_type_set_member(type.param, type_args),
+        result: substitute_core_type_set_member(type.result, type_args),
+      };
+  }
 }
 
 function substitute_core_type_pattern(

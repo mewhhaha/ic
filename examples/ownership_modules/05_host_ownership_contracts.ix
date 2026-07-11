@@ -1,14 +1,14 @@
 module (!init: Init) where
 
 declare effect Host {
-  read: (bounded_borrow Text) => I32
-  take: (ownership_transfer Text) => I32
+  read: (&Text) => I32
+  take: (Text) => I32
 }
 
 declare Init { host: Host }
 
 let read_message: Text = append("a", "b")
-read_result <- Host.read(borrow read_message)
+read_result <- Host.read(&read_message)
 
 let sent_message: Text = append("c", "d")
 send_result <- Host.take(sent_message)

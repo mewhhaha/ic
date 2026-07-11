@@ -16,6 +16,7 @@ export function core_lam_fn_type(
 ): CoreFnType | undefined {
   const params: ValType[] = [];
   const param_texts: boolean[] = [];
+  const param_constraints: (string | undefined)[] = [];
   const param_structs: (CoreExpr | undefined)[] = [];
   const param_unions: (CoreExpr | undefined)[] = [];
 
@@ -28,6 +29,7 @@ export function core_lam_fn_type(
 
     params.push(info.type);
     param_texts.push(info.is_text);
+    param_constraints.push(info.constraint);
     param_structs.push(info.struct_type);
     param_unions.push(info.union_type);
   }
@@ -62,6 +64,7 @@ export function core_lam_fn_type(
     tag: "fn",
     params,
     param_texts,
+    ...optional_param_constraints(param_constraints),
     ...optional_param_structs(param_structs),
     ...optional_param_unions(param_unions),
     result,
@@ -93,6 +96,7 @@ export function core_lam_fn_type_with_expected(
     const param = expr.params[index];
     const expected_type = expected.params[index];
     const expected_text = expected.param_texts[index];
+    const expected_constraint = expected.param_constraints?.[index];
     const expected_struct = expected.param_structs?.[index];
     const expected_union = expected.param_unions?.[index];
     expect(param, "Missing core closure parameter " + index.toString());
@@ -107,10 +111,21 @@ export function core_lam_fn_type_with_expected(
 
     const actual = closure_param_info(param, ctx, hooks);
 
+    if (!actual && expected_constraint) {
+      throw new Error(
+        "Core closure if branch parameter constraint requires an explicit " +
+          "annotation",
+      );
+    }
+
     if (actual) {
       expect(
         actual.type === expected_type && actual.is_text === expected_text,
         "Core closure if branch type mismatch",
+      );
+      expect(
+        actual.constraint === expected_constraint,
+        "Core closure if branch parameter constraint mismatch",
       );
       expect(
         same_runtime_aggregate_type_expr(
@@ -163,6 +178,7 @@ export function core_lam_fn_type_with_expected(
     tag: "fn",
     params: [...expected.params],
     param_texts: [...expected.param_texts],
+    ...optional_param_constraints(expected.param_constraints),
     ...optional_param_structs(expected.param_structs),
     ...optional_param_unions(expected.param_unions),
     result,
@@ -225,6 +241,22 @@ function optional_param_structs(
   for (const value of values) {
     if (value) {
       return { param_structs: [...values] };
+    }
+  }
+
+  return {};
+}
+
+function optional_param_constraints(
+  values: (string | undefined)[] | undefined,
+): { param_constraints: (string | undefined)[] } | Record<string, never> {
+  if (!values) {
+    return {};
+  }
+
+  for (const value of values) {
+    if (value) {
+      return { param_constraints: [...values] };
     }
   }
 

@@ -21,6 +21,7 @@ export function create_core_backend_closure_type(
   capture: CoreBackendClosureCapture,
 ): CoreBackendClosureType {
   const closure_type_hooks = {
+    apply_core_parameter_annotation: api.apply_core_parameter_annotation,
     clear_core_local_facts: api.clear_core_local_facts,
     collect_stmt_locals: api.collect_stmt_locals,
     core_expr_is_text: api.core_expr_is_text,

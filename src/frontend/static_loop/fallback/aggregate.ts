@@ -42,6 +42,7 @@ export function dynamic_loop_control_struct_fallback(
     tag: "struct_value",
     type_expr: capture_expr(target.expr.type_expr, target.env),
     fields,
+    bracketed: target.expr.bracketed,
   };
 }
 

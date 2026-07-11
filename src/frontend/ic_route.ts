@@ -87,8 +87,10 @@ function validate_ic_route_stmt(stmt: Stmt): void {
 function validate_ic_route_expr(expr: FrontExpr): void {
   switch (expr.tag) {
     case "num":
+    case "atom":
     case "text":
     case "type_name":
+    case "set_type":
     case "var":
     case "struct_type":
     case "union_type":
@@ -98,6 +100,10 @@ function validate_ic_route_expr(expr: FrontExpr): void {
 
     case "unit":
       return reject_ic_route("unit value");
+
+    case "is":
+      validate_ic_route_expr(expr.value);
+      return;
 
     case "handler":
       return reject_ic_route("handler");

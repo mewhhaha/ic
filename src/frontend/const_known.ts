@@ -9,12 +9,17 @@ export function is_const_expr_known(
 ): boolean {
   switch (expr.tag) {
     case "num":
+    case "atom":
     case "unit":
     case "text":
     case "type_name":
+    case "set_type":
     case "struct_type":
     case "union_type":
       return true;
+
+    case "is":
+      return is_const_expr_known(expr.value, env, bound);
 
     case "var": {
       if (bound.has(expr.name)) {

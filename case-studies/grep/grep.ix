@@ -63,7 +63,7 @@ const line_contains = (bytes: Bytes, pattern: Text, line_start: I32, line_end: I
 }
 
 let write_line: Bytes -> <Stdout.write> I32 = (line: Bytes) => {
-  write_result <- Stdout.write(borrow line)
+  write_result <- Stdout.write(&line)
 
   if let .ok = write_result {
     0
@@ -82,7 +82,7 @@ let code = 2
 if arg_count == 2 {
   pattern <- Process.arg(0)
   path <- Process.arg(1)
-  open_result <- FileReader.open(borrow path)
+  open_result <- FileReader.open(&path)
 
   if let .ok = open_result {
     first_result <- FileReader.read(65536)

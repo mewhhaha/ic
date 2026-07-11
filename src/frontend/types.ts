@@ -1,6 +1,7 @@
 import { expect } from "../expect.ts";
 import type { FrontType, Param, TypeField } from "./ast.ts";
 import type { ValType } from "../op.ts";
+import { format_type_expr } from "./type_expr.ts";
 
 export function is_builtin_type_name(name: string): boolean {
   return name === "Unit" || name === "Int" || name === "I32" ||
@@ -52,6 +53,9 @@ export function val_type_from_type_name(name: string): ValType | undefined {
 
 export function front_type_name(type: FrontType): string {
   switch (type.tag) {
+    case "never":
+      return "Never";
+
     case "int":
       if (type.type === "i64") {
         return "I64";
@@ -62,6 +66,12 @@ export function front_type_name(type: FrontType): string {
       }
 
       return "Int";
+
+    case "atom":
+      return "#" + type.name;
+
+    case "set":
+      return "set " + format_type_expr(type.type_expr);
 
     case "text":
       if (type.encoding === "bytes") {
@@ -109,6 +119,10 @@ export function type_name_from_front_type(
     return "Text";
   }
 
+  if (type.tag === "atom") {
+    return "I32";
+  }
+
   return undefined;
 }
 
@@ -124,6 +138,14 @@ export function common_front_type(
   left: FrontType,
   right: FrontType,
 ): FrontType | undefined {
+  if (left.tag === "never") {
+    return right;
+  }
+
+  if (right.tag === "never") {
+    return left;
+  }
+
   if (!same_type(left, right)) {
     return undefined;
   }
@@ -146,6 +168,14 @@ export function common_front_type(
     }
   }
 
+  if (left.tag === "atom" && right.tag === "atom") {
+    if (left.name === right.name) {
+      return left;
+    }
+
+    return undefined;
+  }
+
   return left;
 }
 
@@ -154,12 +184,25 @@ export function same_type(left: FrontType, right: FrontType): boolean {
     return true;
   }
 
+  if (left.tag === "never" || right.tag === "never") {
+    return left.tag === right.tag;
+  }
+
   if (left.tag === "int" && right.tag === "int") {
     if (left.type && right.type) {
       return left.type === right.type;
     }
 
     return true;
+  }
+
+  if (left.tag === "atom" && right.tag === "atom") {
+    return left.name === right.name;
+  }
+
+  if (left.tag === "set" && right.tag === "set") {
+    return format_type_expr(left.type_expr) ===
+      format_type_expr(right.type_expr);
   }
 
   if (left.tag === "text" && right.tag === "text") {

@@ -1,11 +1,14 @@
 import { expect } from "../expect.ts";
 import type { Token, TokenKind } from "./ast.ts";
 import { no_demand_name } from "./names.ts";
+import { is_builtin_type_reference_name } from "./parser_support.ts";
 
 export class ParserCursor {
   protected tokens: Token[];
   protected index = 0;
   protected effect_names = new Set<string>();
+  protected type_names = new Set<string>();
+  protected declaration_names = new Set<string>();
   #next_no_demand_name = 0;
 
   constructor(tokens: Token[]) {
@@ -80,6 +83,18 @@ export class ParserCursor {
     const index = this.#next_no_demand_name;
     this.#next_no_demand_name += 1;
     return no_demand_name(index);
+  }
+
+  protected reserve_declaration_name(name: string, label: string): void {
+    expect(
+      !is_builtin_type_reference_name(name),
+      label + " conflicts with builtin type: " + name,
+    );
+    expect(
+      !this.declaration_names.has(name),
+      "Duplicate declaration name: " + name,
+    );
+    this.declaration_names.add(name);
   }
 
   protected is(kind: TokenKind): boolean {

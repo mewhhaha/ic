@@ -3,14 +3,19 @@ import type { FrontExpr, Stmt } from "../ast.ts";
 export function expr_contains_linear(expr: FrontExpr): boolean {
   switch (expr.tag) {
     case "num":
+    case "atom":
     case "unit":
     case "text":
     case "type_name":
+    case "set_type":
     case "var":
     case "struct_type":
     case "union_type":
     case "unsupported":
       return false;
+
+    case "is":
+      return expr_contains_linear(expr.value);
 
     case "linear":
       return true;

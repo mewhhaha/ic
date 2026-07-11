@@ -9,6 +9,7 @@ import {
   clone_borrow_aliases,
   clone_branch_borrow_aliases,
   direct_field_or_index_owner,
+  if_let_payload_owner_ctx,
   merge_field_owner_aliases,
   merge_optional_branch_field_aliases,
   merge_required_branch_field_aliases,
@@ -133,14 +134,22 @@ export function field_owner_result_for_value<ctx>(
   if (value.tag === "if_let") {
     const owners: CoreFieldBorrowOwner[] = [];
     const then_aliases = clone_borrow_aliases(aliases);
+    let then_ctx = ctx;
 
     if (value.value_name) {
       clear_borrow_alias(value.value_name, then_aliases);
+      then_ctx = if_let_payload_owner_ctx(
+        value.case_name,
+        value.value_name,
+        value.target,
+        ctx,
+        hooks,
+      );
     }
 
     const then_owner = field_owner_result_for_value(
       value.then_branch,
-      ctx,
+      then_ctx,
       hooks,
       then_aliases,
     );

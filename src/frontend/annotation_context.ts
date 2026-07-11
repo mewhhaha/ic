@@ -2,6 +2,11 @@ import type { Env, FrontExpr } from "./ast.ts";
 import type { AnnotationHooks } from "./annotation_types.ts";
 import { is_object_type_expr, lookup_type_field } from "./fields.ts";
 import { resolve_annotation_type_value } from "./annotation_resolve.ts";
+import { matching_type_set_case } from "./type_set_member.ts";
+import { sem_type_from_expr } from "./semantic_type.ts";
+import { front_type_value_for_semantic_type } from "./type_declaration.ts";
+import { parse_type_expr } from "./type_expr.ts";
+import { tokenize } from "./tokenize.ts";
 
 export function apply_annotation_context(
   annotation: string,
@@ -9,10 +14,23 @@ export function apply_annotation_context(
   env: Env,
   hooks: AnnotationHooks,
 ): FrontExpr {
-  const type_value = resolve_annotation_type_value(annotation, env, hooks);
+  let type_value = resolve_annotation_type_value(annotation, env, hooks);
+  let type_ref: FrontExpr = { tag: "var", name: annotation };
 
   if (!type_value) {
-    return value;
+    const type_expr = parse_type_expr(tokenize(annotation));
+    const inline = front_type_value_for_semantic_type(
+      "<inline annotation>",
+      type_expr,
+      sem_type_from_expr(type_expr),
+    );
+
+    if (inline.tag !== "union_type") {
+      return value;
+    }
+
+    type_value = inline;
+    type_ref = inline;
   }
 
   if (type_value.tag === "struct_type") {
@@ -31,12 +49,14 @@ export function apply_annotation_context(
         name: field.name,
         value: hooks.capture_expr(field.value, struct.env),
       })),
+      bracketed: struct.expr.bracketed,
     };
   }
 
   return apply_union_annotation_context(
     annotation,
     type_value,
+    type_ref,
     value,
     env,
     hooks,
@@ -46,6 +66,7 @@ export function apply_annotation_context(
 function apply_union_annotation_context(
   annotation: string,
   type_value: Extract<FrontExpr, { tag: "union_type" }>,
+  type_ref: FrontExpr,
   value: FrontExpr,
   env: Env,
   hooks: AnnotationHooks,
@@ -56,6 +77,7 @@ function apply_union_annotation_context(
       expr: apply_union_annotation_context(
         annotation,
         type_value,
+        type_ref,
         value.expr,
         value.env,
         hooks,
@@ -71,6 +93,7 @@ function apply_union_annotation_context(
       then_branch: apply_union_annotation_context(
         annotation,
         type_value,
+        type_ref,
         value.then_branch,
         env,
         hooks,
@@ -78,11 +101,28 @@ function apply_union_annotation_context(
       else_branch: apply_union_annotation_context(
         annotation,
         type_value,
+        type_ref,
         value.else_branch,
         env,
         hooks,
       ),
       implicit_else: value.implicit_else,
+    };
+  }
+
+  const set_case = matching_type_set_case(
+    type_value.cases,
+    value,
+    env,
+    hooks.infer_expr,
+  );
+
+  if (set_case) {
+    return {
+      tag: "union_case",
+      name: set_case.name,
+      value: hooks.capture_expr(value, env),
+      type_expr: type_ref,
     };
   }
 
@@ -109,7 +149,7 @@ function apply_union_annotation_context(
     tag: "union_case",
     name: union_value.expr.name,
     value: payload,
-    type_expr: { tag: "var", name: annotation },
+    type_expr: type_ref,
   };
 }
 

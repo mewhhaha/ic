@@ -59,8 +59,12 @@ Deno.test("Term.emit inserts duplication for repeated let uses", () => {
   };
 
   assert_equals(
+    Ic.fmt(Term.emit(term)),
+    "! _v0 &S0 = 21:i32;\n_v00 + _v01",
+  );
+  assert_equals(
     Expr.fmt(Ic.emit(Term.emit(term))),
-    "let _v0:i32 = 21:i32;\n(_v0:i32 +:i32 _v0:i32)",
+    "42:i32",
   );
 });
 
@@ -94,8 +98,12 @@ Deno.test("Term.emit inserts duplication for repeated lambda parameters", () => 
   };
 
   assert_equals(
+    Ic.fmt(Term.emit(term)),
+    "(λx. ! _v0 &S0 = x;\n_v00 + _v01)(21:i32)",
+  );
+  assert_equals(
     Expr.fmt(Ic.emit(Term.emit(term))),
-    "let _v0:i32 = 21:i32;\n(_v0:i32 +:i32 _v0:i32)",
+    "42:i32",
   );
 });
 

@@ -1,5 +1,5 @@
 let message: Text = append("a", "b")
-let view = borrow message
+let view = &message
 let frozen = freeze message
 
 len(view) + len(frozen)

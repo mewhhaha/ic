@@ -1,5 +1,6 @@
-import type { FrontExpr, Source } from "./frontend/ast.ts";
+import type { FrontExpr, Source, TypeField } from "./frontend/ast.ts";
 import { analyze_front_effects } from "./frontend/effect_analysis.ts";
+import { resolve_front_type_value } from "./frontend/type_set_elaborate.ts";
 import { align_to } from "./core/memory.ts";
 import type { Func, Mod } from "./mod.ts";
 import {
@@ -184,12 +185,23 @@ export function build_abi_manifest(
         return alias;
       }
 
-      if (value.tag === "struct_type") {
+      let resolved_value: FrontExpr = value;
+      const specialized = resolve_front_type_value(
+        value,
+        values,
+        new Set(resolving),
+      );
+
+      if (specialized) {
+        resolved_value = specialized;
+      }
+
+      if (resolved_value.tag === "struct_type") {
         let offset = 0;
         let max_align = 1;
         const fields: AbiStructField[] = [];
 
-        for (const field of value.fields) {
+        for (const field of resolved_value.fields) {
           const type = abi_type_ref(field.type_name, values, resolve_named);
           const layout = abi_type_ref_layout(type, resolve_named);
           offset = align_to(offset, layout.align);
@@ -214,12 +226,12 @@ export function build_abi_manifest(
         return result;
       }
 
-      if (value.tag === "union_type") {
+      if (resolved_value.tag === "union_type") {
         let max_payload = 0;
         const cases = [];
 
-        for (let index = 0; index < value.cases.length; index += 1) {
-          const union_case = value.cases[index];
+        for (let index = 0; index < resolved_value.cases.length; index += 1) {
+          const union_case = resolved_value.cases[index];
 
           if (!union_case) {
             throw new Error("Missing ABI union case " + index.toString());
@@ -468,17 +480,30 @@ function abi_init(
 ): AbiInit | undefined {
   const declarations = source.declarations || [];
   const declaration = declarations.find((item) =>
-    item.tag === "record" && item.name === "Init"
+    item.name === "Init" &&
+    (item.tag === "record" ||
+      (item.tag === "type" && item.params.length === 0 &&
+        item.body.tag === "product" && !item.body.positional))
   );
 
-  if (!declaration || declaration.tag !== "record") {
+  if (!declaration) {
     return undefined;
+  }
+
+  let declaration_fields: TypeField[];
+
+  if (declaration.tag === "record") {
+    declaration_fields = declaration.fields;
+  } else if (declaration.tag === "type" && declaration.body.tag === "product") {
+    declaration_fields = declaration.body.fields;
+  } else {
+    throw new Error("Init must be a named product type");
   }
 
   const fields: AbiInitField[] = [];
   const field_names = new Set<string>();
 
-  for (const field of declaration.fields) {
+  for (const field of declaration_fields) {
     if (field_names.has(field.name)) {
       throw new Error("Duplicate Init field: " + field.name);
     }

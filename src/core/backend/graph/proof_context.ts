@@ -2,13 +2,11 @@ import type { CoreExpr, CoreStmt } from "../../ast.ts";
 import type { CoreBorrowClosureCtx } from "../../borrow.ts";
 import type { CoreHostBoundaryClosureCtx } from "../../host_boundary.ts";
 import type { CoreCtx } from "../../local_collect.ts";
+import { closure_param_info } from "../../closure_type/param.ts";
 import { runtime_union_match_info } from "../../runtime_union.ts";
 import type { RuntimeUnionMatchInfo } from "../../runtime_union.ts";
 import { bind_runtime_union_match_payload_temps } from "../../runtime_union_match.ts";
-import {
-  core_val_type_from_type_name,
-  static_type_value,
-} from "../../type_static.ts";
+import { static_type_value } from "../../type_static.ts";
 import { create_child_core_ctx } from "./context.ts";
 import { core_probe_index_assign_error } from "./proof_unsupported.ts";
 import type { CoreBackendGraph } from "./types.ts";
@@ -24,9 +22,7 @@ export function core_borrow_closure_body_ctx(
       continue;
     }
 
-    const annotation = param.annotation;
-
-    if (!annotation) {
+    if (!param.annotation) {
       return {
         tag: "skip",
         reason: "Cannot analyze closure-body borrows without parameter " +
@@ -34,19 +30,25 @@ export function core_borrow_closure_body_ctx(
       };
     }
 
-    const type = core_val_type_from_type_name(annotation);
+    const info = closure_param_info(param, ctx, {
+      static_annotation_type_value: (annotation, annotation_ctx) =>
+        static_type_value(
+          { tag: "var", name: annotation },
+          annotation_ctx,
+        ),
+    });
 
-    if (!type) {
+    if (!info) {
       return {
         tag: "skip",
-        reason: "Cannot analyze closure-body borrows for non-scalar " +
-          "parameter annotation: " + annotation,
+        reason: "Cannot analyze closure-body borrows for parameter " +
+          "annotation: " + param.annotation,
       };
     }
 
-    closure_ctx.locals.set(param.name, type);
+    closure_ctx.locals.set(param.name, info.type);
 
-    if (annotation === "Text" || annotation === "Bytes") {
+    if (info.is_text) {
       closure_ctx.text_locals.add(param.name);
     } else {
       closure_ctx.text_locals.delete(param.name);
@@ -110,57 +112,36 @@ export function core_drop_closure_body_ctx(
       return undefined;
     }
 
-    const type = core_val_type_from_type_name(annotation);
+    const info = closure_param_info(param, ctx, {
+      static_annotation_type_value: (type_annotation, annotation_ctx) =>
+        static_type_value(
+          { tag: "var", name: type_annotation },
+          annotation_ctx,
+        ),
+    });
 
-    if (!type) {
-      const type_value = static_type_value(
-        { tag: "var", name: annotation },
-        ctx,
-      );
-
-      if (type_value && type_value.tag === "struct_type") {
-        closure_ctx.locals.set(param.name, "i32");
-        closure_ctx.text_locals.delete(param.name);
-        closure_ctx.struct_locals.set(param.name, {
-          tag: "var",
-          name: annotation,
-        });
-        closure_ctx.union_locals.delete(param.name);
-
-        if (closure_ctx.frozen_locals) {
-          closure_ctx.frozen_locals.delete(param.name);
-        }
-
-        continue;
-      }
-
-      if (type_value && type_value.tag === "union_type") {
-        closure_ctx.locals.set(param.name, "i32");
-        closure_ctx.text_locals.delete(param.name);
-        closure_ctx.struct_locals.delete(param.name);
-        closure_ctx.union_locals.set(param.name, {
-          tag: "var",
-          name: annotation,
-        });
-
-        if (closure_ctx.frozen_locals) {
-          closure_ctx.frozen_locals.delete(param.name);
-        }
-
-        continue;
-      }
-
+    if (!info) {
       return undefined;
     }
 
-    closure_ctx.locals.set(param.name, type);
-    closure_ctx.struct_locals.delete(param.name);
-    closure_ctx.union_locals.delete(param.name);
+    closure_ctx.locals.set(param.name, info.type);
 
-    if (annotation === "Text" || annotation === "Bytes") {
+    if (info.is_text) {
       closure_ctx.text_locals.add(param.name);
     } else {
       closure_ctx.text_locals.delete(param.name);
+    }
+
+    if (info.struct_type) {
+      closure_ctx.struct_locals.set(param.name, info.struct_type);
+    } else {
+      closure_ctx.struct_locals.delete(param.name);
+    }
+
+    if (info.union_type) {
+      closure_ctx.union_locals.set(param.name, info.union_type);
+    } else {
+      closure_ctx.union_locals.delete(param.name);
     }
 
     if (closure_ctx.frozen_locals) {

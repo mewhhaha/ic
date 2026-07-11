@@ -1,7 +1,7 @@
 module (!init: Init) where
 
 declare effect Host {
-  print: (bounded_borrow Text) => I32
+  print: (&Text) => I32
 }
 
 declare Init { host: Host }
@@ -11,5 +11,5 @@ let message = scratch {
   freeze temporary
 }
 
-result <- Host.print(borrow message)
+result <- Host.print(&message)
 return { result }

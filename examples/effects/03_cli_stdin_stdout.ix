@@ -5,7 +5,7 @@ declare effect Stdin {
 }
 
 declare effect Stdout {
-  write_line: (bounded_borrow Text) => Unit
+  write_line: (&Text) => Unit
 }
 
 declare Init {
@@ -15,7 +15,7 @@ declare Init {
 
 let echo: () -> <Stdin | Stdout> Text = () => {
   input <- Stdin.read_line()
-  _ <- Stdout.write_line(borrow input)
+  _ <- Stdout.write_line(&input)
   input
 }
 

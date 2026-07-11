@@ -2,7 +2,10 @@ import type {
   FrontExpr,
   FrontHostImportOwnerReason,
   Stmt,
+  TypeExpr,
 } from "../../frontend/ast.ts";
+import { format_type_expr, parse_type_expr } from "../../frontend/type_expr.ts";
+import { tokenize } from "../../frontend/tokenize.ts";
 import type { CoreExpr, CoreHostImportOwnerReason, CoreParam } from "../ast.ts";
 
 export type CoreNamedRecSource = {
@@ -20,6 +23,7 @@ export type CoreFromSourceCtx = {
   linear_names: Set<string>;
   fresh: { next: number };
   namedRecs: Map<string, CoreNamedRecSource>;
+  type_set_aliases: Map<string, TypeExpr>;
 };
 
 export function create_core_from_source_ctx(): CoreFromSourceCtx {
@@ -33,6 +37,7 @@ export function create_core_from_source_ctx(): CoreFromSourceCtx {
     linear_names: new Set(),
     fresh: { next: 0 },
     namedRecs: new Map(),
+    type_set_aliases: new Map(),
   };
 }
 
@@ -49,6 +54,7 @@ export function fork_core_from_source_ctx(
     linear_names: new Set(ctx.linear_names),
     fresh: ctx.fresh,
     namedRecs: new Map(ctx.namedRecs),
+    type_set_aliases: new Map(ctx.type_set_aliases),
   };
 }
 
@@ -77,6 +83,21 @@ export function record_core_from_source_type_value(
   }
 
   ctx.host_import_const_names.add(stmt.name);
+
+  if (stmt.value.tag === "set_type") {
+    ctx.type_set_aliases.set(stmt.name, stmt.value.type_expr);
+  } else if (
+    stmt.value.tag === "var" && ctx.type_set_aliases.has(stmt.value.name)
+  ) {
+    const alias = ctx.type_set_aliases.get(stmt.value.name);
+
+    if (!alias) {
+      throw new Error("Missing type-set alias: " + stmt.value.name);
+    }
+
+    ctx.type_set_aliases.set(stmt.name, alias);
+  }
+
   const reason = front_host_import_type_value_reason(
     stmt.value,
     ctx,
@@ -89,6 +110,125 @@ export function record_core_from_source_type_value(
   }
 
   ctx.host_import_type_values.set(stmt.name, reason);
+}
+
+export function resolve_core_annotation(
+  ctx: CoreFromSourceCtx,
+  annotation: string | undefined,
+): string | undefined {
+  if (!annotation) {
+    return undefined;
+  }
+
+  const parsed = parse_type_expr(tokenize(annotation));
+  const expanded = expand_core_type_set_aliases(parsed, ctx, new Set());
+
+  if (!expanded.changed) {
+    return annotation;
+  }
+
+  return format_type_expr(expanded.type);
+}
+
+function expand_core_type_set_aliases(
+  type: TypeExpr,
+  ctx: CoreFromSourceCtx,
+  resolving: Set<string>,
+): { type: TypeExpr; changed: boolean } {
+  if (type.tag === "name") {
+    const alias = ctx.type_set_aliases.get(type.name);
+
+    if (!alias) {
+      return { type, changed: false };
+    }
+
+    if (resolving.has(type.name)) {
+      throw new Error("Recursive type-set alias: " + type.name);
+    }
+
+    const next = new Set(resolving);
+    next.add(type.name);
+    const expanded = expand_core_type_set_aliases(alias, ctx, next);
+    return { type: expanded.type, changed: true };
+  }
+
+  if (
+    type.tag === "atom" || type.tag === "top" || type.tag === "never"
+  ) {
+    return { type, changed: false };
+  }
+
+  if (type.tag === "frozen" || type.tag === "borrow") {
+    const value = expand_core_type_set_aliases(type.value, ctx, resolving);
+
+    if (!value.changed) {
+      return { type, changed: false };
+    }
+
+    return { type: { ...type, value: value.type }, changed: true };
+  }
+
+  if (type.tag === "apply") {
+    const func = expand_core_type_set_aliases(type.func, ctx, resolving);
+    const arg = expand_core_type_set_aliases(type.arg, ctx, resolving);
+
+    if (!func.changed && !arg.changed) {
+      return { type, changed: false };
+    }
+
+    return {
+      type: { tag: "apply", func: func.type, arg: arg.type },
+      changed: true,
+    };
+  }
+
+  if (type.tag === "tuple") {
+    let changed = false;
+    const items = type.items.map((item) => {
+      const expanded = expand_core_type_set_aliases(item, ctx, resolving);
+
+      if (expanded.changed) {
+        changed = true;
+      }
+
+      return expanded.type;
+    });
+
+    if (!changed) {
+      return { type, changed: false };
+    }
+
+    return { type: { tag: "tuple", items }, changed: true };
+  }
+
+  if (
+    type.tag === "union" || type.tag === "intersection" ||
+    type.tag === "difference"
+  ) {
+    const left = expand_core_type_set_aliases(type.left, ctx, resolving);
+    const right = expand_core_type_set_aliases(type.right, ctx, resolving);
+
+    if (!left.changed && !right.changed) {
+      return { type, changed: false };
+    }
+
+    return {
+      type: { ...type, left: left.type, right: right.type },
+      changed: true,
+    };
+  }
+
+  const param = expand_core_type_set_aliases(type.param, ctx, resolving);
+  const result = expand_core_type_set_aliases(type.result, ctx, resolving);
+
+  if (!param.changed && !result.changed) {
+    return { type, changed: false };
+  }
+
+  return {
+    type: { ...type, param: param.type, result: result.type },
+    changed: true,
+  };
 }
 
 export function core_host_import_owner_reason(

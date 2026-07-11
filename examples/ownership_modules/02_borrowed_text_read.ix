@@ -1,5 +1,5 @@
 let measure = (message: Text) => {
-  len(borrow message)
+  len(&message)
 }
 
 measure("interaction") + 31

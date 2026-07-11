@@ -11,10 +11,10 @@ import type {
 } from "./ast.ts";
 import { expect } from "../expect.ts";
 import { expect_snake_case } from "./names.ts";
-import { ParserStmtBinding } from "./parser_stmt/binding.ts";
+import { ParserTypeDeclaration } from "./parser_type_declaration.ts";
 import { unsupported_reserved_feature } from "./parser_support.ts";
 
-export class ParserStmt extends ParserStmtBinding {
+export class ParserStmt extends ParserTypeDeclaration {
   constructor(
     tokens: Token[],
     private readonly allow_host_imports_for_test = false,
@@ -46,6 +46,12 @@ export class ParserStmt extends ParserStmtBinding {
       if (this.peek().kind === "name" && this.peek().text === "effect") {
         this.expect_name("Expected effect");
         declarations.push(this.parse_effect_declaration("ix"));
+        this.skip_newlines();
+        continue;
+      }
+
+      if (this.peek().kind === "name" && this.peek().text === "type") {
+        declarations.push(this.parse_type_declaration());
         this.skip_newlines();
         continue;
       }
@@ -95,6 +101,7 @@ export class ParserStmt extends ParserStmtBinding {
     }
 
     const name = this.expect_declaration_name("Record declaration");
+    this.reserve_declaration_name(name, "Record declaration");
     this.allow_pascal_type_names += 1;
 
     try {
@@ -108,6 +115,7 @@ export class ParserStmt extends ParserStmtBinding {
     implementation: "host" | "ix",
   ): EffectDeclaration {
     const name = this.expect_declaration_name("Effect");
+    this.reserve_declaration_name(name, "Effect declaration");
     this.effect_names.add(name);
     this.expect_symbol("{");
     this.skip_newlines();
@@ -155,12 +163,25 @@ export class ParserStmt extends ParserStmtBinding {
     const parts = text.split(/\s+/);
 
     if (parts.length === 1) {
-      return { type_name: text, ownership: "scalar" };
+      if (is_effect_scalar_type(text)) {
+        return { type_name: text, ownership: "scalar" };
+      }
+
+      return { type_name: text, ownership: "ownership_transfer" };
     }
 
-    const ownership = parts[0];
+    let ownership = parts[0];
     const type_name = parts.slice(1).join("");
     expect(type_name.length > 0, "Expected effect parameter type");
+
+    if (ownership === "&") {
+      ownership = "bounded_borrow";
+    }
+
+    if (ownership === "#") {
+      ownership = "frozen_shareable";
+    }
+
     expect(
       ownership === "bounded_borrow" || ownership === "frozen_shareable" ||
         ownership === "ownership_transfer",
@@ -173,9 +194,18 @@ export class ParserStmt extends ParserStmtBinding {
     const parts = text.split(/\s+/);
 
     if (parts.length > 1) {
-      const ownership = parts[0];
+      let ownership = parts[0];
       const type_name = parts.slice(1).join("");
       expect(type_name.length > 0, "Expected effect result type");
+
+      if (ownership === "&") {
+        throw new Error("Effect results cannot use bounded borrow ownership");
+      }
+
+      if (ownership === "#") {
+        ownership = "frozen_shareable";
+      }
+
       expect(
         ownership === "unique_heap" || ownership === "frozen_shareable",
         "Unknown effect result ownership: " + ownership,
@@ -183,10 +213,7 @@ export class ParserStmt extends ParserStmtBinding {
       return { type_name, ownership };
     }
 
-    if (
-      text === "Unit" || text === "Int" || text === "I32" || text === "U32" ||
-      text === "I64"
-    ) {
+    if (is_effect_scalar_type(text)) {
       return { type_name: text, ownership: "scalar" };
     }
 
@@ -369,4 +396,9 @@ export class ParserStmt extends ParserStmtBinding {
 
     return { tag: "expr", expr: this.parse_expr() };
   }
+}
+
+function is_effect_scalar_type(type_name: string): boolean {
+  return type_name === "Unit" || type_name === "Int" || type_name === "I32" ||
+    type_name === "U32" || type_name === "I64";
 }

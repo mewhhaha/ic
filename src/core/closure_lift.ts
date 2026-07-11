@@ -160,6 +160,8 @@ function same_closure_fn_type(left: CoreFnType, right: CoreFnType): boolean {
     const right_param = right.params[index];
     const left_text = left.param_texts[index];
     const right_text = right.param_texts[index];
+    const left_constraint = left.param_constraints?.[index];
+    const right_constraint = right.param_constraints?.[index];
     const left_struct = left.param_structs?.[index];
     const right_struct = right.param_structs?.[index];
     const left_union = left.param_unions?.[index];
@@ -170,6 +172,10 @@ function same_closure_fn_type(left: CoreFnType, right: CoreFnType): boolean {
     }
 
     if (left_text !== right_text) {
+      return false;
+    }
+
+    if (left_constraint !== right_constraint) {
       return false;
     }
 

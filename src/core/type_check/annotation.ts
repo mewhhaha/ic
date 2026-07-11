@@ -1,8 +1,14 @@
-import type { CoreExpr, CoreParam, CoreStmt } from "../ast.ts";
+import type { TypeExpr } from "../../frontend/ast.ts";
+import { sem_type_from_expr } from "../../frontend/semantic_type.ts";
+import { front_type_value_for_semantic_type } from "../../frontend/type_declaration.ts";
+import { format_type_expr, parse_type_expr } from "../../frontend/type_expr.ts";
+import { tokenize } from "../../frontend/tokenize.ts";
+import type { CoreExpr, CoreParam, CoreStmt, CoreTypeField } from "../ast.ts";
 import { is_type_level_expr, static_block_result } from "../type_static.ts";
 import {
   core_binding_value_type_name,
   core_direct_annotation_actual_name,
+  resolved_type_name,
   static_annotation_type_value,
 } from "./name.ts";
 import type {
@@ -104,7 +110,14 @@ export function apply_core_direct_type_annotation<
   value: CoreExpr,
   ctx: ctx,
   hooks: CoreTypeCheckHooks<ctx>,
+  explicit_type_expr?: CoreExpr,
 ): CoreExpr {
+  let annotation_type_expr: CoreExpr = { tag: "var", name: annotation };
+
+  if (explicit_type_expr) {
+    annotation_type_expr = explicit_type_expr;
+  }
+
   if (type_value.tag === "struct_type") {
     const scratch_result = core_scratch_annotation_result(value);
 
@@ -137,7 +150,7 @@ export function apply_core_direct_type_annotation<
 
     if (!struct_value) {
       const actual_struct_type = hooks.runtime_aggregate_type_expr(value, ctx);
-      const expected_struct_type: CoreExpr = { tag: "var", name: annotation };
+      const expected_struct_type = annotation_type_expr;
 
       if (
         actual_struct_type &&
@@ -159,7 +172,7 @@ export function apply_core_direct_type_annotation<
     check_core_struct_fields(type_value, struct_value.fields, ctx, hooks);
     const annotated_struct: CoreExpr = {
       tag: "struct_value",
-      type_expr: { tag: "var", name: annotation },
+      type_expr: annotation_type_expr,
       fields: struct_value.fields,
     };
 
@@ -179,7 +192,7 @@ export function apply_core_direct_type_annotation<
     check_core_union_case_value(type_value, union_case, ctx, hooks);
     return {
       ...union_case,
-      type_expr: { tag: "var", name: annotation },
+      type_expr: annotation_type_expr,
     };
   }
 
@@ -193,11 +206,11 @@ export function apply_core_direct_type_annotation<
       cond: union_if.cond,
       then_branch: {
         ...union_if.then_case,
-        type_expr: { tag: "var", name: annotation },
+        type_expr: annotation_type_expr,
       },
       else_branch: {
         ...union_if.else_case,
-        type_expr: { tag: "var", name: annotation },
+        type_expr: annotation_type_expr,
       },
     };
   }
@@ -213,6 +226,22 @@ export function apply_core_direct_type_annotation<
     ) {
       return value;
     }
+  }
+
+  const set_case = matching_core_type_set_case(
+    type_value.cases,
+    value,
+    ctx,
+    hooks,
+  );
+
+  if (set_case) {
+    return {
+      tag: "union_case",
+      name: set_case.name,
+      value,
+      type_expr: annotation_type_expr,
+    };
   }
 
   throw new Error(
@@ -238,6 +267,31 @@ function apply_core_value_annotation<ctx extends CoreTypeCheckCtx>(
   ctx: ctx,
   hooks: CoreTypeCheckHooks<ctx>,
 ): CoreExpr {
+  const resolved_annotation = resolved_type_name(annotation, ctx);
+
+  if (resolved_annotation !== annotation) {
+    return apply_core_value_annotation(
+      label,
+      resolved_annotation,
+      value,
+      ctx,
+      hooks,
+    );
+  }
+
+  const parsed = parse_type_expr(tokenize(annotation));
+  const semantic = apply_core_semantic_annotation(
+    label,
+    parsed,
+    value,
+    ctx,
+    hooks,
+  );
+
+  if (semantic) {
+    return semantic;
+  }
+
   if (annotation === "Resume") {
     const actual = hooks.expr_type(value, ctx);
 
@@ -313,4 +367,231 @@ function apply_core_value_annotation<ctx extends CoreTypeCheckCtx>(
   }
 
   throw new Error("Cannot check core " + label + " annotation: " + annotation);
+}
+
+function apply_core_semantic_annotation<ctx extends CoreTypeCheckCtx>(
+  label: "binding" | "parameter",
+  type: TypeExpr,
+  value: CoreExpr,
+  ctx: ctx,
+  hooks: CoreTypeCheckHooks<ctx>,
+): CoreExpr | undefined {
+  if (type.tag === "top") {
+    return value;
+  }
+
+  if (type.tag === "never") {
+    throw new Error("Core " + label + " annotation Never has no values");
+  }
+
+  if (type.tag === "atom") {
+    const atom = static_core_atom(value, ctx);
+
+    if (atom === type.name) {
+      return value;
+    }
+
+    throw new Error(
+      "Core " + label + " annotation expects #" + type.name + ", got " +
+        core_binding_value_type_name(value, ctx, hooks),
+    );
+  }
+
+  if (type.tag === "frozen") {
+    if (value.tag === "freeze") {
+      const annotation = core_semantic_member_annotation(type.value);
+
+      if (annotation) {
+        apply_core_value_annotation(label, annotation, value.value, ctx, hooks);
+      }
+
+      return value;
+    }
+
+    if (type.value.tag === "name" && type.value.name === "Text") {
+      if (hooks.static_text_value(value, ctx)) {
+        return value;
+      }
+    }
+
+    throw new Error("Core " + label + " annotation expects frozen value");
+  }
+
+  if (type.tag === "borrow") {
+    if (value.tag !== "borrow") {
+      throw new Error("Core " + label + " annotation expects borrowed value");
+    }
+
+    const annotation = core_semantic_member_annotation(type.value);
+
+    if (annotation) {
+      apply_core_value_annotation(label, annotation, value.value, ctx, hooks);
+    }
+
+    return value;
+  }
+
+  if (
+    type.tag === "union" || type.tag === "intersection" ||
+    type.tag === "difference"
+  ) {
+    const semantic = sem_type_from_expr(type);
+
+    if (semantic.tag === "top") {
+      return value;
+    }
+
+    if (semantic.tag === "never") {
+      throw new Error("Core " + label + " annotation has no values");
+    }
+
+    if (semantic.tag === "scalar") {
+      return apply_core_value_annotation(
+        label,
+        semantic.name,
+        value,
+        ctx,
+        hooks,
+      );
+    }
+
+    if (semantic.tag === "atom") {
+      return apply_core_value_annotation(
+        label,
+        "#" + semantic.name,
+        value,
+        ctx,
+        hooks,
+      );
+    }
+
+    const front_type = front_type_value_for_semantic_type(
+      "<inline annotation>",
+      type,
+      semantic,
+    );
+
+    if (front_type.tag === "union_type") {
+      const inline_type: Extract<CoreExpr, { tag: "union_type" }> = {
+        tag: "union_type",
+        cases: front_type.cases.map((union_case) => ({ ...union_case })),
+      };
+      return apply_core_direct_type_annotation(
+        format_type_expr(type),
+        inline_type,
+        value,
+        ctx,
+        hooks,
+        inline_type,
+      );
+    }
+
+    throw new Error(
+      "Core " + label + " annotation has no runtime representation: " +
+        format_type_expr(type),
+    );
+  }
+
+  return undefined;
+}
+
+function core_semantic_member_annotation(type: TypeExpr): string | undefined {
+  if (type.tag === "name") {
+    return type.name;
+  }
+
+  if (type.tag === "atom") {
+    return "#" + type.name;
+  }
+
+  return undefined;
+}
+
+function matching_core_type_set_case<ctx extends CoreTypeCheckCtx>(
+  cases: CoreTypeField[],
+  value: CoreExpr,
+  ctx: ctx,
+  hooks: CoreTypeCheckHooks<ctx>,
+): CoreTypeField | undefined {
+  for (const union_case of cases) {
+    if (!union_case.set_member) {
+      continue;
+    }
+
+    if (
+      core_value_matches_set_member(value, union_case.set_member, ctx, hooks)
+    ) {
+      return union_case;
+    }
+  }
+
+  return undefined;
+}
+
+function core_value_matches_set_member<ctx extends CoreTypeCheckCtx>(
+  value: CoreExpr,
+  type: TypeExpr,
+  ctx: ctx,
+  hooks: CoreTypeCheckHooks<ctx>,
+): boolean {
+  if (type.tag === "atom") {
+    return static_core_atom(value, ctx) === type.name;
+  }
+
+  if (type.tag === "frozen") {
+    if (value.tag !== "freeze") {
+      return false;
+    }
+
+    return core_value_matches_set_member(value.value, type.value, ctx, hooks);
+  }
+
+  if (type.tag === "borrow") {
+    if (value.tag !== "borrow") {
+      return false;
+    }
+
+    return core_value_matches_set_member(value.value, type.value, ctx, hooks);
+  }
+
+  if (type.tag !== "name") {
+    return false;
+  }
+
+  const actual = core_binding_value_type_name(value, ctx, hooks);
+
+  if (type.name === "Int" || type.name === "I32" || type.name === "U32") {
+    return actual === "I32" && static_core_atom(value, ctx) === undefined;
+  }
+
+  if (type.name === "I64") {
+    return actual === "I64";
+  }
+
+  if (type.name === "Text" || type.name === "Bytes") {
+    return actual === "Text";
+  }
+
+  return false;
+}
+
+function static_core_atom<ctx extends CoreTypeCheckCtx>(
+  value: CoreExpr,
+  ctx: ctx,
+): string | undefined {
+  if (value.tag === "num" && value.atom_name) {
+    return value.atom_name;
+  }
+
+  if (value.tag !== "var") {
+    return undefined;
+  }
+
+  const static_value = ctx.statics.get(value.name);
+
+  if (!static_value || static_value === value) {
+    return undefined;
+  }
+
+  return static_core_atom(static_value, ctx);
 }

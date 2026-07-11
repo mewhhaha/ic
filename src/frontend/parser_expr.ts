@@ -1,5 +1,5 @@
 import { expect } from "../expect.ts";
-import type { FrontExpr } from "./ast.ts";
+import type { FrontExpr, Token, TypeExpr } from "./ast.ts";
 import { expect_snake_case } from "./names.ts";
 import {
   binary_prim,
@@ -9,6 +9,7 @@ import {
 } from "./numeric.ts";
 import { ParserPrimary } from "./parser_primary.ts";
 import { binary_precedence, can_start_struct_value } from "./parser_support.ts";
+import { parse_type_expr } from "./type_expr.ts";
 
 export abstract class ParserExpr extends ParserPrimary {
   #stop_postfix_block = 0;
@@ -99,15 +100,30 @@ export abstract class ParserExpr extends ParserPrimary {
 
     while (true) {
       const token = this.peek();
+      const is_operator = token.kind === "name" && token.text === "is";
 
-      if (token.kind !== "symbol") {
+      if (token.kind !== "symbol" && !is_operator) {
         break;
       }
 
-      const precedence = binary_precedence(token.text);
+      let precedence = binary_precedence(token.text);
+
+      if (is_operator) {
+        precedence = 5;
+      }
 
       if (precedence < min_precedence) {
         break;
+      }
+
+      if (is_operator) {
+        this.advance();
+        left = {
+          tag: "is",
+          value: left,
+          type_expr: this.parse_is_type_expr(),
+        };
+        continue;
       }
 
       const op = this.advance().text;
@@ -141,6 +157,43 @@ export abstract class ParserExpr extends ParserPrimary {
     return left;
   }
 
+  private parse_is_type_expr(): TypeExpr {
+    const tokens: Token[] = [];
+    let parens = 0;
+
+    while (!this.is("eof")) {
+      const token = this.peek();
+
+      if (token.kind === "newline") {
+        break;
+      }
+
+      if (parens === 0 && token.kind === "symbol") {
+        if (
+          token.text === "{" || token.text === "}" || token.text === ")" ||
+          token.text === "," || token.text === "&&" || token.text === "||" ||
+          token.text === "==" || token.text === "!=" || token.text === "<" ||
+          token.text === "<=" || token.text === ">" || token.text === ">=" ||
+          token.text === "+" || token.text === "-" || token.text === "*" ||
+          token.text === "/" || token.text === "%" || token.text === "="
+        ) {
+          break;
+        }
+      }
+
+      if (token.kind === "symbol" && token.text === "(") {
+        parens += 1;
+      } else if (token.kind === "symbol" && token.text === ")") {
+        parens -= 1;
+      }
+
+      tokens.push(this.advance());
+    }
+
+    expect(tokens.length > 0, "Expected type after is");
+    return parse_type_expr(tokens);
+  }
+
   private parse_unary(): FrontExpr {
     if (this.match_name("try")) {
       this.#stop_try_with += 1;
@@ -160,6 +213,10 @@ export abstract class ParserExpr extends ParserPrimary {
     }
 
     if (this.match_name("borrow")) {
+      return { tag: "borrow", value: this.parse_unary() };
+    }
+
+    if (this.match_symbol("&")) {
       return { tag: "borrow", value: this.parse_unary() };
     }
 

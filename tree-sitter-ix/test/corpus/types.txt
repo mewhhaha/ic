@@ -13,27 +13,42 @@ let unit: () -> Text = () => ()
     name: (identifier)
     type: (type_reference
       (function_type
-        parameter: (type_tuple
-          (type_application
-            constructor: (identifier)
-            argument: (identifier))
-          (function_type
-            parameter: (identifier)
-            effects: (latent_effect_row
-              row: (effect_row
-                (effect_union_expression
-                  left: (effect_family_reference
-                    effect: (effect_identifier))
-                  right: (effect_row_variable
-                    name: (row_variable)))))
-            result: (identifier)))
+        parameter: (type_union
+          (type_intersection
+            (type_difference
+              (type_tuple
+                (type_union
+                  (type_intersection
+                    (type_difference
+                      (type_application
+                        constructor: (identifier)
+                        argument: (identifier)))))
+                (function_type
+                  parameter: (type_union
+                    (type_intersection
+                      (type_difference
+                        (identifier))))
+                  effects: (latent_effect_row
+                    row: (effect_row
+                      (effect_union_expression
+                        left: (effect_family_reference
+                          effect: (effect_identifier))
+                        right: (effect_row_variable
+                          name: (row_variable)))))
+                  result: (type_union
+                    (type_intersection
+                      (type_difference
+                        (identifier)))))))))
         effects: (latent_effect_row
           row: (effect_row
             (effect_row_variable
               name: (row_variable))))
-        result: (type_application
-          constructor: (identifier)
-          argument: (identifier))))
+        result: (type_union
+          (type_intersection
+            (type_difference
+              (type_application
+                constructor: (identifier)
+                argument: (identifier)))))))
     value: (arrow_function
       parameters: (parameter_list)
       body: (unit_pattern)))
@@ -41,10 +56,19 @@ let unit: () -> Text = () => ()
     name: (identifier)
     type: (type_reference
       (function_type
-        parameter: (identifier)
+        parameter: (type_union
+          (type_intersection
+            (type_difference
+              (identifier))))
         result: (function_type
-          parameter: (identifier)
-          result: (identifier))))
+          parameter: (type_union
+            (type_intersection
+              (type_difference
+                (identifier))))
+          result: (type_union
+            (type_intersection
+              (type_difference
+                (identifier)))))))
     value: (arrow_function
       parameters: (parameter_list)
       body: (unit_pattern)))
@@ -52,8 +76,248 @@ let unit: () -> Text = () => ()
     name: (identifier)
     type: (type_reference
       (function_type
-        parameter: (unit_type)
-        result: (identifier)))
+        parameter: (type_union
+          (type_intersection
+            (type_difference
+              (unit_type))))
+        result: (type_union
+          (type_intersection
+            (type_difference
+              (identifier))))))
     value: (arrow_function
       parameters: (parameter_list)
       body: (unit_pattern))))
+
+==================
+Inline and multiline type sums
+==================
+
+type Maybe a = .just = a | .nothing
+type Maybe2 a =
+  | .just = a
+  | .nothing
+
+---
+
+(source_file
+  (type_declaration_statement
+    name: (identifier)
+    parameter: (identifier)
+    definition: (type_sum
+      (type_case
+        name: (identifier)
+        payload: (type_reference
+          (type_difference
+            (identifier))))
+      (type_case
+        name: (identifier))))
+  (type_declaration_statement
+    name: (identifier)
+    parameter: (identifier)
+    definition: (type_sum
+      (type_case
+        name: (identifier)
+        payload: (type_reference
+          (type_difference
+            (identifier))))
+      (type_case
+        name: (identifier)))))
+
+==================
+Named and positional products
+==================
+
+type Vec3 = [.x = Int, .y = Int, .z = Int]
+type Pair a = [a, List a]
+type Nested a = [Maybe a, List a]
+
+---
+
+(source_file
+  (type_declaration_statement
+    name: (identifier)
+    definition: (type_product
+      (named_type_product
+        (named_type_field
+          name: (identifier)
+          type: (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier))))))
+        (named_type_field
+          name: (identifier)
+          type: (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier))))))
+        (named_type_field
+          name: (identifier)
+          type: (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier)))))))))
+  (type_declaration_statement
+    name: (identifier)
+    parameter: (identifier)
+    definition: (type_product
+      (positional_type_product
+        (type_reference
+          (type_union
+            (type_intersection
+              (type_difference
+                (identifier)))))
+        (type_reference
+          (type_union
+            (type_intersection
+              (type_difference
+                (type_application
+                  constructor: (identifier)
+                  argument: (identifier)))))))))
+  (type_declaration_statement
+    name: (identifier)
+    parameter: (identifier)
+    definition: (type_product
+      (positional_type_product
+        (type_reference
+          (type_union
+            (type_intersection
+              (type_difference
+                (type_application
+                  constructor: (identifier)
+                  argument: (identifier))))))
+        (type_reference
+          (type_union
+            (type_intersection
+              (type_difference
+                (type_application
+                  constructor: (identifier)
+                  argument: (identifier))))))))))
+
+==================
+Bracket product values
+==================
+
+let point = [.x = 40, .y = 1]
+let pair = [point.x, point.y]
+let empty = []
+
+---
+
+(source_file
+  (binding_statement
+    name: (identifier)
+    value: (record_expression
+      (record_field
+        name: (identifier)
+        value: (number))
+      (record_field
+        name: (identifier)
+        value: (number))))
+  (binding_statement
+    name: (identifier)
+    value: (tuple_expression
+      (field_expression
+        object: (identifier)
+        field: (identifier))
+      (field_expression
+        object: (identifier)
+        field: (identifier))))
+  (binding_statement
+    name: (identifier)
+    value: (tuple_expression)))
+
+==================
+Type sets, atoms, and modalities
+==================
+
+type Choice = #ready | Int \ Never
+type Any = _
+type Frozen = #(List a)
+let marker: #ready | #waiting = #ready
+let view: &Text = &text
+if marker is #ready { 1 } else { 0 }
+
+---
+
+(source_file
+  (type_declaration_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_union
+          (type_intersection
+            (type_difference
+              (atom_type
+                (identifier)))))
+        (type_intersection
+          (type_difference
+            (type_difference
+              (identifier))
+            (never_type))))))
+  (type_declaration_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_intersection
+          (type_difference
+            (top_type))))))
+  (type_declaration_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_intersection
+          (type_difference
+            (frozen_type
+              (type_parenthesized
+                (type_union
+                  (type_intersection
+                    (type_difference
+                      (type_application
+                        (identifier)
+                        (identifier))))))))))))
+  (binding_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_union
+          (type_intersection
+            (type_difference
+              (atom_type
+                (identifier)))))
+        (type_intersection
+          (type_difference
+            (atom_type
+              (identifier))))))
+    (atom_expression
+      (identifier)))
+  (binding_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_intersection
+          (type_difference
+            (borrow_type
+              (identifier))))))
+    (unary_expression
+      (identifier)))
+  (expression_statement
+    (if_expression
+      (condition_expression
+        (condition_is_expression
+          (condition_expression
+            (identifier))
+          (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (atom_type
+                    (identifier))))))))
+      (block
+        (expression_statement
+          (number)))
+      (block
+        (expression_statement
+          (number))))))

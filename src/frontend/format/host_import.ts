@@ -33,7 +33,17 @@ function format_host_import_arg(
     return format_host_import_val_type(param);
   }
 
-  return arg.tag + " " + format_host_import_owner_reason(arg.reason);
+  const type_name = format_host_import_owner_reason(arg.reason);
+
+  if (arg.tag === "ownership_transfer") {
+    return type_name;
+  }
+
+  if (arg.tag === "bounded_borrow") {
+    return "&" + type_name;
+  }
+
+  return "#" + type_name;
 }
 
 function format_host_import_result(
@@ -48,7 +58,13 @@ function format_host_import_result(
     return "scalar " + format_host_import_val_type(result);
   }
 
-  return owner.tag + " " + format_host_import_owner_reason(owner.reason);
+  const type_name = format_host_import_owner_reason(owner.reason);
+
+  if (owner.tag === "unique_heap") {
+    return type_name;
+  }
+
+  return "#" + type_name;
 }
 
 function format_host_import_val_type(type: string): string {

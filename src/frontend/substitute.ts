@@ -6,13 +6,22 @@ export function substitute_front_expr(
 ): FrontExpr {
   switch (expr.tag) {
     case "num":
+    case "atom":
     case "unit":
     case "text":
     case "type_name":
+    case "set_type":
     case "struct_type":
     case "union_type":
     case "unsupported":
       return expr;
+
+    case "is":
+      return {
+        tag: "is",
+        value: substitute_front_expr(expr.value, replacements),
+        type_expr: expr.type_expr,
+      };
 
     case "linear": {
       const replacement = replacements.get(expr.name);
@@ -156,6 +165,7 @@ export function substitute_front_expr(
         tag: "struct_value",
         type_expr: substitute_front_expr(expr.type_expr, replacements),
         fields: substitute_front_fields(expr.fields, replacements),
+        bracketed: expr.bracketed,
       };
 
     case "struct_update":
