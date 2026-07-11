@@ -4,6 +4,8 @@ node_modules/
 yarn-debug.log*
 yarn-error.log*
 
+.claude
+
 build/
 dist/
 out/
