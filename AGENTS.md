@@ -254,4 +254,6 @@ Emit.register<IC, Expr>(IC);
 
 Call sites keep the explicit dictionary shape, such as `Format.fmt(IC, node)`. Registering `Format` also installs the library's `Show` instance, so wrapped values created with `as_data(IC, node)` work with the library's `Show.show`. Do not keep registrations in `main.ts`. Do not replace this pattern with object literals or constructor casts. The empty function is the namespace-like value, and typeclass instances are installed onto it.
 
+The library's `Do` syntax and `Program`/`Effect` machinery are for the tooling layer, not the compiler core: `main.ts` runs the demo pipeline as an effect program (Reader for configuration, Writer for stage dumps, Task for filesystem output), and `Do` chains `Maybe` extractions in the demo and tests. Compiler passes keep the explicit `if`-block style from the rules above.
+
 `@mewhhaha/typeclasses` is excluded from the `minimumDependencyAge` gate in `deno.json` so fresh releases of first-party packages resolve immediately; other dependencies stay behind the age gate.
