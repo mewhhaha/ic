@@ -83,7 +83,6 @@ rainbow-brackets = true
 indent = { tab-width = 2, unit = "  " }
 language-servers = ["ix"]
 auto-format = true
-formatter = { command = "deno", args = ["run", "${repository}/ix.ts", "fmt", "--stdin"] }
 
 [[grammar]]
 name = "ix"

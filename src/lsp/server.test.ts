@@ -106,6 +106,12 @@ Deno.test("server refuses to format broken documents", () => {
     id: 1,
     method: "textDocument/formatting",
     params: { textDocument: { uri: "file:///broken.ix" } },
-  });
-  assert_equals(formatting, [{ jsonrpc: "2.0", id: 1, result: null }]);
+  }) as [{ method: string; params: { message: string } }, unknown];
+  assert_equals(formatting.length, 2);
+  assert_equals(formatting[0]?.method, "window/showMessage");
+  assert_equals(
+    formatting[0]?.params.message.startsWith("ix fmt skipped:"),
+    true,
+  );
+  assert_equals(formatting[1], { jsonrpc: "2.0", id: 1, result: null });
 });

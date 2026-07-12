@@ -64,9 +64,23 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
     }
 
     // Refuse to format documents that do not parse; a formatter that runs
-    // on broken input can only make the breakage harder to see.
-    if (parse_diagnostics(text).length > 0) {
-      return [respond(message, null)];
+    // on broken input can only make the breakage harder to see. Say so out
+    // loud — a silent refusal reads as a broken formatter.
+    const failures = parse_diagnostics(text);
+    const failure = failures[0];
+
+    if (failure !== undefined) {
+      return [
+        {
+          jsonrpc: "2.0",
+          method: "window/showMessage",
+          params: {
+            type: 2,
+            message: "ix fmt skipped: " + failure.message,
+          },
+        },
+        respond(message, null),
+      ];
     }
 
     const formatted = format_text(text);
