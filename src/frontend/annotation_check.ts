@@ -256,6 +256,19 @@ function check_builtin_binding_annotation(
   env: Env,
   hooks: AnnotationHooks,
 ): void {
+  if (annotation === "Bool") {
+    const actual = hooks.infer_expr(value, env);
+
+    if (actual.tag !== "bool") {
+      throw new Error(
+        "Binding annotation expects Bool, got " +
+          binding_value_type_name(value, env, hooks),
+      );
+    }
+
+    return;
+  }
+
   if (annotation === "Resume") {
     const actual = hooks.infer_expr(value, env);
 

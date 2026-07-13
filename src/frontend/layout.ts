@@ -122,7 +122,7 @@ function layout_type_name(name: string): { size: number; align: number } {
   }
 
   if (
-    name === "Int" || name === "I32" || name === "U32" ||
+    name === "Bool" || name === "Int" || name === "I32" || name === "U32" ||
     name === "Resume"
   ) {
     return { size: 4, align: 4 };

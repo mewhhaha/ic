@@ -220,3 +220,12 @@ Deno.test("completion filters runtime values out of type positions", () => {
   assert_equals(result.items.some((item) => item.label === "runtime"), false);
   assert_equals(result.items.some((item) => item.label === "Text"), true);
 });
+
+Deno.test("completion offers Bool in type positions", () => {
+  assert_equals(complete("let value: Bo").items.map(item_shape), [{
+    label: "Bool",
+    kind: 7,
+    detail: "builtin type",
+    sortText: "9000_0_Bool",
+  }]);
+});

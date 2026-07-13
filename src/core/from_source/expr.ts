@@ -24,6 +24,16 @@ function core_expr_untracked(
   ctx: CoreFromSourceCtx,
 ): CoreExpr {
   switch (expr.tag) {
+    case "bool": {
+      let value = 0;
+
+      if (expr.value) {
+        value = 1;
+      }
+
+      return { tag: "num", type: "i32", value };
+    }
+
     case "atom":
       return {
         tag: "num",

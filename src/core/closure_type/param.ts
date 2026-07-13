@@ -25,8 +25,8 @@ export function closure_param_info<ctx>(
   }
 
   if (
-    annotation === "Int" || annotation === "I32" || annotation === "U32" ||
-    annotation === "Resume"
+    annotation === "Bool" || annotation === "Int" || annotation === "I32" ||
+    annotation === "U32" || annotation === "Resume"
   ) {
     return { type: "i32", is_text: false };
   }

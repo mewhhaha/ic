@@ -729,9 +729,67 @@ function abi_type_ref(
   values: Map<string, FrontExpr>,
   resolve_named: (name: string) => AbiType,
 ): AbiTypeRef {
+  const primitive = primitive_abi_type_ref(name);
+
+  if (primitive) {
+    return primitive;
+  }
+
+  const primitive_alias = primitive_abi_type_alias(name, values);
+
+  if (primitive_alias) {
+    return primitive_alias;
+  }
+
+  if (!values.has(name)) {
+    throw new Error("Missing ABI type reference: " + name);
+  }
+
+  resolve_named(name);
+  return { tag: "named", name };
+}
+
+function primitive_abi_type_alias(
+  name: string,
+  values: Map<string, FrontExpr>,
+): AbiTypeRef | undefined {
+  let current = name;
+  const seen = new Set<string>();
+
+  while (values.has(current)) {
+    if (seen.has(current)) {
+      return undefined;
+    }
+
+    seen.add(current);
+    const value = values.get(current);
+
+    if (!value) {
+      throw new Error("Missing ABI type value: " + current);
+    }
+
+    if (value.tag !== "var") {
+      return undefined;
+    }
+
+    const primitive = primitive_abi_type_ref(value.name);
+
+    if (primitive) {
+      return primitive;
+    }
+
+    current = value.name;
+  }
+
+  return undefined;
+}
+
+function primitive_abi_type_ref(name: string): AbiTypeRef | undefined {
   reject_resume_abi_type(name);
 
-  if (name === "Int" || name === "I32" || name === "U32") {
+  if (
+    name === "Bool" || name === "Int" || name === "I32" || name === "U32"
+  ) {
     return { tag: "i32" };
   }
 
@@ -759,12 +817,7 @@ function abi_type_ref(
     return { tag: "text_slice" };
   }
 
-  if (!values.has(name)) {
-    throw new Error("Missing ABI type reference: " + name);
-  }
-
-  resolve_named(name);
-  return { tag: "named", name };
+  return undefined;
 }
 
 function reject_resume_abi_type(name: string): void {

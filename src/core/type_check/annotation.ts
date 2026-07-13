@@ -380,6 +380,18 @@ function apply_core_value_annotation<ctx extends CoreTypeCheckCtx>(
     return value;
   }
 
+  if (annotation === "Bool") {
+    const actual = core_binding_value_type_name(value, ctx, hooks);
+
+    if (actual !== "I32") {
+      throw new Error(
+        "Core " + label + " annotation expects Bool, got " + actual,
+      );
+    }
+
+    return value;
+  }
+
   if (annotation === "Int" || annotation === "I32" || annotation === "U32") {
     const actual = core_binding_value_type_name(value, ctx, hooks);
 
@@ -636,7 +648,10 @@ function core_value_matches_set_member<ctx extends CoreTypeCheckCtx>(
 
   const actual = core_binding_value_type_name(value, ctx, hooks);
 
-  if (type.name === "Int" || type.name === "I32" || type.name === "U32") {
+  if (
+    type.name === "Bool" || type.name === "Int" || type.name === "I32" ||
+    type.name === "U32"
+  ) {
     return actual === "I32" && static_core_atom(value, ctx) === undefined;
   }
 

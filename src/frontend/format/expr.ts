@@ -12,6 +12,9 @@ export function format_expr_with_stmt(
     format_expr_with_stmt(value, format_stmt);
 
   switch (expr.tag) {
+    case "bool":
+      return expr.value.toString();
+
     case "num":
       return expr.value.toString();
 

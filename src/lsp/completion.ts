@@ -71,7 +71,7 @@ const expression_keywords = [
   snippet("try", "try ${1:body} with ${2:handler}"),
 ];
 
-const builtin_types = ["Bytes", "I32", "I64", "Int", "Text", "Unit"];
+const builtin_types = ["Bool", "Bytes", "I32", "I64", "Int", "Text", "Unit"];
 
 export function completions(
   source: Source,

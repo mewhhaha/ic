@@ -70,9 +70,34 @@ Deno.test("inlay type hints snapshot bindings and closure parameters", () => {
     kind: 1,
     category: "types",
   }, {
+    line: 1,
+    character: 10,
+    label: ": I32",
+    kind: 1,
+    category: "types",
+  }, {
     line: 2,
     character: 11,
     label: ": Text",
+    kind: 1,
+    category: "types",
+  }]);
+});
+
+Deno.test("inlay type hints identify boolean values", () => {
+  const text = "let ready = true\n" +
+    "let compared = 1 < 2\n";
+
+  assert_equals(dump(hints(text, category_config("types"))), [{
+    line: 0,
+    character: 9,
+    label: ": Bool",
+    kind: 1,
+    category: "types",
+  }, {
+    line: 1,
+    character: 12,
+    label: ": Bool",
     kind: 1,
     category: "types",
   }]);

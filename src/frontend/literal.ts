@@ -18,11 +18,11 @@ export function front_literal_expr(token: Token): FrontExpr | undefined {
   }
 
   if (token.kind === "name" && token.text === "true") {
-    return i32_expr(1);
+    return { tag: "bool", value: true };
   }
 
   if (token.kind === "name" && token.text === "false") {
-    return i32_expr(0);
+    return { tag: "bool", value: false };
   }
 
   return undefined;

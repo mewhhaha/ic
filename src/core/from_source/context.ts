@@ -23,6 +23,7 @@ export type CoreFromSourceCtx = {
   linear_names: Set<string>;
   fresh: { next: number };
   namedRecs: Map<string, CoreNamedRecSource>;
+  scalar_annotation_aliases: Map<string, string>;
   type_set_aliases: Map<string, TypeExpr>;
 };
 
@@ -37,6 +38,7 @@ export function create_core_from_source_ctx(): CoreFromSourceCtx {
     linear_names: new Set(),
     fresh: { next: 0 },
     namedRecs: new Map(),
+    scalar_annotation_aliases: new Map(),
     type_set_aliases: new Map(),
   };
 }
@@ -54,6 +56,7 @@ export function fork_core_from_source_ctx(
     linear_names: new Set(ctx.linear_names),
     fresh: ctx.fresh,
     namedRecs: new Map(ctx.namedRecs),
+    scalar_annotation_aliases: new Map(ctx.scalar_annotation_aliases),
     type_set_aliases: new Map(ctx.type_set_aliases),
   };
 }
@@ -98,6 +101,23 @@ export function record_core_from_source_type_value(
     ctx.type_set_aliases.set(stmt.name, alias);
   }
 
+  if (stmt.value.tag === "var") {
+    let scalar_annotation = ctx.scalar_annotation_aliases.get(
+      stmt.value.name,
+    );
+
+    if (
+      !scalar_annotation &&
+      core_builtin_scalar_annotation_names.has(stmt.value.name)
+    ) {
+      scalar_annotation = stmt.value.name;
+    }
+
+    if (scalar_annotation) {
+      ctx.scalar_annotation_aliases.set(stmt.name, scalar_annotation);
+    }
+  }
+
   const reason = front_host_import_type_value_reason(
     stmt.value,
     ctx,
@@ -112,6 +132,16 @@ export function record_core_from_source_type_value(
   ctx.host_import_type_values.set(stmt.name, reason);
 }
 
+const core_builtin_scalar_annotation_names = new Set([
+  "Bool",
+  "I32",
+  "I64",
+  "Int",
+  "Resume",
+  "U32",
+  "Unit",
+]);
+
 export function resolve_core_annotation(
   ctx: CoreFromSourceCtx,
   annotation: string | undefined,
@@ -121,7 +151,7 @@ export function resolve_core_annotation(
   }
 
   const parsed = parse_type_expr(tokenize(annotation));
-  const expanded = expand_core_type_set_aliases(parsed, ctx, new Set());
+  const expanded = expand_core_annotation_aliases(parsed, ctx, new Set());
 
   if (!expanded.changed) {
     return annotation;
@@ -130,13 +160,21 @@ export function resolve_core_annotation(
   return format_type_expr(expanded.type);
 }
 
-function expand_core_type_set_aliases(
+function expand_core_annotation_aliases(
   type: TypeExpr,
   ctx: CoreFromSourceCtx,
   resolving: Set<string>,
 ): { type: TypeExpr; changed: boolean } {
   if (type.tag === "name") {
-    const alias = ctx.type_set_aliases.get(type.name);
+    let alias = ctx.type_set_aliases.get(type.name);
+
+    if (!alias) {
+      const scalar_annotation = ctx.scalar_annotation_aliases.get(type.name);
+
+      if (scalar_annotation) {
+        alias = { tag: "name", name: scalar_annotation };
+      }
+    }
 
     if (!alias) {
       return { type, changed: false };
@@ -148,7 +186,7 @@ function expand_core_type_set_aliases(
 
     const next = new Set(resolving);
     next.add(type.name);
-    const expanded = expand_core_type_set_aliases(alias, ctx, next);
+    const expanded = expand_core_annotation_aliases(alias, ctx, next);
     return { type: expanded.type, changed: true };
   }
 
@@ -159,7 +197,7 @@ function expand_core_type_set_aliases(
   }
 
   if (type.tag === "frozen" || type.tag === "borrow") {
-    const value = expand_core_type_set_aliases(type.value, ctx, resolving);
+    const value = expand_core_annotation_aliases(type.value, ctx, resolving);
 
     if (!value.changed) {
       return { type, changed: false };
@@ -169,8 +207,8 @@ function expand_core_type_set_aliases(
   }
 
   if (type.tag === "apply") {
-    const func = expand_core_type_set_aliases(type.func, ctx, resolving);
-    const arg = expand_core_type_set_aliases(type.arg, ctx, resolving);
+    const func = expand_core_annotation_aliases(type.func, ctx, resolving);
+    const arg = expand_core_annotation_aliases(type.arg, ctx, resolving);
 
     if (!func.changed && !arg.changed) {
       return { type, changed: false };
@@ -185,7 +223,7 @@ function expand_core_type_set_aliases(
   if (type.tag === "tuple") {
     let changed = false;
     const items = type.items.map((item) => {
-      const expanded = expand_core_type_set_aliases(item, ctx, resolving);
+      const expanded = expand_core_annotation_aliases(item, ctx, resolving);
 
       if (expanded.changed) {
         changed = true;
@@ -205,8 +243,8 @@ function expand_core_type_set_aliases(
     type.tag === "union" || type.tag === "intersection" ||
     type.tag === "difference"
   ) {
-    const left = expand_core_type_set_aliases(type.left, ctx, resolving);
-    const right = expand_core_type_set_aliases(type.right, ctx, resolving);
+    const left = expand_core_annotation_aliases(type.left, ctx, resolving);
+    const right = expand_core_annotation_aliases(type.right, ctx, resolving);
 
     if (!left.changed && !right.changed) {
       return { type, changed: false };
@@ -218,8 +256,8 @@ function expand_core_type_set_aliases(
     };
   }
 
-  const param = expand_core_type_set_aliases(type.param, ctx, resolving);
-  const result = expand_core_type_set_aliases(type.result, ctx, resolving);
+  const param = expand_core_annotation_aliases(type.param, ctx, resolving);
+  const result = expand_core_annotation_aliases(type.result, ctx, resolving);
 
   if (!param.changed && !result.changed) {
     return { type, changed: false };
@@ -289,6 +327,7 @@ export function resolve_bound_core_value_name(
 }
 
 const core_builtin_value_names = new Set([
+  "Bool",
   "I32",
   "I64",
   "Int",

@@ -13,7 +13,7 @@ import { name_sites, type NameSite } from "./name_site.ts";
 import type { ParseSourceResult } from "./parser.ts";
 import { has_source_span, source_span, type SourceSpan } from "./syntax.ts";
 import { source_facts, type SourceFacts } from "./source_facts.ts";
-import { front_type_from_type_name } from "./types.ts";
+import { front_type_from_type_name, is_builtin_type_name } from "./types.ts";
 
 export type EntityId = string;
 export type ScopeId = string;
@@ -73,6 +73,7 @@ export type EntityFacts = {
   type: FrontType | undefined;
   nominal: EntityId | undefined;
   const_source: object | undefined;
+  editor_type: string | undefined;
 };
 export type BindingIndex = {
   version: number;
@@ -634,8 +635,8 @@ function visit_expr(expr: FrontExpr, scope: ScopeId, state: State): void {
     return;
   }
   if (
-    expr.tag === "atom" || expr.tag === "num" || expr.tag === "unit" ||
-    expr.tag === "text" || expr.tag === "unsupported"
+    expr.tag === "atom" || expr.tag === "bool" || expr.tag === "num" ||
+    expr.tag === "unit" || expr.tag === "text" || expr.tag === "unsupported"
   ) return;
   if (expr.tag === "field") {
     visit_expr(expr.object, scope, state);
@@ -1073,10 +1074,22 @@ function define(
   let type: FrontType | undefined;
   let nominal: EntityId | undefined;
   let const_source: object | undefined;
+  let editor_type: string | undefined;
+  const definition_types = state.facts.definition_type_of.get(owner);
+
+  if (definition_types !== undefined) {
+    editor_type = definition_types.get(slot)?.name;
+  }
+
   if (
     "value" in owner && owner.value !== null && typeof owner.value === "object"
   ) {
     type = state.facts.type_of.get(owner.value);
+    const value_editor_type = state.facts.editor_type_of.get(owner.value);
+
+    if (editor_type === undefined && value_editor_type !== undefined) {
+      editor_type = value_editor_type.name;
+    }
     const nominal_name = state.facts.nominal_of.get(owner.value);
     if (nominal_name !== undefined) {
       nominal = lookup(scope, nominal_name, state);
@@ -1087,7 +1100,7 @@ function define(
   ) {
     type = front_type_from_type_name(owner.annotation);
   }
-  state.index.facts.set(id, { type, nominal, const_source });
+  state.index.facts.set(id, { type, nominal, const_source, editor_type });
   if (parent === undefined) {
     const binding_scope = state.index.scopes.get(scope);
     expect(binding_scope, "Missing binding index scope: " + scope);
@@ -1494,8 +1507,8 @@ function nominal_owner(
   return undefined;
 }
 function is_builtin(name: string): boolean {
-  return name === "true" || name === "false" || name === "Unit" ||
-    name === "Int" || name === "Text";
+  return name === "true" || name === "false" ||
+    is_builtin_type_name(name);
 }
 function mark_unvisited_sites(
   source: object,

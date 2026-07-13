@@ -5,6 +5,7 @@ export function substitute_front_expr(
   replacements: Map<string, FrontExpr>,
 ): FrontExpr {
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "atom":
     case "unit":

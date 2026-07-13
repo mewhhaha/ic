@@ -4,12 +4,17 @@ import type { ValType } from "../op.ts";
 import { format_type_expr } from "./type_expr.ts";
 
 export function is_builtin_type_name(name: string): boolean {
-  return name === "Unit" || name === "Int" || name === "I32" ||
+  return name === "Bool" || name === "Unit" || name === "Int" ||
+    name === "I32" ||
     name === "U32" || name === "I64" || name === "Text" || name === "Bytes" ||
     name === "Resume";
 }
 
 export function front_type_from_type_name(name: string): FrontType {
+  if (name === "Bool") {
+    return { tag: "bool" };
+  }
+
   if (
     name === "Int" || name === "I32" || name === "U32" ||
     name === "Resume"
@@ -42,7 +47,7 @@ export function val_type_from_type_name(name: string): ValType | undefined {
   }
 
   if (
-    name === "Int" || name === "I32" || name === "U32" ||
+    name === "Bool" || name === "Int" || name === "I32" || name === "U32" ||
     name === "Resume"
   ) {
     return "i32";
@@ -55,6 +60,9 @@ export function front_type_name(type: FrontType): string {
   switch (type.tag) {
     case "never":
       return "Never";
+
+    case "bool":
+      return "Bool";
 
     case "int":
       if (type.type === "i64") {
@@ -103,6 +111,10 @@ export function front_type_name(type: FrontType): string {
 export function type_name_from_front_type(
   type: FrontType,
 ): string | undefined {
+  if (type.tag === "bool") {
+    return "Bool";
+  }
+
   if (type.tag === "int") {
     if (type.type === "i64") {
       return "I64";
@@ -334,6 +346,10 @@ function same_type_fields(left: TypeField[], right: TypeField[]): boolean {
 function same_type_name(left: string, right: string): boolean {
   if (left === right) {
     return true;
+  }
+
+  if (left === "Bool" || right === "Bool") {
+    return false;
   }
 
   const left_value_type = val_type_from_type_name(left);

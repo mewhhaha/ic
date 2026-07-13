@@ -110,10 +110,10 @@ export function lower_dynamic_function_if(
         cond,
       ],
     };
-  } else if (result_type.tag === "int") {
+  } else if (result_type.tag === "bool" || result_type.tag === "int") {
     let select_prim: Prim = "i32.select";
 
-    if (result_type.type === "i64") {
+    if (result_type.tag === "int" && result_type.type === "i64") {
       select_prim = "i64.select";
     }
 

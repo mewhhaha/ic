@@ -13,7 +13,12 @@ import type {
 import { analyze_front_effects } from "../frontend/effect_analysis.ts";
 import { format_expr, format_source } from "../frontend/format.ts";
 import { name_sites } from "../frontend/name_site.ts";
-import type { SourceSyntax } from "../frontend/syntax.ts";
+import { source_facts, type SourceFacts } from "../frontend/source_facts.ts";
+import {
+  has_source_span,
+  source_span,
+  type SourceSyntax,
+} from "../frontend/syntax.ts";
 import { source_tokens } from "../frontend/tokenize.ts";
 import { front_type_name } from "../frontend/types.ts";
 import { attached_documentation } from "./documentation.ts";
@@ -52,6 +57,19 @@ export type BindingFact = {
   value: EditorValue;
 };
 
+const cached_editor_binding_facts = new WeakMap<
+  BindingIndex,
+  Map<EntityId, BindingFact>
+>();
+const cached_type_position_intervals = new WeakMap<
+  Source,
+  { start: number; end: number }[]
+>();
+const cached_effect_analyses = new WeakMap<
+  Source,
+  FrontEffectAnalysis & { available: boolean }
+>();
+
 type CallFrame = {
   token_index: number;
   commas: number;
@@ -64,10 +82,15 @@ export function hover(
   offset: number,
   encoding: PositionEncoding,
 ): LspHover | undefined {
+  const facts = source_facts(source);
   const occurrence = index.occurrence_at(offset);
 
   if (occurrence === undefined || occurrence.entity === undefined) {
-    return undefined;
+    if (offset_in_type_position(source, offset)) {
+      return undefined;
+    }
+
+    return expression_hover(syntax, facts, offset, encoding);
   }
 
   const entity = index.entities.get(occurrence.entity);
@@ -76,8 +99,25 @@ export function hover(
     throw new Error("Missing hover entity: " + occurrence.entity);
   }
 
+  if (
+    offset_in_type_position(source, offset) &&
+    entity_type_declaration(source, entity) === undefined &&
+    effect_declaration(source, entity) === undefined
+  ) {
+    return undefined;
+  }
+
   const sections: string[] = [];
   const definition = entity_definition(index, entity);
+  let referenced_type: string | undefined;
+
+  if (occurrence.role === "member") {
+    const expression = expression_at(facts, offset);
+
+    if (expression !== undefined && expression.tag === "field") {
+      referenced_type = editor_expr_type_name(expression, facts);
+    }
+  }
 
   if (definition !== undefined) {
     const documentation = attached_documentation(
@@ -86,7 +126,7 @@ export function hover(
     );
 
     if (documentation !== undefined) {
-      sections.push(documentation);
+      sections.push(render_hover_documentation(documentation));
     }
   }
 
@@ -119,7 +159,16 @@ export function hover(
         }) + "\n```",
       );
     } else {
-      append_binding_hover(source, syntax, index, entity, sections, encoding);
+      append_binding_hover(
+        source,
+        syntax,
+        index,
+        facts,
+        entity,
+        sections,
+        encoding,
+        referenced_type,
+      );
     }
   }
 
@@ -131,6 +180,202 @@ export function hover(
       end: positions.position_from_offset(occurrence.span.end),
     },
   };
+}
+
+function offset_in_type_position(source: Source, offset: number): boolean {
+  const cached = cached_type_position_intervals.get(source);
+
+  if (cached !== undefined) {
+    return cached.some((interval) =>
+      interval.start <= offset && offset < interval.end
+    );
+  }
+
+  const intervals: { start: number; end: number }[] = [];
+  const seen = new WeakSet<object>();
+
+  const type_expr_interval = (
+    type_expr: object,
+  ): { start: number; end: number } | undefined => {
+    let start = Number.POSITIVE_INFINITY;
+    let end = Number.NEGATIVE_INFINITY;
+
+    const collect_name_spans = (value: object): void => {
+      for (const site of name_sites(value)) {
+        start = Math.min(start, site.span.start);
+        end = Math.max(end, site.span.end);
+      }
+
+      for (const child of Object.values(value)) {
+        if (child === null || typeof child !== "object") {
+          continue;
+        }
+
+        if (Array.isArray(child)) {
+          for (const entry of child) {
+            if (entry !== null && typeof entry === "object") {
+              collect_name_spans(entry);
+            }
+          }
+        } else {
+          collect_name_spans(child);
+        }
+      }
+    };
+
+    collect_name_spans(type_expr);
+    if (start < end) {
+      return { start, end };
+    }
+
+    return undefined;
+  };
+
+  const visit = (value: object): void => {
+    if (seen.has(value)) {
+      return;
+    }
+
+    seen.add(value);
+
+    const node = value as Record<string, unknown>;
+
+    if (node.tag === "is") {
+      const expr = value as Extract<FrontExpr, { tag: "is" }>;
+      const interval = type_expr_interval(expr.type_expr);
+
+      if (interval !== undefined) {
+        intervals.push(interval);
+      }
+    }
+
+    if (typeof node.annotation === "string") {
+      const annotation_sites = name_sites(value).filter((site) =>
+        site.slot === "annotation"
+      );
+
+      if (annotation_sites.length > 0) {
+        let start = Number.POSITIVE_INFINITY;
+        let end = Number.NEGATIVE_INFINITY;
+
+        for (const site of annotation_sites) {
+          start = Math.min(start, site.span.start);
+          end = Math.max(end, site.span.end);
+        }
+
+        intervals.push({ start, end });
+      }
+    }
+
+    for (const child of Object.values(node)) {
+      if (child === null || typeof child !== "object") {
+        continue;
+      }
+
+      if (Array.isArray(child)) {
+        for (const entry of child) {
+          if (entry !== null && typeof entry === "object") {
+            visit(entry);
+          }
+        }
+      } else {
+        visit(child);
+      }
+    }
+  };
+
+  visit(source);
+  cached_type_position_intervals.set(source, intervals);
+  return intervals.some((interval) =>
+    interval.start <= offset && offset < interval.end
+  );
+}
+
+function expression_hover(
+  syntax: SourceSyntax,
+  facts: SourceFacts,
+  offset: number,
+  encoding: PositionEncoding,
+): LspHover | undefined {
+  const expr = expression_at(facts, offset);
+
+  if (expr === undefined) {
+    return undefined;
+  }
+
+  const inferred = editor_expr_type_name(expr, facts);
+  let type = "unknown";
+
+  if (inferred !== undefined) {
+    type = inferred;
+  }
+
+  const span = source_span(expr);
+  const positions = new PositionIndex(syntax.text, encoding);
+  return {
+    contents: {
+      kind: "markdown",
+      value: "**expression**\n\ntype: `" + type + "`",
+    },
+    range: {
+      start: positions.position_from_offset(span.start),
+      end: positions.position_from_offset(span.end),
+    },
+  };
+}
+
+function expression_at(
+  facts: SourceFacts,
+  offset: number,
+): FrontExpr | undefined {
+  let result: FrontExpr | undefined;
+  let result_width = Number.POSITIVE_INFINITY;
+
+  for (const expr of facts.expressions) {
+    if (!has_source_span(expr)) {
+      continue;
+    }
+
+    const span = source_span(expr);
+
+    if (offset < span.start || offset >= span.end) {
+      continue;
+    }
+
+    const width = span.end - span.start;
+
+    if (width < result_width) {
+      result = expr;
+      result_width = width;
+    }
+  }
+
+  return result;
+}
+
+function editor_expr_type_name(
+  expr: FrontExpr,
+  facts: SourceFacts,
+): string | undefined {
+  const editor_type = facts.editor_type_of.get(expr);
+
+  if (editor_type !== undefined) {
+    return editor_type.name;
+  }
+
+  if (expr.tag === "bool") {
+    return "Bool";
+  }
+
+  if (expr.tag === "num") {
+    if (expr.type === "i64") {
+      return "I64";
+    }
+
+    return "I32";
+  }
+
+  return undefined;
 }
 
 export function signature_help(
@@ -218,7 +463,11 @@ export function signature_help(
     let effect_row = "<pure>";
     const function_effects = effects.functions[entity.name];
 
-    if (function_effects !== undefined && function_effects.effects.length > 0) {
+    if (!effects.available) {
+      effect_row = "<effects unavailable>";
+    } else if (
+      function_effects !== undefined && function_effects.effects.length > 0
+    ) {
       effect_row = format_effects(function_effects.effects);
     }
 
@@ -244,14 +493,17 @@ function append_binding_hover(
   source: Source,
   syntax: SourceSyntax,
   index: BindingIndex,
+  facts: SourceFacts,
   entity: BindingEntity,
   sections: string[],
   encoding: PositionEncoding,
+  referenced_type: string | undefined,
 ): void {
-  const facts = index.facts.get(entity.id);
   const values = editor_binding_facts(source, index);
   const binding = values.get(entity.id);
+  const declared = declared_member_hover(source, index, entity);
   let kind: string = entity.kind;
+  let rendered_type: string | undefined;
 
   if (entity.linear) {
     kind = "linear capability";
@@ -272,25 +524,21 @@ function append_binding_hover(
 
   sections.unshift("**" + kind + "** `" + entity.name + "`");
 
-  if (facts !== undefined) {
-    if (facts.nominal !== undefined) {
-      const nominal = index.entities.get(facts.nominal);
-
-      if (nominal !== undefined) {
-        sections.push("type: `" + nominal.name + "`");
-      }
-    } else if (facts.type !== undefined) {
-      sections.push("type: `" + front_type_name(facts.type) + "`");
-    }
-  }
-
-  const statement = binding_statement(source, index, entity);
-
   if (
-    statement !== undefined && statement.tag === "bind" &&
-    statement.annotation !== undefined
+    entity.kind === "value" || entity.kind === "const" ||
+    entity.kind === "parameter" || entity.kind === "module_parameter" ||
+    entity.kind === "field" || entity.kind === "case" ||
+    entity.kind === "operation"
   ) {
-    sections.push("declared type: `" + statement.annotation + "`");
+    rendered_type = editor_entity_type_name(
+      index,
+      entity,
+      binding,
+      declared?.type,
+      facts,
+      referenced_type,
+    );
+    sections.push("type: `" + rendered_type + "`");
   }
 
   if (binding !== undefined) {
@@ -303,7 +551,9 @@ function append_binding_hover(
       const function_effects = effects.functions[entity.name];
       let row = "<pure>";
 
-      if (
+      if (!effects.available) {
+        row = "<effects unavailable>";
+      } else if (
         function_effects !== undefined && function_effects.effects.length > 0
       ) {
         row = format_effects(function_effects.effects);
@@ -324,17 +574,69 @@ function append_binding_hover(
     append_consume_points(index, entity, syntax.text, encoding, sections);
   }
 
-  const declared = declared_member_hover(source, index, entity);
-
-  if (declared !== undefined) {
-    sections.push(declared);
+  if (declared?.detail !== undefined && rendered_type !== "unknown") {
+    sections.push(declared.detail);
   }
+}
+
+function editor_entity_type_name(
+  index: BindingIndex,
+  entity: BindingEntity,
+  binding: BindingFact | undefined,
+  declared_type: string | undefined,
+  facts: SourceFacts,
+  referenced_type: string | undefined,
+): string {
+  if (referenced_type !== undefined) {
+    return referenced_type;
+  }
+
+  const entity_facts = index.facts.get(entity.id);
+
+  if (entity_facts !== undefined && entity_facts.editor_type !== undefined) {
+    return entity_facts.editor_type;
+  }
+
+  if (declared_type !== undefined) {
+    return declared_type;
+  }
+
+  if (entity_facts !== undefined && entity_facts.nominal !== undefined) {
+    const nominal = index.entities.get(entity_facts.nominal);
+
+    if (nominal !== undefined) {
+      return nominal.name;
+    }
+  }
+
+  if (
+    entity_facts !== undefined && entity_facts.type !== undefined &&
+    entity_facts.type.tag !== "unknown"
+  ) {
+    return front_type_name(entity_facts.type);
+  }
+
+  if (binding !== undefined) {
+    const inferred = editor_expr_type_name(binding.value.expr, facts);
+
+    if (inferred !== undefined) {
+      return inferred;
+    }
+  }
+
+  return "unknown";
 }
 
 export function editor_binding_facts(
   source: Source,
   index: BindingIndex,
 ): Map<EntityId, BindingFact> {
+  const cached = cached_editor_binding_facts.get(index);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
   const facts = new Map<EntityId, BindingFact>();
   const env = new Map<string, EditorValue>();
 
@@ -363,6 +665,7 @@ export function editor_binding_facts(
     }
   }
 
+  cached_editor_binding_facts.set(index, facts);
   return facts;
 }
 
@@ -387,6 +690,14 @@ export function eval_editor_value(
 
   if (expr.tag === "comptime" || expr.tag === "captured") {
     return eval_editor_value(expr.expr, env, depth + 1);
+  }
+
+  if (expr.tag === "borrow" || expr.tag === "freeze") {
+    return eval_editor_value(expr.value, env, depth + 1);
+  }
+
+  if (expr.tag === "scratch") {
+    return eval_editor_value(expr.body, env, depth + 1);
   }
 
   if (expr.tag === "lam" || expr.tag === "rec") {
@@ -454,6 +765,14 @@ export function eval_editor_value(
   if (expr.tag === "if") {
     const condition = eval_editor_value(expr.cond, env, depth + 1);
 
+    if (condition.expr.tag === "bool") {
+      if (condition.expr.value) {
+        return eval_editor_value(expr.then_branch, env, depth + 1);
+      }
+
+      return eval_editor_value(expr.else_branch, env, depth + 1);
+    }
+
     if (condition.expr.tag === "num") {
       let truthy = false;
 
@@ -502,7 +821,23 @@ function fold_editor_prim(
   left: FrontExpr,
   right: FrontExpr,
 ): FrontExpr | undefined {
+  if (left.tag === "bool" && right.tag === "bool") {
+    if (prim === "i32.eq") {
+      return { tag: "bool", value: left.value === right.value };
+    }
+
+    if (prim === "i32.ne") {
+      return { tag: "bool", value: left.value !== right.value };
+    }
+
+    return undefined;
+  }
+
   if (left.tag !== "num" || right.tag !== "num") {
+    return undefined;
+  }
+
+  if (left.type !== right.type) {
     return undefined;
   }
 
@@ -577,7 +912,7 @@ function fold_editor_prim(
   }
 
   if (comparison) {
-    return { tag: "num", type: "i32", value: Number(result) };
+    return { tag: "bool", value: result !== 0n };
   }
 
   if (prim.startsWith("i64.")) {
@@ -855,14 +1190,10 @@ function expression_children(expr: FrontExpr): FrontExpr[] {
     return [expr.base, ...expr.fields.map((field) => field.value)];
   }
   if (expr.tag === "struct_value") {
-    return [expr.type_expr, ...expr.fields.map((field) => field.value)];
+    return expr.fields.map((field) => field.value);
   }
   if (expr.tag === "union_case") {
     const children: FrontExpr[] = [];
-
-    if (expr.type_expr !== undefined) {
-      children.push(expr.type_expr);
-    }
 
     if (expr.value !== undefined) {
       children.push(expr.value);
@@ -933,12 +1264,28 @@ function entity_definition(
   return index.occurrences.get(entity.definition);
 }
 
-export function editor_effect_analysis(source: Source): FrontEffectAnalysis {
+export function editor_effect_analysis(
+  source: Source,
+): FrontEffectAnalysis & { available: boolean } {
+  const cached = cached_effect_analyses.get(source);
+
+  if (cached !== undefined) {
+    return cached;
+  }
+
   try {
-    return analyze_front_effects(source);
+    const analysis = { ...analyze_front_effects(source), available: true };
+    cached_effect_analyses.set(source, analysis);
+    return analysis;
   } catch (error) {
     if (error instanceof Error) {
-      return { module_effects: [], functions: {} };
+      const analysis = {
+        module_effects: [],
+        functions: {},
+        available: false,
+      };
+      cached_effect_analyses.set(source, analysis);
+      return analysis;
     }
 
     throw error;
@@ -975,7 +1322,7 @@ function declared_member_hover(
   source: Source,
   index: BindingIndex,
   entity: BindingEntity,
-): string | undefined {
+): { type: string; detail: string | undefined } | undefined {
   if (entity.owner === undefined || source.declarations === undefined) {
     return undefined;
   }
@@ -996,9 +1343,13 @@ function declared_member_hover(
       );
 
       if (operation !== undefined) {
-        return "signature: `" + owner.name + "." + operation.name + "(" +
-          operation.params.map((param) => param.type_name).join(", ") +
-          ") => " + operation.result.type_name + "`";
+        const params = operation.params.map((param) => param.type_name);
+        return {
+          type: "(" + params.join(", ") + ") -> " +
+            operation.result.type_name,
+          detail: "signature: `" + owner.name + "." + operation.name + "(" +
+            params.join(", ") + ") => " + operation.result.type_name + "`",
+        };
       }
     }
     let fields: { name: string; type_name: string }[] = [];
@@ -1009,14 +1360,27 @@ function declared_member_hover(
       if (declaration.body.tag === "product") {
         fields = declaration.body.fields;
       } else if (declaration.body.tag === "sum") {
-        fields = declaration.body.cases;
+        const union_case = declaration.body.cases.find((candidate) =>
+          candidate.name === entity.name
+        );
+
+        if (union_case !== undefined) {
+          if (union_case.type_name === "Unit") {
+            return { type: owner.name, detail: undefined };
+          }
+
+          return {
+            type: "(" + union_case.type_name + ") -> " + owner.name,
+            detail: undefined,
+          };
+        }
       }
     }
 
     const field = fields.find((candidate) => candidate.name === entity.name);
 
     if (field !== undefined) {
-      return entity.kind + " type: `" + field.type_name + "`";
+      return { type: field.type_name, detail: undefined };
     }
   }
   return undefined;
@@ -1052,6 +1416,16 @@ function format_layout(
   }
 
   return "layout — " + parts.join(", ");
+}
+
+function render_hover_documentation(documentation: string): string {
+  return documentation.split("\n").map((line) => {
+    if (line.startsWith("type:")) {
+      return "> " + line;
+    }
+
+    return line;
+  }).join("\n");
 }
 
 function append_captures(value: EditorValue, sections: string[]): void {
@@ -1130,8 +1504,8 @@ function ownership_class(entity: BindingEntity, fact: BindingFact): string {
   }
 
   if (
-    fact.value.expr.tag === "num" || fact.value.expr.tag === "unit" ||
-    fact.value.expr.tag === "atom"
+    fact.value.expr.tag === "bool" || fact.value.expr.tag === "num" ||
+    fact.value.expr.tag === "unit" || fact.value.expr.tag === "atom"
   ) {
     return "scalar_local";
   }

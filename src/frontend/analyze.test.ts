@@ -103,7 +103,7 @@ const failure_goldens = [
   },
   {
     code: "IX2303",
-    message: "If condition expects i32, got Text",
+    message: "If condition expects Bool or I32, got Text",
     span: { start: 3, end: 8 },
   },
   {

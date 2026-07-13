@@ -1,8 +1,5 @@
 import type { Env, FrontExpr, FrontType } from "../ast.ts";
-import {
-  indexed_result_type_from_fields,
-  indexed_type_fields_are_text,
-} from "../runtime_struct.ts";
+import { dynamic_index_type_from_fields } from "../runtime_struct.ts";
 import {
   infer_runtime_struct_field_type,
   runtime_struct_index_type,
@@ -89,14 +86,7 @@ export function infer_index_type(
       );
     }
 
-    if (indexed_type_fields_are_text(runtime_target.fields)) {
-      return { tag: "text" };
-    }
-
-    return {
-      tag: "int",
-      type: indexed_result_type_from_fields(runtime_target.fields),
-    };
+    return dynamic_index_type_from_fields(runtime_target.fields);
   }
 
   const text = hooks.visible_text_value(expr.object, env, new Set());

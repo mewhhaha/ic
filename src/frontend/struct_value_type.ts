@@ -162,6 +162,17 @@ function validate_field_type(
     return;
   }
 
+  if (expected === "Bool") {
+    if (actual.tag !== "bool") {
+      throw new Error(
+        "Struct field " + name + " expects Bool, got " +
+          front_type_name(actual),
+      );
+    }
+
+    return;
+  }
+
   if (expected === "Int" || expected === "I32" || expected === "U32") {
     if (actual.tag !== "int" || actual.type === "i64") {
       throw new Error(

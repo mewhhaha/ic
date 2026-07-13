@@ -1835,7 +1835,7 @@ add_suffix(message)
   );
 });
 
-Deno.test("Source lowers boolean and character literals to typed i32", () => {
+Deno.test("Source lowers Bool and character literals to typed i32", () => {
   assert_equals(Ic.reduce(compile("true")), {
     tag: "num",
     type: "i32",
@@ -2524,7 +2524,7 @@ if "x" {
   0
 }
 `),
-    "If condition expects i32, got Text",
+    "If condition expects Bool or I32, got Text",
   );
 
   assert_throws(
@@ -2536,7 +2536,7 @@ if { age: 1 } {
   0
 }
 `),
-    "If condition expects i32, got struct",
+    "If condition expects Bool or I32, got struct",
   );
 
   assert_throws(
@@ -2550,7 +2550,7 @@ if f {
   0
 }
 `),
-    "If condition expects i32, got function",
+    "If condition expects Bool or I32, got function",
   );
 
   assert_throws(
@@ -2564,7 +2564,7 @@ if result {
   0
 }
 `),
-    "If condition expects i32, got union",
+    "If condition expects Bool or I32, got union",
   );
 
   assert_throws(
@@ -2596,7 +2596,7 @@ let check = (value: I64) => {
 
 check(1i64)
 `),
-    "If condition expects i32, got I64",
+    "If condition expects Bool or I32, got I64",
   );
 });
 
@@ -17715,7 +17715,7 @@ let choose = flag => if flag {
 
 choose
 `),
-    "No-else if implicit fallback supports Int, I64, Text, struct, or union, got unknown",
+    "No-else if implicit fallback supports Bool, Int, I64, Text, struct, or union, got unknown",
   );
 
   assert_equals(

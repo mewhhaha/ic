@@ -5033,6 +5033,58 @@ if let .ok(value) = result {
   );
 });
 
+Deno.test("Core type sets accept raw shared scalar representations", () => {
+  const raw_core: CoreNode = {
+    tag: "program",
+    statements: [
+      {
+        tag: "bind",
+        kind: "const",
+        name: "Scalar",
+        is_linear: false,
+        annotation: undefined,
+        value: {
+          tag: "union_type",
+          cases: [
+            {
+              name: "set_0",
+              type_name: "Bool",
+              set_member: { tag: "name", name: "Bool" },
+            },
+            {
+              name: "set_1",
+              type_name: "I32",
+              set_member: { tag: "name", name: "I32" },
+            },
+          ],
+        },
+      },
+      {
+        tag: "bind",
+        kind: "let",
+        name: "value",
+        is_linear: false,
+        annotation: "Scalar",
+        value: { tag: "num", type: "i32", value: 1 },
+      },
+      { tag: "expr", expr: { tag: "var", name: "value" } },
+    ],
+  };
+
+  assert_equals(Typed.type(Core, raw_core), "i32");
+});
+
+Deno.test("Core type sets preserve validated explicit scalar cases", () => {
+  const core = Source.core(Source.parse(`
+type Scalar = Bool | I32
+let value: Scalar = 1
+value
+`));
+
+  assert_equals(Typed.type(Core, core), "i32");
+  assert_includes(Format.fmt(Core, core), "let value: Scalar = .set_1(1:i32)");
+});
+
 Deno.test("Core.emit materializes runtime scalar Text and struct union values", () => {
   const direct_core = Source.core(Source.parse(`
 const result_type = union {

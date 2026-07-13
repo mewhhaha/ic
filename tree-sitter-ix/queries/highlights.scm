@@ -144,7 +144,7 @@
 
 ((identifier) @type.builtin
   (#any-of? @type.builtin
-    "Int" "I32" "U32" "I64" "Text" "Bytes" "Unit" "Type" "Resume"))
+    "Bool" "Int" "I32" "U32" "I64" "Text" "Bytes" "Unit" "Type" "Resume"))
 
 (declare_effect_statement
   name: (effect_identifier) @type)

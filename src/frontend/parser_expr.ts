@@ -1,12 +1,7 @@
 import { expect } from "../expect.ts";
 import type { FrontExpr, Token, TypeExpr } from "./ast.ts";
 import { expect_snake_case } from "./names.ts";
-import {
-  binary_prim,
-  i32_expr,
-  numeric_expr_type,
-  truthy_expr,
-} from "./numeric.ts";
+import { binary_prim, numeric_expr_type } from "./numeric.ts";
 import { ParserPrimary } from "./parser_primary.ts";
 import { binary_precedence, can_start_struct_value } from "./parser_support.ts";
 import { parse_type_expr } from "./type_expr.ts";
@@ -148,16 +143,16 @@ export abstract class ParserExpr extends ParserPrimary {
       if (op === "&&") {
         left = {
           tag: "if",
-          cond: truthy_expr(left),
-          then_branch: truthy_expr(right),
-          else_branch: i32_expr(0),
+          cond: left,
+          then_branch: normalize_boolean_expr(right),
+          else_branch: { tag: "bool", value: false },
         };
       } else if (op === "||") {
         left = {
           tag: "if",
-          cond: truthy_expr(left),
-          then_branch: i32_expr(1),
-          else_branch: truthy_expr(right),
+          cond: left,
+          then_branch: { tag: "bool", value: true },
+          else_branch: normalize_boolean_expr(right),
         };
       } else {
         const prim = binary_prim(op, left, right);
@@ -295,10 +290,10 @@ export abstract class ParserExpr extends ParserPrimary {
       if (next.kind === "symbol" || non_affine_call || boolean_literal) {
         this.expect_symbol("!");
         return {
-          tag: "prim",
-          prim: "i32.eq",
-          left: this.parse_unary(),
-          right: { tag: "num", type: "i32", value: 0 },
+          tag: "if",
+          cond: this.parse_unary(),
+          then_branch: { tag: "bool", value: false },
+          else_branch: { tag: "bool", value: true },
         };
       }
     }
@@ -383,4 +378,13 @@ export abstract class ParserExpr extends ParserPrimary {
 
     return expr;
   }
+}
+
+function normalize_boolean_expr(expr: FrontExpr): FrontExpr {
+  return {
+    tag: "if",
+    cond: expr,
+    then_branch: { tag: "bool", value: true },
+    else_branch: { tag: "bool", value: false },
+  };
 }

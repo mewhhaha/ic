@@ -33,6 +33,7 @@ export type SemField = {
 export type SemTypeNameResolver = (name: string) => SemType | undefined;
 
 const scalar_names = new Set([
+  "Bool",
   "Unit",
   "Int",
   "I32",
@@ -142,6 +143,9 @@ export function sem_type_from_front_type(type: FrontType): SemType {
   switch (type.tag) {
     case "never":
       return { tag: "never" };
+
+    case "bool":
+      return { tag: "scalar", name: "Bool" };
 
     case "int":
       if (type.type === "i64") {
@@ -589,7 +593,8 @@ function sem_type_is_scalar(type: SemType): boolean {
   }
 
   return type.name === "Unit" || type.name === "Int" || type.name === "I32" ||
-    type.name === "U32" || type.name === "I64" || type.name === "Resume";
+    type.name === "U32" || type.name === "I64" || type.name === "Resume" ||
+    type.name === "Bool";
 }
 
 export function sem_type_key(type: SemType): string {

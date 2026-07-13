@@ -94,6 +94,35 @@ Deno.test("linear closure reuse reports both calls and its declaration", () => {
   }]);
 });
 
+Deno.test("static conditions select linear closures for Bool and I32 literals", () => {
+  const static_linear_closures = [
+    "let main = (!x) => {\n" +
+    "  let consume = if true { () => !x } else { () => 0 }\n" +
+    "  consume()\n" +
+    "}\n" +
+    "main(1)",
+    "let main = (!x) => {\n" +
+    "  let consume = if false { () => 0 } else { () => !x }\n" +
+    "  consume()\n" +
+    "}\n" +
+    "main(1)",
+    "let main = (!x) => {\n" +
+    "  let consume = if 1 { () => !x } else { () => 0 }\n" +
+    "  consume()\n" +
+    "}\n" +
+    "main(1)",
+    "let main = (!x) => {\n" +
+    "  let consume = if 0 { () => 0 } else { () => !x }\n" +
+    "  consume()\n" +
+    "}\n" +
+    "main(1)",
+  ];
+
+  for (const source of static_linear_closures) {
+    assert_equals(linear_diagnostics(source), []);
+  }
+});
+
 Deno.test("linear diagnostics retain spans through synthesized closure branches", () => {
   const diagnostics = linear_diagnostics(
     "let main = (!x, flag) => {\n" +

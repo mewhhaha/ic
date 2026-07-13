@@ -159,6 +159,7 @@ export function expr_iterates_collection_from_names(
 
       return false;
 
+    case "bool":
     case "num":
     case "atom":
     case "unit":

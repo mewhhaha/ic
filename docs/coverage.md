@@ -73,11 +73,11 @@ allocating a fresh length-prefixed UTF-8 text object from the runtime heap and
 copying both byte ranges. Text concatenation must stay in either the visible
 text subset or the structured Core runtime `Text` concat path.
 
-Visible text equality and inequality fold to `i32` booleans. When one or both
-operands are dynamic visible text branches, the pure Ic route lowers equality to
-nested `i32.select` expressions over branch-local static comparisons. Runtime
-`Text` equality that requires byte comparison lowers through structured
-Core/Wasm.
+Visible text equality and inequality fold to semantic `Bool` values, represented
+as `i32` after frontend lowering. When one or both operands are dynamic visible
+text branches, the pure Ic route lowers equality to nested `i32.select`
+expressions over branch-local static comparisons. Runtime `Text` equality that
+requires byte comparison lowers through structured Core/Wasm.
 
 Text-valued `if let` expressions over statically known union cases and dynamic
 union-if targets with visible branch payloads preserve visible text facts

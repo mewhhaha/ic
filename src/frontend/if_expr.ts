@@ -139,7 +139,7 @@ export function lower_if_expr(
     };
   }
 
-  if (branch_type.tag !== "int") {
+  if (branch_type.tag !== "bool" && branch_type.tag !== "int") {
     throw new Error(
       "Cannot lower dynamic if with " + front_type_name(branch_type) +
         " branches to Ic frontend",
@@ -155,7 +155,7 @@ export function lower_if_expr(
     );
   }
 
-  if (branch_type.type === "i64") {
+  if (branch_type.tag === "int" && branch_type.type === "i64") {
     select_prim = "i64.select";
   }
 
@@ -216,7 +216,7 @@ function throw_no_else_implicit_fallback(
 ): never {
   throw new Error(
     "No-else " + label +
-      " implicit fallback supports Int, I64, Text, struct, or union, got " +
+      " implicit fallback supports Bool, Int, I64, Text, struct, or union, got " +
       front_type_name(type),
   );
 }
@@ -232,9 +232,15 @@ function check_if_condition(
     return;
   }
 
+  if (type.tag === "bool") {
+    return;
+  }
+
   if (type.tag === "int" && type.type !== "i64") {
     return;
   }
 
-  throw new Error("If condition expects i32, got " + front_type_name(type));
+  throw new Error(
+    "If condition expects Bool or I32, got " + front_type_name(type),
+  );
 }

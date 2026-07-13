@@ -144,6 +144,7 @@ function scan_call_only_expr(
   call_target: boolean,
 ): CallOnlyUseScan {
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "atom":
     case "unit":

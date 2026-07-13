@@ -5,6 +5,7 @@ export function contains_reserved_linear_effect(
   names: Set<string>,
 ): boolean {
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "atom":
     case "unit":
@@ -278,6 +279,7 @@ function uses_linear_name(
 
       return names.has(expr.name);
 
+    case "bool":
     case "num":
     case "atom":
     case "unit":

@@ -8,6 +8,7 @@ import { infer_if_expr_type, infer_if_let_expr_type } from "./control.ts";
 import { infer_field_type, infer_index_type } from "./access.ts";
 import { infer_prim_result_type } from "./prim.ts";
 import type { InferHooks } from "./types.ts";
+import { prim_returns_bool } from "../numeric.ts";
 
 export function infer_front_expr(
   expr: FrontExpr,
@@ -15,6 +16,9 @@ export function infer_front_expr(
   hooks: InferHooks,
 ): FrontType {
   switch (expr.tag) {
+    case "bool":
+      return { tag: "bool" };
+
     case "atom":
       return { tag: "atom", name: expr.name };
 
@@ -34,7 +38,7 @@ export function infer_front_expr(
       return { tag: "set", type_expr: expr.type_expr };
 
     case "is":
-      return { tag: "int", type: "i32" };
+      return { tag: "bool" };
 
     case "var": {
       const binding = lookup(env, expr.name);
@@ -60,6 +64,11 @@ export function infer_front_expr(
       }
 
       hooks.check_text_concat_operand_visibility(expr, env);
+
+      if (prim_returns_bool(expr.prim)) {
+        return { tag: "bool" };
+      }
+
       return {
         tag: "int",
         type: infer_prim_result_type(expr, env, hooks, infer_front_expr),
@@ -84,7 +93,7 @@ export function infer_front_expr(
     case "freeze": {
       const result_type = infer_front_expr(expr.value, env, hooks);
 
-      if (result_type.tag === "int") {
+      if (result_type.tag === "bool" || result_type.tag === "int") {
         return result_type;
       }
 
@@ -111,7 +120,7 @@ export function infer_front_expr(
     case "scratch": {
       const result_type = infer_front_expr(expr.body, env, hooks);
 
-      if (result_type.tag === "int") {
+      if (result_type.tag === "bool" || result_type.tag === "int") {
         return result_type;
       }
 
@@ -348,6 +357,7 @@ function collect_loop_breaks_from_expr(
     case "rec":
     case "handler":
     case "try_with":
+    case "bool":
     case "num":
     case "unit":
     case "text":

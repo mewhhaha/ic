@@ -1,12 +1,12 @@
 import { expect } from "../../expect.ts";
-import type { Env, FrontExpr, FrontType, TypeField } from "../ast.ts";
+import type { Env, FrontExpr, FrontType } from "../ast.ts";
 import type { StaticRecHooks } from "../rec_hooks.ts";
 import type { RecExprInfer } from "./types.ts";
 import {
   lookup_rec_type_field,
   rec_front_type_for_type_name,
 } from "../rec_util.ts";
-import { val_type_from_type_name } from "../types.ts";
+import { dynamic_index_type_from_fields } from "../runtime_struct.ts";
 
 export function infer_rec_field_expr(
   expr: Extract<FrontExpr, { tag: "field" }>,
@@ -67,41 +67,5 @@ export function infer_rec_index_expr(
     return rec_front_type_for_type_name(field.type_name, env, hooks);
   }
 
-  return infer_rec_dynamic_struct_index_type(object_type.field_types);
-}
-
-function infer_rec_dynamic_struct_index_type(fields: TypeField[]): FrontType {
-  let all_text = fields.length > 0;
-
-  for (const field of fields) {
-    if (field.type_name !== "Text") {
-      all_text = false;
-    }
-  }
-
-  if (all_text) {
-    return { tag: "text" };
-  }
-
-  let result_type: "i32" | "i64" | undefined;
-
-  for (const field of fields) {
-    const field_type = val_type_from_type_name(field.type_name);
-
-    if (!field_type) {
-      return { tag: "unknown" };
-    }
-
-    if (result_type && result_type !== field_type) {
-      throw new Error("Mixed i32 and i64 indexed values");
-    }
-
-    result_type = field_type;
-  }
-
-  if (result_type === "i64") {
-    return { tag: "int", type: "i64" };
-  }
-
-  return { tag: "int", type: "i32" };
+  return dynamic_index_type_from_fields(object_type.field_types);
 }

@@ -907,10 +907,10 @@ let different = if flag {
   (left: Text, right: Text) => left == right
 }
 
-let same_result = same("Ada", "Ada")
-let byte_mismatch = same("Ada", "Adb") * 10
-let length_mismatch = different("Ada", "Grace") * 100
-let not_same_result = different("Ada", "Ada") * 1000
+let same_result = if same("Ada", "Ada") { 1 } else { 0 }
+let byte_mismatch = if same("Ada", "Adb") { 10 } else { 0 }
+let length_mismatch = if different("Ada", "Grace") { 100 } else { 0 }
+let not_same_result = if different("Ada", "Ada") { 1000 } else { 0 }
 
 same_result + byte_mismatch + length_mismatch + not_same_result
 `);

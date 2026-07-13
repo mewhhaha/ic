@@ -347,6 +347,22 @@ bad
   );
 });
 
+Deno.test("typed effect functions distinguish Bool is results from I32", () => {
+  assert_throws(
+    () =>
+      Source.effects(`
+let bad: () -> I32 = () => 1 is Int
+bad
+`),
+    "Function type on bad returns I32, got Bool",
+  );
+
+  Source.effects(`
+let valid: () -> Bool = () => 1 is Int
+valid
+`);
+});
+
 Deno.test("typed latent host effects erase before Core lowering", () => {
   Source.core(`
 module (!init: Init) where

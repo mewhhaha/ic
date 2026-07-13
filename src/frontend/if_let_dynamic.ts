@@ -212,7 +212,10 @@ function lower_dynamic_union_if_let(
     );
   }
 
-  if (result_type.tag !== "int" && result_type.tag !== "text") {
+  if (
+    result_type.tag !== "bool" && result_type.tag !== "int" &&
+    result_type.tag !== "text"
+  ) {
     const union_cases = infer_if_let_result_union_cases(
       target_expr,
       cases,
@@ -295,7 +298,7 @@ function throw_no_else_if_let_implicit_fallback(
   type: FrontType,
 ): never {
   throw new Error(
-    "No-else if let implicit fallback supports Int, I64, Text, " +
+    "No-else if let implicit fallback supports Bool, Int, I64, Text, " +
       "struct, or union, got " +
       front_type_name(type),
   );

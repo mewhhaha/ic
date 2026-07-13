@@ -782,6 +782,7 @@ function for_each_expr_in_expr(
       }
       return;
 
+    case "bool":
     case "num":
     case "atom":
     case "unit":

@@ -117,6 +117,7 @@ function validate_ic_route_expr(
   diagnostics: SourceDiagnostic[] | undefined,
 ): void {
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "atom":
     case "text":

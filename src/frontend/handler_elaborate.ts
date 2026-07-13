@@ -10,6 +10,7 @@ import type {
 } from "./ast.ts";
 import type { FrontEffectAnalysis } from "./effect_analysis.ts";
 import { substitute_front_expr } from "./substitute.ts";
+import { prim_returns_bool } from "./numeric.ts";
 
 type HandlerExpr = Extract<FrontExpr, { tag: "handler" }>;
 
@@ -3560,7 +3561,10 @@ function record_stmt_value_kind(stmt: Stmt, ctx: CompileCtx): void {
 }
 
 function kind_from_expr(expr: FrontExpr, ctx: CompileCtx): ValueKind {
-  if (expr.tag === "num" || expr.tag === "unit" || expr.tag === "prim") {
+  if (
+    expr.tag === "bool" || expr.tag === "num" || expr.tag === "unit" ||
+    expr.tag === "prim"
+  ) {
     return "scalar";
   }
 
@@ -3605,8 +3609,8 @@ function kind_from_type_name(name: string | undefined): ValueKind {
   }
 
   if (
-    name === "Unit" || name === "Int" || name === "I32" || name === "U32" ||
-    name === "I64"
+    name === "Unit" || name === "Bool" || name === "Int" ||
+    name === "I32" || name === "U32" || name === "I64"
   ) {
     return "scalar";
   }
@@ -3643,6 +3647,14 @@ function simple_expr_type_name(
   types: Map<string, string>,
   elaboration?: Elaboration,
 ): string | undefined {
+  if (expr.tag === "bool") {
+    return "Bool";
+  }
+
+  if (expr.tag === "is") {
+    return "Bool";
+  }
+
   if (expr.tag === "unit") {
     return "Unit";
   }
@@ -3664,6 +3676,10 @@ function simple_expr_type_name(
   }
 
   if (expr.tag === "prim") {
+    if (prim_returns_bool(expr.prim)) {
+      return "Bool";
+    }
+
     if (expr.prim.startsWith("i64.")) {
       return "I64";
     }

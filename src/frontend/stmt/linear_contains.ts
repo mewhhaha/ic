@@ -2,6 +2,7 @@ import type { FrontExpr, Stmt } from "../ast.ts";
 
 export function expr_contains_linear(expr: FrontExpr): boolean {
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "atom":
     case "unit":

@@ -28,7 +28,7 @@ export function lower_if_as_front_type(
   hooks: FrontTypedLowerHooks,
   lower_as: LowerExprAsFrontType,
 ): IcNode {
-  if (type.tag !== "int" && type.tag !== "text") {
+  if (type.tag !== "bool" && type.tag !== "int" && type.tag !== "text") {
     if (type.tag === "struct" || type.tag === "union_value") {
       const direct = try_lower_dynamic_if_directly(expr, env, hooks);
 
@@ -41,8 +41,8 @@ export function lower_if_as_front_type(
   }
 
   if (
-    type.tag !== "int" && type.tag !== "text" && type.tag !== "struct" &&
-    type.tag !== "union_value"
+    type.tag !== "bool" && type.tag !== "int" && type.tag !== "text" &&
+    type.tag !== "struct" && type.tag !== "union_value"
   ) {
     return hooks.lower_expr(expr, env);
   }
@@ -277,7 +277,7 @@ function try_lower_dynamic_if_directly(
 
       if (
         err.message ===
-          "No-else if implicit fallback supports Int, I64, Text, struct, or union, got unknown"
+          "No-else if implicit fallback supports Bool, Int, I64, Text, struct, or union, got unknown"
       ) {
         return undefined;
       }
@@ -305,9 +305,15 @@ function check_typed_if_condition(
     return;
   }
 
+  if (type.tag === "bool") {
+    return;
+  }
+
   if (type.tag === "int" && type.type !== "i64") {
     return;
   }
 
-  throw new Error("If condition expects i32, got " + front_type_name(type));
+  throw new Error(
+    "If condition expects Bool or I32, got " + front_type_name(type),
+  );
 }

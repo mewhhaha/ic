@@ -518,6 +518,7 @@ export class ParserStmt extends ParserTypeDeclaration {
 }
 
 function is_effect_scalar_type(type_name: string): boolean {
-  return type_name === "Unit" || type_name === "Int" || type_name === "I32" ||
-    type_name === "U32" || type_name === "I64";
+  return type_name === "Unit" || type_name === "Bool" ||
+    type_name === "Int" || type_name === "I32" || type_name === "U32" ||
+    type_name === "I64";
 }

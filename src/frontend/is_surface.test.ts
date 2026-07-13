@@ -15,19 +15,13 @@ Deno.test("is parses type operands at comparison precedence", () => {
   assert_equals(statement.value, {
     tag: "if",
     cond: {
-      tag: "prim",
-      prim: "i32.ne",
-      left: {
-        tag: "is",
-        value: { tag: "var", name: "value" },
-        type_expr: { tag: "atom", name: "atom" },
-      },
-      right: { tag: "num", type: "i32", value: 0 },
+      tag: "is",
+      value: { tag: "var", name: "value" },
+      type_expr: { tag: "atom", name: "atom" },
     },
     then_branch: {
-      tag: "prim",
-      prim: "i32.ne",
-      left: {
+      tag: "if",
+      cond: {
         tag: "is",
         value: { tag: "var", name: "other" },
         type_expr: {
@@ -39,9 +33,10 @@ Deno.test("is parses type operands at comparison precedence", () => {
           },
         },
       },
-      right: { tag: "num", type: "i32", value: 0 },
+      then_branch: { tag: "bool", value: true },
+      else_branch: { tag: "bool", value: false },
     },
-    else_branch: { tag: "num", type: "i32", value: 0 },
+    else_branch: { tag: "bool", value: false },
   });
 });
 

@@ -529,8 +529,8 @@ function valid_rename_name(entity: BindingEntity, name: string): boolean {
 }
 
 function is_builtin_name(name: string): boolean {
-  return name === "true" || name === "false" || name === "append" ||
-    name === "slice" || is_const_builtin_name(name);
+  return name === "true" || name === "false" || name === "Bool" ||
+    name === "append" || name === "slice" || is_const_builtin_name(name);
 }
 
 function is_type_entity(entity: BindingEntity): boolean {

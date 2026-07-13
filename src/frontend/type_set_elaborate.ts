@@ -80,6 +80,10 @@ function rewrite_statement(stmt: Stmt, scope: TypeSetScope): Stmt {
 
     case "bind": {
       let value = rewrite_expr(stmt.value, scope);
+      const annotation = lower_direct_type_set_annotation(
+        stmt.annotation,
+        scope,
+      );
 
       if (stmt.kind === "const" && value.tag === "app") {
         const resolved = resolve_front_type_value(
@@ -97,9 +101,13 @@ function rewrite_statement(stmt: Stmt, scope: TypeSetScope): Stmt {
         }
       }
 
+      if (annotation) {
+        value = inject_type_set_value(annotation, value, scope, "binding");
+      }
+
       return {
         ...stmt,
-        annotation: lower_direct_type_set_annotation(stmt.annotation, scope),
+        annotation,
         value,
       };
     }
@@ -183,6 +191,7 @@ function rewrite_statement(stmt: Stmt, scope: TypeSetScope): Stmt {
 
 function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "atom":
     case "unit":
@@ -470,16 +479,16 @@ function lower_is_boolean(
 
   if (cases) {
     if (cases.length === 0) {
-      return { tag: "num", type: "i32", value: 0 };
+      return { tag: "bool", value: false };
     }
 
     const union_type = union_type_for_value(value, scope);
 
     if (union_type && cases.length === union_type.cases.length) {
-      return { tag: "num", type: "i32", value: 1 };
+      return { tag: "bool", value: true };
     }
 
-    let result: FrontExpr = { tag: "num", type: "i32", value: 0 };
+    let result: FrontExpr = { tag: "bool", value: false };
 
     for (let index = cases.length - 1; index >= 0; index -= 1) {
       const union_case = cases[index];
@@ -489,7 +498,7 @@ function lower_is_boolean(
         case_name: union_case.name,
         value_name: undefined,
         target: value,
-        then_branch: { tag: "num", type: "i32", value: 1 },
+        then_branch: { tag: "bool", value: true },
         else_branch: result,
       };
     }
@@ -511,11 +520,11 @@ function lower_is_boolean(
 
   if (value_type) {
     if (sem_type_subtype(value_type, tested)) {
-      return { tag: "num", type: "i32", value: 1 };
+      return { tag: "bool", value: true };
     }
 
     if (sem_types_are_disjoint(value_type, tested)) {
-      return { tag: "num", type: "i32", value: 0 };
+      return { tag: "bool", value: false };
     }
   }
 
@@ -740,6 +749,9 @@ function semantic_type_for_value(
   scope: TypeSetScope,
 ): SemType | undefined {
   switch (value.tag) {
+    case "bool":
+      return { tag: "scalar", name: "Bool" };
+
     case "atom":
       return { tag: "atom", name: value.name };
 
@@ -1193,7 +1205,7 @@ function inject_type_set_call_arguments(
       return arg;
     }
 
-    return inject_type_set_argument(param.annotation, arg, scope);
+    return inject_type_set_value(param.annotation, arg, scope, "parameter");
   });
 }
 
@@ -1336,10 +1348,11 @@ function same_callable_type_set_param(
   return sem_type_key(left_semantic) === sem_type_key(right_semantic);
 }
 
-function inject_type_set_argument(
+function inject_type_set_value(
   annotation: string,
   value: FrontExpr,
   scope: TypeSetScope,
+  annotation_site: "binding" | "parameter",
 ): FrontExpr {
   if (value.tag === "union_case") {
     return value;
@@ -1387,7 +1400,28 @@ function inject_type_set_argument(
     };
   }
 
-  return value;
+  const annotated = semantic_type_for_expr(
+    parse_type_expr(tokenize(annotation)),
+    scope,
+    new Set(),
+  );
+
+  if (sem_type_key(actual) === sem_type_key(annotated)) {
+    return value;
+  }
+
+  let actual_name = sem_type_key(actual);
+
+  if (actual.tag === "scalar") {
+    actual_name = actual.name;
+  } else if (actual.tag === "atom") {
+    actual_name = "#" + actual.name;
+  }
+
+  throw new Error(
+    "Type-set " + annotation_site + " annotation expects " + annotation +
+      ", got " + actual_name,
+  );
 }
 
 function binding_for_union_cases(

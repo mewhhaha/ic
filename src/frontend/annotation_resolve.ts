@@ -39,6 +39,10 @@ export function resolve_annotation_type(
     return { tag: "int", type: "i32" };
   }
 
+  if (annotation === "Bool") {
+    return { tag: "bool" };
+  }
+
   if (annotation === "I64") {
     return { tag: "int", type: "i64" };
   }
@@ -106,9 +110,11 @@ function direct_annotation_front_type(
 
     case "name":
       if (
-        type.name === "Unit" || type.name === "Int" || type.name === "I32" ||
-        type.name === "U32" || type.name === "I64" || type.name === "Text" ||
-        type.name === "Bytes" || type.name === "Resume"
+        type.name === "Bool" || type.name === "Unit" ||
+        type.name === "Int" || type.name === "I32" ||
+        type.name === "U32" || type.name === "I64" ||
+        type.name === "Text" || type.name === "Bytes" ||
+        type.name === "Resume"
       ) {
         return front_type_from_type_name(type.name);
       }
@@ -131,6 +137,12 @@ export function resolve_numeric_expr_type(
     return undefined;
   }
 
+  const inferred = hooks.infer_expr(expr, env);
+
+  if (inferred.tag === "bool") {
+    return undefined;
+  }
+
   if (expr.tag === "prim") {
     const left_type = resolve_numeric_expr_type(expr.left, env, hooks);
     const right_type = resolve_numeric_expr_type(expr.right, env, hooks);
@@ -147,8 +159,6 @@ export function resolve_numeric_expr_type(
   if (direct) {
     return direct;
   }
-
-  const inferred = hooks.infer_expr(expr, env);
 
   if (inferred.tag === "int" && inferred.type) {
     return inferred.type;

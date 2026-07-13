@@ -9,6 +9,7 @@ export function contains_unresolved_linear_effect(
   hooks: CallSpecializeHooks,
 ): boolean {
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "atom":
     case "unit":

@@ -8,6 +8,10 @@ export function dynamic_loop_control_type_fallback(
   env: Env,
   hooks: StaticLoopHooks,
 ): FrontExpr | undefined {
+  if (type.tag === "bool") {
+    return { tag: "bool", value: false };
+  }
+
   if (type.tag === "int") {
     if (type.type === "i64") {
       return { tag: "num", type: "i64", value: 0n };

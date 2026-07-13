@@ -19,6 +19,7 @@ export function validate_const_expr(
   message: string,
 ): void {
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "text":
     case "type_name":

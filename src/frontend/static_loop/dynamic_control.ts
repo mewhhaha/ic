@@ -287,6 +287,7 @@ function expr_contains_loop_control(expr: FrontExpr): boolean {
       return expr_contains_loop_control(expr.body) ||
         expr_contains_loop_control(expr.handler);
 
+    case "bool":
     case "num":
     case "atom":
     case "unit":

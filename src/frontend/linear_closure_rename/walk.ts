@@ -27,6 +27,7 @@ function rename_linear_closure_expr(
   renames: Map<string, string>,
 ): FrontExpr {
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "atom":
     case "unit":

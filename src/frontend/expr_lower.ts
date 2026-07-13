@@ -27,6 +27,16 @@ export function lower_expr(
   hooks: ExprLowerHooks,
 ): IcNode {
   switch (expr.tag) {
+    case "bool": {
+      let value = 0;
+
+      if (expr.value) {
+        value = 1;
+      }
+
+      return { tag: "num", type: "i32", value };
+    }
+
     case "atom":
       return { tag: "num", type: "i32", value: atom_i32(expr.name) };
 

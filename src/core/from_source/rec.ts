@@ -36,6 +36,7 @@ function validate_named_recursive_tail_expr(
   }
 
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "text":
     case "type_name":

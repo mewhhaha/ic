@@ -44,8 +44,15 @@ import {
   validate_source_imports,
 } from "./import_diagnostic.ts";
 import { validate_frontend_semantics } from "./semantic_validation.ts";
-import type { SourceDiagnostic } from "./semantic_diagnostic.ts";
-import type { SyntaxDiagnostic } from "./syntax.ts";
+import {
+  source_diagnostic,
+  type SourceDiagnostic,
+  SourceDiagnosticError,
+} from "./semantic_diagnostic.ts";
+import {
+  derive_missing_source_spans,
+  type SyntaxDiagnostic,
+} from "./syntax.ts";
 
 export type Source = SourceNode;
 
@@ -249,8 +256,7 @@ function artifact_from_source(
     reject_public_host_imports(source);
   }
 
-  const effect_source = elaborate_front_effects(source);
-  const compiled_source = elaborate_front_type_sets(effect_source);
+  const compiled_source = prepare_core_source(source);
   const abi = build_abi_manifest(source, compiled_source);
   const core = core_from_elaborated_source(compiled_source);
   const mod = managed_abi_mod(Core.mod(core, name), abi);
@@ -366,9 +372,22 @@ function merge_host_interface(
 }
 
 function core_from_source_with_internal_imports(source: SourceNode): CoreNode {
-  return core_from_elaborated_source(
-    elaborate_front_type_sets(elaborate_front_effects(source)),
-  );
+  return core_from_elaborated_source(prepare_core_source(source));
+}
+
+function prepare_core_source(source: SourceNode): SourceNode {
+  derive_missing_source_spans(source, { start: 0, end: 0 });
+  const diagnostics = validate_frontend_semantics(source, {
+    scope: "bool-representation",
+  });
+
+  for (const diagnostic of diagnostics) {
+    if (diagnostic.severity === "error") {
+      throw new SourceDiagnosticError(diagnostic);
+    }
+  }
+
+  return elaborate_front_type_sets(elaborate_front_effects(source));
 }
 
 function core_from_elaborated_source(source: SourceNode): CoreNode {
@@ -427,6 +446,16 @@ function core_route_diagnostics(source: SourceNode): SourceDiagnostic[] {
     core = core_from_source_with_internal_imports(source);
     proof = Core.proof(core);
   } catch (error) {
+    if (error instanceof SourceDiagnosticError) {
+      return [error.diagnostic];
+    }
+
+    const rejection = core_route_rejection_diagnostic(source, error);
+
+    if (rejection !== undefined) {
+      return [rejection];
+    }
+
     if (is_core_route_coverage_error(error)) {
       return [];
     }
@@ -467,6 +496,108 @@ function core_route_diagnostics(source: SourceNode): SourceDiagnostic[] {
   }
 
   return diagnostics;
+}
+
+function core_route_rejection_diagnostic(
+  source: SourceNode,
+  error: unknown,
+): SourceDiagnostic | undefined {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+
+  const type_set_binding_prefix = "Type-set binding annotation expects ";
+
+  if (error.message.startsWith(type_set_binding_prefix)) {
+    for (const declaration of source.declarations || []) {
+      if (declaration.tag !== "type" || declaration.params.length === 0) {
+        continue;
+      }
+
+      for (const stmt of source.statements) {
+        if (
+          stmt.tag === "bind" && stmt.annotation !== undefined &&
+          stmt.annotation.startsWith(declaration.name + " ")
+        ) {
+          return source_diagnostic(
+            "IX2306",
+            "error",
+            error.message,
+            stmt.value,
+          );
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  const closure_annotation_prefix =
+    "Cannot check core first-class closure parameter annotation: ";
+
+  if (error.message.startsWith(closure_annotation_prefix)) {
+    const annotation = error.message.slice(closure_annotation_prefix.length);
+
+    for (const declaration of source.declarations || []) {
+      if (declaration.tag !== "type" || declaration.params.length === 0) {
+        continue;
+      }
+
+      if (
+        annotation !== declaration.name &&
+        !annotation.startsWith(declaration.name + " ")
+      ) {
+        continue;
+      }
+
+      for (const stmt of source.statements) {
+        if (stmt.tag !== "bind") {
+          continue;
+        }
+
+        if (stmt.value.tag !== "lam" && stmt.value.tag !== "rec") {
+          continue;
+        }
+
+        for (const param of stmt.value.params) {
+          if (param.annotation === annotation) {
+            return source_diagnostic(
+              "IX2307",
+              "error",
+              error.message,
+              param,
+            );
+          }
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  const unbound_core_value_prefix = "Unbound core value: ";
+
+  if (!error.message.startsWith(unbound_core_value_prefix)) {
+    return undefined;
+  }
+
+  const name = error.message.slice(unbound_core_value_prefix.length);
+
+  for (const declaration of source.declarations || []) {
+    if (
+      declaration.tag === "type" && declaration.body.tag === "alias" &&
+      declaration.body.type_name === name
+    ) {
+      return source_diagnostic(
+        "IX2290",
+        "error",
+        "Type alias " + declaration.name + " references unknown type " + name,
+        declaration,
+      );
+    }
+  }
+
+  return undefined;
 }
 
 function core_issue_has_source_diagnostic(issue: CoreProofIssue): boolean {

@@ -49,7 +49,7 @@ function can_lower_ownership_wrapper_to_ic(
 ): boolean {
   const result_type = hooks.infer_expr(expr, env);
 
-  if (result_type.tag === "int") {
+  if (result_type.tag === "bool" || result_type.tag === "int") {
     return true;
   }
 

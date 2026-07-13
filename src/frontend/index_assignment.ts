@@ -11,7 +11,10 @@ import type {
 import { structured_core_route } from "./diagnostic.ts";
 import { is_object_type_expr } from "./fields.ts";
 import type { StructValueTarget } from "./struct_values.ts";
-import { indexed_result_type_from_fields } from "./runtime_struct.ts";
+import {
+  indexed_result_type_from_fields,
+  indexed_type_fields_are_bool,
+} from "./runtime_struct.ts";
 import { val_type_from_type_name } from "./types.ts";
 
 export type IndexAssignmentHooks = {
@@ -114,12 +117,21 @@ export function apply_index_assignment(
     target.env,
   );
   let text_update = hooks.indexed_values_are_text(target);
+  let bool_update = false;
 
   if (field_types && indexed_type_fields_are_text(field_types)) {
     text_update = true;
   }
 
+  if (field_types && indexed_type_fields_are_bool(field_types)) {
+    bool_update = true;
+  }
+
   const value_type = hooks.infer_expr(value, env);
+
+  if (bool_update && value_type.tag !== "bool") {
+    throw new Error("Bool index update requires Bool value");
+  }
 
   if (
     text_update && value_type.tag !== "text" && value_type.tag !== "unknown"
@@ -140,7 +152,7 @@ export function apply_index_assignment(
     const old_type = hooks.resolve_numeric_expr_type(old_value, env);
     const next_type = hooks.resolve_numeric_expr_type(value, env);
 
-    if (!text_update) {
+    if (!text_update && !bool_update) {
       if (value_type.tag === "text") {
         throw new Error("Index update value must be numeric");
       }
@@ -241,17 +253,22 @@ function apply_runtime_struct_index_assignment(
   const result_type = indexed_result_type_from_fields(runtime_target.fields);
   const next_type = hooks.resolve_numeric_expr_type(value, env);
   const text_update = indexed_type_fields_are_text(runtime_target.fields);
+  const bool_update = indexed_type_fields_are_bool(runtime_target.fields);
   const value_type = hooks.infer_expr(value, env);
+
+  if (bool_update && value_type.tag !== "bool") {
+    throw new Error("Bool index update requires Bool value");
+  }
 
   if (text_update && value_type.tag !== "text") {
     throw new Error("Text index update requires Text value");
   }
 
-  if (!text_update && value_type.tag === "text") {
+  if (!text_update && !bool_update && value_type.tag === "text") {
     throw new Error("Index update value must be numeric");
   }
 
-  if (!text_update && next_type && result_type !== next_type) {
+  if (!text_update && !bool_update && next_type && result_type !== next_type) {
     throw new Error("Mixed i32 and i64 index update values");
   }
 
@@ -259,7 +276,7 @@ function apply_runtime_struct_index_assignment(
     const field = runtime_target.fields[pos];
     expect(field, "Missing runtime indexed update field " + pos);
 
-    if (!text_update) {
+    if (!text_update && !bool_update) {
       const field_type = val_type_from_type_name(field.type_name);
       expect(
         field_type,

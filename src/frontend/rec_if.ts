@@ -78,7 +78,7 @@ export function lower_rec_if(
     }
   }
 
-  if (branch_type.tag !== "int") {
+  if (branch_type.tag !== "bool" && branch_type.tag !== "int") {
     return undefined;
   }
 
@@ -87,7 +87,7 @@ export function lower_rec_if(
     expr.else_branch,
   );
 
-  if (branch_type.type === "i64") {
+  if (branch_type.tag === "int" && branch_type.type === "i64") {
     select_prim = "i64.select";
   }
 
@@ -178,9 +178,15 @@ function check_rec_if_condition(
     return;
   }
 
+  if (type.tag === "bool") {
+    return;
+  }
+
   if (type.tag === "int" && type.type !== "i64") {
     return;
   }
 
-  throw new Error("If condition expects i32, got " + front_type_name(type));
+  throw new Error(
+    "If condition expects Bool or I32, got " + front_type_name(type),
+  );
 }

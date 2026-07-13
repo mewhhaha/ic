@@ -193,11 +193,17 @@ function check_struct_access_if_condition(
     return;
   }
 
+  if (type.tag === "bool") {
+    return;
+  }
+
   if (type.tag === "int" && type.type !== "i64") {
     return;
   }
 
-  throw new Error("If condition expects i32, got " + front_type_name(type));
+  throw new Error(
+    "If condition expects Bool or I32, got " + front_type_name(type),
+  );
 }
 
 export function declared_struct_field_type(

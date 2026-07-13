@@ -30,24 +30,6 @@ export function parse_number_expr(text: string): FrontExpr {
   return { tag: "num", type: "i32", value: Number(text) };
 }
 
-export function truthy_expr(expr: FrontExpr): FrontExpr {
-  if (numeric_expr_type(expr) === "i64") {
-    return {
-      tag: "prim",
-      prim: "i64.ne",
-      left: expr,
-      right: { tag: "num", type: "i64", value: 0n },
-    };
-  }
-
-  return {
-    tag: "prim",
-    prim: "i32.ne",
-    left: expr,
-    right: i32_expr(0),
-  };
-}
-
 export function binary_prim(
   op: string,
   left: FrontExpr,
@@ -220,6 +202,13 @@ function prim_can_retag_to_i64(prim: Prim): boolean {
     prim === "i32.div_s" || prim === "i32.rem_s";
 }
 
+export function prim_returns_bool(prim: Prim): boolean {
+  return prim === "i32.eq" || prim === "i64.eq" || prim === "i32.ne" ||
+    prim === "i64.ne" || prim === "i32.lt_s" || prim === "i64.lt_s" ||
+    prim === "i32.le_s" || prim === "i64.le_s" || prim === "i32.gt_s" ||
+    prim === "i64.gt_s" || prim === "i32.ge_s" || prim === "i64.ge_s";
+}
+
 export function numeric_expr_type(expr: FrontExpr): ValType | undefined {
   if (expr.tag === "num") {
     return expr.type;
@@ -252,6 +241,20 @@ export function check_numeric_primitive_operands(
 ): Prim {
   const left_type = hooks.infer_expr(expr.left, env);
   const right_type = hooks.infer_expr(expr.right, env);
+
+  if (left_type.tag === "bool" || right_type.tag === "bool") {
+    const equality = expr.prim === "i32.eq" || expr.prim === "i32.ne";
+
+    if (
+      equality && left_type.tag === "bool" && right_type.tag === "bool"
+    ) {
+      return expr.prim;
+    }
+
+    if (equality) {
+      throw new Error("Boolean equality requires Bool operands");
+    }
+  }
 
   if (left_type.tag === "text" || right_type.tag === "text") {
     if (expr.prim === "i32.eq" || expr.prim === "i32.ne") {

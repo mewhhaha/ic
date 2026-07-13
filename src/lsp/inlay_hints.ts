@@ -7,6 +7,7 @@ import type {
   Stmt,
 } from "../frontend/ast.ts";
 import { name_sites } from "../frontend/name_site.ts";
+import { prim_returns_bool } from "../frontend/numeric.ts";
 import {
   source_span,
   type SourceSpan,
@@ -690,6 +691,10 @@ function infer_expr_type(
   expr: FrontExpr,
   index: BindingIndex,
 ): string | undefined {
+  if (expr.tag === "bool") {
+    return "Bool";
+  }
+
   if (expr.tag === "num") {
     if (expr.type === "i64") {
       return "I64";
@@ -711,6 +716,10 @@ function infer_expr_type(
   }
 
   if (expr.tag === "prim") {
+    if (prim_returns_bool(expr.prim)) {
+      return "Bool";
+    }
+
     if (expr.prim.startsWith("i64.")) {
       return "I64";
     }
@@ -852,7 +861,7 @@ function entity_type_name(
 }
 
 function display_front_type(type: FrontType): string | undefined {
-  if (type.tag === "unknown") {
+  if (type.tag === "unknown" || type.tag === "fn") {
     return undefined;
   }
 

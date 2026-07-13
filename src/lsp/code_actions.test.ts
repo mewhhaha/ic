@@ -95,6 +95,17 @@ Deno.test("code actions annotate inferred bindings and do not offer extraction o
   );
 });
 
+Deno.test("code actions annotate inferred Bool bindings", () => {
+  const before = "let ready = true\nready\n";
+  const result = actions(before, 4, 9);
+  const annotation = result.actions.find((candidate) =>
+    candidate.title === "Annotate ready with inferred type"
+  );
+
+  expect(annotation !== undefined, "Expected Bool annotation assist");
+  assert_equals(apply(before, annotation), "let ready: Bool = true\nready\n");
+});
+
 Deno.test("code actions extract exactly a selected expression", () => {
   const before = "40 + 2\n";
   const result = actions(before, 0, 6);
@@ -178,6 +189,24 @@ Deno.test("code actions complete concrete struct fields and union payloads", () 
     Source.analyze(apply(union_before, union_action)).diagnostics,
     [],
   );
+});
+
+Deno.test("code actions use false for a missing Bool union payload", () => {
+  const before = "type Result = .ok = Bool | .err = Text\n" +
+    "let result = Result.ok(1)\n";
+  const result = actions(before);
+  const replacement = result.actions.find((candidate) =>
+    candidate.title === "Replace union payload with Bool value"
+  );
+
+  expect(replacement !== undefined, "Expected Bool payload quick fix");
+  const after = apply(before, replacement);
+  assert_equals(
+    after,
+    "type Result = .ok = Bool | .err = Text\n" +
+      "let result = Result.ok(false)\n",
+  );
+  assert_equals(Source.analyze(after).diagnostics, []);
 });
 
 Deno.test("code actions rebuild and shadow frozen mutation", () => {
@@ -264,6 +293,25 @@ Deno.test("code actions complete missing handler clauses", () => {
     "effect Counter { add: (I32) => Unit, get: () => I32 }\n" +
       "let counter = Counter { add: (arg1, !resume) => !resume(()), " +
       "get: (!resume) => !resume(0), return: value => value }\n",
+  );
+  assert_equals(Source.analyze(after).diagnostics, []);
+});
+
+Deno.test("code actions use false for a missing Bool handler result", () => {
+  const before = "effect Choice { decide: () => Bool }\n" +
+    "let choice = Choice { return: value => value }\n";
+  const result = actions(before);
+  const complete = result.actions.find((candidate) =>
+    candidate.title === "Complete handler for Choice"
+  );
+
+  expect(complete !== undefined, "Expected Bool handler completion assist");
+  const after = apply(before, complete);
+  assert_equals(
+    after,
+    "effect Choice { decide: () => Bool }\n" +
+      "let choice = Choice { decide: (!resume) => !resume(false), " +
+      "return: value => value }\n",
   );
   assert_equals(Source.analyze(after).diagnostics, []);
 });

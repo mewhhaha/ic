@@ -1,5 +1,23 @@
 import { assert_equals, assert_includes, assert_throws } from "../assert.ts";
 import { Source } from "../frontend.ts";
+import { instantiate_wat } from "../wasm_test_util.ts";
+
+async function run_i32_source(source: string, name: string): Promise<number> {
+  const instance = await instantiate_wat(Source.wat(source), name, {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing main function for " + name);
+  }
+
+  const result = main();
+
+  if (typeof result !== "number") {
+    throw new Error("Expected i32 result for " + name);
+  }
+
+  return result;
+}
 
 Deno.test("type-set declarations format with canonical operator spacing", () => {
   assert_equals(
@@ -32,6 +50,71 @@ if let .set_0(number) = value { number } else { 0 }
 
   assert_includes(atoms, "i32.const 42");
   assert_includes(scalar, "i32.const 42");
+});
+
+Deno.test("Bool type sets reject known I32 values", () => {
+  assert_throws(
+    () =>
+      Source.wat(`
+type Scalar = Bool | Text
+let value: Scalar = 1
+if value is Bool { 42 } else { 0 }
+`),
+    "Type-set binding annotation expects Scalar, got I32",
+  );
+});
+
+Deno.test("I32 type sets reject known Bool values", () => {
+  assert_throws(
+    () =>
+      Source.wat(`
+type Scalar = I32 | Text
+let value: Scalar = true
+if value is I32 { 42 } else { 0 }
+`),
+    "Type-set binding annotation expects Scalar, got Bool",
+  );
+});
+
+Deno.test("Bool type-set bindings match Bool", async () => {
+  const result = await run_i32_source(
+    `
+type Scalar = Bool | Text
+let value: Scalar = true
+if value is Bool { 42 } else { 0 }
+`,
+    "type_set_bool_is_bool",
+  );
+
+  assert_equals(result, 42);
+});
+
+Deno.test("I32 type-set bindings match I32", async () => {
+  const result = await run_i32_source(
+    `
+type Scalar = I32 | Text
+let value: Scalar = 1
+if value is I32 { 42 } else { 0 }
+`,
+    "type_set_i32_is_i32",
+  );
+
+  assert_equals(result, 42);
+});
+
+Deno.test("Bool and I32 aliases retain distinct type-set members", async () => {
+  const result = await run_i32_source(
+    `
+type Truth = Bool
+type Count = I32
+type Scalar = Truth | Count
+let value: Scalar = 1
+if value is Truth { 42 } else { 0 }
+`,
+    "type_set_scalar_aliases",
+  );
+
+  assert_equals(result, 0);
 });
 
 Deno.test("singleton and set annotations reject values outside the set", () => {

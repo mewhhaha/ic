@@ -181,7 +181,7 @@ function is_deferred_function_if(
 }
 
 function is_lowerable_function_if_result_type(type: FrontType): boolean {
-  if (type.tag === "int" || type.tag === "text") {
+  if (type.tag === "bool" || type.tag === "int" || type.tag === "text") {
     return true;
   }
 

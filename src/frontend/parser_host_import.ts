@@ -151,7 +151,9 @@ function parse_host_import_target(text: string): {
 function host_import_scalar_value_type(
   name: string,
 ): ValType | undefined {
-  if (name === "Int" || name === "I32" || name === "U32") {
+  if (
+    name === "Bool" || name === "Int" || name === "I32" || name === "U32"
+  ) {
     return "i32";
   }
 

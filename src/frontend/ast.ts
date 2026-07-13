@@ -185,6 +185,7 @@ export type Stmt =
   | { tag: "unsupported"; feature: string; text: string };
 
 export type FrontExpr =
+  | { tag: "bool"; value: boolean }
   | { tag: "num"; type: ValType; value: number | bigint }
   | { tag: "atom"; name: string }
   | { tag: "unit" }
@@ -340,6 +341,7 @@ export type Token = {
 
 export type FrontType =
   | { tag: "never" }
+  | { tag: "bool" }
   | { tag: "int"; type: ValType | undefined }
   | { tag: "atom"; name: string }
   | { tag: "text"; encoding?: "bytes" }

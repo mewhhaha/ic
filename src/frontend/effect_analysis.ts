@@ -8,11 +8,13 @@ import type {
   Param,
   Source,
   Stmt,
+  TypeDeclaration,
   TypeExpr,
 } from "./ast.ts";
 import { val_type_from_type_name } from "./types.ts";
 import { resolve_effect_row } from "./effect_row.ts";
 import { format_type_expr } from "./type_expr.ts";
+import { prim_returns_bool } from "./numeric.ts";
 
 export type FrontEffectFunction = {
   name: string;
@@ -55,6 +57,7 @@ type ParameterEffectRows = Map<string, EffectRowExpr | undefined>;
 
 type EffectIndex = {
   effects: Map<string, EffectDeclaration>;
+  scalar_type_aliases: Map<string, string>;
 };
 
 type BindingValue = {
@@ -74,17 +77,20 @@ type HandlerResolution = {
 type AnalysisContext = {
   index: EffectIndex;
   bindings: Map<string, BindingValue>;
+  scalar_type_aliases: Map<string, string>;
   active_parameter_effects: ParameterEffectRows;
   active_parameter_result_types: Map<string, string | undefined>;
   observed_effect_variables: Set<string> | undefined;
 };
 
 export function analyze_front_effects(source: Source): FrontEffectAnalysis {
-  const index = build_effect_index(source);
+  const scalar_type_aliases = front_scalar_type_aliases(source);
+  const index = build_effect_index(source, scalar_type_aliases);
   const bindings = collect_binding_values(source.statements);
   const analysis = {
     index,
     bindings,
+    scalar_type_aliases,
     active_parameter_effects: new Map<string, EffectRowExpr | undefined>(),
     active_parameter_result_types: new Map<string, string | undefined>(),
     observed_effect_variables: undefined,
@@ -122,7 +128,10 @@ export function analyze_front_effects(source: Source): FrontEffectAnalysis {
   return { module_effects: sorted_effects(module_effects), functions };
 }
 
-function build_effect_index(source: Source): EffectIndex {
+function build_effect_index(
+  source: Source,
+  scalar_type_aliases: Map<string, string>,
+): EffectIndex {
   const effects = new Map<string, EffectDeclaration>();
   let declarations = source.declarations;
 
@@ -152,7 +161,96 @@ function build_effect_index(source: Source): EffectIndex {
     }
   }
 
-  return { effects };
+  return { effects, scalar_type_aliases };
+}
+
+export function front_scalar_type_aliases(
+  source: Source,
+): Map<string, string> {
+  const declarations = new Map<string, TypeDeclaration>();
+
+  for (const declaration of source.declarations || []) {
+    if (declaration.tag === "type") {
+      declarations.set(declaration.name, declaration);
+    }
+  }
+
+  const aliases = new Map<string, string>();
+
+  for (const name of declarations.keys()) {
+    const resolved = resolve_declared_scalar_alias(
+      name,
+      declarations,
+      new Set(),
+    );
+
+    if (resolved) {
+      aliases.set(name, resolved);
+    }
+  }
+
+  return aliases;
+}
+
+function resolve_declared_scalar_alias(
+  name: string,
+  declarations: Map<string, TypeDeclaration>,
+  resolving: Set<string>,
+): string | undefined {
+  if (val_type_from_type_name(name) || name === "Unit") {
+    return name;
+  }
+
+  const declaration = declarations.get(name);
+
+  if (
+    !declaration || declaration.params.length !== 0 ||
+    declaration.body.tag !== "alias" ||
+    !/^[A-Za-z_][A-Za-z0-9_]*$/.test(declaration.body.type_name)
+  ) {
+    return undefined;
+  }
+
+  if (resolving.has(name)) {
+    return undefined;
+  }
+
+  const next = new Set(resolving);
+  next.add(name);
+  return resolve_declared_scalar_alias(
+    declaration.body.type_name,
+    declarations,
+    next,
+  );
+}
+
+export function normalize_front_effect_scalar_alias_ownership(
+  source: Source,
+  scalar_type_aliases: Map<string, string>,
+): void {
+  for (const declaration of source.declarations || []) {
+    if (declaration.tag !== "effect") {
+      continue;
+    }
+
+    for (const operation of declaration.operations) {
+      for (const param of operation.params) {
+        if (
+          param.ownership === "ownership_transfer" &&
+          scalar_type_aliases.has(param.type_name)
+        ) {
+          param.ownership = "scalar";
+        }
+      }
+
+      if (
+        operation.result.ownership === "unique_heap" &&
+        scalar_type_aliases.has(operation.result.type_name)
+      ) {
+        operation.result.ownership = "scalar";
+      }
+    }
+  }
 }
 
 function collect_binding_values(
@@ -378,6 +476,7 @@ function validate_function_effects(
       fact,
       analysis.index.effects,
       observed_effect_variables,
+      analysis.scalar_type_aliases,
     );
 
     const allowed_rows: { label: string; operations: EffectRef[] }[] = [];
@@ -421,6 +520,7 @@ function validate_function_value_type(
   fact: FunctionFact,
   effects: Map<string, EffectDeclaration>,
   observed_effect_variables: Set<string>,
+  scalar_type_aliases: Map<string, string>,
 ): void {
   const type = fact.type_annotation;
 
@@ -467,7 +567,11 @@ function validate_function_value_type(
 
     if (param.annotation) {
       expect(
-        same_declared_type(param.annotation, param_type.name),
+        same_declared_type(
+          param.annotation,
+          param_type.name,
+          scalar_type_aliases,
+        ),
         "Function type on " + fact.name + " expects parameter " +
           param.name + " to be " + param_type.name + ", got " +
           param.annotation,
@@ -489,14 +593,22 @@ function validate_function_value_type(
     return;
   }
 
-  const result = infer_simple_type(fact.body, value_types);
+  const result = infer_simple_type(
+    fact.body,
+    value_types,
+    scalar_type_aliases,
+  );
 
   if (!result) {
     return;
   }
 
   expect(
-    same_declared_type(result, type.result.name),
+    same_declared_type(
+      result,
+      type.result.name,
+      scalar_type_aliases,
+    ),
     "Function type on " + fact.name + " returns " + type.result.name +
       ", got " + result,
   );
@@ -1192,9 +1304,10 @@ function scan_statements(
           "Cannot infer result type of discarded effect computation",
         );
         expect(
-          same_simple_type(result_type, "Unit") ||
-            result_type === "Int" || result_type === "I32" ||
-            result_type === "U32" || result_type === "I64",
+          effect_result_is_discardable_scalar(
+            result_type,
+            analysis.scalar_type_aliases,
+          ),
           "Discarding an effectful function result requires an explicit " +
             "cleanup path for owned results; bind the result until owned " +
             "function-result discard lowering is implemented",
@@ -1919,14 +2032,22 @@ function validate_handler_shape(
     }
     const clause_types = new Map(state_types);
 
-    for (let index = 0; index < operation.params.length; index += 1) {
-      const param = clause.params[index];
-      const declared = operation.params[index];
+    for (
+      let param_index = 0;
+      param_index < operation.params.length;
+      param_index += 1
+    ) {
+      const param = clause.params[param_index];
+      const declared = operation.params[param_index];
       expect(param, "Missing handler clause parameter");
       expect(declared, "Missing effect operation parameter");
       if (param.annotation) {
         expect(
-          same_declared_type(param.annotation, declared.type_name),
+          same_declared_type(
+            param.annotation,
+            declared.type_name,
+            index.scalar_type_aliases,
+          ),
           "Handler clause parameter " + param.name + " expects " +
             declared.type_name + ", got " + param.annotation,
         );
@@ -2364,7 +2485,16 @@ function visit_stmt_exprs(
 function infer_simple_type(
   expr: FrontExpr,
   types: Map<string, string>,
+  scalar_type_aliases: Map<string, string> = new Map(),
 ): string | undefined {
+  if (expr.tag === "bool") {
+    return "Bool";
+  }
+
+  if (expr.tag === "is") {
+    return "Bool";
+  }
+
   if (expr.tag === "unit") {
     return "Unit";
   }
@@ -2382,11 +2512,17 @@ function infer_simple_type(
   }
 
   if (expr.tag === "var" || expr.tag === "linear") {
-    return types.get(expr.name);
+    const type = types.get(expr.name);
+
+    if (!type) {
+      return undefined;
+    }
+
+    return resolved_scalar_type_name(type, scalar_type_aliases);
   }
 
   if (expr.tag === "borrow" || expr.tag === "freeze") {
-    return infer_simple_type(expr.value, types);
+    return infer_simple_type(expr.value, types, scalar_type_aliases);
   }
 
   if (expr.tag === "struct_value") {
@@ -2402,7 +2538,7 @@ function infer_simple_type(
       return expr.base.name;
     }
 
-    return infer_simple_type(expr.base, types);
+    return infer_simple_type(expr.base, types, scalar_type_aliases);
   }
 
   if (expr.tag === "union_case") {
@@ -2425,12 +2561,8 @@ function infer_simple_type(
   }
 
   if (expr.tag === "prim") {
-    if (
-      expr.prim.endsWith(".eq") || expr.prim.endsWith(".ne") ||
-      expr.prim.includes(".lt_") || expr.prim.includes(".le_") ||
-      expr.prim.includes(".gt_") || expr.prim.includes(".ge_")
-    ) {
-      return "I32";
+    if (prim_returns_bool(expr.prim)) {
+      return "Bool";
     }
 
     if (expr.prim.startsWith("i64.")) {
@@ -2445,7 +2577,11 @@ function infer_simple_type(
 
     for (const stmt of expr.statements) {
       if (stmt.tag === "bind") {
-        const type = stmt.annotation || infer_simple_type(stmt.value, local);
+        const type = stmt.annotation || infer_simple_type(
+          stmt.value,
+          local,
+          scalar_type_aliases,
+        );
 
         if (type) {
           local.set(stmt.name, type);
@@ -2453,7 +2589,11 @@ function infer_simple_type(
       }
 
       if (stmt.tag === "assign") {
-        const type = infer_simple_type(stmt.value, local);
+        const type = infer_simple_type(
+          stmt.value,
+          local,
+          scalar_type_aliases,
+        );
 
         if (type) {
           local.set(stmt.name, type);
@@ -2464,19 +2604,38 @@ function infer_simple_type(
     const final_stmt = expr.statements[expr.statements.length - 1];
 
     if (final_stmt && final_stmt.tag === "expr") {
-      return infer_simple_type(final_stmt.expr, local);
+      return infer_simple_type(
+        final_stmt.expr,
+        local,
+        scalar_type_aliases,
+      );
     }
 
     if (final_stmt && final_stmt.tag === "return") {
-      return infer_simple_type(final_stmt.value, local);
+      return infer_simple_type(
+        final_stmt.value,
+        local,
+        scalar_type_aliases,
+      );
     }
   }
 
   if (expr.tag === "if") {
-    const left = infer_simple_type(expr.then_branch, new Map(types));
-    const right = infer_simple_type(expr.else_branch, new Map(types));
+    const left = infer_simple_type(
+      expr.then_branch,
+      new Map(types),
+      scalar_type_aliases,
+    );
+    const right = infer_simple_type(
+      expr.else_branch,
+      new Map(types),
+      scalar_type_aliases,
+    );
 
-    if (left && right && same_simple_type(left, right)) {
+    if (
+      left && right &&
+      same_simple_type(left, right, scalar_type_aliases)
+    ) {
       return left;
     }
   }
@@ -2685,33 +2844,91 @@ function infer_effect_bind_result_type(
       resolving,
     );
 
-    if (left && right && same_simple_type(left, right)) {
+    if (
+      left && right &&
+      same_simple_type(left, right, analysis.scalar_type_aliases)
+    ) {
       return left;
     }
 
     return undefined;
   }
 
-  return infer_simple_type(expr, types);
+  return infer_simple_type(expr, types, analysis.scalar_type_aliases);
 }
 
-function same_simple_type(left: string, right: string): boolean {
-  if (left === right) {
+function same_simple_type(
+  left: string,
+  right: string,
+  scalar_type_aliases: Map<string, string> = new Map(),
+): boolean {
+  const resolved_left = resolved_scalar_type_name(
+    left,
+    scalar_type_aliases,
+  );
+  const resolved_right = resolved_scalar_type_name(
+    right,
+    scalar_type_aliases,
+  );
+
+  if (resolved_left === resolved_right) {
     return true;
   }
 
-  const left_value = val_type_from_type_name(left);
-  const right_value = val_type_from_type_name(right);
+  if (resolved_left === "Bool" || resolved_right === "Bool") {
+    return false;
+  }
+
+  const left_value = val_type_from_type_name(resolved_left);
+  const right_value = val_type_from_type_name(resolved_right);
   return left_value !== undefined && left_value === right_value;
 }
 
-function same_declared_type(left: string, right: string): boolean {
-  if (left === right) {
+function same_declared_type(
+  left: string,
+  right: string,
+  scalar_type_aliases: Map<string, string>,
+): boolean {
+  const resolved_left = resolved_scalar_type_name(
+    left,
+    scalar_type_aliases,
+  );
+  const resolved_right = resolved_scalar_type_name(
+    right,
+    scalar_type_aliases,
+  );
+
+  if (resolved_left === resolved_right) {
     return true;
   }
 
   const i32_names = new Set(["Int", "I32", "U32"]);
-  return i32_names.has(left) && i32_names.has(right);
+  return i32_names.has(resolved_left) && i32_names.has(resolved_right);
+}
+
+function effect_result_is_discardable_scalar(
+  type_name: string,
+  scalar_type_aliases: Map<string, string>,
+): boolean {
+  const resolved = resolved_scalar_type_name(
+    type_name,
+    scalar_type_aliases,
+  );
+  return resolved === "Unit" || resolved === "Bool" || resolved === "Int" ||
+    resolved === "I32" || resolved === "U32" || resolved === "I64";
+}
+
+function resolved_scalar_type_name(
+  name: string,
+  scalar_type_aliases: Map<string, string>,
+): string {
+  const resolved = scalar_type_aliases.get(name);
+
+  if (resolved) {
+    return resolved;
+  }
+
+  return name;
 }
 
 function validate_handler_state_assignments(

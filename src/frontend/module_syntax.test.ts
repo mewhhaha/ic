@@ -327,7 +327,7 @@ Deno.test("handler syntax distinguishes resume calls from boolean not", () => {
   const negated = parse_source("!(resume(1))").statements[0];
   assert_equals(
     negated && negated.tag === "expr" ? negated.expr.tag : undefined,
-    "prim",
+    "if",
   );
   assert_equals(parse_source("()").statements[0], {
     tag: "expr",

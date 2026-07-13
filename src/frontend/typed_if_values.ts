@@ -304,7 +304,7 @@ function apply_union_handlers(
 }
 
 function select_prim_for_front_type(type: FrontType): Prim | undefined {
-  if (type.tag === "text") {
+  if (type.tag === "bool" || type.tag === "text") {
     return "i32.select";
   }
 

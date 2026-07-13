@@ -107,6 +107,10 @@ export function dynamic_loop_control_binding_fallback(
   env: Env,
   hooks: StaticLoopHooks,
 ): FrontExpr {
+  if (type.tag === "bool") {
+    return { tag: "bool", value: false };
+  }
+
   if (type.tag !== "int") {
     if (type.tag === "fn") {
       const fallback = dynamic_loop_control_function_fallback(
@@ -213,6 +217,10 @@ function dynamic_loop_control_unknown_fallback(
   env: Env,
   hooks: StaticLoopHooks,
 ): FrontExpr | undefined {
+  if (value.tag === "bool") {
+    return { tag: "bool", value: false };
+  }
+
   if (value.tag === "num") {
     if (value.type === "i64") {
       return { tag: "num", type: "i64", value: 0n };

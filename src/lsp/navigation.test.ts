@@ -260,6 +260,17 @@ Deno.test("rename rejects builtins, unresolved names, and capture", () => {
     ),
     undefined,
   );
+  assert_equals(
+    rename_symbol(
+      index,
+      text,
+      "file:///main.ix",
+      text.indexOf("left"),
+      "Bool",
+      "utf-16",
+    ),
+    undefined,
+  );
 });
 
 Deno.test("workspace symbols fuzzy-match declarations and members", () => {

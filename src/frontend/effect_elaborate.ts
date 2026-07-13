@@ -18,19 +18,23 @@ import type {
 } from "./ast.ts";
 import {
   analyze_front_effects,
+  front_scalar_type_aliases,
   type FrontEffectAnalysis,
   type FrontEffectFunction,
+  normalize_front_effect_scalar_alias_ownership,
 } from "./effect_analysis.ts";
 import { scope_inlined_returns } from "./effect_inline_return.ts";
 import { elaborate_front_handlers } from "./handler_elaborate.ts";
 import { is_no_demand_name } from "./names.ts";
 import { substitute_front_expr } from "./substitute.ts";
 import { type_declaration_bindings } from "./type_declaration.ts";
+import { prim_returns_bool } from "./numeric.ts";
 
 type EffectElaboration = {
   analysis: FrontEffectAnalysis;
   effects: Map<string, EffectDeclaration>;
   records: Map<string, RecordDeclaration>;
+  scalar_type_aliases: Map<string, string>;
   type_names: Set<string>;
   modules: Map<string, Extract<FrontExpr, { tag: "lam" }>>;
   effect_functions: Map<
@@ -55,7 +59,11 @@ export function elaborate_front_effects(source: Source): Source {
       for (const operation of declaration.operations) {
         prefix.push({
           tag: "host_import",
-          value: effect_host_import(declaration, operation),
+          value: effect_host_import(
+            declaration,
+            operation,
+            elaboration.scalar_type_aliases,
+          ),
         });
       }
     }
@@ -265,6 +273,10 @@ function infer_result_type(
   functions: Map<string, string>,
   imports: Map<string, string>,
 ): string | undefined {
+  if (expr.tag === "bool" || expr.tag === "is") {
+    return "Bool";
+  }
+
   if (expr.tag === "num") {
     if (expr.type === "i64") {
       return "I64";
@@ -282,6 +294,10 @@ function infer_result_type(
   }
 
   if (expr.tag === "prim") {
+    if (prim_returns_bool(expr.prim)) {
+      return "Bool";
+    }
+
     return infer_result_type(expr.left, bindings, functions, imports);
   }
 
@@ -406,6 +422,11 @@ function infer_result_type(
 }
 
 function create_elaboration(source: Source): EffectElaboration {
+  const scalar_type_aliases = front_scalar_type_aliases(source);
+  normalize_front_effect_scalar_alias_ownership(
+    source,
+    scalar_type_aliases,
+  );
   const analysis = analyze_front_effects(source);
   const effects = new Map<string, EffectDeclaration>();
   const records = new Map<string, RecordDeclaration>();
@@ -479,6 +500,7 @@ function create_elaboration(source: Source): EffectElaboration {
     analysis,
     effects,
     records,
+    scalar_type_aliases,
     type_names,
     modules,
     effect_functions,
@@ -543,12 +565,13 @@ function record_type_binding(
 function effect_host_import(
   effect: EffectDeclaration,
   operation: EffectDeclaration["operations"][number],
+  scalar_type_aliases: Map<string, string>,
 ): FrontHostImport {
   const args: FrontHostImportArgContract[] = [{ tag: "scalar" }];
   const params: ValType[] = ["i32"];
 
   for (const param of operation.params) {
-    params.push(effect_value_type(param.type_name));
+    params.push(effect_value_type(param.type_name, scalar_type_aliases));
     args.push(effect_arg_contract(param));
   }
 
@@ -557,7 +580,10 @@ function effect_host_import(
     module: "ix_effect",
     field: effect.name + "." + operation.name,
     params,
-    result: effect_value_type(operation.result.type_name),
+    result: effect_value_type(
+      operation.result.type_name,
+      scalar_type_aliases,
+    ),
     args,
     result_owner: effect_result_contract(operation.result),
   };
@@ -599,8 +625,18 @@ function effect_owner_reason(type_name: string): FrontHostImportOwnerReason {
   return { tag: "type_ref", name: type_name };
 }
 
-function effect_value_type(type_name: string): ValType {
-  if (type_name === "I64") {
+function effect_value_type(
+  type_name: string,
+  scalar_type_aliases: Map<string, string>,
+): ValType {
+  let resolved = type_name;
+  const scalar_alias = scalar_type_aliases.get(type_name);
+
+  if (scalar_alias) {
+    resolved = scalar_alias;
+  }
+
+  if (resolved === "I64") {
     return "i64";
   }
 

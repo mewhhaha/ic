@@ -194,17 +194,19 @@ let wide = 42i64
 
 Double-quoted string literals produce UTF-8 `Text`.
 
-Boolean and character literals are source-level scalar syntax, and this is a
-committed design decision for the core language profile, not a temporary gap:
-`Bool` and `Char` are deliberately sugar over `i32`, and no distinct runtime
-`Bool` or `Char` value types are planned for this profile. `true` lowers to
-`1:i32`, `false` lowers to `0:i32`, and a single-quoted character lowers to its
-Unicode scalar value as `i32`. Conditions, comparisons, and logical operators
-produce and consume `i32` values, and `if let` literal patterns compare `i32`
-equality. Text indexing stays UTF-8-byte based, so a non-ASCII character's
-scalar value is not the same as one indexed byte of its UTF-8 encoding. A future
-profile that introduces distinct `Bool`/`Char` types would be a breaking
-revision of this contract, not an incremental extension.
+Boolean literals carry the semantic source type `Bool`. `Bool` is represented as
+`i32` after frontend lowering: `true` lowers to `1:i32` and `false` lowers to
+`0:i32`. Comparisons, equality, logical operators, and `value is T` produce
+`Bool`. Conditions and logical operators consume `Bool`; they also accept
+`Int`/`I32` under the retained truthiness compatibility rule, where zero is
+false and every nonzero value is true. `Bool` and `Int`/`I32` remain distinct
+source types, so annotations, arithmetic, and equality do not silently mix them.
+
+Character literals remain source-level scalar syntax over `i32`. A single-quoted
+character lowers to its Unicode scalar value as `i32`, and `if let` character
+patterns compare `i32` equality. Text indexing stays UTF-8-byte based, so a
+non-ASCII character's scalar value is not the same as one indexed byte of its
+UTF-8 encoding.
 
 ```txt
 let message = "hello"
@@ -249,7 +251,8 @@ Text values are UTF-8. The contract for text operations:
 - `value[index]` and `get(value, index)` return the UTF-8 byte at `index` as
   `i32`, trapping on out-of-range indexes.
 - `slice(value, start, end)` selects a byte range.
-- `==` and `!=` compare text by bytes and produce `i32` booleans.
+- `==` and `!=` compare text by bytes and produce `Bool`, represented as `i32`
+  after frontend lowering.
 - Collection loops over text iterate UTF-8 bytes.
 - A value known to have type `Text` cannot be used as a numeric primitive
   operand. Other known non-numeric values, such as structs, unions, functions,
@@ -334,9 +337,9 @@ No-else `if` statements support fallthrough. Static conditions expand the chosen
 path. Dynamic conditions lower by treating the following statements as the
 implicit else path. In expression position, no-else `if` and `if let` use a
 typed scalar zero fallback, so an `I64` then-branch gets `0i64` while an `Int`
-then-branch gets `0`. A condition must be an `Int`/i32 value when the compiler
-can prove its type; known text, struct, union, function, type-value, and `I64`
-conditions are rejected.
+then-branch gets `0`. A condition should be `Bool`; `Int`/`I32` conditions keep
+their compatibility truthiness behavior. Known text, struct, union, function,
+type-value, and `I64` conditions are rejected.
 
 ```txt
 let value = 1
@@ -354,7 +357,13 @@ let value = if flag {
 }
 ```
 
-Logical operators are boolean `if` sugar.
+Logical operators are short-circuiting `if` sugar that produces `Bool`. Their
+operands use the same `Bool`-first, `Int`/`I32`-compatible truthiness rule as
+conditions.
+
+The bare form `!name` is reserved for affine consumption. Negate a named Boolean
+with parentheses, as in `!(ready)`; literals and calls can use `!false` and
+`!ready()` directly.
 
 ```txt
 ready && valid
@@ -530,10 +539,10 @@ The specialization may also be used directly as an annotation, as in
 `let value: Maybe Int = 42`. Named specializations are materialized before Core
 and retain the same tagged schema when exposed through the managed ABI.
 
-`value is T` is an ordinary `I32` Boolean expression. In an `if` condition it
-also narrows a named value in both branches. The false branch carries the
-remaining set, so chained `else if` tests can exhaust unions with more than two
-members.
+`value is T` is an ordinary `Bool` expression, represented as `i32` after
+frontend lowering. In an `if` condition, it also narrows a named value in both
+branches. The false branch carries the remaining set, so chained `else if` tests
+can exhaust unions with more than two members.
 
 Atoms use `#snake_case` as both a value and its singleton type:
 

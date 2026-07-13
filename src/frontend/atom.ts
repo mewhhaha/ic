@@ -118,6 +118,7 @@ export function validate_atom_identities(source: Source): void {
         record(expr.name);
         return;
 
+      case "bool":
       case "num":
       case "unit":
       case "text":

@@ -5,6 +5,7 @@ export function collect_linear_closure_names(
   names: Set<string>,
 ): void {
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "text":
     case "struct_type":

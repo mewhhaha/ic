@@ -326,9 +326,38 @@ export function code_actions(
       );
     }
 
-    if (
-      diagnostic.code === "IX2305" && diagnostic.message.includes("expects Int")
-    ) {
+    if (diagnostic.code === "IX2305") {
+      const mismatch =
+        /^Union case [A-Za-z_][A-Za-z0-9_]* expects (Bool|Int), got /
+          .exec(diagnostic.message);
+
+      if (mismatch === null) {
+        continue;
+      }
+
+      const expected_type = mismatch[1];
+
+      if (expected_type === undefined) {
+        throw new Error(
+          "Missing expected type in union payload diagnostic: " +
+            diagnostic.message,
+        );
+      }
+
+      const value = default_value(expected_type);
+
+      if (value === undefined) {
+        throw new Error(
+          "Missing default value for union payload type: " + expected_type,
+        );
+      }
+
+      let display_type = expected_type;
+
+      if (display_type === "Int") {
+        display_type = "I32";
+      }
+
       const span = positions.offsets_from_range(diagnostic.range);
       const call = syntax.text.slice(span.start, span.end);
       const open = call.indexOf("(");
@@ -343,11 +372,11 @@ export function code_actions(
         syntax.text,
         uri,
         version,
-        "Replace union payload with I32 value",
+        "Replace union payload with " + display_type + " value",
         "quickfix",
         span.start + open + 1,
         span.start + close,
-        "0",
+        value,
         diagnostics,
       );
     }
@@ -940,6 +969,10 @@ function default_handler_clause(
 }
 
 function default_front_expr(type_name: string): FrontExpr | undefined {
+  if (type_name === "Bool") {
+    return { tag: "bool", value: false };
+  }
+
   if (type_name === "Int" || type_name === "I32" || type_name === "U32") {
     return { tag: "num", type: "i32", value: 0 };
   }
@@ -1013,6 +1046,10 @@ function remove_statements(text: string, statements: Stmt[]): string {
 }
 
 function default_value(type_name: string): string | undefined {
+  if (type_name === "Bool") {
+    return "false";
+  }
+
   if (type_name === "Int" || type_name === "I32" || type_name === "U32") {
     return "0";
   }

@@ -485,6 +485,7 @@ function validate_linear_expr_lambdas(expr: FrontExpr): void {
       }
       return;
 
+    case "bool":
     case "num":
     case "text":
     case "type_name":

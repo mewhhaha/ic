@@ -26,7 +26,7 @@ const failures = [
     diagnostic: {
       code: "IX2303",
       severity: "error",
-      message: "If condition expects i32, got Text",
+      message: "If condition expects Bool or I32, got Text",
       span: { start: 3, end: 8 },
     },
   },
@@ -97,6 +97,19 @@ Deno.test("semantic validation keeps nested width errors structured and singular
   );
 });
 
+Deno.test("semantic validation does not re-infer an invalid indexed branch", () => {
+  const source = parse_source(
+    "let pair=[.a=true,.b=1]\nif true { pair[input] } else { 0 }",
+  );
+
+  assert_equals(validate_frontend_semantics(source), [{
+    code: "IX2304",
+    severity: "error",
+    message: "Mixed Bool and numeric indexed values",
+    span: { start: 34, end: 45 },
+  }]);
+});
+
 Deno.test("semantic validation reuses constness checks with source spans", () => {
   const source = parse_source(
     "let runtime = 1\nconst invalid = runtime\ninvalid",
@@ -117,6 +130,29 @@ Deno.test("semantic validation reports basic binding annotations", () => {
     message: "Binding annotation expects Text, got I32",
     span: { start: 18, end: 19 },
   }]);
+});
+
+Deno.test("semantic validation scopes the Core gate to Bool representation errors", () => {
+  const integer_source = parse_source("let value: Int = 1i64\nvalue");
+  assert_equals(
+    validate_frontend_semantics(integer_source, {
+      scope: "bool-representation",
+    }),
+    [],
+  );
+
+  const bool_source = parse_source("let value: Bool = 1\nvalue");
+  assert_equals(
+    validate_frontend_semantics(bool_source, {
+      scope: "bool-representation",
+    }),
+    [{
+      code: "IX2306",
+      severity: "error",
+      message: "Binding annotation expects Bool, got I32",
+      span: { start: 18, end: 19 },
+    }],
+  );
 });
 
 Deno.test("semantic validation optionally reports unused binding warnings", () => {

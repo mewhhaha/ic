@@ -133,7 +133,7 @@ export function lower_if_let_else_branch(
 
   if (!fallback) {
     throw new Error(
-      "No-else if let implicit fallback supports Int, I64, Text, " +
+      "No-else if let implicit fallback supports Bool, Int, I64, Text, " +
         "struct, or union, got " +
         front_type_name(type),
     );

@@ -15,6 +15,7 @@ function validate_rec_expr(expr: FrontExpr, tail: boolean): void {
   }
 
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "text":
     case "type_name":

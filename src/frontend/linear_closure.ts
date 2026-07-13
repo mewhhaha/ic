@@ -327,6 +327,14 @@ function unwrap_local_linear_closure_value(
 function static_if_branch(
   value: Extract<FrontExpr, { tag: "if" }>,
 ): FrontExpr | undefined {
+  if (value.cond.tag === "bool") {
+    if (value.cond.value) {
+      return value.then_branch;
+    }
+
+    return value.else_branch;
+  }
+
   if (value.cond.tag !== "num") {
     return undefined;
   }

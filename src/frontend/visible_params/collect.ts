@@ -186,6 +186,7 @@ export function expr_collects_from_names(
 
       return false;
 
+    case "bool":
     case "num":
     case "atom":
     case "unit":

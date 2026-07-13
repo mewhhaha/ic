@@ -48,6 +48,16 @@ export function lower_static_expr(
   seen: Set<Binding>,
   hooks: StaticExprHooks,
 ): IcNode | undefined {
+  if (expr.tag === "bool") {
+    let value = 0;
+
+    if (expr.value) {
+      value = 1;
+    }
+
+    return { tag: "num", type: "i32", value };
+  }
+
   if (expr.tag === "num") {
     return { tag: "num", type: expr.type, value: expr.value };
   }

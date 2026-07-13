@@ -152,3 +152,37 @@ Suspend {
     "Handler clause Suspend.pause returns outcome, expected I32",
   );
 });
+
+Deno.test("handler checks distinguish Bool is results from I32", () => {
+  assert_throws(
+    () =>
+      Source.effects(`
+effect Counter { get: () => I32 }
+Counter {
+  get: (!resume) => !resume(1 is Int),
+  return: value => value,
+}
+`),
+    "Resumption resume expects I32, got Bool",
+  );
+
+  assert_throws(
+    () =>
+      Source.effects(`
+effect Counter { get: () => I32 }
+Counter {
+  get: (!resume) => 1 is Int,
+  return: (value: I32) => value,
+}
+`),
+    "Handler clause Counter.get returns Bool, expected I32",
+  );
+
+  Source.effects(`
+effect Counter { get: () => Bool }
+Counter {
+  get: (!resume) => !resume(1 is Int),
+  return: (value: Bool) => value,
+}
+`);
+});

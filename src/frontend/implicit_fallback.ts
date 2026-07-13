@@ -9,7 +9,7 @@ export type ImplicitFallbackHooks = {
 };
 
 export function can_implicit_fallback_type(type: FrontType): boolean {
-  if (type.tag === "int" || type.tag === "text") {
+  if (type.tag === "bool" || type.tag === "int" || type.tag === "text") {
     return true;
   }
 
@@ -25,6 +25,10 @@ export function implicit_fallback_expr(
   env: Env,
   hooks: ImplicitFallbackHooks,
 ): FrontExpr | undefined {
+  if (type.tag === "bool") {
+    return { tag: "bool", value: false };
+  }
+
   if (type.tag === "int") {
     if (type.type === "i64") {
       return { tag: "num", type: "i64", value: 0n };

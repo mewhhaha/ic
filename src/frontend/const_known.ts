@@ -8,6 +8,7 @@ export function is_const_expr_known(
   bound: Set<string>,
 ): boolean {
   switch (expr.tag) {
+    case "bool":
     case "num":
     case "atom":
     case "unit":

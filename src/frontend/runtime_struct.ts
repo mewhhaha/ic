@@ -221,9 +221,17 @@ export function indexed_result_type_from_fields(
     return "i32";
   }
 
+  if (indexed_type_fields_are_bool(fields)) {
+    return "i32";
+  }
+
   let result_type: ValType | undefined;
 
   for (const field of fields) {
+    if (field.type_name === "Bool") {
+      throw new Error("Mixed Bool and numeric indexed values");
+    }
+
     const field_type = val_type_from_type_name(field.type_name);
 
     if (!field_type) {
@@ -246,6 +254,21 @@ export function indexed_result_type_from_fields(
   return "i32";
 }
 
+export function dynamic_index_type_from_fields(fields: TypeField[]): FrontType {
+  if (indexed_type_fields_are_text(fields)) {
+    return { tag: "text" };
+  }
+
+  if (indexed_type_fields_are_bool(fields)) {
+    return { tag: "bool" };
+  }
+
+  return {
+    tag: "int",
+    type: indexed_result_type_from_fields(fields),
+  };
+}
+
 export function indexed_type_fields_are_text(fields: TypeField[]): boolean {
   if (fields.length === 0) {
     return false;
@@ -253,6 +276,20 @@ export function indexed_type_fields_are_text(fields: TypeField[]): boolean {
 
   for (const field of fields) {
     if (field.type_name !== "Text") {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function indexed_type_fields_are_bool(fields: TypeField[]): boolean {
+  if (fields.length === 0) {
+    return false;
+  }
+
+  for (const field of fields) {
+    if (field.type_name !== "Bool") {
       return false;
     }
   }

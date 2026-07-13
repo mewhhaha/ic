@@ -34,7 +34,7 @@ export function lower_rec_expr_as_type(
 }
 
 export function can_lower_rec_bound_value_as_type(type: FrontType): boolean {
-  if (type.tag === "int" || type.tag === "text") {
+  if (type.tag === "bool" || type.tag === "int" || type.tag === "text") {
     return true;
   }
 
