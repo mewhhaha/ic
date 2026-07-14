@@ -30,7 +30,7 @@ export function prepare_const_value(
   env: Env,
   hooks: FrontPrepareHooks,
 ): FrontExpr {
-  if (expr.tag === "with") {
+  if (expr.tag === "with" || expr.tag === "struct_update") {
     return {
       tag: "with",
       base: hooks.capture_const_ref(expr.base, env),

@@ -23,7 +23,7 @@ Two lowering routes are implemented, plus a managed ABI on top of the second:
   aggregates, first-class closures, Ix-defined handlers, and the
   ownership/lifetime proof gate.
 - The **managed ABI** (`Source.artifact`, `IxRunner`, `IxHost`) wraps the Core
-  route with the `ix-js-2` manifest and JavaScript marshaling for host effects.
+  route with the `ix-js-3` manifest and JavaScript marshaling for host effects.
 
 A feature can be accepted on one route and reserved on the other. The examples
 manifest (`examples/manifest.ts`) records which route each example compiles

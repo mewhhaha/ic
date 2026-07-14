@@ -1,12 +1,12 @@
-type Vec3 = [.x = Int, .y = Int, .z = Int]
-type Pair = [Int, Int]
+type Vec3 = (.x = Int, .y = Int, .z = Int)
+type Pair = (Int, Int)
 type Maybe a =
   | .just = a
   | .nothing
 type MaybeInt = Maybe Int
 
-let point: Vec3 = [.x = 40, .y = 1, .z = 1]
-let pair: Pair = [point.x, point.y]
+let point: Vec3 = (.x = 40, .y = 1, .z = 1)
+let pair: Pair = (point.x, point.y)
 let by_name: Int = point.x + point.y + point.z
 let by_index: Int = point[0] + point[1] + point[2]
 let result: MaybeInt = .just(if by_name == by_index {

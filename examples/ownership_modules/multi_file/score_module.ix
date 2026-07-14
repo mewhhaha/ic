@@ -1,5 +1,5 @@
-module score_module = capabilities => {
-  {
-    run: capabilities.base + capabilities.bonus
-  }
+module (capabilities) where
+
+return {
+  run: capabilities.base + capabilities.bonus
 }

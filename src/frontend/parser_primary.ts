@@ -43,12 +43,23 @@ export abstract class ParserPrimary extends ParserBlock {
       return { tag: "comptime", expr: this.parse_expr() };
     }
 
+    if (this.match_name("import")) {
+      const path = this.peek();
+      expect(path.kind === "string", "Expected import path literal");
+      this.advance();
+      return { tag: "import", path: path.text };
+    }
+
     if (this.match_name("if")) {
       if (this.starts_if_let_condition()) {
         return this.parse_if_let_expr();
       }
 
       return this.parse_if_expr();
+    }
+
+    if (this.match_name("match")) {
+      return this.parse_match_expr();
     }
 
     if (
@@ -120,13 +131,7 @@ export abstract class ParserPrimary extends ParserBlock {
     }
 
     if (this.match_symbol("(")) {
-      if (this.match_symbol(")")) {
-        return { tag: "unit" };
-      }
-
-      const expr = this.parse_expr();
-      this.expect_symbol(")");
-      return expr;
+      return this.parse_parenthesized_value();
     }
 
     if (token.kind === "name") {
@@ -210,7 +215,7 @@ export abstract class ParserPrimary extends ParserBlock {
 
   private parse_handler_clause_lambda(
     name: string,
-  ): Extract<FrontExpr, { tag: "lam" }> {
+  ): { params: import("./ast.ts").Param[]; body: FrontExpr } {
     const params = [];
 
     if (this.match_symbol("(")) {
@@ -240,7 +245,7 @@ export abstract class ParserPrimary extends ParserBlock {
     }
 
     try {
-      return { tag: "lam", params, body: this.parse_expr() };
+      return { params, body: this.parse_expr() };
     } catch (error) {
       if (error instanceof Error) {
         error.message = "Handler clause " + name + ": " + error.message;

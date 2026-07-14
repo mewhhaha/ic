@@ -50,7 +50,7 @@ Counter {
   return: value => value,
 }
 `),
-    "Resumption resume expects exactly one argument",
+    "Resumption resume expects I32, got Unit",
   );
 
   assert_throws(
@@ -132,7 +132,7 @@ const wanted = struct { x: I32 }
 const other = struct { y: I32 }
 effect Read { read: () => wanted }
 Read {
-  read: (!resume) => !resume(other { y: 1 }),
+  read: (!resume) => !resume(other with { y: 1 }),
   return: value => value,
 }
 `),

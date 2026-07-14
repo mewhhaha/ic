@@ -10,7 +10,6 @@
 
 [
   "import"
-  "from"
 ] @keyword.control.import
 
 [
@@ -36,8 +35,15 @@
 (try_with_expression
   ["try" "with"] @keyword.control.exception)
 
-(extension_expression
-  "with" @keyword.operator)
+(update_expression
+  (with_keyword) @keyword.operator)
+
+(as_keyword) @keyword.operator
+
+[
+  "match"
+  "if"
+] @keyword.control.conditional
 
 [
   "for"
@@ -192,7 +198,8 @@
 
 (binding_statement
   name: (identifier) @type
-  value: [(struct_type) (union_type)])
+  value: (postfix_expression
+    [(struct_type) (union_type)]))
 
 (parameter
   name: (identifier) @variable.parameter)
@@ -228,8 +235,8 @@
   right: (identifier) @variable)
 
 ; Imports, functions, effects, and calls
-(import_statement
-  name: (identifier) @namespace)
+(import_expression
+  path: (string) @string.special.path)
 
 (module_binding_statement
   name: (identifier) @namespace)
@@ -240,24 +247,27 @@
 (handler_operation_clause
   name: (identifier) @function.method)
 
-(call_expression
-  function: (identifier) @function)
+(application_expression
+  function: (postfix_expression
+    (identifier) @function))
 
 (condition_call_expression
   function: (condition_expression
     (identifier) @function))
 
-(call_expression
-  function: (linear_reference
-    name: (identifier) @function))
+(application_expression
+  function: (postfix_expression
+    (linear_reference
+      name: (identifier) @function)))
 
 (condition_call_expression
   function: (condition_expression
     (linear_reference
       name: (identifier) @function)))
 
-((call_expression
-  function: (identifier) @function.builtin)
+((application_expression
+  function: (postfix_expression
+    (identifier) @function.builtin))
   (#any-of? @function.builtin
     "len" "get" "slice" "append" "has" "fields_of" "cases_of"
     "is_struct" "is_union" "size_of" "align_of" "layout" "fail" "panic"))
@@ -279,9 +289,6 @@
 (field_definition
   name: (identifier) @variable.other.member)
 
-(record_field
-  name: (identifier) @variable.other.member)
-
 (shorthand_field
   name: (identifier) @variable.other.member)
 
@@ -296,9 +303,10 @@
 
 ; A member in call position is a method. Keep these after the general member
 ; patterns so they win for the same identifier span.
-(call_expression
-  function: (field_expression
-    field: (identifier) @function.method))
+(application_expression
+  function: (postfix_expression
+    (field_expression
+      field: (identifier) @function.method)))
 
 (condition_call_expression
   function: (condition_expression

@@ -206,7 +206,7 @@ fib(6)
 
   assert_equals(
     Format.fmt(Source, Source.parse("let rec fib = n => n\nfib(1)")),
-    "let rec fib = (n) => n\nfib(1)",
+    "let rec fib = n => n\nfib 1",
   );
 
   const ic = compile(source);
@@ -1950,8 +1950,8 @@ if let 42i64 = value {
     "Unsupported character escape: \\x",
   );
   assert_throws(
-    () => compile("if (let value = 1) { 42 }"),
-    "Expected union case or literal pattern",
+    () => Source.core("if (let value = 1) { 42 }"),
+    "Unreachable match arm 1",
   );
 });
 
@@ -3192,7 +3192,7 @@ let user = {
   age: 40
 }
 
-user = user {
+user = user with {
   age: user.age + 1
 }
 user
@@ -3399,7 +3399,7 @@ let user = user_type {
   bonus: 5
 }
 
-let updated = user {
+let updated = user with {
   age: user.age + 1
 }
 
@@ -3419,7 +3419,7 @@ let user = user_type {
   bonus: 5
 }
 
-user {
+user with {
   age: user.age + 1
 }
 `);
@@ -3430,7 +3430,7 @@ user {
 
   const closure_update = compile(`
 let birthday = user => {
-  user {
+  user with {
     age: user.age + 1
   }
 }
@@ -3449,7 +3449,7 @@ birthday({
 
   const closure_text_update = compile(`
 let rename = user => {
-  user {
+  user with {
     name: "Grace"
   }
 }
@@ -3480,7 +3480,7 @@ let user = user_type {
 }
 
 let old_age = user.age
-user = user {
+user = user with {
   age: user.age + 1
 }
 
@@ -3502,7 +3502,7 @@ let user = user_type {
   age: 41
 }
 
-user = user {
+user = user with {
   name: 1
 }
 
@@ -7053,37 +7053,37 @@ user_layout.size
 
   assert_throws(
     () => Source.parse("let VALUE = 1\nVALUE"),
-    "Runtime binding must use snake_case: VALUE",
+    "Parameter must use snake_case: VALUE",
   );
 
   assert_throws(
     () => Source.parse("let _value = 1\n_value"),
-    "Runtime binding must use snake_case: _value",
+    "Parameter must use snake_case: _value",
   );
 
   assert_throws(
     () => Source.parse("const _Bad = 1\n_Bad"),
-    "Const binding must use snake_case: _Bad",
+    "Parameter must use snake_case: _Bad",
   );
 
   assert_throws(
     () => Source.parse("const _value = 1\n_value"),
-    "Const binding must use snake_case: _value",
+    "Parameter must use snake_case: _value",
   );
 
   assert_throws(
     () => Source.parse("const Id = t => t\nId"),
-    "Const binding must use snake_case: Id",
+    "Parameter must use snake_case: Id",
   );
 
   assert_throws(
     () => Source.parse("const !knownToken = 1\n!knownToken"),
-    "Const binding must use snake_case: knownToken",
+    "Parameter must use snake_case: knownToken",
   );
 
   assert_equals(
     Format.fmt(Source, Source.parse("const id = t => t\nid(Int)")),
-    "const id = (t) => t\nid(Int)",
+    "const id = t => t\nid Int",
   );
 
   assert_throws(
@@ -7162,8 +7162,8 @@ user_layout.size
   );
 
   assert_throws(
-    () => Source.parse('import BadName from "./bad"'),
-    "Import must use snake_case: BadName",
+    () => Source.parse('const BadName = import "./bad"'),
+    "Parameter must use snake_case: BadName",
   );
 
   assert_throws(
@@ -7173,7 +7173,7 @@ user_layout.size
 
   assert_throws(
     () => Source.parse("let !Token = 1\n!Token"),
-    "Runtime binding must use snake_case: Token",
+    "Parameter must use snake_case: Token",
   );
 
   assert_throws(
@@ -7193,7 +7193,7 @@ user_layout.size
 
   assert_throws(
     () => Source.parse("let apply = (value, const Fn) => Fn(value)\napply"),
-    "Const parameter must use snake_case: Fn",
+    "Const binding must use snake_case: Fn",
   );
 
   assert_throws(
@@ -7253,12 +7253,12 @@ Deno.test("Source rejects excluded grammar families explicitly", () => {
 
   assert_throws(
     () => Source.parse("let class = 1"),
-    "Runtime binding is reserved for unsupported classes: class",
+    "Parameter is reserved for unsupported classes: class",
   );
 
   assert_throws(
     () => Source.parse("const instance = 1"),
-    "Const binding is reserved for unsupported runtime instance search: instance",
+    "Parameter is reserved for unsupported runtime instance search: instance",
   );
 
   assert_throws(
@@ -7396,7 +7396,7 @@ Deno.test("Source rejects every Task 11 MVP grammar exclude", () => {
     {
       feature: "first-class source-level region objects beyond scratchpads",
       run: () => Source.parse("region { 1 }"),
-      error: "Expected field name",
+      error: "Struct updates require `with { ... }`",
     },
     {
       feature: "attached scratch regions that survive scratch reset",
@@ -10740,7 +10740,7 @@ choose({
 
   const dynamic_text_get = compile(`
 let rename = value => {
-  value {
+  value with {
     second: "Grace"
   }
 }
@@ -10760,7 +10760,7 @@ get(rename({
 
   const dynamic_text_byte = compile(`
 let rename = value => {
-  value {
+  value with {
     second: "Grace"
   }
 }
@@ -10782,7 +10782,7 @@ rename({
     () =>
       compile(`
 let rename = value => {
-  value {
+  value with {
     second: "Grace"
   }
 }
@@ -10799,7 +10799,7 @@ get(rename({
     () =>
       compile(`
 let rename = value => {
-  value {
+  value with {
     second: "Grace"
   }
 }
@@ -14576,13 +14576,13 @@ app.value
 
 Deno.test("Source rejects unresolved imports without a loader", () => {
   assert_throws(
-    () => compile('import logger from "./logger"'),
-    "Cannot lower unresolved import; use Source.load, Source.compile_file, Source.core_file, Source.mod_file, or Source.wat_file",
+    () => compile('const logger = import "./logger"'),
+    "Cannot lower unresolved expression import ./logger through pure Ic; use Source.core, Source.mod, or Source.wat for structured Core/Wasm lowering",
   );
 
   assert_equals(
-    Format.fmt(Source, Source.parse('import logger from "./logger"')),
-    'import logger from "./logger"',
+    Format.fmt(Source, Source.parse('const logger = import "./logger"')),
+    'const logger = import "./logger"',
   );
 });
 
@@ -14605,8 +14605,8 @@ host_import host_frozen from "env.frozen" (#Text) => I32
 host_import host_make from "env.make" () => Text
 host_import host_count from "env.count" (I32, I64) => I32
 
-let message: Text = append("he", "llo")
-host_read(&message)
+let message: Text = append ("he", "llo")
+host_read (&message)
 `);
 
   assert_equals(
@@ -14616,8 +14616,8 @@ host_read(&message)
       'host_import host_frozen from "env.frozen" (#Text) => I32\n' +
       'host_import host_make from "env.make" () => Text\n' +
       'host_import host_count from "env.count" (I32, I64) => I32\n' +
-      'let message: Text = append("he", "llo")\n' +
-      "host_read(&message)",
+      'let message: Text = append ("he", "llo")\n' +
+      "host_read &message",
   );
 
   const core = Source.core(source);
@@ -14880,25 +14880,23 @@ Deno.test("Source loads imported modules from files", () => {
 
   try {
     Deno.writeTextFileSync(
-      dir + "/logger",
+      dir + "/logger.ix",
       `
-module logger = caps => {
-  {
-    log: caps.prefix + 1
-  }
-}
+module (caps) where
+
+return { log: caps.prefix + 1 }
 `,
     );
     Deno.writeTextFileSync(
       dir + "/main",
       `
-import logger from "./logger"
+const logger = import "./logger.ix"
 
 const caps = {
   prefix: 41
 }
 
-let app = logger(caps)
+let app = logger caps
 app.log
 `,
     );
@@ -14916,8 +14914,10 @@ Deno.test("Source exposes structured file routes for imported programs", () => {
 
   try {
     Deno.writeTextFileSync(
-      dir + "/math",
+      dir + "/math.ix",
       `
+module () where
+
 let sum_to = n => {
   let sum = 0
 
@@ -14927,15 +14927,18 @@ let sum_to = n => {
 
   sum
 }
+
+return { sum_to }
 `,
     );
     Deno.writeTextFileSync(
       dir + "/main",
       `
-import sum_to from "./math"
+const math = import "./math.ix"
+const { sum_to } = math ()
 
 let n = 5
-sum_to(n)
+sum_to n
 `,
     );
 
@@ -14958,22 +14961,26 @@ Deno.test("Source rejects missing imported exports", () => {
 
   try {
     Deno.writeTextFileSync(
-      dir + "/empty",
+      dir + "/empty.ix",
       `
+module () where
+
 const other = 1
+return { other }
 `,
     );
     Deno.writeTextFileSync(
       dir + "/main",
       `
-import logger from "./empty"
+const dependency = import "./empty.ix"
+const { logger } = dependency ()
 logger
 `,
     );
 
     assert_throws(
       () => Source.compile_file(dir + "/main"),
-      "Import ./empty does not export logger",
+      "Missing struct field: logger",
     );
   } finally {
     Deno.removeSync(dir, { recursive: true });

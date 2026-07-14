@@ -82,7 +82,7 @@ Deno.test("binding index keeps declaration type parameters local to their declar
 
 Deno.test("binding index uses nested annotation facts for statically known members", () => {
   const indexed = build_binding_index(parse_source_with_diagnostics(
-    "type Vec = [.x = Int]\nif true { let point: Vec = [.x = 1]\npoint.x }\n",
+    "type Vec = (.x = Int)\nif true { let point: Vec = (.x = 1)\npoint.x }\n",
   ));
   const member = [...indexed.occurrences.values()].find((occurrence) =>
     occurrence.name === "x" && occurrence.role === "member" &&
@@ -170,7 +170,7 @@ Deno.test("binding index visibility selects the generation active at the offset"
 });
 
 Deno.test("binding index keeps owner members out of lexical visibility", () => {
-  const text = "type Pair = [.left = Int]\nleft\n";
+  const text = "type Pair = (.left = Int)\nleft\n";
   const indexed = build_binding_index(parse_source_with_diagnostics(text));
   const reference = [...indexed.occurrences.values()].find((occurrence) =>
     occurrence.name === "left" && occurrence.role === "reference"
@@ -185,7 +185,7 @@ Deno.test("binding index keeps owner members out of lexical visibility", () => {
 
 Deno.test("binding index resolves component annotation sites", () => {
   const indexed = build_binding_index(parse_source_with_diagnostics(
-    "type Pair = [.left = Int]\nlet value: Pair = [.left = 1]\nvalue.left\n",
+    "type Pair = (.left = Int)\nlet value: Pair = (.left = 1)\nvalue.left\n",
   ));
   const pair = [...indexed.entities.values()].find((entity) =>
     entity.name === "Pair"

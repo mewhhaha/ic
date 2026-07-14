@@ -476,10 +476,6 @@ export class ParserStmt extends ParserTypeDeclaration {
       return this.parse_module_bind();
     }
 
-    if (this.peek().kind === "name" && this.peek().text === "import") {
-      return this.parse_import_stmt();
-    }
-
     if (this.peek().kind === "name" && this.peek().text === "for") {
       return this.parse_for_stmt();
     }

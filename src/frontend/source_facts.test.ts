@@ -37,10 +37,10 @@ function definition_type_name(
 
 Deno.test("source facts specialize generic product aliases recursively", () => {
   const source = parse_source(`
-type Box a = [.value = a]
+type Box a = (.value = a)
 type Alias a = Box a
 type Nested a = Alias a
-let box: Nested Bool = [.value = true]
+let box: Nested Bool = (.value = true)
 box.value
 `);
   const facts = source_facts(source);
@@ -185,8 +185,8 @@ Deno.test("source facts validate text builtins and runtime type tests", () => {
 
 Deno.test("source facts invalidate malformed aggregates and handlers", () => {
   const duplicate = parse_source(`
-type Pair = [.ready = Bool, .wide = I64]
-let pair: Pair = [.ready = true, .ready = false]
+type Pair = (.ready = Bool, .wide = I64)
+let pair: Pair = (.ready = true, .ready = false)
 pair.ready
 `);
   const duplicate_facts = source_facts(duplicate);
@@ -252,8 +252,8 @@ Deno.test("source facts validate handler inputs against handled values", () => {
 
 Deno.test("source facts do not infer annotated updates from unknown bases", () => {
   const source = parse_source(`
-type Pair = [.ready = Bool]
-let bad: Pair = missing { ready: false }
+type Pair = (.ready = Bool)
+let bad: Pair = missing with { ready: false }
 bad.ready
 `);
   const facts = source_facts(source);
@@ -275,12 +275,21 @@ missing
   const named_facts = source_facts(named);
   const named_pattern = named.statements[0];
 
-  if (named_pattern === undefined || named_pattern.tag !== "bind_pattern") {
+  if (
+    named_pattern === undefined || named_pattern.tag !== "bind" ||
+    named_pattern.pattern?.tag !== "record"
+  ) {
     throw new Error("Missing named binding pattern");
   }
 
+  const named_binding = named_pattern.pattern.fields[0]?.pattern;
+
+  if (named_binding?.tag !== "binding") {
+    throw new Error("Missing named record binding");
+  }
+
   assert_equals(
-    definition_type_name(named_pattern.items[0]!, "name", named_facts),
+    definition_type_name(named_binding, "name", named_facts),
     "unknown",
   );
   assert_equals(
@@ -289,9 +298,9 @@ missing
   );
 
   const positional = parse_source(`
-type Pair = [Bool, I32]
-let pair: Pair = [true, 1]
-let { left, right } = pair
+type Pair = (Bool, I32)
+let pair: Pair = (true, 1)
+let (left, right) = pair
 left
 right
 `);
@@ -300,13 +309,18 @@ right
 
   if (
     positional_pattern === undefined ||
-    positional_pattern.tag !== "bind_pattern"
+    positional_pattern.tag !== "bind" ||
+    positional_pattern.pattern?.tag !== "product"
   ) {
     throw new Error("Missing positional binding pattern");
   }
 
+  const positional_bindings = positional_pattern.pattern.entries.map(
+    (entry) => entry.pattern,
+  );
+
   assert_equals(
-    positional_pattern.items.map((binding) =>
+    positional_bindings.map((binding) =>
       definition_type_name(binding, "name", positional_facts)
     ),
     ["Bool", "I32"],
@@ -317,8 +331,8 @@ Deno.test("source facts require valid runtime type targets", () => {
   const invalid = [
     "effect Check { test: () => Bool }\n1 is Check",
     "type Alias = missing_type\n1 is Alias",
-    "type Box a = [.value = a]\n1 is Box",
-    "type Box a = [.value = a]\n1 is Box Bool Bool",
+    "type Box a = (.value = a)\n1 is Box",
+    "type Box a = (.value = a)\n1 is Box Bool Bool",
     "1 is missing_type",
     "1 is (I32 -> <missing_effect> Bool)",
     "1 is (I32 -> <effect_row> Bool)",
@@ -334,7 +348,7 @@ Deno.test("source facts require valid runtime type targets", () => {
 
   assert_equals(
     expression_type_names(
-      "type Box a = [.value = a]\n1 is Box Bool",
+      "type Box a = (.value = a)\n1 is Box Bool",
       "is",
     ),
     ["Bool"],
@@ -344,7 +358,7 @@ Deno.test("source facts require valid runtime type targets", () => {
 Deno.test("source facts expose unresolved declared types only as unknown", () => {
   const source = parse_source(`
 type Alias = missing_type
-type Broken = [.value = missing_type]
+type Broken = (.value = missing_type)
 effect Bad { run: (missing_type) => Bool }
 let identity = (value: Alias) => value
 Broken.value

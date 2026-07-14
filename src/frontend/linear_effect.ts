@@ -1,4 +1,5 @@
 import type { FrontExpr, Stmt } from "./ast.ts";
+import { shadow_pattern_names } from "./pattern.ts";
 
 export function contains_reserved_linear_effect(
   expr: FrontExpr,
@@ -21,6 +22,60 @@ export function contains_reserved_linear_effect(
 
     case "is":
       return contains_reserved_linear_effect(expr.value, names);
+
+    case "as":
+      return contains_reserved_linear_effect(expr.value, names);
+
+    case "product":
+      for (const entry of expr.entries) {
+        if (contains_reserved_linear_effect(entry.value, names)) {
+          return true;
+        }
+      }
+
+      return false;
+
+    case "array":
+      for (const item of expr.items) {
+        if (contains_reserved_linear_effect(item, names)) {
+          return true;
+        }
+      }
+
+      if (expr.rest !== undefined) {
+        return contains_reserved_linear_effect(expr.rest, names);
+      }
+
+      return false;
+
+    case "array_repeat":
+      return contains_reserved_linear_effect(expr.value, names) ||
+        contains_reserved_linear_effect(expr.length, names);
+
+    case "import":
+      return false;
+
+    case "match":
+      if (contains_reserved_linear_effect(expr.target, names)) {
+        return true;
+      }
+
+      for (const arm of expr.arms) {
+        const local = shadow_pattern_names(names, arm.pattern);
+
+        if (
+          arm.guard !== undefined &&
+          contains_reserved_linear_effect(arm.guard, local)
+        ) {
+          return true;
+        }
+
+        if (contains_reserved_linear_effect(arm.body, local)) {
+          return true;
+        }
+      }
+
+      return false;
 
     case "prim":
       return contains_reserved_linear_effect(expr.left, names) ||
@@ -293,6 +348,60 @@ function uses_linear_name(
 
     case "is":
       return uses_linear_name(expr.value, names, explicit_only);
+
+    case "as":
+      return uses_linear_name(expr.value, names, explicit_only);
+
+    case "product":
+      for (const entry of expr.entries) {
+        if (uses_linear_name(entry.value, names, explicit_only)) {
+          return true;
+        }
+      }
+
+      return false;
+
+    case "array":
+      for (const item of expr.items) {
+        if (uses_linear_name(item, names, explicit_only)) {
+          return true;
+        }
+      }
+
+      if (expr.rest !== undefined) {
+        return uses_linear_name(expr.rest, names, explicit_only);
+      }
+
+      return false;
+
+    case "array_repeat":
+      return uses_linear_name(expr.value, names, explicit_only) ||
+        uses_linear_name(expr.length, names, explicit_only);
+
+    case "import":
+      return false;
+
+    case "match":
+      if (uses_linear_name(expr.target, names, explicit_only)) {
+        return true;
+      }
+
+      for (const arm of expr.arms) {
+        const local = shadow_pattern_names(names, arm.pattern);
+
+        if (
+          arm.guard !== undefined &&
+          uses_linear_name(arm.guard, local, explicit_only)
+        ) {
+          return true;
+        }
+
+        if (uses_linear_name(arm.body, local, explicit_only)) {
+          return true;
+        }
+      }
+
+      return false;
 
     case "prim":
       return uses_linear_name(expr.left, names, explicit_only) ||

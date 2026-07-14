@@ -1,5 +1,13 @@
 import { expect } from "../expect.ts";
-import type { FrontExpr, Param, Source, Stmt, TypeExpr } from "./ast.ts";
+import type {
+  FrontExpr,
+  MatchArm,
+  Param,
+  Pattern,
+  Source,
+  Stmt,
+  TypeExpr,
+} from "./ast.ts";
 import {
   intersect_sem_types,
   sem_type_from_expr,
@@ -12,6 +20,11 @@ import { substitute_front_expr } from "./substitute.ts";
 import { front_type_value_for_semantic_type } from "./type_declaration.ts";
 import { format_type_expr, parse_type_expr } from "./type_expr.ts";
 import { tokenize } from "./tokenize.ts";
+import {
+  elaborate_array_repeat_expr,
+  elaborate_product_as_expr,
+} from "./aggregate.ts";
+import { pattern_bindings } from "./pattern.ts";
 
 type TypeSetBinding = {
   annotation: string | undefined;
@@ -31,6 +44,18 @@ export function elaborate_front_type_sets(source: Source): Source {
     fresh: { next: 0 },
     type_values: new Map(),
   };
+
+  for (const declaration of source.declarations || []) {
+    if (
+      declaration.tag === "type" && declaration.params.length === 0 &&
+      declaration.body.tag === "sum"
+    ) {
+      scope.type_values.set(declaration.name, {
+        tag: "union_type",
+        cases: declaration.body.cases,
+      });
+    }
+  }
 
   for (const stmt of source.statements) {
     if (stmt.tag === "bind" && stmt.kind === "const") {
@@ -52,22 +77,560 @@ function rewrite_statements(
 
   for (const stmt of statements) {
     const rewritten = rewrite_statement(stmt, scope);
-    result.push(rewritten);
+    let expanded = [rewritten];
 
-    if (rewritten.tag === "bind") {
-      scope.bindings.set(rewritten.name, {
-        annotation: rewritten.annotation,
-        value: rewritten.value,
-        union_type: binding_union_type(rewritten.annotation, scope),
+    if (
+      rewritten.tag === "bind" && rewritten.pattern !== undefined &&
+      rewritten.pattern.tag !== "binding"
+    ) {
+      expanded = elaborate_binding_pattern(rewritten, scope);
+    }
+
+    for (const candidate of expanded) {
+      result.push(candidate);
+
+      if (candidate.tag !== "bind") {
+        continue;
+      }
+
+      scope.bindings.set(candidate.name, {
+        annotation: candidate.annotation,
+        value: candidate.value,
+        union_type: binding_union_type(candidate.annotation, scope),
       });
 
-      if (rewritten.kind === "const") {
-        scope.type_values.set(rewritten.name, rewritten.value);
+      if (candidate.kind === "const") {
+        scope.type_values.set(candidate.name, candidate.value);
       }
     }
   }
 
   return result;
+}
+
+function elaborate_binding_pattern(
+  stmt: Extract<Stmt, { tag: "bind" }>,
+  scope: TypeSetScope,
+): Stmt[] {
+  const pattern = stmt.pattern;
+  expect(pattern, "Missing complex binding pattern");
+  const source_name = fresh_pattern_source_name(scope);
+  const source: FrontExpr = { tag: "var", name: source_name };
+  const source_shape = resolve_binding_pattern_source(
+    stmt.value,
+    scope,
+    new Set(),
+  );
+  const result: Stmt[] = [{
+    tag: "bind",
+    kind: stmt.kind,
+    name: source_name,
+    is_recursive: stmt.is_recursive,
+    is_linear: false,
+    annotation: stmt.annotation,
+    type_annotation: stmt.type_annotation,
+    effectful: stmt.effectful,
+    value: stmt.value,
+  }];
+  elaborate_pattern_bindings(
+    pattern,
+    source,
+    source_shape,
+    stmt.kind,
+    result,
+  );
+  return result;
+}
+
+function resolve_binding_pattern_source(
+  source: FrontExpr,
+  scope: TypeSetScope,
+  resolving: Set<string>,
+): FrontExpr {
+  if (source.tag !== "var") {
+    return source;
+  }
+
+  if (resolving.has(source.name)) {
+    return source;
+  }
+
+  const binding = scope.bindings.get(source.name);
+
+  if (!binding || binding.value === undefined) {
+    return source;
+  }
+
+  const next = new Set(resolving);
+  next.add(source.name);
+  return resolve_binding_pattern_source(binding.value, scope, next);
+}
+
+function function_pattern_requires_projection(
+  pattern: Pattern | undefined,
+  params: Param[],
+): boolean {
+  if (pattern === undefined || pattern.tag === "binding") {
+    return false;
+  }
+
+  if (params.some((param) => param.is_const || param.is_linear)) {
+    return false;
+  }
+
+  return pattern.tag === "wildcard" || pattern.tag === "product" ||
+    pattern.tag === "record" || pattern.tag === "array";
+}
+
+function function_uses_projected_parameter(
+  func: FrontExpr,
+  scope: TypeSetScope,
+): boolean {
+  if (func.tag === "var" && func.name === "rec") {
+    for (const name of scope.bindings.keys()) {
+      if (name.startsWith("_pattern#param")) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  let target = func;
+
+  if (target.tag === "var") {
+    const binding = scope.bindings.get(target.name);
+
+    if (!binding || binding.value === undefined) {
+      return false;
+    }
+
+    target = binding.value;
+  }
+
+  if (target.tag !== "lam" && target.tag !== "rec") {
+    return false;
+  }
+
+  const param = target.params[0];
+
+  if (!param || target.params.length !== 1) {
+    return false;
+  }
+
+  return param.name.startsWith("_pattern#param");
+}
+
+function elaborate_pattern_bindings(
+  pattern: Pattern,
+  source: FrontExpr,
+  source_shape: FrontExpr | undefined,
+  kind: "let" | "const" | undefined,
+  result: Stmt[],
+): void {
+  if (pattern.tag === "binding") {
+    let binding_kind: "let" | "const" = "let";
+
+    if (kind !== undefined) {
+      binding_kind = kind;
+    } else if (pattern.mode === "const") {
+      binding_kind = "const";
+    }
+
+    const binding: Extract<Stmt, { tag: "bind" }> = {
+      tag: "bind",
+      kind: binding_kind,
+      pattern,
+      name: pattern.name,
+      is_linear: pattern.mode === "linear",
+      annotation: pattern.annotation,
+      value: source,
+    };
+
+    if (pattern.type_annotation !== undefined) {
+      binding.type_annotation = pattern.type_annotation;
+    }
+
+    result.push(binding);
+    return;
+  }
+
+  if (pattern.tag === "wildcard" || pattern.tag === "unit") {
+    return;
+  }
+
+  if (pattern.tag === "literal" || pattern.tag === "union_case") {
+    throw new Error(
+      "Refutable " + pattern.tag +
+        " pattern is not allowed in a plain binding",
+    );
+  }
+
+  if (pattern.tag === "product") {
+    validate_product_pattern_shape(pattern, source_shape);
+
+    for (let index = 0; index < pattern.entries.length; index += 1) {
+      const entry = pattern.entries[index];
+      expect(entry, "Missing product binding entry " + index.toString());
+      let projected: FrontExpr;
+
+      const direct = product_source_entry(source_shape, entry.label, index);
+
+      if (source === source_shape && direct !== undefined) {
+        projected = direct;
+      } else if (entry.label !== undefined) {
+        projected = { tag: "field", object: source, name: entry.label };
+      } else {
+        projected = {
+          tag: "index",
+          object: source,
+          index: { tag: "num", type: "i32", value: index },
+        };
+      }
+
+      elaborate_pattern_bindings(
+        entry.pattern,
+        projected,
+        product_source_entry(source_shape, entry.label, index),
+        kind,
+        result,
+      );
+    }
+    return;
+  }
+
+  if (pattern.tag === "record") {
+    validate_record_pattern_shape(pattern, source_shape);
+
+    for (const field of pattern.fields) {
+      let projected: FrontExpr = {
+        tag: "field",
+        object: source,
+        name: field.name,
+      };
+      const direct = record_source_field(source_shape, field.name);
+
+      if (source === source_shape && direct !== undefined) {
+        projected = direct;
+      }
+
+      elaborate_pattern_bindings(
+        field.pattern,
+        projected,
+        direct,
+        kind,
+        result,
+      );
+    }
+
+    if (pattern.rest !== undefined && pattern.rest.tag !== "wildcard") {
+      const rest = record_rest_expr(pattern, source, source_shape);
+      elaborate_pattern_bindings(pattern.rest, rest, rest, kind, result);
+    }
+    return;
+  }
+
+  validate_array_pattern_shape(pattern, source_shape);
+
+  for (let index = 0; index < pattern.items.length; index += 1) {
+    const item = pattern.items[index];
+    expect(item, "Missing array binding item " + index.toString());
+    let projected: FrontExpr = {
+      tag: "index",
+      object: source,
+      index: { tag: "num", type: "i32", value: index },
+    };
+    const direct = array_source_item(source_shape, index);
+
+    if (source === source_shape && direct !== undefined) {
+      projected = direct;
+    }
+
+    elaborate_pattern_bindings(
+      item,
+      projected,
+      direct,
+      kind,
+      result,
+    );
+  }
+
+  if (pattern.rest !== undefined && pattern.rest.tag !== "wildcard") {
+    const rest = array_rest_expr(pattern, source, source_shape);
+    elaborate_pattern_bindings(pattern.rest, rest, rest, kind, result);
+  }
+}
+
+function validate_product_pattern_shape(
+  pattern: Extract<Pattern, { tag: "product" }>,
+  source: FrontExpr | undefined,
+): void {
+  const arity = known_product_arity(source);
+
+  if (arity !== undefined && arity !== pattern.entries.length) {
+    throw new Error(
+      "Product binding pattern expects " + pattern.entries.length.toString() +
+        " entries, got " + arity.toString(),
+    );
+  }
+}
+
+function validate_record_pattern_shape(
+  pattern: Extract<Pattern, { tag: "record" }>,
+  source: FrontExpr | undefined,
+): void {
+  const names = known_record_field_names(source);
+
+  if (names === undefined) {
+    if (pattern.rest !== undefined && pattern.rest.tag !== "wildcard") {
+      throw new Error(
+        "Record rest binding requires a statically known source shape",
+      );
+    }
+    return;
+  }
+
+  for (const field of pattern.fields) {
+    if (!names.includes(field.name)) {
+      throw new Error("Missing record binding field: " + field.name);
+    }
+  }
+}
+
+function validate_array_pattern_shape(
+  pattern: Extract<Pattern, { tag: "array" }>,
+  source: FrontExpr | undefined,
+): void {
+  const length = known_array_length(source);
+
+  if (length === undefined) {
+    if (pattern.rest !== undefined && pattern.rest.tag !== "wildcard") {
+      throw new Error(
+        "Array rest binding requires a statically known source length",
+      );
+    }
+    return;
+  }
+
+  if (pattern.rest === undefined && length !== pattern.items.length) {
+    throw new Error(
+      "Array binding pattern expects " + pattern.items.length.toString() +
+        " items, got " + length.toString(),
+    );
+  }
+
+  if (pattern.rest !== undefined && length < pattern.items.length) {
+    throw new Error(
+      "Array binding pattern requires at least " +
+        pattern.items.length.toString() + " items, got " + length.toString(),
+    );
+  }
+}
+
+function known_product_arity(
+  source: FrontExpr | undefined,
+): number | undefined {
+  if (source === undefined) {
+    return undefined;
+  }
+
+  if (source.tag === "product") {
+    return source.entries.length;
+  }
+
+  if (source.tag === "array" && source.rest === undefined) {
+    return source.items.length;
+  }
+
+  if (source.tag === "struct_value") {
+    return source.fields.length;
+  }
+
+  if (source.tag === "comptime" || source.tag === "captured") {
+    return known_product_arity(source.expr);
+  }
+
+  return undefined;
+}
+
+function known_record_field_names(
+  source: FrontExpr | undefined,
+): string[] | undefined {
+  if (source === undefined) {
+    return undefined;
+  }
+
+  if (source.tag === "struct_value") {
+    return source.fields.map((field) => field.name);
+  }
+
+  if (source.tag === "product") {
+    const names: string[] = [];
+
+    for (const entry of source.entries) {
+      if (entry.label === undefined) {
+        return undefined;
+      }
+
+      names.push(entry.label);
+    }
+
+    return names;
+  }
+
+  if (source.tag === "comptime" || source.tag === "captured") {
+    return known_record_field_names(source.expr);
+  }
+
+  return undefined;
+}
+
+function known_array_length(source: FrontExpr | undefined): number | undefined {
+  if (source === undefined) {
+    return undefined;
+  }
+
+  if (source.tag === "array" && source.rest === undefined) {
+    return source.items.length;
+  }
+
+  if (
+    source.tag === "app" && source.func.tag === "lam" &&
+    source.func.body.tag === "array" && source.func.body.rest === undefined
+  ) {
+    return source.func.body.items.length;
+  }
+
+  if (source.tag === "comptime" || source.tag === "captured") {
+    return known_array_length(source.expr);
+  }
+
+  return undefined;
+}
+
+function product_source_entry(
+  source: FrontExpr | undefined,
+  label: string | undefined,
+  index: number,
+): FrontExpr | undefined {
+  if (source === undefined) {
+    return undefined;
+  }
+
+  if (source.tag === "product") {
+    if (label !== undefined) {
+      return source.entries.find((entry) => entry.label === label)?.value;
+    }
+
+    return source.entries[index]?.value;
+  }
+
+  if (source.tag === "array") {
+    return source.items[index];
+  }
+
+  if (source.tag === "struct_value") {
+    if (label !== undefined) {
+      return source.fields.find((field) => field.name === label)?.value;
+    }
+
+    return source.fields[index]?.value;
+  }
+
+  return undefined;
+}
+
+function record_source_field(
+  source: FrontExpr | undefined,
+  name: string,
+): FrontExpr | undefined {
+  if (source === undefined) {
+    return undefined;
+  }
+
+  if (source.tag === "struct_value") {
+    return source.fields.find((field) => field.name === name)?.value;
+  }
+
+  if (source.tag === "product") {
+    return source.entries.find((entry) => entry.label === name)?.value;
+  }
+
+  return undefined;
+}
+
+function array_source_item(
+  source: FrontExpr | undefined,
+  index: number,
+): FrontExpr | undefined {
+  if (source === undefined) {
+    return undefined;
+  }
+
+  if (source.tag === "array") {
+    return source.items[index];
+  }
+
+  if (
+    source.tag === "app" && source.func.tag === "lam" &&
+    source.func.body.tag === "array"
+  ) {
+    return source.args[0];
+  }
+
+  return undefined;
+}
+
+function record_rest_expr(
+  pattern: Extract<Pattern, { tag: "record" }>,
+  source: FrontExpr,
+  source_shape: FrontExpr | undefined,
+): FrontExpr {
+  const names = known_record_field_names(source_shape);
+  expect(names, "Missing statically known record rest shape");
+  const selected = new Set(pattern.fields.map((field) => field.name));
+  return {
+    tag: "product",
+    entries: names.filter((name) => !selected.has(name)).map((name) => {
+      const direct = record_source_field(source_shape, name);
+
+      if (source === source_shape && direct !== undefined) {
+        return { label: name, value: direct };
+      }
+
+      return {
+        label: name,
+        value: { tag: "field", object: source, name },
+      };
+    }),
+  };
+}
+
+function array_rest_expr(
+  pattern: Extract<Pattern, { tag: "array" }>,
+  source: FrontExpr,
+  source_shape: FrontExpr | undefined,
+): FrontExpr {
+  const length = known_array_length(source_shape);
+  expect(length !== undefined, "Missing statically known array rest length");
+  const items: FrontExpr[] = [];
+
+  for (let index = pattern.items.length; index < length; index += 1) {
+    const direct = array_source_item(source_shape, index);
+
+    if (source === source_shape && direct !== undefined) {
+      items.push(direct);
+      continue;
+    }
+
+    items.push({
+      tag: "index",
+      object: source,
+      index: { tag: "num", type: "i32", value: index },
+    });
+  }
+
+  return { tag: "array", items, rest: undefined };
 }
 
 function rewrite_statement(stmt: Stmt, scope: TypeSetScope): Stmt {
@@ -189,6 +752,516 @@ function rewrite_statement(stmt: Stmt, scope: TypeSetScope): Stmt {
   }
 }
 
+function elaborate_match_expr(
+  expr: Extract<FrontExpr, { tag: "match" }>,
+  scope: TypeSetScope,
+): FrontExpr {
+  const target = rewrite_expr(expr.target, scope);
+  const target_shape = resolve_binding_pattern_source(
+    target,
+    scope,
+    new Set(),
+  );
+  const union_type = union_type_for_value(target, scope);
+  validate_match_coverage(expr.arms, union_type);
+  const target_name = fresh_match_target_name(scope);
+  let target_expr: FrontExpr = { tag: "var", name: target_name };
+  let bind_target = true;
+  const first_arm = expr.arms[0];
+
+  if (
+    first_arm !== undefined &&
+    (first_arm.pattern.tag === "product" ||
+      first_arm.pattern.tag === "record" ||
+      first_arm.pattern.tag === "array") &&
+    direct_pattern_projection_source(target)
+  ) {
+    target_expr = target;
+    bind_target = false;
+  }
+
+  let result: FrontExpr = { tag: "unit" };
+
+  for (let index = expr.arms.length - 1; index >= 0; index -= 1) {
+    const arm = expr.arms[index];
+    expect(arm, "Missing match arm " + index.toString());
+    result = elaborate_match_arm(
+      arm,
+      target_expr,
+      target_shape,
+      result,
+      union_type,
+      scope,
+    );
+  }
+
+  const statements: Stmt[] = [];
+
+  if (bind_target) {
+    statements.push({
+      tag: "bind",
+      kind: "let",
+      name: target_name,
+      is_linear: false,
+      annotation: undefined,
+      value: target,
+    });
+  }
+
+  if (result.tag === "block") {
+    statements.push(...result.statements);
+  } else {
+    statements.push({ tag: "expr", expr: result });
+  }
+
+  return { tag: "block", statements };
+}
+
+function direct_pattern_projection_source(expr: FrontExpr): boolean {
+  if (
+    expr.tag === "bool" || expr.tag === "num" || expr.tag === "atom" ||
+    expr.tag === "unit" || expr.tag === "text" || expr.tag === "var"
+  ) {
+    return true;
+  }
+
+  if (expr.tag === "product") {
+    return expr.entries.every((entry) => {
+      return direct_pattern_projection_source(entry.value);
+    });
+  }
+
+  if (expr.tag === "array" && expr.rest === undefined) {
+    return expr.items.every(direct_pattern_projection_source);
+  }
+
+  if (expr.tag === "struct_value") {
+    return expr.fields.every((field) => {
+      return direct_pattern_projection_source(field.value);
+    });
+  }
+
+  return false;
+}
+
+function elaborate_match_arm(
+  arm: MatchArm,
+  target: FrontExpr,
+  target_shape: FrontExpr,
+  fallback: FrontExpr,
+  union_type: Extract<FrontExpr, { tag: "union_type" }> | undefined,
+  scope: TypeSetScope,
+): FrontExpr {
+  if (arm.pattern.tag === "binding") {
+    if (arm.pattern.mode === "linear") {
+      throw new Error(
+        "Linear binding match patterns are not supported during elaboration: " +
+          arm.pattern.name,
+      );
+    }
+
+    const replacements = new Map([[arm.pattern.name, target]]);
+    const guard = substitute_optional_match_expr(arm.guard, replacements);
+    const body = substitute_front_expr(arm.body, replacements);
+    return guarded_match_body(guard, body, fallback, scope);
+  }
+
+  if (arm.pattern.tag === "wildcard") {
+    return guarded_match_body(arm.guard, arm.body, fallback, scope);
+  }
+
+  if (arm.pattern.tag === "unit") {
+    return {
+      tag: "if",
+      cond: {
+        tag: "prim",
+        prim: "i32.eq",
+        left: target,
+        right: { tag: "unit" },
+      },
+      then_branch: guarded_match_body(
+        arm.guard,
+        arm.body,
+        fallback,
+        scope,
+      ),
+      else_branch: fallback,
+    };
+  }
+
+  if (arm.pattern.tag === "literal") {
+    return {
+      tag: "if",
+      cond: match_literal_condition(target, arm.pattern),
+      then_branch: guarded_match_body(
+        arm.guard,
+        arm.body,
+        fallback,
+        scope,
+      ),
+      else_branch: fallback,
+    };
+  }
+
+  if (arm.pattern.tag === "union_case") {
+    const branch = clone_scope(scope);
+    let value_name: string | undefined;
+
+    if (arm.pattern.value?.tag === "binding") {
+      if (arm.pattern.value.mode === "linear") {
+        throw new Error(
+          "Linear union payload patterns are not supported during match elaboration: " +
+            arm.pattern.value.name,
+        );
+      }
+
+      value_name = arm.pattern.value.name;
+      branch.bindings.set(value_name, {
+        annotation: union_case_annotation(union_type, arm.pattern.name),
+        value: undefined,
+      });
+    } else if (
+      arm.pattern.value !== undefined &&
+      arm.pattern.value.tag !== "wildcard" && arm.pattern.value.tag !== "unit"
+    ) {
+      throw new Error(
+        "Unsupported nested match payload pattern for ." +
+          arm.pattern.name + ": " + arm.pattern.value.tag,
+      );
+    }
+
+    return {
+      tag: "if_let",
+      case_name: arm.pattern.name,
+      value_name,
+      target,
+      then_branch: guarded_match_body(
+        arm.guard,
+        arm.body,
+        fallback,
+        branch,
+      ),
+      else_branch: fallback,
+    };
+  }
+
+  if (
+    arm.pattern.tag === "product" || arm.pattern.tag === "record" ||
+    arm.pattern.tag === "array"
+  ) {
+    const branch = clone_scope(scope);
+    const bindings: Stmt[] = [];
+    elaborate_pattern_bindings(
+      arm.pattern,
+      target,
+      target_shape,
+      "let",
+      bindings,
+    );
+
+    if (target === target_shape) {
+      const replacements = new Map<string, FrontExpr>();
+
+      for (const binding of bindings) {
+        if (binding.tag !== "bind") {
+          continue;
+        }
+
+        replacements.set(binding.name, binding.value);
+      }
+
+      const body = rewrite_expr(
+        substitute_front_expr(arm.body, replacements),
+        branch,
+      );
+
+      if (arm.guard === undefined) {
+        return body;
+      }
+
+      return {
+        tag: "if",
+        cond: rewrite_expr(
+          substitute_front_expr(arm.guard, replacements),
+          branch,
+        ),
+        then_branch: body,
+        else_branch: fallback,
+      };
+    }
+
+    const rewritten_bindings = rewrite_statements(bindings, branch);
+    const body = rewrite_expr(arm.body, branch);
+    let result = body;
+
+    if (arm.guard !== undefined) {
+      result = {
+        tag: "if",
+        cond: rewrite_expr(arm.guard, branch),
+        then_branch: body,
+        else_branch: fallback,
+      };
+    }
+
+    return {
+      tag: "block",
+      statements: [
+        ...rewritten_bindings,
+        { tag: "expr", expr: result },
+      ],
+    };
+  }
+
+  arm.pattern satisfies never;
+  throw new Error("Unsupported match pattern during elaboration");
+}
+
+function guarded_match_body(
+  guard: FrontExpr | undefined,
+  body: FrontExpr,
+  fallback: FrontExpr,
+  scope: TypeSetScope,
+): FrontExpr {
+  const rewritten_body = rewrite_expr(body, clone_scope(scope));
+
+  if (guard === undefined) {
+    return rewritten_body;
+  }
+
+  return {
+    tag: "if",
+    cond: rewrite_expr(guard, clone_scope(scope)),
+    then_branch: rewritten_body,
+    else_branch: fallback,
+  };
+}
+
+function substitute_optional_match_expr(
+  expr: FrontExpr | undefined,
+  replacements: Map<string, FrontExpr>,
+): FrontExpr | undefined {
+  if (expr === undefined) {
+    return undefined;
+  }
+
+  return substitute_front_expr(expr, replacements);
+}
+
+function match_literal_condition(
+  target: FrontExpr,
+  pattern: Extract<Pattern, { tag: "literal" }>,
+): FrontExpr {
+  const value = pattern.value;
+
+  if (value.tag === "bool") {
+    return {
+      tag: "prim",
+      prim: "i32.eq",
+      left: target,
+      right: { tag: "bool", value: value.value },
+    };
+  }
+
+  if (value.tag === "num") {
+    let prim: "i32.eq" | "i64.eq" = "i32.eq";
+
+    if (value.type === "i64") {
+      prim = "i64.eq";
+    }
+
+    return {
+      tag: "prim",
+      prim,
+      left: target,
+      right: { tag: "num", type: value.type, value: value.value },
+    };
+  }
+
+  if (value.tag === "text") {
+    return {
+      tag: "prim",
+      prim: "i32.eq",
+      left: target,
+      right: { tag: "text", value: value.value },
+    };
+  }
+
+  return {
+    tag: "prim",
+    prim: "i32.eq",
+    left: target,
+    right: { tag: "atom", name: value.name },
+  };
+}
+
+function validate_match_coverage(
+  arms: MatchArm[],
+  union_type: Extract<FrontExpr, { tag: "union_type" }> | undefined,
+): void {
+  const covered_union_cases = new Set<string>();
+  const covered_literals = new Set<string>();
+  let covers_false = false;
+  let covers_true = false;
+  let has_catch_all = false;
+
+  for (let index = 0; index < arms.length; index += 1) {
+    const arm = arms[index];
+    expect(arm, "Missing match coverage arm " + index.toString());
+
+    if (
+      has_catch_all || (covers_false && covers_true) ||
+      union_coverage_complete(union_type, covered_union_cases)
+    ) {
+      throw new Error("Unreachable match arm " + index.toString());
+    }
+
+    const unguarded = arm.guard === undefined;
+
+    if (
+      arm.pattern.tag === "binding" || arm.pattern.tag === "wildcard"
+    ) {
+      if (unguarded) {
+        has_catch_all = true;
+      }
+      continue;
+    }
+
+    if (
+      arm.pattern.tag === "product" || arm.pattern.tag === "record" ||
+      arm.pattern.tag === "array"
+    ) {
+      continue;
+    }
+
+    if (arm.pattern.tag === "unit") {
+      if (covered_literals.has("unit")) {
+        throw new Error(
+          "Unreachable duplicate unit match at arm " + index.toString(),
+        );
+      }
+
+      if (unguarded) {
+        covered_literals.add("unit");
+      }
+      continue;
+    }
+
+    if (arm.pattern.tag === "literal") {
+      const key = match_literal_key(arm.pattern.value);
+
+      if (covered_literals.has(key)) {
+        throw new Error(
+          "Unreachable duplicate match literal at arm " + index.toString() +
+            ": " + key,
+        );
+      }
+
+      if (unguarded) {
+        covered_literals.add(key);
+
+        if (key === "bool:false") {
+          covers_false = true;
+        } else if (key === "bool:true") {
+          covers_true = true;
+        }
+      }
+      continue;
+    }
+
+    if (arm.pattern.tag === "union_case") {
+      const case_name = arm.pattern.name;
+
+      if (
+        union_type !== undefined &&
+        !union_type.cases.some((item) => item.name === case_name)
+      ) {
+        throw new Error(
+          "Unknown match union case ." + case_name,
+        );
+      }
+
+      if (covered_union_cases.has(case_name)) {
+        throw new Error(
+          "Unreachable duplicate match case at arm " + index.toString() +
+            ": ." + case_name,
+        );
+      }
+
+      if (unguarded) {
+        covered_union_cases.add(case_name);
+      }
+      continue;
+    }
+
+    arm.pattern satisfies never;
+    throw new Error("Unsupported match pattern during coverage analysis");
+  }
+
+  if (
+    has_catch_all || (covers_false && covers_true) ||
+    union_coverage_complete(union_type, covered_union_cases)
+  ) {
+    return;
+  }
+
+  if (union_type !== undefined) {
+    const missing = union_type.cases.filter((item) =>
+      !covered_union_cases.has(item.name)
+    ).map((item) => "." + item.name);
+    throw new Error("Non-exhaustive match, missing " + missing.join(", "));
+  }
+
+  throw new Error(
+    "Non-exhaustive match requires a wildcard or binding arm",
+  );
+}
+
+function union_coverage_complete(
+  union_type: Extract<FrontExpr, { tag: "union_type" }> | undefined,
+  covered: Set<string>,
+): boolean {
+  if (union_type === undefined || union_type.cases.length === 0) {
+    return false;
+  }
+
+  return union_type.cases.every((item) => covered.has(item.name));
+}
+
+function match_literal_key(
+  value: Extract<Pattern, { tag: "literal" }>["value"],
+): string {
+  if (value.tag === "bool") {
+    return "bool:" + value.value.toString();
+  }
+
+  if (value.tag === "num") {
+    return "num:" + value.type + ":" + value.value.toString();
+  }
+
+  if (value.tag === "text") {
+    return "text:" + value.value;
+  }
+
+  return "atom:" + value.name;
+}
+
+function union_case_annotation(
+  union_type: Extract<FrontExpr, { tag: "union_type" }> | undefined,
+  case_name: string,
+): string | undefined {
+  if (union_type === undefined) {
+    return undefined;
+  }
+
+  const union_case = union_type.cases.find((item) => item.name === case_name);
+
+  if (union_case === undefined) {
+    return undefined;
+  }
+
+  return member_annotation(union_case.set_member) || union_case.type_name;
+}
+
 function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
   switch (expr.tag) {
     case "bool":
@@ -218,19 +1291,187 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
         ...param,
         annotation: lower_direct_type_set_annotation(param.annotation, scope),
       }));
+
+      if (
+        expr.tag === "rec" &&
+        function_pattern_requires_projection(expr.pattern, params)
+      ) {
+        const pattern = expr.pattern;
+        expect(pattern, "Missing function parameter pattern");
+        const param_name = fresh_pattern_parameter_name(scope);
+        const is_linear = pattern_bindings(pattern).some((binding) => {
+          return binding.mode === "linear";
+        });
+        let type_annotation: TypeExpr | undefined;
+
+        if (pattern.tag === "product") {
+          const entries: Extract<TypeExpr, { tag: "product" }>["entries"] = [];
+
+          for (const entry of pattern.entries) {
+            if (entry.pattern.tag !== "binding") {
+              entries.length = 0;
+              break;
+            }
+
+            let entry_type = entry.pattern.type_annotation;
+
+            if (
+              entry_type === undefined &&
+              entry.pattern.annotation !== undefined
+            ) {
+              entry_type = {
+                tag: "name",
+                name: entry.pattern.annotation,
+              };
+            }
+
+            if (entry_type === undefined) {
+              entries.length = 0;
+              break;
+            }
+
+            entries.push({ label: entry.label, type_expr: entry_type });
+          }
+
+          if (entries.length === pattern.entries.length) {
+            type_annotation = { tag: "product", entries };
+          }
+        }
+
+        const param: Param = {
+          name: param_name,
+          is_const: false,
+          is_linear,
+          annotation: undefined,
+        };
+
+        if (type_annotation !== undefined) {
+          param.type_annotation = type_annotation;
+        }
+        const body_scope = scope_for_params([param], scope);
+        const bindings: Stmt[] = [];
+        elaborate_pattern_bindings(
+          pattern,
+          { tag: "var", name: param_name },
+          undefined,
+          undefined,
+          bindings,
+        );
+        const rewritten_bindings = rewrite_statements(bindings, body_scope);
+        const body = rewrite_expr(expr.body, body_scope);
+        return {
+          ...expr,
+          pattern,
+          params: [param],
+          body: {
+            tag: "block",
+            statements: [
+              ...rewritten_bindings,
+              { tag: "expr", expr: body },
+            ],
+          },
+        };
+      }
+
       const body_scope = scope_for_params(params, scope);
       return { ...expr, params, body: rewrite_expr(expr.body, body_scope) };
     }
 
     case "app": {
       const func = rewrite_expr(expr.func, scope);
-      const args = expr.args.map((arg) => rewrite_expr(arg, scope));
+      let arg = expr.arg;
+
+      if (arg !== undefined) {
+        arg = rewrite_expr(arg, scope);
+      }
+
+      let args = expr.args.map((item) => rewrite_expr(item, scope));
+
+      if (func.tag === "union_case" && func.value === undefined) {
+        if (arg !== undefined && arg.tag !== "unit") {
+          return { ...func, value: arg };
+        }
+
+        if (args.length === 1) {
+          const value = args[0];
+          expect(value, "Missing shorthand union constructor payload");
+          return { ...func, value };
+        }
+      }
+
+      args = inject_type_set_call_arguments(func, args, scope);
+
+      if (arg !== undefined) {
+        if (arg.tag === "product" && func.tag !== "field") {
+          arg = {
+            ...arg,
+            entries: arg.entries.map((entry, index) => {
+              const value = args[index];
+              expect(value, "Missing elaborated product call argument");
+              return { ...entry, value };
+            }),
+          };
+        } else if (arg.tag !== "unit" && args.length === 1) {
+          const value = args[0];
+          expect(value, "Missing elaborated unary call argument");
+          arg = value;
+        }
+      }
+
+      if (
+        arg !== undefined && function_uses_projected_parameter(func, scope)
+      ) {
+        args = [arg];
+      }
+
       return {
         ...expr,
         func,
-        args: inject_type_set_call_arguments(func, args, scope),
+        arg,
+        args,
       };
     }
+
+    case "product":
+      return {
+        ...expr,
+        entries: expr.entries.map((entry) => ({
+          ...entry,
+          value: rewrite_expr(entry.value, scope),
+        })),
+      };
+
+    case "array": {
+      let rest = expr.rest;
+
+      if (rest !== undefined) {
+        rest = rewrite_expr(rest, scope);
+      }
+
+      return {
+        ...expr,
+        items: expr.items.map((item) => rewrite_expr(item, scope)),
+        rest,
+      };
+    }
+
+    case "array_repeat": {
+      const rewritten: Extract<FrontExpr, { tag: "array_repeat" }> = {
+        ...expr,
+        value: rewrite_expr(expr.value, scope),
+        length: rewrite_expr(expr.length, scope),
+      };
+      return rewrite_expr(
+        elaborate_array_repeat_expr(
+          rewritten,
+          fresh_array_repeat_name(scope),
+        ),
+        scope,
+      );
+    }
+
+    case "import":
+      return expr;
 
     case "block":
       return {
@@ -350,6 +1591,17 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
 
     case "is":
       return lower_is_boolean(expr, scope);
+
+    case "as": {
+      const rewritten: Extract<FrontExpr, { tag: "as" }> = {
+        ...expr,
+        value: rewrite_expr(expr.value, scope),
+      };
+      return rewrite_expr(elaborate_product_as_expr(rewritten), scope);
+    }
+
+    case "match":
+      return elaborate_match_expr(expr, scope);
 
     case "union_case": {
       let value = expr.value;
@@ -1125,6 +2377,21 @@ function substitute_scope_type_expr(
         ),
       };
 
+    case "product":
+      return {
+        tag: "product",
+        entries: type.entries.map((entry) => ({
+          ...entry,
+          type_expr: substitute_scope_type_expr(entry.type_expr, type_args),
+        })),
+      };
+
+    case "array":
+      return {
+        ...type,
+        element: substitute_scope_type_expr(type.element, type_args),
+      };
+
     case "arrow":
       return {
         ...type,
@@ -1491,6 +2758,30 @@ function clone_scope(scope: TypeSetScope): TypeSetScope {
 
 function fresh_is_payload_name(name: string, scope: TypeSetScope): string {
   const fresh = "_" + name + "#is" + scope.fresh.next.toString();
+  scope.fresh.next += 1;
+  return fresh;
+}
+
+function fresh_match_target_name(scope: TypeSetScope): string {
+  const fresh = "_match#target" + scope.fresh.next.toString();
+  scope.fresh.next += 1;
+  return fresh;
+}
+
+function fresh_pattern_source_name(scope: TypeSetScope): string {
+  const fresh = "_pattern#source" + scope.fresh.next.toString();
+  scope.fresh.next += 1;
+  return fresh;
+}
+
+function fresh_pattern_parameter_name(scope: TypeSetScope): string {
+  const fresh = "_pattern#param" + scope.fresh.next.toString();
+  scope.fresh.next += 1;
+  return fresh;
+}
+
+function fresh_array_repeat_name(scope: TypeSetScope): string {
+  const fresh = "_array_repeat#value" + scope.fresh.next.toString();
   scope.fresh.next += 1;
   return fresh;
 }

@@ -160,16 +160,16 @@ Deno.test("code actions widen mixed integer operands", () => {
 });
 
 Deno.test("code actions complete concrete struct fields and union payloads", () => {
-  const struct_before = "type User = [.name = Text, .age = Int]\n" +
-    'let user = [.name = "Ada"]\nuser.age\n';
+  const struct_before = "type User = (.name = Text, .age = Int)\n" +
+    'let user = (.name = "Ada")\nuser.age\n';
   const struct_action = actions(struct_before).actions.find((candidate) =>
     candidate.title === "Add missing field age"
   );
   expect(struct_action !== undefined, "Expected missing-field quick fix");
   assert_equals(
     apply(struct_before, struct_action),
-    "type User = [.name = Text, .age = Int]\n" +
-      'let user = [.name = "Ada", .age = 0]\nuser.age\n',
+    "type User = (.name = Text, .age = Int)\n" +
+      'let user = (.name = "Ada", .age = 0)\nuser.age\n',
   );
   const union_before = "type Result = .ok = Int | .err = Text\n" +
     'let result = Result.ok("wrong")\n';
@@ -237,7 +237,7 @@ Deno.test("code actions lift an escaping scratch result to owned storage", () =>
   );
   expect(lift !== undefined, "Expected scratch escape quick fix");
   const after = apply(before, lift);
-  assert_equals(after, 'append("a", "b")\n');
+  assert_equals(after, 'append ("a", "b")\n');
   assert_equals(Source.analyze(after, { route: "core" }).diagnostics, []);
 });
 
@@ -291,8 +291,8 @@ Deno.test("code actions complete missing handler clauses", () => {
   assert_equals(
     after,
     "effect Counter { add: (I32) => Unit, get: () => I32 }\n" +
-      "let counter = Counter { add: (arg1, !resume) => !resume(()), " +
-      "get: (!resume) => !resume(0), return: value => value }\n",
+      "let counter = Counter { add: (arg1, !resume) => !resume (), " +
+      "get: (!resume) => !resume 0, return: value => value }\n",
   );
   assert_equals(Source.analyze(after).diagnostics, []);
 });
@@ -310,7 +310,7 @@ Deno.test("code actions use false for a missing Bool handler result", () => {
   assert_equals(
     after,
     "effect Choice { decide: () => Bool }\n" +
-      "let choice = Choice { decide: (!resume) => !resume(false), " +
+      "let choice = Choice { decide: (!resume) => !resume false, " +
       "return: value => value }\n",
   );
   assert_equals(Source.analyze(after).diagnostics, []);

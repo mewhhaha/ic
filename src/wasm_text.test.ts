@@ -9,7 +9,7 @@ import {
 Deno.test("frontend dynamic visible text get compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_source(`
 let rename = value => {
-  value {
+  value with {
     second: "Grace"
   }
 }

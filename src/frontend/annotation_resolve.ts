@@ -123,6 +123,8 @@ function direct_annotation_front_type(
 
     case "apply":
     case "tuple":
+    case "product":
+    case "array":
     case "arrow":
       return undefined;
   }

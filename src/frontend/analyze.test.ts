@@ -142,7 +142,7 @@ const failure_goldens = [
   {
     code: "IX2501",
     message: "Import ./missing_import_dependency.ix does not export missing",
-    span: { start: 0, end: 52 },
+    span: { start: 65, end: 76 },
   },
 ];
 
@@ -179,10 +179,9 @@ Deno.test("Source.analyze_file matches every compile-failure golden", () => {
   }
 });
 
-Deno.test("Source.analyze keeps every successful example route-agnostic", async () => {
+Deno.test("Source.analyze keeps every successful example route-agnostic", () => {
   for (const example of success_examples) {
-    const text = await Deno.readTextFile(example.path);
-    const analysis = Source.analyze(text);
+    const analysis = Source.analyze_file(example.path);
     assert_equals(analysis.diagnostics, []);
   }
 });
@@ -219,13 +218,13 @@ Deno.test("Source.analyze keeps Core diagnostics enabled with imports", async ()
   const scratch = await Deno.readTextFile(
     "examples/failures/compile/10_scratch_heap_escape.ix",
   );
-  const text = 'import available from "./dep.ix"\n' + scratch;
+  const text = 'const available = import "./dep.ix"\n' + scratch;
   const analysis = Source.analyze(text, {
     route: "core",
     uri: "file:///main.ix",
     resolve_import: (uri) => {
       if (uri === "file:///dep.ix") {
-        return "const available = 1";
+        return "module () where\nreturn { available: 1 }";
       }
 
       return undefined;
@@ -236,7 +235,7 @@ Deno.test("Source.analyze keeps Core diagnostics enabled with imports", async ()
   assert_equals(analysis.diagnostics[0]?.code, "IX2403");
   assert_equals(
     analysis.diagnostics[0]?.span,
-    { start: 33, end: 63 },
+    { start: 36, end: 66 },
   );
 });
 

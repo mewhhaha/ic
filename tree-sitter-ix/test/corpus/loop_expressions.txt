@@ -5,13 +5,18 @@ let result = loop {
   break 42
 }
 ---
+
 (source_file
   (binding_statement
     (identifier)
-    (loop_expression
-      (block
-        (break_statement
-          (number))))))
+    (application_expression
+      (postfix_expression
+        (identifier))
+      (postfix_expression
+        (block
+          (break_statement
+            (postfix_expression
+              (number))))))))
 
 ==================
 Wildcard and binderless ranges
@@ -23,16 +28,18 @@ for 0..2 {
   ()
 }
 ---
+
 (source_file
   (for_statement
     (wildcard)
-        (condition_expression
-          (number))
+    (condition_expression
+      (number))
     (condition_expression
       (number))
     (block
       (expression_statement
-        (unit_pattern))))
+        (postfix_expression
+          (unit_pattern)))))
   (for_statement
     (condition_expression
       (number))
@@ -40,7 +47,8 @@ for 0..2 {
       (number))
     (block
       (expression_statement
-        (unit_pattern)))))
+        (postfix_expression
+          (unit_pattern))))))
 
 ==================
 Break without a value
@@ -49,11 +57,15 @@ loop {
   break
 }
 ---
+
 (source_file
   (expression_statement
-    (loop_expression
-      (block
-        (break_statement)))))
+    (application_expression
+      (postfix_expression
+        (identifier))
+      (postfix_expression
+        (block
+          (break_statement))))))
 
 ==================
 Bare break does not consume the next line
@@ -63,13 +75,18 @@ loop {
   42
 }
 ---
+
 (source_file
   (expression_statement
-    (loop_expression
-      (block
-        (break_statement)
-        (expression_statement
-          (number))))))
+    (application_expression
+      (postfix_expression
+        (identifier))
+      (postfix_expression
+        (block
+          (break_statement)
+          (expression_statement
+            (postfix_expression
+              (number))))))))
 
 ==================
 No-demand binding positions
@@ -79,10 +96,12 @@ let ignore = (_, const _) => 2
 const { _, value } = pair
 let selected = if let .ok(_) = result { 1 } else { 0 }
 ---
+
 (source_file
   (binding_statement
     (wildcard)
-    (number))
+    (postfix_expression
+      (number)))
   (binding_statement
     (identifier)
     (arrow_function
@@ -91,12 +110,14 @@ let selected = if let .ok(_) = result { 1 } else { 0 }
           (wildcard))
         (parameter
           (wildcard)))
-      (number)))
+      (postfix_expression
+        (number))))
   (binding_statement
     (destructuring_pattern
       (wildcard)
       (identifier))
-    (identifier))
+    (postfix_expression
+      (identifier)))
   (binding_statement
     (identifier)
     (if_expression
@@ -107,10 +128,12 @@ let selected = if let .ok(_) = result { 1 } else { 0 }
         (identifier))
       (block
         (expression_statement
-          (number)))
+          (postfix_expression
+            (number))))
       (block
         (expression_statement
-          (number))))))
+          (postfix_expression
+            (number)))))))
 
 ==================
 Loop remains a contextual keyword
@@ -118,15 +141,20 @@ Loop remains a contextual keyword
 let loop = value => value
 loop(42)
 ---
+
 (source_file
   (binding_statement
     (identifier)
     (arrow_function
       (parameter
         (identifier))
-      (identifier)))
+      (postfix_expression
+        (identifier))))
   (expression_statement
-    (call_expression
-      (identifier)
-      (argument_list
-        (number)))))
+    (application_expression
+      (postfix_expression
+        (identifier))
+      (parenthesized_or_product
+        (parenthesized_expression
+          (postfix_expression
+            (number)))))))

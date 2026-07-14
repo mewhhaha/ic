@@ -182,7 +182,7 @@ File-module forms:
 module () where
 module (!init: Init) where
 
-import logger from "./logger.ix"
+const logger = import "./logger.ix"
 const { write } = logger({ io: !init.io })
 
 return { write }
@@ -346,7 +346,7 @@ The entry module receives the sole root authority from JavaScript:
 ```txt
 module (!init: Init) where
 
-import console from "./console.ix"
+const console = import "./console.ix"
 const { greet } = console({ io: !init.io })
 result <- greet("Ada")
 
@@ -441,7 +441,7 @@ text, host effects, closures, and aggregate behavior.
 
 ### Managed JavaScript host ABI
 
-`Source.artifact` emits the `ix-js-2` manifest and a module with exported
+`Source.artifact` emits the `ix-js-3` manifest and a module with exported
 `memory`, `__ix_abi_alloc`, `__ix_abi_free`, and `__ix_abi_main`. Instantiate
 that artifact through `IxHost` to receive JavaScript values instead of raw Wasm
 pointers:

@@ -23,6 +23,7 @@ function validate_rec_expr(expr: FrontExpr, tail: boolean): void {
     case "linear":
     case "struct_type":
     case "union_type":
+    case "import":
     case "unsupported":
       return;
 
@@ -42,6 +43,27 @@ function validate_rec_expr(expr: FrontExpr, tail: boolean): void {
         validate_rec_expr(arg, false);
       }
 
+      return;
+
+    case "product":
+      for (const entry of expr.entries) {
+        validate_rec_expr(entry.value, false);
+      }
+      return;
+
+    case "array":
+      for (const item of expr.items) {
+        validate_rec_expr(item, false);
+      }
+
+      if (expr.rest !== undefined) {
+        validate_rec_expr(expr.rest, false);
+      }
+      return;
+
+    case "array_repeat":
+      validate_rec_expr(expr.value, false);
+      validate_rec_expr(expr.length, false);
       return;
 
     case "block":
@@ -118,6 +140,22 @@ function validate_rec_expr(expr: FrontExpr, tail: boolean): void {
     case "index":
       validate_rec_expr(expr.object, false);
       validate_rec_expr(expr.index, false);
+      return;
+
+    case "as":
+      validate_rec_expr(expr.value, false);
+      return;
+
+    case "match":
+      validate_rec_expr(expr.target, false);
+
+      for (const arm of expr.arms) {
+        if (arm.guard !== undefined) {
+          validate_rec_expr(arm.guard, false);
+        }
+
+        validate_rec_expr(arm.body, tail);
+      }
       return;
 
     case "union_case":

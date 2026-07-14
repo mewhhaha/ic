@@ -1,6 +1,7 @@
 import type { Env, FrontExpr, Stmt } from "./ast.ts";
 import type { CallSpecializeHooks } from "./call_specialize_types.ts";
 import { lookup_field } from "./fields.ts";
+import { shadow_pattern_names } from "./pattern.ts";
 
 export function contains_unresolved_linear_effect(
   expr: FrontExpr,
@@ -25,6 +26,80 @@ export function contains_unresolved_linear_effect(
 
     case "is":
       return contains_unresolved_linear_effect(expr.value, names, env, hooks);
+
+    case "as":
+      return contains_unresolved_linear_effect(expr.value, names, env, hooks);
+
+    case "product":
+      for (const entry of expr.entries) {
+        if (
+          contains_unresolved_linear_effect(entry.value, names, env, hooks)
+        ) {
+          return true;
+        }
+      }
+
+      return false;
+
+    case "array":
+      for (const item of expr.items) {
+        if (contains_unresolved_linear_effect(item, names, env, hooks)) {
+          return true;
+        }
+      }
+
+      if (expr.rest !== undefined) {
+        return contains_unresolved_linear_effect(
+          expr.rest,
+          names,
+          env,
+          hooks,
+        );
+      }
+
+      return false;
+
+    case "array_repeat":
+      return contains_unresolved_linear_effect(
+        expr.value,
+        names,
+        env,
+        hooks,
+      ) || contains_unresolved_linear_effect(
+        expr.length,
+        names,
+        env,
+        hooks,
+      );
+
+    case "import":
+      return false;
+
+    case "match":
+      if (
+        contains_unresolved_linear_effect(expr.target, names, env, hooks)
+      ) {
+        return true;
+      }
+
+      for (const arm of expr.arms) {
+        const local = shadow_pattern_names(names, arm.pattern);
+
+        if (
+          arm.guard !== undefined &&
+          contains_unresolved_linear_effect(arm.guard, local, env, hooks)
+        ) {
+          return true;
+        }
+
+        if (
+          contains_unresolved_linear_effect(arm.body, local, env, hooks)
+        ) {
+          return true;
+        }
+      }
+
+      return false;
 
     case "prim":
       return contains_unresolved_linear_effect(expr.left, names, env, hooks) ||

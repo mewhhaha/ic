@@ -18,6 +18,55 @@ export function expr_contains_linear(expr: FrontExpr): boolean {
     case "is":
       return expr_contains_linear(expr.value);
 
+    case "as":
+      return expr_contains_linear(expr.value);
+
+    case "product":
+      for (const entry of expr.entries) {
+        if (expr_contains_linear(entry.value)) {
+          return true;
+        }
+      }
+
+      return false;
+
+    case "array":
+      for (const item of expr.items) {
+        if (expr_contains_linear(item)) {
+          return true;
+        }
+      }
+
+      if (expr.rest !== undefined) {
+        return expr_contains_linear(expr.rest);
+      }
+
+      return false;
+
+    case "array_repeat":
+      return expr_contains_linear(expr.value) ||
+        expr_contains_linear(expr.length);
+
+    case "import":
+      return false;
+
+    case "match":
+      if (expr_contains_linear(expr.target)) {
+        return true;
+      }
+
+      for (const arm of expr.arms) {
+        if (arm.guard !== undefined && expr_contains_linear(arm.guard)) {
+          return true;
+        }
+
+        if (expr_contains_linear(arm.body)) {
+          return true;
+        }
+      }
+
+      return false;
+
     case "linear":
       return true;
 

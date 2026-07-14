@@ -1,5 +1,6 @@
 import type { Field, FrontExpr, Stmt } from "../ast.ts";
 import { expr_root_is_named } from "./root.ts";
+import { shadow_pattern_names } from "../pattern.ts";
 
 export function expr_collects_from_names(
   expr: FrontExpr,
@@ -57,6 +58,35 @@ export function expr_collects_from_names(
         }
       }
 
+      return false;
+
+    case "product":
+      for (const entry of expr.entries) {
+        if (expr_collects_from_names(entry.value, names)) {
+          return true;
+        }
+      }
+
+      return false;
+
+    case "array":
+      for (const item of expr.items) {
+        if (expr_collects_from_names(item, names)) {
+          return true;
+        }
+      }
+
+      if (expr.rest !== undefined) {
+        return expr_collects_from_names(expr.rest, names);
+      }
+
+      return false;
+
+    case "array_repeat":
+      return expr_collects_from_names(expr.value, names) ||
+        expr_collects_from_names(expr.length, names);
+
+    case "import":
       return false;
 
     case "comptime":
@@ -158,6 +188,28 @@ export function expr_collects_from_names(
       return expr_collects_from_names(expr.then_branch, local);
     }
 
+    case "match":
+      if (expr_collects_from_names(expr.target, names)) {
+        return true;
+      }
+
+      for (const arm of expr.arms) {
+        const local = shadow_pattern_names(names, arm.pattern);
+
+        if (
+          arm.guard !== undefined &&
+          expr_collects_from_names(arm.guard, local)
+        ) {
+          return true;
+        }
+
+        if (expr_collects_from_names(arm.body, local)) {
+          return true;
+        }
+      }
+
+      return false;
+
     case "field":
       if (expr_root_is_named(expr.object, names)) {
         return true;
@@ -201,6 +253,7 @@ export function expr_collects_from_names(
       return false;
 
     case "is":
+    case "as":
       return expr_collects_from_names(expr.value, names);
   }
 }

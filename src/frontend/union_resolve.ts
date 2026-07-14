@@ -220,17 +220,26 @@ export function resolve_union_constructor_call(
   }
 
   let value: FrontExpr | undefined;
+  let args = expr.args;
+
+  if (expr.arg) {
+    if (expr.arg.tag === "unit") {
+      args = [];
+    } else {
+      args = [expr.arg];
+    }
+  }
 
   if (union_case.type_name === "Unit") {
-    if (expr.args.length !== 0) {
+    if (args.length !== 0) {
       throw new Error("Union case " + expr.func.name + " expects no payload");
     }
   } else {
-    if (expr.args.length !== 1) {
+    if (args.length !== 1) {
       throw new Error("Union case " + expr.func.name + " expects 1 payload");
     }
 
-    value = expr.args[0];
+    value = args[0];
     expect(value, "Missing union case payload");
     validate_union_payload_type(
       expr.func.name,

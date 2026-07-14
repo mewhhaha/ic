@@ -6,7 +6,10 @@ import type {
 import type { Declaration, Source, TypeField } from "../frontend/ast.ts";
 import type { SourceSyntax } from "../frontend/syntax.ts";
 import { front_type_name } from "../frontend/types.ts";
-import { attached_documentation } from "./documentation.ts";
+import {
+  attached_documentation,
+  render_documentation,
+} from "./documentation.ts";
 import { type_entity_layout } from "./type_layout.ts";
 
 export type CompletionItemData = {
@@ -261,7 +264,7 @@ export function resolve_completion_item(
   );
 
   if (documentation !== undefined) {
-    sections.push(documentation);
+    sections.push(render_documentation(documentation));
   }
 
   const layout = type_entity_layout(source, entity);
@@ -702,7 +705,9 @@ function handler_context(
 function import_path_prefix(text: string, offset: number): string | undefined {
   const line_start = text.lastIndexOf("\n", offset - 1) + 1;
   const line = text.slice(line_start, offset);
-  const match = /^\s*import\s+[a-z][a-z0-9_]*\s+from\s+"([^"]*)$/.exec(line);
+  const match = /(?:^|\b)import\s+(?:[a-z][a-z0-9_]*\s+from\s+)?"([^"]*)$/.exec(
+    line,
+  );
 
   if (match === null) {
     return undefined;

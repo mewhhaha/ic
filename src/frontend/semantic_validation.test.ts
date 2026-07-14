@@ -99,7 +99,7 @@ Deno.test("semantic validation keeps nested width errors structured and singular
 
 Deno.test("semantic validation does not re-infer an invalid indexed branch", () => {
   const source = parse_source(
-    "let pair=[.a=true,.b=1]\nif true { pair[input] } else { 0 }",
+    "let pair=(.a=true,.b=1)\nif true { pair[input] } else { 0 }",
   );
 
   assert_equals(validate_frontend_semantics(source), [{

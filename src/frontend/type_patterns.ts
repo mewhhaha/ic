@@ -173,6 +173,21 @@ function substitute_type_set_member(
         ),
       };
 
+    case "product":
+      return {
+        tag: "product",
+        entries: type.entries.map((entry) => ({
+          ...entry,
+          type_expr: substitute_type_set_member(entry.type_expr, env, hooks),
+        })),
+      };
+
+    case "array":
+      return {
+        ...type,
+        element: substitute_type_set_member(type.element, env, hooks),
+      };
+
     case "arrow":
       return {
         ...type,

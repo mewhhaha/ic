@@ -1,6 +1,6 @@
 module (!init: Init) where
 
-import logger from "./logger.ix"
+const logger = import "./logger.ix"
 
 const { write } = logger({ io: !init.io })
 _ <- write("hello from Ix")

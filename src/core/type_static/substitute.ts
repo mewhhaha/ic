@@ -416,6 +416,24 @@ function substitute_core_type_set_member(
         ),
       };
 
+    case "product":
+      return {
+        tag: "product",
+        entries: type.entries.map((entry) => ({
+          ...entry,
+          type_expr: substitute_core_type_set_member(
+            entry.type_expr,
+            type_args,
+          ),
+        })),
+      };
+
+    case "array":
+      return {
+        ...type,
+        element: substitute_core_type_set_member(type.element, type_args),
+      };
+
     case "arrow":
       return {
         ...type,

@@ -9,6 +9,7 @@ import {
   type SourceSpan,
   type SourceSyntax,
 } from "../frontend/syntax.ts";
+import { source_tokens } from "../frontend/tokenize.ts";
 import { type PositionEncoding, PositionIndex } from "./position.ts";
 
 export const semantic_token_types = [
@@ -236,7 +237,7 @@ function absolute_tokens(
 
     if (
       inside_intervals(occurrence.span, comptime) ||
-      const_call_occurrence(syntax.text, occurrence, entity)
+      const_call_occurrence(syntax, occurrence, entity)
     ) {
       modifiers |= modifier_bit("comptime");
     }
@@ -388,7 +389,7 @@ function inside_intervals(span: SourceSpan, intervals: SourceSpan[]): boolean {
 }
 
 function const_call_occurrence(
-  text: string,
+  syntax: SourceSyntax,
   occurrence: BindingOccurrence,
   entity: BindingEntity,
 ): boolean {
@@ -396,19 +397,23 @@ function const_call_occurrence(
     return false;
   }
 
-  let offset = occurrence.span.end;
+  const tokens = source_tokens(syntax);
+  const next = tokens.find((token) => token.span.start >= occurrence.span.end);
 
-  while (offset < text.length) {
-    const character = text[offset];
-
-    if (character !== " " && character !== "\t") {
-      break;
-    }
-
-    offset += 1;
+  if (next === undefined || next.kind === "newline") {
+    return false;
   }
 
-  return text[offset] === "(";
+  if (
+    next.kind === "number" || next.kind === "string" ||
+    next.kind === "character" || next.kind === "name"
+  ) {
+    return true;
+  }
+
+  return next.kind === "symbol" &&
+    (next.text === "(" || next.text === "[" || next.text === "." ||
+      next.text === "#");
 }
 
 function encode_tokens(tokens: AbsoluteToken[]): number[] {

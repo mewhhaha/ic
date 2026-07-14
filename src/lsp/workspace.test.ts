@@ -20,11 +20,11 @@ Deno.test("workspace discovers marker roots, imports, and overlay precedence", a
     );
     await Deno.writeTextFile(
       root_path + "/src/b.ix",
-      'import a from "./a.ix"\nlet value = a.exported\n',
+      'const a = import "./a.ix"\nlet value = a.exported\n',
     );
     await Deno.writeTextFile(
       root_path + "/src/c.ix",
-      'import b from "./b.ix"\nlet value = b.value\n',
+      'const b = import "./b.ix"\nlet value = b.value\n',
     );
     await Deno.writeTextFile(
       root_path + "/src/unrelated.ix",
@@ -51,7 +51,7 @@ Deno.test("workspace discovers marker roots, imports, and overlay precedence", a
     const overlay: TextDocument = {
       uri: b_uri,
       version: 2,
-      text: 'import a from "./a.ix"\nlet value = a.exported + 1\n',
+      text: 'const a = import "./a.ix"\nlet value = a.exported + 1\n',
     };
     assert_equals(model.text(b_uri, [overlay]), overlay.text);
     assert_equals(
@@ -69,7 +69,7 @@ Deno.test("workspace navigation follows and renames imported members", async () 
   try {
     await Deno.writeTextFile(root_path + "/AGENTS.md", "workspace\n");
     const a_text = "let exported = 1\nexported\n";
-    const b_text = 'import a from "./a.ix"\nlet value = a.exported\n';
+    const b_text = 'const a = import "./a.ix"\nlet value = a.exported\n';
     await Deno.writeTextFile(root_path + "/a.ix", a_text);
     await Deno.writeTextFile(root_path + "/b.ix", b_text);
     const a_uri = file_uri(root_path + "/a.ix");

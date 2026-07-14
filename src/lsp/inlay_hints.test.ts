@@ -119,6 +119,22 @@ Deno.test("inlay effect hints snapshot inferred row and result", () => {
   }]);
 });
 
+Deno.test("inlay type hints annotate state binding names", () => {
+  const text = "declare effect Io { read: () => Text }\n" +
+    "let greet = () => {\n" +
+    "  value <- Io.read()\n" +
+    "  value\n" +
+    "}\n";
+
+  assert_equals(dump(hints(text, category_config("types"))), [{
+    line: 2,
+    character: 7,
+    label: ": Text",
+    kind: 1,
+    category: "types",
+  }]);
+});
+
 Deno.test("inlay ownership hints snapshot call boundaries", () => {
   const text = "declare effect Host { send: (&Text, #Text, Text) => Unit }\n" +
     'let value = "x"\n' +

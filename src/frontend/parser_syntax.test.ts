@@ -15,6 +15,12 @@ Deno.test("tolerant parser keeps later top-level statements after failures", () 
     is_recursive: false,
     is_linear: false,
     annotation: undefined,
+    pattern: {
+      tag: "binding",
+      name: "valid",
+      mode: "default",
+      annotation: undefined,
+    },
     value: { tag: "num", type: "i32", value: 4 },
   }]);
   assert_equals(source_syntax(parsed.source), parsed.syntax);
@@ -108,7 +114,7 @@ Deno.test("parser supplies spans for every reachable AST object", () => {
 });
 
 Deno.test("strict and tolerant parsing share syntax and concrete source spans", () => {
-  const text = "type Pair = [.left = Int, .right = Int]\nlet value = 1 + 2\n";
+  const text = "type Pair = (.left = Int, .right = Int)\nlet value = 1 + 2\n";
   const strict = parse_source(text);
   const tolerant = parse_source_with_diagnostics(text);
 
@@ -125,7 +131,7 @@ Deno.test("strict and tolerant parsing share syntax and concrete source spans", 
 
   assert_equals(
     text.slice(source_span(declaration).start, source_span(declaration).end),
-    "type Pair = [.left = Int, .right = Int]",
+    "type Pair = (.left = Int, .right = Int)",
   );
   assert_equals(
     text.slice(source_span(statement).start, source_span(statement).end),
@@ -167,7 +173,7 @@ Deno.test("transparent parentheses preserve the inner expression span", () => {
 
 Deno.test("declaration members retain exact concrete spans", () => {
   const text = [
-    "type Pair = [.left = Int, .right = Int]",
+    "type Pair = (.left = Int, .right = Int)",
     "type Maybe = | .some = Int | .none",
     "declare effect Io { write: (&Text, I32) => #Text }",
     "",

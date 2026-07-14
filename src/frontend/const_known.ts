@@ -1,6 +1,7 @@
 import type { Env, FrontExpr, Stmt } from "./ast.ts";
 import { is_const_builtin_name } from "./constness.ts";
 import { lookup } from "./env.ts";
+import { pattern_bindings } from "./pattern.ts";
 
 export function is_const_expr_known(
   expr: FrontExpr,
@@ -21,6 +22,64 @@ export function is_const_expr_known(
 
     case "is":
       return is_const_expr_known(expr.value, env, bound);
+
+    case "as":
+      return is_const_expr_known(expr.value, env, bound);
+
+    case "product":
+      for (const entry of expr.entries) {
+        if (!is_const_expr_known(entry.value, env, bound)) {
+          return false;
+        }
+      }
+
+      return true;
+
+    case "array":
+      for (const item of expr.items) {
+        if (!is_const_expr_known(item, env, bound)) {
+          return false;
+        }
+      }
+
+      if (expr.rest !== undefined) {
+        return is_const_expr_known(expr.rest, env, bound);
+      }
+
+      return true;
+
+    case "array_repeat":
+      return is_const_expr_known(expr.value, env, bound) &&
+        is_const_expr_known(expr.length, env, bound);
+
+    case "import":
+      return true;
+
+    case "match":
+      if (!is_const_expr_known(expr.target, env, bound)) {
+        return false;
+      }
+
+      for (const arm of expr.arms) {
+        const local = new Set(bound);
+
+        for (const binding of pattern_bindings(arm.pattern)) {
+          local.add(binding.name);
+        }
+
+        if (
+          arm.guard !== undefined &&
+          !is_const_expr_known(arm.guard, env, local)
+        ) {
+          return false;
+        }
+
+        if (!is_const_expr_known(arm.body, env, local)) {
+          return false;
+        }
+      }
+
+      return true;
 
     case "var": {
       if (bound.has(expr.name)) {

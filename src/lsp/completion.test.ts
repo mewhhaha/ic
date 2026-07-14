@@ -31,8 +31,8 @@ function item_shape(item: LspCompletionItem) {
 
 Deno.test("completion lists exactly the known typed struct fields", () => {
   const result = complete(
-    "type User = [.name = Text, .age = Int]\n" +
-      'let user: User = [.name = "Ada", .age = 42]\nuser.',
+    "type User = (.name = Text, .age = Int)\n" +
+      'let user: User = (.name = "Ada", .age = 42)\nuser.',
   );
 
   assert_equals(result.items.map(item_shape), [{
@@ -135,7 +135,7 @@ Deno.test("completion filters keyword snippets by statement prefix", () => {
 });
 
 Deno.test("completion lists sibling import paths deterministically", () => {
-  const result = complete('import item from "d', {
+  const result = complete('let item = import "d', {
     import_paths: ["./alpha.ix", "./dep.ix", "./delta.ix"],
   });
   assert_equals(result, {
@@ -156,9 +156,20 @@ Deno.test("completion lists sibling import paths deterministically", () => {
   });
 });
 
+Deno.test("completion lists paths inside import expressions", () => {
+  const result = complete('let module = import "./d', {
+    import_paths: ["./alpha.ix", "./dep.ix", "./delta.ix"],
+  });
+
+  assert_equals(result.items.map((item) => item.label), [
+    "./dep.ix",
+    "./delta.ix",
+  ]);
+});
+
 Deno.test("completion resolve attaches doc comments and type layout", () => {
   const text = "/// Two-dimensional point.\n" +
-    "type Point = [.x = I32, .y = I32]\nPo";
+    "type Point = (.x = I32, .y = I32)\nPo";
   const parsed = parse_source_with_diagnostics(text);
   const index = build_binding_index(parsed);
   const result = completions(
@@ -214,7 +225,7 @@ Deno.test("completion offers operation and return snippets in handler bodies", (
 
 Deno.test("completion filters runtime values out of type positions", () => {
   const result = complete(
-    "type Pair = [Int, Int]\nlet runtime = 1\nlet value: ",
+    "type Pair = (Int, Int)\nlet runtime = 1\nlet value: ",
   );
   assert_equals(result.items.some((item) => item.label === "Pair"), true);
   assert_equals(result.items.some((item) => item.label === "runtime"), false);

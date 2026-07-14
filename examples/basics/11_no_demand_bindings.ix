@@ -1,10 +1,10 @@
-module pair = () => {
+const pair = () => {
   return { ignored: 7, value: 40 }
 }
 
 let _ = 1
 const _ = 2
-const { _, value } = pair()
+const { value } = pair ()
 let add_two = (_, number) => number + 2
 
 type Option =

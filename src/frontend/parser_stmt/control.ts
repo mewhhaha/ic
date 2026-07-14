@@ -127,6 +127,28 @@ export abstract class ParserStmtControl extends ParserHostImport {
         };
       }
 
+      if (pattern.tag === "pattern") {
+        return {
+          tag: "expr",
+          expr: {
+            tag: "match",
+            target: pattern.target,
+            arms: [
+              {
+                pattern: pattern.pattern,
+                guard: undefined,
+                body: then_branch,
+              },
+              {
+                pattern: { tag: "wildcard", mode: "default" },
+                guard: undefined,
+                body: else_branch,
+              },
+            ],
+          },
+        };
+      }
+
       return {
         tag: "expr",
         expr: {
@@ -145,6 +167,28 @@ export abstract class ParserStmtControl extends ParserHostImport {
         tag: "if_stmt",
         cond: pattern.cond,
         body: then_branch.statements,
+      };
+    }
+
+    if (pattern.tag === "pattern") {
+      return {
+        tag: "expr",
+        expr: {
+          tag: "match",
+          target: pattern.target,
+          arms: [
+            {
+              pattern: pattern.pattern,
+              guard: undefined,
+              body: then_branch,
+            },
+            {
+              pattern: { tag: "wildcard", mode: "default" },
+              guard: undefined,
+              body: { tag: "unit" },
+            },
+          ],
+        },
       };
     }
 

@@ -1,5 +1,5 @@
-type Player = [.name = Text, .score = Int]
+type Player = (.name = Text, .score = Int)
 
 let score = (player: Player) => player.score
-let player: Player = [.name = "Ada", .score = 42]
+let player: Player = (.name = "Ada", .score = 42)
 score(player)

@@ -1,17 +1,44 @@
 import type {
+  ArrayLengthExpr,
   Declaration,
   EffectRowExpr,
   FrontExpr,
   FrontType,
   Param,
+  Pattern,
   Source,
   Stmt,
   TypeExpr,
 } from "./ast.ts";
 import { prim_returns_bool } from "./numeric.ts";
+import {
+  source_diagnostic,
+  type SourceDiagnostic,
+} from "./semantic_diagnostic.ts";
+import {
+  type InferenceType,
+  scalar_representation_compatible,
+  TypeInference,
+} from "./type_inference.ts";
 import { is_builtin_type_name } from "./types.ts";
 import { format_type_expr, parse_type_expr } from "./type_expr.ts";
 import { tokenize } from "./tokenize.ts";
+
+function array_length_is_known(
+  length: ArrayLengthExpr,
+  type_parameters: Set<string>,
+): boolean {
+  if (length.tag === "number") {
+    return true;
+  }
+
+  if (length.tag === "name") {
+    return type_parameters.has(length.name);
+  }
+
+  return array_length_is_known(length.left, type_parameters) &&
+    array_length_is_known(length.right, type_parameters);
+}
 
 export type SourceFieldTypeFact = {
   name: string;
@@ -50,6 +77,7 @@ export type SourceFacts = {
   const_source_of: WeakMap<object, object>;
   editor_type_of: WeakMap<object, SourceTypeFact>;
   definition_type_of: WeakMap<object, Map<string, SourceTypeFact>>;
+  inference_diagnostics: SourceDiagnostic[];
   expressions: FrontExpr[];
 };
 
@@ -70,6 +98,225 @@ export function source_facts(source: Source): SourceFacts {
   return facts;
 }
 
+export function source_inference_diagnostics(
+  source: Source,
+  facts: SourceFacts,
+): SourceDiagnostic[] {
+  const diagnostics = [...facts.inference_diagnostics];
+  const known_names = new Set<string>([
+    "Bool",
+    "Unit",
+    "Int",
+    "I32",
+    "U32",
+    "I64",
+    "Text",
+    "Bytes",
+    "Resume",
+    "Type",
+  ]);
+
+  for (const declaration of source.declarations || []) {
+    known_names.add(declaration.name);
+  }
+
+  for (const statement of source.statements) {
+    if (
+      statement.tag === "bind" && statement.kind === "const" &&
+      (statement.value.tag === "struct_type" ||
+        statement.value.tag === "union_type")
+    ) {
+      known_names.add(statement.name);
+    }
+  }
+
+  for (const statement of source.statements) {
+    if (statement.tag !== "bind") {
+      continue;
+    }
+
+    const annotation = binding_annotation_type(statement);
+
+    if (annotation === undefined) {
+      continue;
+    }
+
+    append_unresolved_annotation_diagnostic(
+      diagnostics,
+      annotation,
+      known_names,
+      "binding " + statement.name,
+      statement,
+    );
+  }
+
+  return diagnostics;
+}
+
+function binding_annotation_type(
+  statement: Extract<Stmt, { tag: "bind" }>,
+): TypeExpr | undefined {
+  if (statement.type_annotation !== undefined) {
+    return statement.type_annotation;
+  }
+
+  if (statement.annotation !== undefined) {
+    return { tag: "name", name: statement.annotation };
+  }
+
+  return undefined;
+}
+
+function append_unresolved_annotation_diagnostic(
+  diagnostics: SourceDiagnostic[],
+  annotation: TypeExpr,
+  known_names: Set<string>,
+  site: string,
+  subject: object,
+): void {
+  const inference = new TypeInference();
+  const unresolved_names = new Set<string>();
+  collect_unresolved_annotation_names(
+    annotation,
+    known_names,
+    unresolved_names,
+  );
+
+  if (unresolved_names.size === 0) {
+    return;
+  }
+
+  const variables = [...unresolved_names].sort().map((name) => {
+    return inference.fresh_variable(name);
+  });
+  let type = variables[0];
+
+  if (type === undefined) {
+    throw new Error("Missing unresolved annotation variable");
+  }
+
+  if (variables.length > 1) {
+    type = { tag: "named", name: "annotation", args: variables };
+  }
+
+  try {
+    inference.require_resolved(type, site);
+  } catch (error) {
+    if (error instanceof Error) {
+      diagnostics.push(source_diagnostic(
+        "IX2311",
+        "error",
+        error.message,
+        subject,
+      ));
+      return;
+    }
+
+    throw error;
+  }
+}
+
+function collect_unresolved_annotation_names(
+  annotation: TypeExpr,
+  known_names: Set<string>,
+  unresolved_names: Set<string>,
+): void {
+  if (annotation.tag === "name") {
+    if (!known_names.has(annotation.name)) {
+      unresolved_names.add(annotation.name);
+    }
+
+    return;
+  }
+
+  if (
+    annotation.tag === "atom" || annotation.tag === "top" ||
+    annotation.tag === "never"
+  ) {
+    return;
+  }
+
+  if (annotation.tag === "frozen" || annotation.tag === "borrow") {
+    collect_unresolved_annotation_names(
+      annotation.value,
+      known_names,
+      unresolved_names,
+    );
+    return;
+  }
+
+  if (
+    annotation.tag === "union" || annotation.tag === "intersection" ||
+    annotation.tag === "difference"
+  ) {
+    collect_unresolved_annotation_names(
+      annotation.left,
+      known_names,
+      unresolved_names,
+    );
+    collect_unresolved_annotation_names(
+      annotation.right,
+      known_names,
+      unresolved_names,
+    );
+    return;
+  }
+
+  if (annotation.tag === "apply") {
+    collect_unresolved_annotation_names(
+      annotation.func,
+      known_names,
+      unresolved_names,
+    );
+    collect_unresolved_annotation_names(
+      annotation.arg,
+      known_names,
+      unresolved_names,
+    );
+    return;
+  }
+
+  if (annotation.tag === "tuple") {
+    for (const item of annotation.items) {
+      collect_unresolved_annotation_names(item, known_names, unresolved_names);
+    }
+
+    return;
+  }
+
+  if (annotation.tag === "product") {
+    for (const entry of annotation.entries) {
+      collect_unresolved_annotation_names(
+        entry.type_expr,
+        known_names,
+        unresolved_names,
+      );
+    }
+
+    return;
+  }
+
+  if (annotation.tag === "array") {
+    collect_unresolved_annotation_names(
+      annotation.element,
+      known_names,
+      unresolved_names,
+    );
+    return;
+  }
+
+  collect_unresolved_annotation_names(
+    annotation.param,
+    known_names,
+    unresolved_names,
+  );
+  collect_unresolved_annotation_names(
+    annotation.result,
+    known_names,
+    unresolved_names,
+  );
+}
+
 class SourceFactRecorder {
   readonly facts: SourceFacts = {
     type_of: new WeakMap(),
@@ -77,6 +324,7 @@ class SourceFactRecorder {
     const_source_of: new WeakMap(),
     editor_type_of: new WeakMap(),
     definition_type_of: new WeakMap(),
+    inference_diagnostics: [],
     expressions: [],
   };
   readonly declarations = new Map<string, Declaration>();
@@ -284,6 +532,10 @@ class SourceFactRecorder {
       }
 
       this.record_definition(statement, "name", definition_type);
+
+      if (statement.pattern !== undefined) {
+        this.record_pattern_bindings(statement.pattern, scope_type, scope);
+      }
 
       if (scope_type !== undefined) {
         scope.set(statement.name, scope_type);
@@ -662,7 +914,7 @@ class SourceFactRecorder {
         if (inferred_callable) {
           type = func.call_result;
         } else {
-          type = specialize_call_result(func, args);
+          type = this.specialize_call_result(func, args, expr);
         }
       }
     } else if (expr.tag === "block") {
@@ -693,6 +945,8 @@ class SourceFactRecorder {
       type = this.record_field(expr, scope, break_types);
     } else if (expr.tag === "index") {
       type = this.record_index(expr, scope, break_types);
+    } else if (expr.tag === "product") {
+      type = this.record_product(expr, scope, expected, break_types);
     } else if (expr.tag === "struct_value") {
       type = this.record_struct_value(expr, scope, expected, break_types);
     } else if (expr.tag === "struct_update") {
@@ -733,7 +987,7 @@ class SourceFactRecorder {
           [handler.handler_input],
           handler.handler_result,
         );
-        type = specialize_call_result(callable, [body]);
+        type = this.specialize_call_result(callable, [body], expr);
       }
     }
 
@@ -744,6 +998,26 @@ class SourceFactRecorder {
     }
 
     return type;
+  }
+
+  specialize_call_result(
+    func: SourceTypeFact,
+    args: (SourceTypeFact | undefined)[],
+    subject: object,
+  ): SourceTypeFact | undefined {
+    const exact_error = exact_call_constraint_error(func, args);
+
+    if (exact_error !== undefined) {
+      this.facts.inference_diagnostics.push(source_diagnostic(
+        "IX2310",
+        "error",
+        exact_error,
+        subject,
+      ));
+      return undefined;
+    }
+
+    return specialize_call_result(func, args);
   }
 
   builtin_call_name(
@@ -845,6 +1119,36 @@ class SourceFactRecorder {
       }
 
       return true;
+    }
+
+    if (type.tag === "product") {
+      for (const entry of type.entries) {
+        if (
+          !this.type_expr_is_known(
+            entry.type_expr,
+            type_parameters,
+            resolving,
+          )
+        ) {
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    if (type.tag === "array") {
+      if (!this.type_expr_is_known(type.element, type_parameters, resolving)) {
+        return false;
+      }
+
+      return array_length_is_known(type.length, type_parameters);
+    }
+
+    if (type.tag !== "arrow") {
+      const unreachable: never = type;
+      void unreachable;
+      throw new Error("Unknown type expression");
     }
 
     if (!this.type_expr_is_known(type.param, type_parameters, resolving)) {
@@ -1374,6 +1678,150 @@ class SourceFactRecorder {
       undefined,
       expr.bracketed === "positional",
     );
+  }
+
+  record_pattern_bindings(
+    pattern: Pattern,
+    type: SourceTypeFact | undefined,
+    scope: Scope,
+  ): void {
+    if (pattern.tag === "binding") {
+      const binding_type = type || named_type("unknown");
+      this.record_definition(pattern, "name", binding_type);
+      scope.set(pattern.name, binding_type);
+      return;
+    }
+
+    if (
+      pattern.tag === "wildcard" || pattern.tag === "unit" ||
+      pattern.tag === "literal"
+    ) {
+      return;
+    }
+
+    if (pattern.tag === "union_case") {
+      if (pattern.value !== undefined) {
+        this.record_pattern_bindings(pattern.value, undefined, scope);
+      }
+      return;
+    }
+
+    const fields = source_fields(type);
+
+    if (pattern.tag === "product") {
+      for (let index = 0; index < pattern.entries.length; index += 1) {
+        const entry = pattern.entries[index];
+
+        if (entry === undefined) {
+          throw new Error("Missing product pattern entry " + index);
+        }
+
+        let entry_type = fields?.[index]?.type;
+
+        if (entry.label !== undefined && fields !== undefined) {
+          entry_type = fields.find((field) => field.name === entry.label)?.type;
+        }
+
+        this.record_pattern_bindings(entry.pattern, entry_type, scope);
+      }
+      return;
+    }
+
+    if (pattern.tag === "record") {
+      for (const field of pattern.fields) {
+        const field_type = fields?.find((candidate) =>
+          candidate.name === field.name
+        )?.type;
+        this.record_pattern_bindings(field.pattern, field_type, scope);
+      }
+
+      if (pattern.rest !== undefined) {
+        this.record_pattern_bindings(pattern.rest, undefined, scope);
+      }
+      return;
+    }
+
+    for (let index = 0; index < pattern.items.length; index += 1) {
+      const item = pattern.items[index];
+
+      if (item === undefined) {
+        throw new Error("Missing array pattern item " + index);
+      }
+
+      this.record_pattern_bindings(item, fields?.[index]?.type, scope);
+    }
+
+    if (pattern.rest !== undefined) {
+      this.record_pattern_bindings(pattern.rest, undefined, scope);
+    }
+  }
+
+  record_product(
+    expr: Extract<FrontExpr, { tag: "product" }>,
+    scope: Scope,
+    expected: SourceTypeFact | undefined,
+    break_types: (SourceTypeFact | undefined)[] | undefined,
+  ): SourceTypeFact | undefined {
+    const expected_fields = source_fields(expected);
+    const inferred_fields: SourceFieldTypeFact[] = [];
+    const positional = expr.entries.every((entry) => entry.label === undefined);
+    let valid = expected !== undefined &&
+      expected_fields !== undefined &&
+      expected_fields.length === expr.entries.length;
+
+    for (let index = 0; index < expr.entries.length; index += 1) {
+      const entry = expr.entries[index];
+
+      if (entry === undefined) {
+        throw new Error("Missing source product entry " + index);
+      }
+
+      let field_expected: SourceTypeFact | undefined;
+
+      if (expected_fields !== undefined) {
+        const expected_field = expected_fields[index];
+
+        if (entry.label === undefined && expected?.positional_fields) {
+          field_expected = expected_field?.type;
+        } else if (
+          entry.label !== undefined && expected_field?.name === entry.label
+        ) {
+          field_expected = expected_field.type;
+        }
+      }
+
+      const field_type = this.record_expr(
+        entry.value,
+        scope,
+        field_expected,
+        break_types,
+      );
+      let field_name = index.toString();
+
+      if (entry.label !== undefined) {
+        field_name = entry.label;
+      }
+
+      inferred_fields.push({ name: field_name, type: field_type });
+
+      if (
+        expected !== undefined &&
+        (field_expected === undefined || field_type === undefined ||
+          !source_types_compatible(field_expected, field_type))
+      ) {
+        valid = false;
+      }
+    }
+
+    if (valid) {
+      return expected;
+    }
+
+    if (expected !== undefined) {
+      return undefined;
+    }
+
+    return struct_type(inferred_fields, undefined, positional);
   }
 
   record_struct_update(
@@ -2011,7 +2459,10 @@ class SourceFactRecorder {
       return named_type(format_type_expr(type_expr));
     }
 
-    if (type_expr.tag === "tuple" && type_expr.items.length === 0) {
+    if (
+      (type_expr.tag === "tuple" && type_expr.items.length === 0) ||
+      (type_expr.tag === "product" && type_expr.entries.length === 0)
+    ) {
       return unit_type();
     }
 
@@ -2021,6 +2472,12 @@ class SourceFactRecorder {
       if (type_expr.param.tag === "tuple") {
         for (const item of type_expr.param.items) {
           params.push(this.resolve_type_expr(item, substitutions, resolving));
+        }
+      } else if (type_expr.param.tag === "product") {
+        for (const entry of type_expr.param.entries) {
+          params.push(
+            this.resolve_type_expr(entry.type_expr, substitutions, resolving),
+          );
         }
       } else {
         params.push(
@@ -2100,6 +2557,44 @@ class SourceFactRecorder {
       }
 
       return named_type(format_type_expr(type_expr));
+    }
+
+    if (type_expr.tag === "product") {
+      for (const entry of type_expr.entries) {
+        const type = this.resolve_type_expr(
+          entry.type_expr,
+          substitutions,
+          resolving,
+        );
+
+        if (is_error_type(type)) {
+          return named_type("unknown");
+        }
+      }
+
+      return named_type(format_type_expr(type_expr));
+    }
+
+    if (type_expr.tag === "array") {
+      const element = this.resolve_type_expr(
+        type_expr.element,
+        substitutions,
+        resolving,
+      );
+
+      if (is_error_type(element)) {
+        return named_type("unknown");
+      }
+
+      return named_type(format_type_expr(type_expr));
+    }
+
+    if (
+      type_expr.tag !== "union" && type_expr.tag !== "intersection" &&
+      type_expr.tag !== "difference"
+    ) {
+      type_expr satisfies never;
+      throw new Error("Unknown type expression");
     }
 
     const left = this.resolve_type_expr(
@@ -2482,6 +2977,252 @@ function callable_type(
   type.call_params = params;
   type.call_result = result;
   return type;
+}
+
+function exact_call_constraint_error(
+  func: SourceTypeFact,
+  args: (SourceTypeFact | undefined)[],
+): string | undefined {
+  if (
+    func.call_params === undefined || func.call_result === undefined ||
+    func.call_params.length !== args.length
+  ) {
+    return undefined;
+  }
+
+  const inference = new TypeInference();
+  const variables = new WeakMap<SourceTypeFact, InferenceType>();
+
+  for (let index = 0; index < func.call_params.length; index += 1) {
+    const expected = func.call_params[index];
+    const actual = args[index];
+
+    if (expected === undefined || actual === undefined) {
+      return undefined;
+    }
+
+    const expected_type = inference_type_from_source_fact(
+      expected,
+      inference,
+      variables,
+      new Set(),
+    );
+    const actual_type = inference_type_from_source_fact(
+      actual,
+      inference,
+      variables,
+      new Set(),
+    );
+
+    if (expected_type === undefined || actual_type === undefined) {
+      return undefined;
+    }
+
+    if (
+      expected_type.tag === "scalar" && actual_type.tag === "scalar" &&
+      scalar_representation_compatible(expected_type.name, actual_type.name)
+    ) {
+      continue;
+    }
+
+    try {
+      inference.unify(
+        expected_type,
+        actual_type,
+        "call argument " + (index + 1),
+      );
+    } catch (error) {
+      if (error instanceof Error) {
+        return error.message;
+      }
+
+      throw error;
+    }
+  }
+
+  return undefined;
+}
+
+function inference_type_from_source_fact(
+  source: SourceTypeFact,
+  inference: TypeInference,
+  variables: WeakMap<SourceTypeFact, InferenceType>,
+  visiting: Set<SourceTypeFact>,
+): InferenceType | undefined {
+  if (is_error_type(source) || source.type_set !== undefined) {
+    return undefined;
+  }
+
+  if (is_type_variable(source)) {
+    const existing = variables.get(source);
+
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    const variable = inference.fresh_variable();
+    variables.set(source, variable);
+    return variable;
+  }
+
+  if (visiting.has(source)) {
+    return undefined;
+  }
+
+  const scalar = inference_scalar_from_source_name(source.resolved_name);
+
+  if (scalar !== undefined) {
+    return { tag: "scalar", name: scalar };
+  }
+
+  if (source.call_params !== undefined || source.call_result !== undefined) {
+    if (source.call_params === undefined || source.call_result === undefined) {
+      return undefined;
+    }
+
+    const next = new Set(visiting);
+    next.add(source);
+    const params: InferenceType[] = [];
+
+    for (const param of source.call_params) {
+      if (param === undefined) {
+        return undefined;
+      }
+
+      const param_type = inference_type_from_source_fact(
+        param,
+        inference,
+        variables,
+        next,
+      );
+
+      if (param_type === undefined) {
+        return undefined;
+      }
+
+      params.push(param_type);
+    }
+
+    const result = inference_type_from_source_fact(
+      source.call_result,
+      inference,
+      variables,
+      next,
+    );
+
+    if (result === undefined) {
+      return undefined;
+    }
+
+    return { tag: "function", params, effects: [], result };
+  }
+
+  if (source.nominal !== undefined) {
+    return { tag: "named", name: source.nominal, args: [] };
+  }
+
+  const fields = source_fields(source);
+
+  if (fields !== undefined) {
+    const next = new Set(visiting);
+    next.add(source);
+
+    if (source_fields_are_positional(source)) {
+      const product_fields: Extract<
+        InferenceType,
+        { tag: "product" }
+      >["fields"] = [];
+
+      for (const field of fields) {
+        if (field.type === undefined) {
+          return undefined;
+        }
+
+        const field_type = inference_type_from_source_fact(
+          field.type,
+          inference,
+          variables,
+          next,
+        );
+
+        if (field_type === undefined) {
+          return undefined;
+        }
+
+        product_fields.push({
+          label: field.name || undefined,
+          type: field_type,
+        });
+      }
+
+      return { tag: "product", fields: product_fields };
+    }
+
+    const record_fields: Extract<InferenceType, { tag: "record" }>["fields"] =
+      [];
+
+    for (const field of fields) {
+      if (field.type === undefined) {
+        return undefined;
+      }
+
+      const field_type = inference_type_from_source_fact(
+        field.type,
+        inference,
+        variables,
+        next,
+      );
+
+      if (field_type === undefined) {
+        return undefined;
+      }
+
+      record_fields.push({ label: field.name, type: field_type });
+    }
+
+    return { tag: "record", fields: record_fields };
+  }
+
+  const cases = source_cases(source);
+
+  if (cases !== undefined) {
+    const next = new Set(visiting);
+    next.add(source);
+    const sum_cases: Extract<InferenceType, { tag: "sum" }>["cases"] = [];
+
+    for (const [label, payload] of cases) {
+      const payload_type = inference_type_from_source_fact(
+        payload,
+        inference,
+        variables,
+        next,
+      );
+
+      if (payload_type === undefined) {
+        return undefined;
+      }
+
+      sum_cases.push({ label, payload: payload_type });
+    }
+
+    return { tag: "sum", cases: sum_cases };
+  }
+
+  return { tag: "named", name: source.resolved_name, args: [] };
+}
+
+function inference_scalar_from_source_name(
+  name: string,
+): Extract<InferenceType, { tag: "scalar" }>["name"] | undefined {
+  if (
+    name === "Bool" || name === "Unit" || name === "Int" ||
+    name === "I32" || name === "U32" || name === "I64" ||
+    name === "Text" || name === "Bytes" || name === "Resume"
+  ) {
+    return name;
+  }
+
+  return undefined;
 }
 
 function specialize_call_result(

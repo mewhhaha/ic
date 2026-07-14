@@ -25,6 +25,21 @@ export function lower_static_rec_bind(
   }
 
   value = hooks.prepare_runtime_value(value, local);
+
+  if (value.tag === "index") {
+    const resolved = hooks.resolve_index_expr(value, local);
+
+    if (resolved !== undefined) {
+      value = { tag: "captured", expr: resolved.expr, env: resolved.env };
+    }
+  } else if (value.tag === "field") {
+    const resolved = hooks.resolve_struct_field_expr(value, local);
+
+    if (resolved !== undefined) {
+      value = { tag: "captured", expr: resolved.expr, env: resolved.env };
+    }
+  }
+
   let value_type = hooks.infer_expr(value, local);
 
   if (stmt.annotation) {

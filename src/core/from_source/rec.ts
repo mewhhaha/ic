@@ -1,4 +1,5 @@
 import type { FrontExpr, Stmt } from "../../frontend/ast.ts";
+import { pattern_bindings } from "../../frontend/pattern.ts";
 
 export function validate_named_recursive_tail_binding(
   name: string,
@@ -43,6 +44,7 @@ function validate_named_recursive_tail_expr(
     case "linear":
     case "struct_type":
     case "union_type":
+    case "import":
     case "unsupported":
       return;
 
@@ -82,6 +84,37 @@ function validate_named_recursive_tail_expr(
       for (const arg of expr.args) {
         validate_named_recursive_tail_expr(name, arg, shadowed, false);
       }
+      return;
+
+    case "product":
+      for (const entry of expr.entries) {
+        validate_named_recursive_tail_expr(
+          name,
+          entry.value,
+          shadowed,
+          false,
+        );
+      }
+      return;
+
+    case "array":
+      for (const item of expr.items) {
+        validate_named_recursive_tail_expr(name, item, shadowed, false);
+      }
+
+      if (expr.rest !== undefined) {
+        validate_named_recursive_tail_expr(
+          name,
+          expr.rest,
+          shadowed,
+          false,
+        );
+      }
+      return;
+
+    case "array_repeat":
+      validate_named_recursive_tail_expr(name, expr.value, shadowed, false);
+      validate_named_recursive_tail_expr(name, expr.length, shadowed, false);
       return;
 
     case "block":
@@ -171,6 +204,40 @@ function validate_named_recursive_tail_expr(
     case "index":
       validate_named_recursive_tail_expr(name, expr.object, shadowed, false);
       validate_named_recursive_tail_expr(name, expr.index, shadowed, false);
+      return;
+
+    case "as":
+      validate_named_recursive_tail_expr(name, expr.value, shadowed, false);
+      return;
+
+    case "match":
+      validate_named_recursive_tail_expr(name, expr.target, shadowed, false);
+
+      for (const arm of expr.arms) {
+        const arm_shadowed = new Set(shadowed);
+
+        for (const binding of pattern_bindings(arm.pattern)) {
+          if (binding.name === name) {
+            arm_shadowed.add(name);
+          }
+        }
+
+        if (arm.guard !== undefined) {
+          validate_named_recursive_tail_expr(
+            name,
+            arm.guard,
+            arm_shadowed,
+            false,
+          );
+        }
+
+        validate_named_recursive_tail_expr(
+          name,
+          arm.body,
+          arm_shadowed,
+          tail,
+        );
+      }
       return;
 
     case "union_case":

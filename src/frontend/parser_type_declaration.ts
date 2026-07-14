@@ -2,6 +2,7 @@ import { expect } from "../expect.ts";
 import type { Token, TypeDeclaration, TypeField } from "./ast.ts";
 import { expect_snake_case } from "./names.ts";
 import { ParserStmtBinding } from "./parser_stmt/binding.ts";
+import { format_type_expr, parse_type_expr } from "./type_expr.ts";
 
 export abstract class ParserTypeDeclaration extends ParserStmtBinding {
   protected parse_type_declaration(): TypeDeclaration {
@@ -26,7 +27,7 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
     this.allow_pascal_type_names += 1;
 
     try {
-      if (this.peek().kind === "symbol" && this.peek().text === "[") {
+      if (this.starts_product_type()) {
         const product = this.parse_product_type(name);
         return {
           tag: "type",
@@ -79,14 +80,14 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
     recursive: boolean;
   } {
     const start = this.index;
-    this.expect_symbol("[");
+    this.expect_symbol("(");
     this.skip_newlines();
     const fields: TypeField[] = [];
     const names = new Set<string>();
     let positional: boolean | undefined;
     let recursive = false;
 
-    if (this.match_symbol("]")) {
+    if (this.match_symbol(")")) {
       return {
         body: this.concrete_node(start, {
           tag: "product",
@@ -125,7 +126,7 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
       names.add(field_name);
       const member = this.consume_type_member(
         declaration_name,
-        new Set([",", "]", "|"]),
+        new Set([",", ")", "|"]),
       );
       fields.push(this.concrete_node(field_start, {
         name: field_name,
@@ -136,7 +137,7 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
         recursive = true;
       }
 
-      if (this.match_symbol("]")) {
+      if (this.match_symbol(")")) {
         break;
       }
 
@@ -148,7 +149,7 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
       this.skip_newlines();
 
       expect(
-        !(this.peek().kind === "symbol" && this.peek().text === "]"),
+        !(this.peek().kind === "symbol" && this.peek().text === ")"),
         "Type products do not allow a trailing comma",
       );
     }
@@ -162,6 +163,42 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
       }),
       recursive,
     };
+  }
+
+  private starts_product_type(): boolean {
+    if (this.peek().kind !== "symbol" || this.peek().text !== "(") {
+      return false;
+    }
+
+    let depth = 0;
+
+    for (let offset = 0;; offset += 1) {
+      const token = this.peek(offset);
+      expect(token.kind !== "eof", "Unterminated parenthesized type");
+
+      if (token.kind !== "symbol") {
+        continue;
+      }
+
+      if (token.text === "(") {
+        depth += 1;
+        continue;
+      }
+
+      if (token.text === ")") {
+        depth -= 1;
+
+        if (depth === 0) {
+          return offset === 1;
+        }
+
+        continue;
+      }
+
+      if (depth === 1 && (token.text === "," || token.text === ".")) {
+        return true;
+      }
+    }
   }
 
   private parse_sum_type(
@@ -233,7 +270,7 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
       const token = this.peek();
 
       if (brackets === 0 && parens === 0) {
-        if (token.kind === "newline") {
+        if (token.kind === "newline" && token.raw !== ";") {
           break;
         }
 
@@ -274,42 +311,6 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
       }
     }
 
-    return { text: format_type_tokens(tokens), recursive };
+    return { text: format_type_expr(parse_type_expr(tokens)), recursive };
   }
-}
-
-function format_type_tokens(tokens: Token[]): string {
-  let text = "";
-  let previous: Token | undefined;
-
-  for (const token of tokens) {
-    if (token.kind === "newline" || token.kind === "eof") {
-      continue;
-    }
-
-    if (token.kind === "symbol") {
-      if (token.text === ",") {
-        text = text.trimEnd() + ", ";
-      } else if (token.text === "]" || token.text === ")") {
-        text = text.trimEnd() + token.text;
-      } else {
-        text += token.text;
-      }
-    } else {
-      if (
-        text.length > 0 && previous &&
-        (previous.kind === "name" || previous.kind === "number" ||
-          (previous.kind === "symbol" &&
-            (previous.text === "]" || previous.text === ")")))
-      ) {
-        text += " ";
-      }
-
-      text += token.text;
-    }
-
-    previous = token;
-  }
-
-  return text.trim();
 }

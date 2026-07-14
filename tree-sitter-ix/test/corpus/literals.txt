@@ -15,26 +15,32 @@ if let "ready" = message { 1 } else { 0 }
 (source_file
   (binding_statement
     name: (identifier)
-    value: (string))
+    value: (postfix_expression
+      (string)))
   (binding_statement
     name: (identifier)
-    value: (character))
+    value: (postfix_expression
+      (character)))
   (binding_statement
     name: (identifier)
-    value: (character))
+    value: (postfix_expression
+      (character)))
   (binding_statement
     name: (identifier)
-    value: (boolean))
+    value: (postfix_expression
+      (boolean)))
   (expression_statement
     (if_expression
       condition: (condition_expression
         (identifier))
       consequence: (block
         (expression_statement
-          (character)))
+          (postfix_expression
+            (character))))
       alternative: (block
         (expression_statement
-          (boolean)))))
+          (postfix_expression
+            (boolean))))))
   (expression_statement
     (if_expression
       pattern: (character)
@@ -42,10 +48,12 @@ if let "ready" = message { 1 } else { 0 }
         (identifier))
       consequence: (block
         (expression_statement
-          (boolean)))
+          (postfix_expression
+            (boolean))))
       alternative: (block
         (expression_statement
-          (boolean)))))
+          (postfix_expression
+            (boolean))))))
   (expression_statement
     (if_expression
       pattern: (string)
@@ -53,7 +61,9 @@ if let "ready" = message { 1 } else { 0 }
         (identifier))
       consequence: (block
         (expression_statement
-          (number)))
+          (postfix_expression
+            (number))))
       alternative: (block
         (expression_statement
-          (number))))))
+          (postfix_expression
+            (number)))))))

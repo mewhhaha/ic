@@ -219,15 +219,10 @@ Deno.test("recursive linear closure validation reports the recursive call", () =
   }]);
 });
 
-Deno.test("unsupported linear validation reports the unsupported statement", () => {
+Deno.test("record patterns preserve linear validation", () => {
   const diagnostics = linear_diagnostics(
     "let !x = 1\nlet { a, b } = pair\n!x",
   );
 
-  assert_equals(diagnostics, [{
-    code: "IX2290",
-    severity: "error",
-    message: "Cannot validate linear bind_pattern yet",
-    span: { start: 11, end: 30 },
-  }]);
+  assert_equals(diagnostics, []);
 });

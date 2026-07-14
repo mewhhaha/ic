@@ -51,6 +51,10 @@ export function stmt_result_type<
     return expr_type(stmt.value, ctx, hooks);
   }
 
+  if (stmt.tag === "assign") {
+    return "i32";
+  }
+
   throw new Error("Core final statement does not produce a value: " + stmt.tag);
 }
 

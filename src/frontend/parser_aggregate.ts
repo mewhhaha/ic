@@ -1,8 +1,16 @@
 import { expect } from "../expect.ts";
-import type { Field, FrontExpr, Token, TypeField, TypePattern } from "./ast.ts";
+import type {
+  Field,
+  FrontExpr,
+  ProductExprEntry,
+  Token,
+  TypeField,
+  TypePattern,
+} from "./ast.ts";
 import { expect_snake_case } from "./names.ts";
 import { record_name_site } from "./name_site.ts";
 import { ParserParams } from "./parser_params.ts";
+import { format_type_expr, parse_type_expr } from "./type_expr.ts";
 
 export abstract class ParserAggregate extends ParserParams {
   protected abstract parse_expr(): FrontExpr;
@@ -16,40 +24,39 @@ export abstract class ParserAggregate extends ParserParams {
   private parse_bracket_value_inner(): FrontExpr {
     this.expect_symbol("[");
     this.skip_newlines();
-    const fields: Field[] = [];
+    const items: FrontExpr[] = [];
 
     if (this.match_symbol("]")) {
-      return {
-        tag: "struct_value",
-        type_expr: { tag: "var", name: "object_type" },
-        fields,
-        bracketed: "positional",
-      };
+      return { tag: "array", items, rest: undefined };
     }
 
-    const named = this.peek().kind === "symbol" && this.peek().text === ".";
-    let index = 0;
+    const first = this.parse_expr();
+
+    if (this.match_array_separator()) {
+      const length = this.parse_expr();
+      this.expect_symbol("]");
+      return { tag: "array_repeat", value: first, length };
+    }
+
+    items.push(first);
+
+    if (this.match_symbol("]")) {
+      return { tag: "array", items, rest: undefined };
+    }
+
+    this.expect_symbol(",");
+    this.skip_newlines();
+    let rest: FrontExpr | undefined;
 
     while (true) {
-      if (named) {
-        const field_start = this.index;
-        this.expect_symbol(".");
-        const name = this.expect_name("Expected product field name");
-        expect_snake_case(name, "Product field");
-        this.expect_symbol("=");
-        fields.push(
-          this.concrete_node(field_start, { name, value: this.parse_expr() }),
-        );
-      } else {
-        const field_start = this.index;
-        const field = {
-          name: "item_" + index.toString(),
-          value: this.parse_expr(),
-        };
-        fields.push(this.concrete_node(field_start, field));
+      if (this.match_rest_prefix()) {
+        rest = this.parse_expr();
+        this.skip_newlines();
+        this.expect_symbol("]");
+        break;
       }
 
-      index += 1;
+      items.push(this.parse_expr());
 
       if (this.match_symbol("]")) {
         break;
@@ -57,32 +64,82 @@ export abstract class ParserAggregate extends ParserParams {
 
       this.expect_symbol(",");
       this.skip_newlines();
+    }
 
-      if (named) {
-        expect(
-          this.peek().kind === "symbol" && this.peek().text === ".",
-          "Cannot mix named and positional product entries",
-        );
-      } else {
-        expect(
-          !(this.peek().kind === "symbol" && this.peek().text === "."),
-          "Cannot mix positional and named product entries",
-        );
+    return { tag: "array", items, rest };
+  }
+
+  protected parse_parenthesized_value(): FrontExpr {
+    this.skip_newlines();
+
+    if (this.match_symbol(")")) {
+      return { tag: "unit" };
+    }
+
+    const first = this.parse_product_expr_entry();
+
+    if (this.match_symbol(")")) {
+      if (first.label === undefined) {
+        return first.value;
       }
+
+      return { tag: "product", entries: [first] };
     }
 
-    let bracketed: "named" | "positional" = "positional";
+    this.expect_symbol(",");
+    this.skip_newlines();
+    const entries = [first];
 
-    if (named) {
-      bracketed = "named";
+    while (true) {
+      entries.push(this.parse_product_expr_entry());
+
+      if (this.match_symbol(")")) {
+        break;
+      }
+
+      this.expect_symbol(",");
+      this.skip_newlines();
     }
 
-    return {
-      tag: "struct_value",
-      type_expr: { tag: "var", name: "object_type" },
-      fields,
-      bracketed,
-    };
+    return { tag: "product", entries };
+  }
+
+  private parse_product_expr_entry(): ProductExprEntry {
+    let label: string | undefined;
+    let label_token: Token | undefined;
+
+    if (
+      this.peek().kind === "symbol" && this.peek().text === "." &&
+      this.peek(1).kind === "name" && this.peek(2).kind === "symbol" &&
+      this.peek(2).text === "="
+    ) {
+      label_token = this.peek(1);
+      this.expect_symbol(".");
+      label = this.expect_name("Expected product label");
+      expect_snake_case(label, "Product label");
+      this.expect_symbol("=");
+    }
+
+    const entry: ProductExprEntry = { value: this.parse_expr() };
+
+    if (label !== undefined) {
+      entry.label = label;
+      expect(label_token, "Missing product label token");
+      record_name_site(entry, "name", label, label_token.span);
+    }
+
+    return entry;
+  }
+
+  private match_array_separator(): boolean {
+    const token = this.peek();
+
+    if (token.kind !== "newline" || token.raw !== ";") {
+      return false;
+    }
+
+    this.advance();
+    return true;
   }
 
   protected parse_field_list(): Field[] {
@@ -242,16 +299,26 @@ export abstract class ParserAggregate extends ParserParams {
 
   protected consume_type_field_annotation(): { text: string; tokens: Token[] } {
     const tokens: Token[] = [];
+    let brackets = 0;
+    let parens = 0;
 
     while (!this.is("eof")) {
       const token = this.peek();
 
       if (
-        token.kind === "newline" ||
-        (token.kind === "symbol" &&
+        (brackets === 0 && parens === 0 && token.kind === "newline" &&
+          token.raw !== ";") ||
+        (brackets === 0 && parens === 0 && token.kind === "symbol" &&
           (token.text === "," || token.text === "}"))
       ) {
         break;
+      }
+
+      if (token.kind === "symbol") {
+        if (token.text === "[") brackets += 1;
+        if (token.text === "]") brackets -= 1;
+        if (token.text === "(") parens += 1;
+        if (token.text === ")") parens -= 1;
       }
 
       if (token.kind === "name") {
@@ -262,7 +329,7 @@ export abstract class ParserAggregate extends ParserParams {
     }
 
     expect(tokens.length > 0, "Expected field type annotation");
-    return { text: tokens.map((token) => token.text).join(""), tokens };
+    return { text: format_type_expr(parse_type_expr(tokens)), tokens };
   }
 }
 

@@ -1,4 +1,4 @@
-import type { FrontExpr, Stmt } from "../../frontend/ast.ts";
+import type { FrontExpr, Param, Stmt } from "../../frontend/ast.ts";
 import { contains_reserved_linear_effect } from "../../frontend/linear.ts";
 import type { CoreExpr, CoreField, CoreParam, CoreTypeField } from "../ast.ts";
 import {
@@ -11,6 +11,12 @@ import {
 import { core_stmt } from "./stmt.ts";
 import { atom_i32 } from "../../frontend/atom.ts";
 import { record_optional_core_source_origin } from "../source_origin.ts";
+import {
+  elaborate_array_repeat_expr,
+  elaborate_fixed_array_expr,
+  elaborate_product_as_expr,
+  elaborate_product_expr,
+} from "../../frontend/aggregate.ts";
 
 export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
   return record_optional_core_source_origin(
@@ -64,6 +70,14 @@ function core_expr_untracked(
         "`is` expression must be elaborated before Core lowering",
       );
 
+    case "as":
+      return core_expr(elaborate_product_as_expr(expr), ctx);
+
+    case "match":
+      throw new Error(
+        "Match expression must be elaborated before Core lowering",
+      );
+
     case "var": {
       const resolved = resolve_bound_core_value_name(ctx, expr.name);
       const named_rec = ctx.namedRecs.get(resolved) ||
@@ -107,8 +121,16 @@ function core_expr_untracked(
 
     case "lam": {
       const body_ctx = fork_core_from_source_ctx(ctx);
+      const flattened = flattened_product_function(expr);
+      let params = expr.params;
+      let body = expr.body;
 
-      for (const param of expr.params) {
+      if (flattened !== undefined) {
+        params = flattened.params;
+        body = flattened.body;
+      }
+
+      for (const param of params) {
         body_ctx.aliases.set(param.name, param.name);
         if (param.is_linear) {
           body_ctx.linear_names.add(param.name);
@@ -119,10 +141,10 @@ function core_expr_untracked(
 
       const value: CoreExpr = {
         tag: "lam",
-        params: expr.params.map((param) => core_param(param, ctx)),
-        body: core_expr(expr.body, body_ctx),
+        params: params.map((param) => core_param(param, ctx)),
+        body: core_expr(body, body_ctx),
       };
-      if (contains_reserved_linear_effect(expr.body, body_ctx.linear_names)) {
+      if (contains_reserved_linear_effect(body, body_ctx.linear_names)) {
         value.is_linear_closure = true;
       }
       return value;
@@ -130,8 +152,16 @@ function core_expr_untracked(
 
     case "rec": {
       const body_ctx = fork_core_from_source_ctx(ctx);
+      const flattened = flattened_product_function(expr);
+      let params = expr.params;
+      let body = expr.body;
 
-      for (const param of expr.params) {
+      if (flattened !== undefined) {
+        params = flattened.params;
+        body = flattened.body;
+      }
+
+      for (const param of params) {
         body_ctx.aliases.set(param.name, param.name);
         if (param.is_linear) {
           body_ctx.linear_names.add(param.name);
@@ -142,8 +172,8 @@ function core_expr_untracked(
 
       return {
         tag: "rec",
-        params: expr.params.map((param) => core_param(param, ctx)),
-        body: core_expr(expr.body, body_ctx),
+        params: params.map((param) => core_param(param, ctx)),
+        body: core_expr(body, body_ctx),
       };
     }
 
@@ -154,10 +184,22 @@ function core_expr_untracked(
         return host_method;
       }
 
+      let args = expr.args;
+
+      if (expr.arg) {
+        if (expr.arg.tag === "product" && expr.func.tag !== "field") {
+          args = expr.arg.entries.map((entry) => entry.value);
+        } else if (expr.arg.tag === "unit") {
+          args = [];
+        } else {
+          args = [expr.arg];
+        }
+      }
+
       const app: Extract<CoreExpr, { tag: "app" }> = {
         tag: "app",
         func: core_expr(expr.func, ctx),
-        args: expr.args.map((arg) => core_expr(arg, ctx)),
+        args: args.map((arg) => core_expr(arg, ctx)),
       };
 
       if (expr.resume_payload) {
@@ -166,6 +208,27 @@ function core_expr_untracked(
 
       return app;
     }
+
+    case "product":
+      return core_expr(elaborate_product_expr(expr), ctx);
+
+    case "array":
+      return core_expr(elaborate_fixed_array_expr(expr), ctx);
+
+    case "array_repeat": {
+      const value_name = "_array_repeat#" + ctx.fresh.next.toString();
+      ctx.fresh.next += 1;
+      return core_expr(
+        elaborate_array_repeat_expr(expr, value_name),
+        ctx,
+      );
+    }
+
+    case "import":
+      throw new Error(
+        "Expression import must be resolved before Core lowering: " +
+          expr.path,
+      );
 
     case "block": {
       const block_ctx = fork_core_from_source_ctx(ctx);
@@ -336,6 +399,71 @@ function core_expr_untracked(
         text: expr.text,
       };
   }
+}
+
+function flattened_product_function(
+  expr: Extract<FrontExpr, { tag: "lam" | "rec" }>,
+): { params: Param[]; body: FrontExpr } | undefined {
+  const pattern = expr.pattern;
+  const packed_param = expr.params[0];
+
+  if (pattern?.tag !== "product") {
+    return undefined;
+  }
+
+  let body = expr.body;
+
+  if (
+    expr.params.length === 1 && packed_param !== undefined &&
+    packed_param.name.startsWith("_pattern#param")
+  ) {
+    if (expr.body.tag !== "block") {
+      return undefined;
+    }
+
+    const final_stmt = expr.body.statements[expr.body.statements.length - 1];
+
+    if (!final_stmt || final_stmt.tag !== "expr") {
+      return undefined;
+    }
+
+    body = final_stmt.expr;
+  }
+
+  const params: Param[] = [];
+
+  for (let index = 0; index < pattern.entries.length; index += 1) {
+    const entry = pattern.entries[index];
+
+    if (!entry) {
+      throw new Error("Missing product function pattern entry " + index);
+    }
+
+    if (entry.pattern.tag === "binding") {
+      params.push({
+        name: entry.pattern.name,
+        is_const: entry.pattern.mode === "const",
+        is_linear: entry.pattern.mode === "linear",
+        annotation: entry.pattern.annotation,
+        type_annotation: entry.pattern.type_annotation,
+      });
+      continue;
+    }
+
+    if (entry.pattern.tag === "wildcard") {
+      params.push({
+        name: "_pattern#ignored" + index.toString(),
+        is_const: entry.pattern.mode === "const",
+        is_linear: false,
+        annotation: undefined,
+      });
+      continue;
+    }
+
+    return undefined;
+  }
+
+  return { params, body };
 }
 
 export function core_param(param: {

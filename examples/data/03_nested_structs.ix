@@ -1,8 +1,8 @@
-type Point = [.x = Int, .y = Int]
-type Line = [.start = Point, .end = Point]
+type Point = (.x = Int, .y = Int)
+type Line = (.start = Point, .end = Point)
 
-let start = [.x = 10, .y = 11]
-let end = start { x: 20, y: 1 }
-let line = [.start = start, .end = end]
+let start = (.x = 10, .y = 11)
+let end = start with { x: 20, y: 1 }
+let line = (.start = start, .end = end)
 
 line.start.x + line.start.y + line.end.x + line.end.y

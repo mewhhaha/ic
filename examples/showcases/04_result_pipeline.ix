@@ -9,12 +9,12 @@ declare Init { input: Input }
 type Result error value =
   | .ok = value
   | .err = error
-type User = [.name = Text, .score = Int]
+type User = (.name = Text, .score = Int)
 type UserResult = Result Text User
 
 flag <- Input.flag()
 let outcome: UserResult = if flag {
-  UserResult.ok([.name = "Ada", .score = 42])
+  UserResult.ok((.name = "Ada", .score = 42))
 } else {
   UserResult.err("missing")
 }

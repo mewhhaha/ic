@@ -1,206 +1,367 @@
-import type { FrontExpr, Stmt } from "../ast.ts";
+import type { FrontExpr, Param, Stmt } from "../ast.ts";
 import { format_binding_name } from "../names.ts";
-import { format_field, format_params, format_type_field } from "./common.ts";
-import { prim_symbol } from "./prim.ts";
 import { format_type_expr } from "../type_expr.ts";
+import {
+  format_field,
+  format_params,
+  format_pattern,
+  format_type_field,
+} from "./common.ts";
+import { prim_symbol } from "./prim.ts";
 
 export function format_expr_with_stmt(
   expr: FrontExpr,
   format_stmt: (stmt: Stmt) => string,
 ): string {
-  const format_expr = (value: FrontExpr) =>
-    format_expr_with_stmt(value, format_stmt);
+  return format_expr(expr, format_stmt, 0);
+}
 
-  switch (expr.tag) {
-    case "bool":
-      return expr.value.toString();
+function format_expr(
+  expr: FrontExpr,
+  format_stmt: (stmt: Stmt) => string,
+  parent_precedence: number,
+): string {
+  const nested = (value: FrontExpr, precedence = 0) =>
+    format_expr(value, format_stmt, precedence);
 
-    case "num":
-      return expr.value.toString();
+  if (expr.tag === "bool") {
+    return expr.value.toString();
+  }
 
-    case "unit":
-      return "()";
+  if (expr.tag === "num") {
+    return expr.value.toString();
+  }
 
-    case "text":
-      return Deno.inspect(expr.value);
+  if (expr.tag === "unit") {
+    return "()";
+  }
 
-    case "type_name":
-      return expr.name;
+  if (expr.tag === "text") {
+    return Deno.inspect(expr.value);
+  }
 
-    case "set_type":
-      return "set " + format_type_expr(expr.type_expr);
+  if (expr.tag === "type_name") {
+    return expr.name;
+  }
 
-    case "var":
-      return expr.name;
+  if (expr.tag === "set_type") {
+    return "set " + format_type_expr(expr.type_expr);
+  }
 
-    case "atom":
-      return "#" + expr.name;
+  if (expr.tag === "var") {
+    return expr.name;
+  }
 
-    case "prim":
-      return format_expr(expr.left) + " " + prim_symbol(expr.prim) + " " +
-        format_expr(expr.right);
+  if (expr.tag === "atom") {
+    return "#" + expr.name;
+  }
 
-    case "lam":
-      return "(" + format_params(expr.params) + ") => " +
-        format_expr(expr.body);
+  if (expr.tag === "prim") {
+    const symbol = prim_symbol(expr.prim);
+    const precedence = primitive_precedence(symbol);
+    const text = nested(expr.left, precedence) + " " + symbol + " " +
+      nested(expr.right, precedence + 1);
+    return parenthesize(text, precedence, parent_precedence);
+  }
 
-    case "rec":
-      return "rec (" + format_params(expr.params) + ") => " +
-        format_expr(expr.body);
+  if (expr.tag === "lam" || expr.tag === "rec") {
+    let text = "";
 
-    case "app":
-      return format_expr(expr.func) + "(" +
-        expr.args.map((arg) => format_expr(arg)).join(", ") + ")";
+    if (expr.tag === "rec") {
+      text += "rec ";
+    }
 
-    case "block":
-      return "{ " + expr.statements.map(format_stmt).join("; ") + " }";
+    text += format_callable_pattern(expr.pattern, expr.params) + " => " +
+      nested(expr.body);
+    return parenthesize(text, 0, parent_precedence);
+  }
 
-    case "comptime":
-      return "comptime " + format_expr(expr.expr);
+  if (expr.tag === "app") {
+    const precedence = 40;
+    const arg = application_arg(expr);
+    const text = nested(expr.func, precedence) + " " +
+      nested(arg, precedence + 1);
+    return parenthesize(text, precedence, parent_precedence);
+  }
 
-    case "borrow":
-      return "&" + format_expr(expr.value);
+  if (expr.tag === "product") {
+    const entries = expr.entries.map((entry) => {
+      let text = nested(entry.value);
 
-    case "freeze":
-      return "freeze " + format_expr(expr.value);
+      if (entry.label !== undefined) {
+        text = "." + entry.label + " = " + text;
+      }
 
-    case "scratch":
-      return "scratch " + format_expr(expr.body);
+      return text;
+    });
+    return "(" + entries.join(", ") + ")";
+  }
 
-    case "loop":
-      return "loop { " + expr.body.map(format_stmt).join("; ") + " }";
+  if (expr.tag === "array") {
+    const items = expr.items.map((item) => nested(item));
 
-    case "captured":
-      return format_expr(expr.expr);
+    if (expr.rest) {
+      items.push("..." + nested(expr.rest));
+    }
 
-    case "handler": {
-      const state = expr.state.map((item) => {
-        let text = "let " + format_binding_name(item.name);
+    return "[" + items.join(", ") + "]";
+  }
 
-        if (item.annotation) {
-          text += ": " + item.annotation;
+  if (expr.tag === "array_repeat") {
+    return "[" + nested(expr.value) + "; " + nested(expr.length) + "]";
+  }
+
+  if (expr.tag === "import") {
+    return "import " + Deno.inspect(expr.path);
+  }
+
+  if (expr.tag === "block") {
+    return "{ " + expr.statements.map(format_stmt).join("; ") + " }";
+  }
+
+  if (expr.tag === "comptime") {
+    return "comptime " + nested(expr.expr, 31);
+  }
+
+  if (expr.tag === "borrow") {
+    return "&" + nested(expr.value, 31);
+  }
+
+  if (expr.tag === "freeze") {
+    return "freeze " + nested(expr.value, 31);
+  }
+
+  if (expr.tag === "scratch") {
+    return "scratch " + nested(expr.body);
+  }
+
+  if (expr.tag === "loop") {
+    return "loop { " + expr.body.map(format_stmt).join("; ") + " }";
+  }
+
+  if (expr.tag === "captured") {
+    return nested(expr.expr, parent_precedence);
+  }
+
+  if (expr.tag === "handler") {
+    const state = expr.state.map((item) => {
+      let text = "let " + format_binding_name(item.name);
+
+      if (item.annotation) {
+        text += ": " + item.annotation;
+      }
+
+      return text + " = " + nested(item.value);
+    });
+    const clauses = expr.clauses.map((clause) => {
+      return clause.name + ": (" + format_params(clause.params) + ") => " +
+        nested(clause.body);
+    });
+    clauses.push(
+      "return: " + format_params([expr.return_clause.param]) + " => " +
+        nested(expr.return_clause.body),
+    );
+    const literal = expr.effect + " { " + clauses.join(", ") + " }";
+
+    if (state.length === 0) {
+      return literal;
+    }
+
+    state.push(literal);
+    return "{ " + state.join("; ") + " }";
+  }
+
+  if (expr.tag === "try_with") {
+    const text = "try " + nested(expr.body, 1) + " with " +
+      nested(expr.handler, 1);
+    return parenthesize(text, 0, parent_precedence);
+  }
+
+  if (expr.tag === "with" || expr.tag === "struct_update") {
+    const text = nested(expr.base, 40) + " with { " +
+      expr.fields.map((field) => format_field(field, nested)).join(", ") +
+      " }";
+    return parenthesize(text, 35, parent_precedence);
+  }
+
+  if (expr.tag === "struct_type") {
+    return "struct { " + expr.fields.map(format_type_field).join(", ") +
+      " }";
+  }
+
+  if (expr.tag === "struct_value") {
+    if (expr.bracketed === "named" || expr.bracketed === "positional") {
+      const entries = expr.fields.map((field) => {
+        let text = nested(field.value);
+
+        if (expr.bracketed === "named") {
+          text = "." + field.name + " = " + text;
         }
 
-        return text + " = " + format_expr(item.value);
+        return text;
       });
-      const clauses = expr.clauses.map((clause) => {
-        return clause.name + ": (" + format_params(clause.params) + ") => " +
-          format_expr(clause.body);
+      return "(" + entries.join(", ") + ")";
+    }
+
+    if (expr.type_expr.tag === "var" && expr.type_expr.name === "object_type") {
+      const fields = expr.fields.map((field) => {
+        if (field.value.tag === "var" && field.value.name === field.name) {
+          return field.name;
+        }
+
+        return format_field(field, nested);
       });
-      clauses.push(
-        "return: " + format_params([expr.return_clause.param]) + " => " +
-          format_expr(expr.return_clause.body),
-      );
-      const literal = expr.effect + " { " + clauses.join(", ") + " }";
-
-      if (state.length === 0) {
-        return literal;
-      }
-
-      state.push(literal);
-      return "{ " + state.join("; ") + " }";
+      return "{ " + fields.join(", ") + " }";
     }
 
-    case "try_with":
-      return "try " + format_expr(expr.body) + " with " +
-        format_expr(expr.handler);
-
-    case "with":
-      return format_expr(expr.base) + " with { " +
-        expr.fields.map((field) => format_field(field, format_expr)).join(
-          ", ",
-        ) + " }";
-
-    case "struct_type":
-      return "struct { " + expr.fields.map(format_type_field).join(", ") +
-        " }";
-
-    case "struct_value":
-      if (expr.bracketed === "named") {
-        return "[" + expr.fields.map((field) => {
-          return "." + field.name + " = " + format_expr(field.value);
-        }).join(", ") + "]";
-      }
-
-      if (expr.bracketed === "positional") {
-        return "[" + expr.fields.map((field) => format_expr(field.value)).join(
-          ", ",
-        ) + "]";
-      }
-
-      if (
-        expr.type_expr.tag === "var" &&
-        expr.type_expr.name === "object_type"
-      ) {
-        const fields = expr.fields.map((field) => {
-          if (field.value.tag === "var" && field.value.name === field.name) {
-            return field.name;
-          }
-
-          return format_field(field, format_expr);
-        });
-        return "{ " + fields.join(", ") + " }";
-      }
-
-      return format_expr(expr.type_expr) + " { " +
-        expr.fields.map((field) => format_field(field, format_expr)).join(
-          ", ",
-        ) + " }";
-
-    case "struct_update":
-      return format_expr(expr.base) + " { " +
-        expr.fields.map((field) => format_field(field, format_expr)).join(
-          ", ",
-        ) + " }";
-
-    case "union_type":
-      return "union { " + expr.cases.map(format_type_field).join(", ") +
-        " }";
-
-    case "if":
-      return "if " + format_expr(expr.cond) + " " +
-        format_expr(expr.then_branch) + " else " +
-        format_expr(expr.else_branch);
-
-    case "if_let": {
-      let pattern = "." + expr.case_name;
-
-      if (expr.value_name) {
-        pattern += "(" + format_binding_name(expr.value_name) + ")";
-      }
-
-      return "if let " + pattern + " = " + format_expr(expr.target) + " " +
-        format_expr(expr.then_branch) + " else " +
-        format_expr(expr.else_branch);
-    }
-
-    case "field":
-      return format_expr(expr.object) + "." + expr.name;
-
-    case "index":
-      return format_expr(expr.object) + "[" + format_expr(expr.index) + "]";
-
-    case "is": {
-      let value = format_expr(expr.value);
-
-      if (expr.value.tag === "if") {
-        value = "(" + value + ")";
-      }
-
-      return value + " is " + format_type_expr(expr.type_expr);
-    }
-
-    case "union_case":
-      if (expr.value) {
-        return "." + expr.name + "(" + format_expr(expr.value) + ")";
-      }
-
-      return "." + expr.name;
-
-    case "linear":
-      return "!" + expr.name;
-
-    case "unsupported":
-      return "<unsupported " + expr.feature + ">";
+    return nested(expr.type_expr, 40) + " { " +
+      expr.fields.map((field) => format_field(field, nested)).join(", ") +
+      " }";
   }
+
+  if (expr.tag === "union_type") {
+    return "union { " + expr.cases.map(format_type_field).join(", ") + " }";
+  }
+
+  if (expr.tag === "if") {
+    const text = "if " + nested(expr.cond) + " " +
+      nested(expr.then_branch) + " else " + nested(expr.else_branch);
+    return parenthesize(text, 0, parent_precedence);
+  }
+
+  if (expr.tag === "if_let") {
+    let pattern = "." + expr.case_name;
+
+    if (expr.value_name) {
+      pattern += "(" + format_binding_name(expr.value_name) + ")";
+    }
+
+    const text = "if let " + pattern + " = " + nested(expr.target) + " " +
+      nested(expr.then_branch) + " else " + nested(expr.else_branch);
+    return parenthesize(text, 0, parent_precedence);
+  }
+
+  if (expr.tag === "field") {
+    const text = nested(expr.object, 50) + "." + expr.name;
+    return parenthesize(text, 50, parent_precedence);
+  }
+
+  if (expr.tag === "index") {
+    const text = nested(expr.object, 50) + "[" + nested(expr.index) + "]";
+    return parenthesize(text, 50, parent_precedence);
+  }
+
+  if (expr.tag === "is" || expr.tag === "as") {
+    let precedence = 5;
+
+    if (expr.tag === "as") {
+      precedence = 30;
+    }
+
+    const text = nested(expr.value, precedence) + " " + expr.tag + " " +
+      format_type_expr(expr.type_expr);
+    return parenthesize(text, precedence, parent_precedence);
+  }
+
+  if (expr.tag === "match") {
+    const arms = expr.arms.map((arm) => {
+      let text = "| " + format_pattern(arm.pattern);
+
+      if (arm.guard) {
+        text += " if " + nested(arm.guard);
+      }
+
+      return text + " => " + nested(arm.body);
+    });
+    const text = "match " + nested(expr.target) + " { " + arms.join(" ") +
+      " }";
+    return parenthesize(text, 0, parent_precedence);
+  }
+
+  if (expr.tag === "union_case") {
+    if (expr.value) {
+      return "." + expr.name + "(" + nested(expr.value) + ")";
+    }
+
+    return "." + expr.name;
+  }
+
+  if (expr.tag === "linear") {
+    return "!" + expr.name;
+  }
+
+  return "<unsupported " + expr.feature + ">";
+}
+
+function application_arg(expr: Extract<FrontExpr, { tag: "app" }>): FrontExpr {
+  if (expr.arg) {
+    return expr.arg;
+  }
+
+  if (expr.args.length === 1) {
+    const arg = expr.args[0];
+
+    if (arg) {
+      return arg;
+    }
+  }
+
+  return {
+    tag: "product",
+    entries: expr.args.map((value) => ({ value })),
+  };
+}
+
+function format_callable_pattern(
+  pattern: Extract<FrontExpr, { tag: "lam" | "rec" }>["pattern"],
+  params: Param[],
+): string {
+  if (pattern) {
+    return format_pattern(pattern);
+  }
+
+  if (params.length === 0) {
+    return "()";
+  }
+
+  if (params.length === 1) {
+    return format_params(params);
+  }
+
+  return "(" + format_params(params) + ")";
+}
+
+function primitive_precedence(symbol: string): number {
+  if (symbol === "||") {
+    return 1;
+  }
+
+  if (symbol === "&&") {
+    return 2;
+  }
+
+  if (
+    symbol === "==" || symbol === "!=" || symbol === "<" || symbol === ">" ||
+    symbol === "<=" || symbol === ">="
+  ) {
+    return 5;
+  }
+
+  if (symbol === "+" || symbol === "-") {
+    return 10;
+  }
+
+  return 20;
+}
+
+function parenthesize(
+  text: string,
+  precedence: number,
+  parent_precedence: number,
+): string {
+  if (precedence < parent_precedence) {
+    return "(" + text + ")";
+  }
+
+  return text;
 }

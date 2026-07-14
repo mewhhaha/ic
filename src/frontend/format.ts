@@ -78,7 +78,7 @@ function format_type_declaration(declaration: TypeDeclaration): string {
       }
     }
 
-    return head + " = [" + entries.join(", ") + "]";
+    return head + " = (" + entries.join(", ") + ")";
   }
 
   if (declaration.body.tag === "alias") {

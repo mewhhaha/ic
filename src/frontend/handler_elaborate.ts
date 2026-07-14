@@ -702,9 +702,11 @@ function compile_expr(
       );
     }
 
+    const application = application_parts(expr);
+
     if (
-      expr.func.tag === "var" &&
-      ix_function_for_name(expr.func.name, ctx, elaboration)
+      application.func.tag === "var" &&
+      ix_function_for_name(application.func.name, ctx, elaboration)
     ) {
       return compile_ix_function_call(expr, ctx, cont, elaboration);
     }
@@ -720,6 +722,12 @@ function compile_expr(
           func,
           args,
         };
+
+        if (expr.arg !== undefined && args.length === 1) {
+          const arg = args[0];
+          expect(arg, "Missing compiled application argument");
+          app.arg = arg;
+        }
 
         if (func.tag === "field") {
           for (const arg of args) {
@@ -1375,12 +1383,13 @@ function compile_effect_statement(
   expect(declaration, "Missing effect declaration: " + ref.effect);
   const operation = find_operation(declaration, ref.operation);
   expect(stmt.value.tag === "app", "Effect state binding must contain a call");
+  const application = application_parts(stmt.value);
 
   if (declaration.implementation === "host") {
     return compile_host_operation(
       ref,
       operation,
-      stmt.value.args,
+      application.args,
       ctx,
       cont,
       elaboration,
@@ -1390,7 +1399,7 @@ function compile_effect_statement(
   return compile_local_operation(
     ref,
     operation,
-    stmt.value.args,
+    application.args,
     ctx,
     cont,
     elaboration,
@@ -1421,6 +1430,10 @@ function compile_host_operation(
         func: {
           tag: "var",
           name: effect_import_name(ref.effect, ref.operation),
+        },
+        arg: {
+          tag: "product",
+          entries: [provider, ...values].map((value) => ({ value })),
         },
         args: [provider, ...values],
       }, next_ctx);
@@ -1571,11 +1584,16 @@ function compile_resume_call(
   cont: CpsCont,
   elaboration: Elaboration,
 ): CpsResult {
-  expect(
-    expr.args.length === 1,
-    "Resumption " + resume.name + " expects exactly one argument",
-  );
-  const arg = expr.args[0];
+  let arg = expr.arg;
+
+  if (arg === undefined) {
+    expect(
+      expr.args.length === 1,
+      "Resumption " + resume.name + " expects exactly one argument",
+    );
+    arg = expr.args[0];
+  }
+
   expect(arg, "Missing resumption argument");
   return compile_expr(
     arg,
@@ -1686,6 +1704,7 @@ function compile_escaped_resume_call(
       return cont({
         tag: "app",
         func: { ...expr.func, resume_signature: resume.signature },
+        arg: value,
         args: [value],
       }, next_ctx);
     },
@@ -1865,9 +1884,14 @@ function compile_ix_function_call(
   cont: CpsCont,
   elaboration: Elaboration,
 ): CpsResult {
-  expect(expr.func.tag === "var", "Expected named Ix effect function");
-  const binding = ix_function_for_name(expr.func.name, ctx, elaboration);
-  expect(binding, "Missing Ix effect function: " + expr.func.name);
+  const application = application_parts(expr);
+  expect(application.func.tag === "var", "Expected named Ix effect function");
+  const binding = ix_function_for_name(
+    application.func.name,
+    ctx,
+    elaboration,
+  );
+  expect(binding, "Missing Ix effect function: " + application.func.name);
   expect(
     binding.value.tag === "lam",
     "Recursive Ix effect CPS is not supported",
@@ -1877,11 +1901,11 @@ function compile_ix_function_call(
     "Recursive Ix effect CPS is not supported: " + binding.name,
   );
   expect(
-    binding.value.params.length === expr.args.length,
+    binding.value.params.length === application.args.length,
     "Effect function argument count mismatch: " + binding.name,
   );
   return compile_expr_list(
-    expr.args,
+    application.args,
     ctx,
     [],
     (args, args_ctx) => {
@@ -1914,9 +1938,10 @@ function compile_resume_function_call(
   cont: CpsCont,
   elaboration: Elaboration,
 ): CpsResult {
+  const application = application_parts(expr);
   expect(binding.value.tag === "lam", "Resume helper cannot be recursive");
   expect(
-    binding.value.params.length === expr.args.length,
+    binding.value.params.length === application.args.length,
     "Resume helper argument count mismatch: " + binding.name,
   );
   expect(
@@ -1927,7 +1952,7 @@ function compile_resume_function_call(
 
   for (let index = 0; index < binding.value.params.length; index += 1) {
     const param = binding.value.params[index];
-    const arg = expr.args[index];
+    const arg = application.args[index];
     expect(param, "Missing Resume helper parameter");
     expect(arg, "Missing Resume helper argument");
 
@@ -1973,6 +1998,20 @@ function compile_expr_list(
     },
     elaboration,
   );
+}
+
+function application_parts(
+  expr: Extract<FrontExpr, { tag: "app" }>,
+): { func: FrontExpr; args: FrontExpr[] } {
+  const args: FrontExpr[] = [];
+  let current: FrontExpr = expr;
+
+  while (current.tag === "app") {
+    args.unshift(...current.args);
+    current = current.func;
+  }
+
+  return { func: current, args };
 }
 
 function rewrite_pure_expr(
@@ -2741,14 +2780,16 @@ function resume_function_call(
   ctx: CompileCtx,
   elaboration: Elaboration,
 ): EffectFunction | undefined {
-  if (expr.func.tag !== "var") {
+  const application = application_parts(expr);
+
+  if (application.func.tag !== "var") {
     return undefined;
   }
 
   let binding: Extract<Stmt, { tag: "bind" }> | undefined;
 
   for (const stmt of elaboration.source.statements) {
-    if (stmt.tag === "bind" && stmt.name === expr.func.name) {
+    if (stmt.tag === "bind" && stmt.name === application.func.name) {
       binding = stmt;
       break;
     }
@@ -2765,7 +2806,7 @@ function resume_function_call(
 
   for (let index = 0; index < binding.value.params.length; index += 1) {
     const param = binding.value.params[index];
-    const arg = expr.args[index];
+    const arg = application.args[index];
 
     if (!param || param.annotation !== "Resume" || !arg) {
       continue;
@@ -2813,7 +2854,8 @@ function operation_from_state_bind(
   index: EffectIndex,
 ): EffectRef {
   expect(stmt.value.tag === "app", "Effect state binding requires a call");
-  const func = stmt.value.func;
+  const application = application_parts(stmt.value);
+  const func = application.func;
   expect(func.tag === "field", "Effect state binding requires a method call");
   const object = func.object;
 

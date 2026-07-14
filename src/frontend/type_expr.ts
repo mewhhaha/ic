@@ -1,5 +1,11 @@
 import { expect } from "../expect.ts";
-import type { EffectRowExpr, Token, TypeExpr } from "./ast.ts";
+import type {
+  ArrayLengthExpr,
+  EffectRowExpr,
+  Token,
+  TypeExpr,
+  TypeProductEntry,
+} from "./ast.ts";
 import { is_snake_case } from "./names.ts";
 import { format_effect_row } from "./effect_row.ts";
 
@@ -138,22 +144,34 @@ class TypeExprParser {
   }
 
   private parse_atom(): TypeExpr {
+    if (this.match_symbol("[")) {
+      const element = this.parse_arrow();
+      this.expect_array_separator();
+      const length = this.parse_array_length(0);
+      this.expect_symbol("]");
+      return { tag: "array", element, length };
+    }
+
     if (this.match_symbol("(")) {
       if (this.match_symbol(")")) {
-        return { tag: "tuple", items: [] };
+        return { tag: "product", entries: [] };
       }
 
-      const first = this.parse_arrow();
+      const first = this.parse_product_entry();
 
       if (this.match_symbol(")")) {
-        return first;
+        if (first.label === undefined) {
+          return first.type_expr;
+        }
+
+        return { tag: "product", entries: [first] };
       }
 
       this.expect_symbol(",");
-      const items = [first];
+      const entries = [first];
 
       while (true) {
-        items.push(this.parse_arrow());
+        entries.push(this.parse_product_entry());
 
         if (this.match_symbol(")")) {
           break;
@@ -162,7 +180,7 @@ class TypeExprParser {
         this.expect_symbol(",");
       }
 
-      return { tag: "tuple", items };
+      return { tag: "product", entries };
     }
 
     const token = this.peek();
@@ -177,6 +195,97 @@ class TypeExprParser {
     }
 
     return { tag: "name", name: token.text };
+  }
+
+  private parse_product_entry(): TypeProductEntry {
+    let label: string | undefined;
+
+    if (this.match_symbol(".")) {
+      const token = this.peek();
+      expect(token && token.kind === "name", "Expected product type label");
+      expect(
+        is_snake_case(token.text),
+        "Product type label must use snake_case",
+      );
+      this.index += 1;
+      label = token.text;
+      this.expect_symbol("=");
+    }
+
+    const entry: TypeProductEntry = { type_expr: this.parse_arrow() };
+
+    if (label !== undefined) {
+      entry.label = label;
+    }
+
+    return entry;
+  }
+
+  private parse_array_length(min_precedence: number): ArrayLengthExpr {
+    let left = this.parse_array_length_atom();
+
+    while (true) {
+      const token = this.peek();
+
+      if (!token || token.kind !== "symbol") {
+        break;
+      }
+
+      const precedence = array_length_precedence(token.text);
+
+      if (precedence < min_precedence) {
+        break;
+      }
+
+      expect(
+        token.text === "+" || token.text === "-" || token.text === "*" ||
+          token.text === "/" || token.text === "%",
+        "Unsupported array length operator",
+      );
+      this.index += 1;
+      left = {
+        tag: "binary",
+        op: token.text,
+        left,
+        right: this.parse_array_length(precedence + 1),
+      };
+    }
+
+    return left;
+  }
+
+  private parse_array_length_atom(): ArrayLengthExpr {
+    if (this.match_symbol("(")) {
+      const length = this.parse_array_length(0);
+      this.expect_symbol(")");
+      return length;
+    }
+
+    const token = this.peek();
+    expect(token, "Expected fixed array length");
+
+    if (token.kind === "number") {
+      expect(
+        /^\d+$/.test(token.text),
+        "Array length must be an unsigned integer",
+      );
+      this.index += 1;
+      return { tag: "number", value: Number(token.text) };
+    }
+
+    expect(token.kind === "name", "Expected fixed array length");
+    expect(token.text !== "_", "Fixed array length cannot be inferred");
+    this.index += 1;
+    return { tag: "name", name: token.text };
+  }
+
+  private expect_array_separator(): void {
+    const token = this.peek();
+    expect(
+      token && token.kind === "newline" && token.raw === ";",
+      "Expected `;` in fixed array type",
+    );
+    this.index += 1;
   }
 
   private parse_effect_row_union(): EffectRowExpr {
@@ -260,7 +369,7 @@ class TypeExprParser {
     return token !== undefined &&
       (token.kind === "name" ||
         (token.kind === "symbol" &&
-          (token.text === "(" || token.text === "#")));
+          (token.text === "(" || token.text === "#" || token.text === "[")));
   }
 
   private match_symbol(text: string): boolean {
@@ -319,8 +428,26 @@ function format(type: TypeExpr, parent_precedence: number): string {
     return prefix + "(" + format(value, 0) + ")";
   }
 
+  if (type.tag === "product") {
+    const entries = type.entries.map((entry) => {
+      let text = format(entry.type_expr, 0);
+
+      if (entry.label !== undefined) {
+        text = "." + entry.label + " = " + text;
+      }
+
+      return text;
+    });
+    return "(" + entries.join(", ") + ")";
+  }
+
   if (type.tag === "tuple") {
     return "(" + type.items.map((item) => format(item, 0)).join(", ") + ")";
+  }
+
+  if (type.tag === "array") {
+    return "[" + format(type.element, 0) + "; " +
+      format_array_length(type.length, 0) + "]";
   }
 
   if (
@@ -360,6 +487,36 @@ function format(type: TypeExpr, parent_precedence: number): string {
   }
 
   text += " " + format(type.result, precedence);
+  return parenthesize(text, precedence, parent_precedence);
+}
+
+function array_length_precedence(op: string): number {
+  if (op === "+" || op === "-") {
+    return 1;
+  }
+
+  if (op === "*" || op === "/" || op === "%") {
+    return 2;
+  }
+
+  return -1;
+}
+
+function format_array_length(
+  length: ArrayLengthExpr,
+  parent_precedence: number,
+): string {
+  if (length.tag === "number") {
+    return length.value.toString();
+  }
+
+  if (length.tag === "name") {
+    return length.name;
+  }
+
+  const precedence = array_length_precedence(length.op);
+  const text = format_array_length(length.left, precedence) + " " +
+    length.op + " " + format_array_length(length.right, precedence + 1);
   return parenthesize(text, precedence, parent_precedence);
 }
 

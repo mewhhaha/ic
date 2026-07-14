@@ -118,6 +118,30 @@ function validate_loop_units_in_expr(expr: FrontExpr): void {
     return;
   }
 
+  if (expr.tag === "product") {
+    for (const entry of expr.entries) {
+      validate_loop_units_in_expr(entry.value);
+    }
+    return;
+  }
+
+  if (expr.tag === "array") {
+    for (const item of expr.items) {
+      validate_loop_units_in_expr(item);
+    }
+
+    if (expr.rest !== undefined) {
+      validate_loop_units_in_expr(expr.rest);
+    }
+    return;
+  }
+
+  if (expr.tag === "array_repeat") {
+    validate_loop_units_in_expr(expr.value);
+    validate_loop_units_in_expr(expr.length);
+    return;
+  }
+
   if (expr.tag === "app") {
     validate_loop_units_in_expr(expr.func);
     for (const arg of expr.args) {
@@ -215,6 +239,24 @@ function validate_loop_units_in_expr(expr: FrontExpr): void {
     }
     if (expr.type_expr) {
       validate_loop_units_in_expr(expr.type_expr);
+    }
+    return;
+  }
+
+  if (expr.tag === "as") {
+    validate_loop_units_in_expr(expr.value);
+    return;
+  }
+
+  if (expr.tag === "match") {
+    validate_loop_units_in_expr(expr.target);
+
+    for (const arm of expr.arms) {
+      if (arm.guard !== undefined) {
+        validate_loop_units_in_expr(arm.guard);
+      }
+
+      validate_loop_units_in_expr(arm.body);
     }
   }
 }
@@ -314,6 +356,9 @@ function validate_linear_statements(stmts: Stmt[]): void {
 function validate_linear_stmt_lambdas(stmt: Stmt): void {
   switch (stmt.tag) {
     case "bind":
+    case "state_bind":
+    case "bind_pattern":
+    case "resume_dup":
       validate_linear_expr_lambdas(stmt.value);
       return;
 
@@ -409,6 +454,30 @@ function validate_linear_expr_lambdas(expr: FrontExpr): void {
       }
       return;
 
+    case "product":
+      for (const entry of expr.entries) {
+        validate_linear_expr_lambdas(entry.value);
+      }
+      return;
+
+    case "array":
+      for (const item of expr.items) {
+        validate_linear_expr_lambdas(item);
+      }
+
+      if (expr.rest !== undefined) {
+        validate_linear_expr_lambdas(expr.rest);
+      }
+      return;
+
+    case "array_repeat":
+      validate_linear_expr_lambdas(expr.value);
+      validate_linear_expr_lambdas(expr.length);
+      return;
+
+    case "import":
+      return;
+
     case "block":
       validate_linear_statements(expr.statements);
       return;
@@ -432,6 +501,23 @@ function validate_linear_expr_lambdas(expr: FrontExpr): void {
 
     case "captured":
       validate_linear_expr_lambdas(expr.expr);
+      return;
+
+    case "handler":
+      for (const state of expr.state) {
+        validate_linear_expr_lambdas(state.value);
+      }
+
+      for (const clause of expr.clauses) {
+        validate_linear_expr_lambdas(clause.body);
+      }
+
+      validate_linear_expr_lambdas(expr.return_clause.body);
+      return;
+
+    case "try_with":
+      validate_linear_expr_lambdas(expr.body);
+      validate_linear_expr_lambdas(expr.handler);
       return;
 
     case "with":
@@ -467,6 +553,18 @@ function validate_linear_expr_lambdas(expr: FrontExpr): void {
       validate_linear_expr_lambdas(expr.else_branch);
       return;
 
+    case "match":
+      validate_linear_expr_lambdas(expr.target);
+
+      for (const arm of expr.arms) {
+        if (arm.guard !== undefined) {
+          validate_linear_expr_lambdas(arm.guard);
+        }
+
+        validate_linear_expr_lambdas(arm.body);
+      }
+      return;
+
     case "field":
       validate_linear_expr_lambdas(expr.object);
       return;
@@ -474,6 +572,11 @@ function validate_linear_expr_lambdas(expr: FrontExpr): void {
     case "index":
       validate_linear_expr_lambdas(expr.object);
       validate_linear_expr_lambdas(expr.index);
+      return;
+
+    case "is":
+    case "as":
+      validate_linear_expr_lambdas(expr.value);
       return;
 
     case "union_case":
@@ -487,6 +590,8 @@ function validate_linear_expr_lambdas(expr: FrontExpr): void {
 
     case "bool":
     case "num":
+    case "atom":
+    case "unit":
     case "text":
     case "type_name":
     case "var":

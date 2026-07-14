@@ -1,1 +1,3 @@
-const available = 42
+module () where
+
+return { available: 42 }

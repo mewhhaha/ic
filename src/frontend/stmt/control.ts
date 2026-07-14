@@ -2,6 +2,7 @@ import type { Ic as IcNode } from "../../ic.ts";
 import type { Env, FrontExpr, Stmt } from "../ast.ts";
 import { capture_expr } from "../capture.ts";
 import { validate_const_expr } from "../constness.ts";
+import { is_const_expr_known } from "../const_known.ts";
 import { dynamic_if_let_ic_route } from "../diagnostic.ts";
 import { clone_env } from "../env.ts";
 import type {
@@ -287,6 +288,13 @@ function is_compile_time_only_expr(
   hooks: StatementLowerHooks,
 ): boolean {
   if (expr.tag === "with") {
+    return true;
+  }
+
+  if (
+    expr.tag === "struct_update" &&
+    is_const_expr_known(expr.base, env, new Set())
+  ) {
     return true;
   }
 

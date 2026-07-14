@@ -190,6 +190,35 @@ function expr_contains_loop_control(expr: FrontExpr): boolean {
 
       return false;
 
+    case "product":
+      for (const entry of expr.entries) {
+        if (expr_contains_loop_control(entry.value)) {
+          return true;
+        }
+      }
+
+      return false;
+
+    case "array":
+      for (const item of expr.items) {
+        if (expr_contains_loop_control(item)) {
+          return true;
+        }
+      }
+
+      if (expr.rest !== undefined) {
+        return expr_contains_loop_control(expr.rest);
+      }
+
+      return false;
+
+    case "array_repeat":
+      return expr_contains_loop_control(expr.value) ||
+        expr_contains_loop_control(expr.length);
+
+    case "import":
+      return false;
+
     case "field":
       return expr_contains_loop_control(expr.object);
 
@@ -245,7 +274,17 @@ function expr_contains_loop_control(expr: FrontExpr): boolean {
         expr_contains_loop_control(expr.else_branch);
 
     case "with":
-      return expr_contains_loop_control(expr.base);
+      if (expr_contains_loop_control(expr.base)) {
+        return true;
+      }
+
+      for (const field of expr.fields) {
+        if (expr_contains_loop_control(field.value)) {
+          return true;
+        }
+      }
+
+      return false;
 
     case "comptime":
       return expr_contains_loop_control(expr.expr);
@@ -287,6 +326,25 @@ function expr_contains_loop_control(expr: FrontExpr): boolean {
       return expr_contains_loop_control(expr.body) ||
         expr_contains_loop_control(expr.handler);
 
+    case "match":
+      if (expr_contains_loop_control(expr.target)) {
+        return true;
+      }
+
+      for (const arm of expr.arms) {
+        if (
+          arm.guard !== undefined && expr_contains_loop_control(arm.guard)
+        ) {
+          return true;
+        }
+
+        if (expr_contains_loop_control(arm.body)) {
+          return true;
+        }
+      }
+
+      return false;
+
     case "bool":
     case "num":
     case "atom":
@@ -298,11 +356,14 @@ function expr_contains_loop_control(expr: FrontExpr): boolean {
     case "set_type":
     case "struct_type":
     case "union_type":
-    case "captured":
     case "unsupported":
       return false;
 
+    case "captured":
+      return expr_contains_loop_control(expr.expr);
+
     case "is":
+    case "as":
       return expr_contains_loop_control(expr.value);
   }
 }

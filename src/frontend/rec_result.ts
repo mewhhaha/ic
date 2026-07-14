@@ -55,6 +55,24 @@ export function lower_rec_result_expr(
     );
   }
 
+  if (expr.tag === "borrow" || expr.tag === "freeze") {
+    return lower_rec_result_expr(
+      expr.value,
+      env,
+      hooks,
+      lower_static_rec_block,
+    );
+  }
+
+  if (expr.tag === "scratch") {
+    return lower_rec_result_expr(
+      expr.body,
+      env,
+      hooks,
+      lower_static_rec_block,
+    );
+  }
+
   if (expr.tag === "block") {
     const result = lower_static_rec_block(expr.statements, env, hooks);
 

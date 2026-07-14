@@ -74,7 +74,7 @@ return { a, message: b }
   }
   assert_equals(second.type_annotation, {
     tag: "arrow",
-    param: { tag: "tuple", items: [] },
+    param: { tag: "product", entries: [] },
     effects: {
       tag: "union",
       left: { tag: "operation", effect: "Io", operation: "read" },
@@ -86,8 +86,8 @@ return { a, message: b }
   const formatted = format_source(source);
   assert_includes(formatted, "module (!init: Init) where");
   assert_includes(formatted, "declare effect Io");
-  assert_includes(formatted, '_ <- Io.print("hello")');
-  assert_includes(formatted, "const { a, b } = dependency(init)");
+  assert_includes(formatted, '_ <- Io.print "hello"');
+  assert_includes(formatted, "const { a, b } = dependency init");
   assert_includes(formatted, "return { a, message: b }");
 });
 
@@ -98,7 +98,7 @@ const _ = 2
 let pair = (_, const _) => 0
 let count = rec (_, const _) => 0
 let selected = if let .ok(_) = result { 1 } else { 0 }
-let { _, value } = source
+let (_, value) = source
 `);
 
   const names: string[] = [];
@@ -126,7 +126,7 @@ let { _, value } = source
   }
 
   const no_demand = names.filter((name) => name.startsWith("@no_demand_"));
-  assert_equals(no_demand.length, 8);
+  assert_equals(no_demand.length, 4);
   assert_equals(new Set(no_demand).size, no_demand.length);
 
   const formatted = format_source(source);
@@ -135,7 +135,7 @@ let { _, value } = source
   assert_includes(formatted, "let pair = (_, const _) => 0");
   assert_includes(formatted, "let count = rec (_, const _) => 0");
   assert_includes(formatted, "if let .ok(_) = result");
-  assert_includes(formatted, "let { _, value } = source");
+  assert_includes(formatted, "let (_, value) = source");
 });
 
 Deno.test("no-demand binders cannot be used as linear values or expressions", () => {
@@ -148,8 +148,8 @@ Deno.test("no-demand binders cannot be used as linear values or expressions", ()
     "`!_` is not supported",
   );
   assert_throws(
-    () => parse_source("let { !_ } = source"),
-    "`!_` is not supported",
+    () => parse_source("let (!_) = source"),
+    "Legacy effect state bindings are not supported; use `value <- Effect.operation()`",
   );
   assert_throws(
     () => parse_source("_"),
@@ -291,7 +291,12 @@ result
       : undefined,
     {
       tag: "try_with",
-      body: { tag: "app", func: { tag: "var", name: "run" }, args: [] },
+      body: {
+        tag: "app",
+        func: { tag: "var", name: "run" },
+        arg: { tag: "unit" },
+        args: [],
+      },
       handler: { tag: "var", name: "counter" },
     },
   );
@@ -304,11 +309,11 @@ result
 
   const formatted = format_source(source);
   assert_includes(formatted, "effect Counter");
-  assert_includes(formatted, "Counter { get: (!resume) => !resume(state)");
+  assert_includes(formatted, "Counter { get: (!resume) => !resume state");
   assert_includes(formatted, "return: value => { value, state }");
   assert_includes(formatted, "let make = () => Counter {");
-  assert_includes(formatted, "!resume(())");
-  assert_includes(formatted, "try run() with counter");
+  assert_includes(formatted, "!resume ()");
+  assert_includes(formatted, "try run () with counter");
   assert_includes(formatted, "let (!left, !right) = dup !resume");
   assert_equals(parse_source(formatted), source);
 });
@@ -320,6 +325,7 @@ Deno.test("handler syntax distinguishes resume calls from boolean not", () => {
     expr: {
       tag: "app",
       func: { tag: "linear", name: "resume" },
+      arg: { tag: "num", type: "i32", value: 1 },
       args: [{ tag: "num", type: "i32", value: 1 }],
     },
   });
@@ -410,7 +416,7 @@ Deno.test("module imports bind dependency initializers", () => {
     );
     Deno.writeTextFileSync(
       dir + "/main.ix",
-      'module () where\nimport dependency from "./dependency.ix"\n' +
+      'module () where\nconst dependency = import "./dependency.ix"\n' +
         "const { value } = dependency(42)\nreturn { value }\n",
     );
 

@@ -239,6 +239,43 @@ function expand_core_annotation_aliases(
     return { type: { tag: "tuple", items }, changed: true };
   }
 
+  if (type.tag === "product") {
+    let changed = false;
+    const entries = type.entries.map((entry) => {
+      const expanded = expand_core_annotation_aliases(
+        entry.type_expr,
+        ctx,
+        resolving,
+      );
+
+      if (expanded.changed) {
+        changed = true;
+      }
+
+      return { ...entry, type_expr: expanded.type };
+    });
+
+    if (!changed) {
+      return { type, changed: false };
+    }
+
+    return { type: { tag: "product", entries }, changed: true };
+  }
+
+  if (type.tag === "array") {
+    const element = expand_core_annotation_aliases(
+      type.element,
+      ctx,
+      resolving,
+    );
+
+    if (!element.changed) {
+      return { type, changed: false };
+    }
+
+    return { type: { ...type, element: element.type }, changed: true };
+  }
+
   if (
     type.tag === "union" || type.tag === "intersection" ||
     type.tag === "difference"
@@ -254,6 +291,12 @@ function expand_core_annotation_aliases(
       type: { ...type, left: left.type, right: right.type },
       changed: true,
     };
+  }
+
+  if (type.tag !== "arrow") {
+    const unreachable: never = type;
+    void unreachable;
+    throw new Error("Unknown core annotation type expression");
   }
 
   const param = expand_core_annotation_aliases(type.param, ctx, resolving);

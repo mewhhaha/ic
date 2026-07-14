@@ -21,7 +21,10 @@ import {
 } from "../frontend/syntax.ts";
 import { source_tokens } from "../frontend/tokenize.ts";
 import { front_type_name } from "../frontend/types.ts";
-import { attached_documentation } from "./documentation.ts";
+import {
+  attached_documentation,
+  render_documentation,
+} from "./documentation.ts";
 import {
   type LspRange,
   type PositionEncoding,
@@ -53,7 +56,7 @@ export type EditorValue = {
 };
 
 export type BindingFact = {
-  statement: Extract<Stmt, { tag: "bind" | "assign" }>;
+  statement: Extract<Stmt, { tag: "bind" | "assign" | "state_bind" }>;
   value: EditorValue;
 };
 
@@ -75,6 +78,11 @@ type CallFrame = {
   commas: number;
 };
 
+type CallTarget = {
+  receiver?: string;
+  name: string;
+};
+
 export function hover(
   source: Source,
   syntax: SourceSyntax,
@@ -90,7 +98,7 @@ export function hover(
       return undefined;
     }
 
-    return expression_hover(syntax, facts, offset, encoding);
+    return expression_hover(source, syntax, facts, offset, encoding);
   }
 
   const entity = index.entities.get(occurrence.entity);
@@ -126,7 +134,7 @@ export function hover(
     );
 
     if (documentation !== undefined) {
-      sections.push(render_hover_documentation(documentation));
+      sections.push(render_documentation(documentation));
     }
   }
 
@@ -292,6 +300,7 @@ function offset_in_type_position(source: Source, offset: number): boolean {
 }
 
 function expression_hover(
+  source: Source,
   syntax: SourceSyntax,
   facts: SourceFacts,
   offset: number,
@@ -301,6 +310,73 @@ function expression_hover(
 
   if (expr === undefined) {
     return undefined;
+  }
+
+  if (
+    expr.tag === "var" && source.declarations !== undefined
+  ) {
+    const effect = source.declarations.find((declaration) => {
+      return declaration.tag === "effect" && declaration.name === expr.name;
+    });
+
+    if (effect !== undefined && effect.tag === "effect") {
+      const span = source_span(expr);
+      const positions = new PositionIndex(syntax.text, encoding);
+      return {
+        contents: {
+          kind: "markdown",
+          value: "**effect** `" + effect.name + "`\n\n```ix\n" +
+            format_source({
+              tag: "program",
+              declarations: [effect],
+              statements: [],
+            }) + "\n```",
+        },
+        range: {
+          start: positions.position_from_offset(span.start),
+          end: positions.position_from_offset(span.end),
+        },
+      };
+    }
+  }
+
+  let operation_target: Extract<FrontExpr, { tag: "field" }> | undefined;
+
+  if (expr.tag === "field") {
+    operation_target = expr;
+  } else if (expr.tag === "app" && expr.func.tag === "field") {
+    operation_target = expr.func;
+  }
+
+  if (
+    operation_target !== undefined && operation_target.object.tag === "var"
+  ) {
+    const operation = effect_operation(
+      source,
+      operation_target.object.name,
+      operation_target.name,
+    );
+
+    if (operation !== undefined) {
+      const params = operation.params.map((param) => param.type_name);
+      const span = source_span(operation_target);
+      const positions = new PositionIndex(syntax.text, encoding);
+      return {
+        contents: {
+          kind: "markdown",
+          value: "**operation** `" + operation.name + "`\n\ntype: `(" +
+            params.join(", ") + ") -> " + operation.result.type_name +
+            "`\n\nsignature: `" + operation_target.object.name + "." +
+            operation.name +
+            "(" + params.join(", ") + ") => " +
+            operation.result.type_name + "`",
+        },
+        range: {
+          start: positions.position_from_offset(span.start),
+          end: positions.position_from_offset(span.end),
+        },
+      };
+    }
   }
 
   const inferred = editor_expr_type_name(expr, facts);
@@ -388,6 +464,24 @@ export function signature_help(
   const frames = open_call_frames(tokens, offset);
   const values = editor_binding_facts(source, index);
   const effects = editor_effect_analysis(source);
+  const unary = unary_call_frame(source, syntax.text, offset);
+
+  if (unary !== undefined) {
+    const result = signature_for_target(
+      source,
+      syntax,
+      index,
+      offset,
+      values,
+      effects,
+      unary.target,
+      unary.arguments_before,
+    );
+
+    if (result !== undefined) {
+      return result;
+    }
+  }
 
   for (let cursor = frames.length - 1; cursor >= 0; cursor -= 1) {
     const frame = frames[cursor];
@@ -402,91 +496,124 @@ export function signature_help(
       continue;
     }
 
-    if (target.receiver !== undefined) {
-      const operation = effect_operation(
-        source,
-        target.receiver,
-        target.name,
-      );
-
-      if (operation !== undefined) {
-        const labels = operation.params.map((param) => param.type_name);
-        const signature: LspSignatureInformation = {
-          label: target.receiver + "." + target.name + "(" +
-            labels.join(", ") + ") => " + operation.result.type_name,
-          parameters: labels.map((label) => ({ label })),
-          activeParameter: frame.commas,
-        };
-        attach_signature_documentation(
-          signature,
-          syntax,
-          index,
-          target.name,
-          "operation",
-        );
-        return signature_result(signature, frame.commas);
-      }
-    }
-
-    const entity = index.visible_at(offset).find((candidate) =>
-      candidate.name === target.name
-    );
-
-    if (entity === undefined) {
-      continue;
-    }
-
-    const value = values.get(entity.id);
-    let closure: Extract<FrontExpr, { tag: "lam" | "rec" }> | undefined;
+    const open = tokens[frame.token_index];
+    const previous = tokens[frame.token_index - 1];
+    let active_parameter = frame.commas;
 
     if (
-      value !== undefined &&
-      (value.value.expr.tag === "lam" || value.value.expr.tag === "rec")
+      open !== undefined && previous !== undefined &&
+      /[ \t]/.test(syntax.text.slice(previous.span.end, open.span.start))
     ) {
-      closure = value.value.expr;
-    } else {
-      const statement = binding_statement(source, index, entity);
-
-      if (
-        statement !== undefined && statement.tag === "bind" &&
-        (statement.value.tag === "lam" || statement.value.tag === "rec")
-      ) {
-        closure = statement.value;
-      }
+      active_parameter = 0;
     }
 
-    if (closure === undefined) {
-      continue;
-    }
-
-    const labels = closure.params.map(format_param);
-    let effect_row = "<pure>";
-    const function_effects = effects.functions[entity.name];
-
-    if (!effects.available) {
-      effect_row = "<effects unavailable>";
-    } else if (
-      function_effects !== undefined && function_effects.effects.length > 0
-    ) {
-      effect_row = format_effects(function_effects.effects);
-    }
-
-    const signature: LspSignatureInformation = {
-      label: entity.name + "(" + labels.join(", ") + ") " + effect_row,
-      parameters: labels.map((label) => ({ label })),
-      activeParameter: frame.commas,
-    };
-    attach_signature_documentation(
-      signature,
+    const result = signature_for_target(
+      source,
       syntax,
       index,
-      entity.name,
-      entity.kind,
+      offset,
+      values,
+      effects,
+      target,
+      active_parameter,
     );
-    return signature_result(signature, frame.commas);
+
+    if (result !== undefined) {
+      return result;
+    }
   }
 
   return undefined;
+}
+
+function signature_for_target(
+  source: Source,
+  syntax: SourceSyntax,
+  index: BindingIndex,
+  offset: number,
+  values: Map<EntityId, BindingFact>,
+  effects: FrontEffectAnalysis & { available: boolean },
+  target: CallTarget,
+  active_parameter: number,
+): LspSignatureHelp | undefined {
+  if (target.receiver !== undefined) {
+    const operation = effect_operation(source, target.receiver, target.name);
+
+    if (operation !== undefined) {
+      const labels = operation.params.map((param) => param.type_name);
+      const signature: LspSignatureInformation = {
+        label: target.receiver + "." + target.name + "(" +
+          labels.join(", ") + ") => " + operation.result.type_name,
+        parameters: labels.map((label) => ({ label })),
+        activeParameter: active_parameter,
+      };
+      attach_signature_documentation(
+        signature,
+        syntax,
+        index,
+        target.name,
+        "operation",
+      );
+      return signature_result(signature, active_parameter);
+    }
+  }
+
+  const entity = index.visible_at(offset).find((candidate) =>
+    candidate.name === target.name
+  );
+
+  if (entity === undefined) {
+    return undefined;
+  }
+
+  const value = values.get(entity.id);
+  let closure: Extract<FrontExpr, { tag: "lam" | "rec" }> | undefined;
+
+  if (
+    value !== undefined &&
+    (value.value.expr.tag === "lam" || value.value.expr.tag === "rec")
+  ) {
+    closure = value.value.expr;
+  } else {
+    const statement = binding_statement(source, index, entity);
+
+    if (
+      statement !== undefined && statement.tag === "bind" &&
+      (statement.value.tag === "lam" || statement.value.tag === "rec")
+    ) {
+      closure = statement.value;
+    }
+  }
+
+  if (closure === undefined) {
+    return undefined;
+  }
+
+  const labels = closure.params.map(format_param);
+  let effect_row = "<pure>";
+  const function_effects = effects.functions[entity.name];
+
+  if (!effects.available) {
+    effect_row = "<effects unavailable>";
+  } else if (
+    function_effects !== undefined && function_effects.effects.length > 0
+  ) {
+    effect_row = format_effects(function_effects.effects);
+  }
+
+  const signature: LspSignatureInformation = {
+    label: entity.name + "(" + labels.join(", ") + ") " + effect_row,
+    parameters: labels.map((label) => ({ label })),
+    activeParameter: active_parameter,
+  };
+  attach_signature_documentation(
+    signature,
+    syntax,
+    index,
+    entity.name,
+    entity.kind,
+  );
+  return signature_result(signature, active_parameter);
 }
 
 function append_binding_hover(
@@ -502,27 +629,7 @@ function append_binding_hover(
   const values = editor_binding_facts(source, index);
   const binding = values.get(entity.id);
   const declared = declared_member_hover(source, index, entity);
-  let kind: string = entity.kind;
   let rendered_type: string | undefined;
-
-  if (entity.linear) {
-    kind = "linear capability";
-  } else if (
-    binding !== undefined &&
-    (binding.value.expr.tag === "lam" || binding.value.expr.tag === "rec")
-  ) {
-    if (entity.kind === "const") {
-      kind = "const closure";
-    } else {
-      kind = "runtime closure";
-    }
-  } else if (entity.kind === "const") {
-    kind = "const value";
-  } else if (entity.kind === "value") {
-    kind = "runtime binding";
-  }
-
-  sections.unshift("**" + kind + "** `" + entity.name + "`");
 
   if (
     entity.kind === "value" || entity.kind === "const" ||
@@ -538,7 +645,28 @@ function append_binding_hover(
       facts,
       referenced_type,
     );
-    sections.push("type: `" + rendered_type + "`");
+
+    if (binding !== undefined) {
+      let declaration_kind = "let";
+
+      if (entity.kind === "const") {
+        declaration_kind = "const";
+      }
+
+      let declaration_name = entity.name;
+
+      if (entity.linear) {
+        declaration_name = "!" + declaration_name;
+      }
+
+      sections.unshift(
+        "```ix\n" + declaration_kind + " " + declaration_name + ": " +
+          rendered_type + "\n```",
+      );
+    } else {
+      sections.unshift("**" + entity.kind + "** `" + entity.name + "`");
+      sections.push("type: `" + rendered_type + "`");
+    }
   }
 
   if (binding !== undefined) {
@@ -566,8 +694,6 @@ function append_binding_hover(
           "\n```",
       );
     }
-
-    sections.push("ownership: `" + ownership_class(entity, binding) + "`");
   }
 
   if (entity.linear) {
@@ -591,9 +717,32 @@ function editor_entity_type_name(
     return referenced_type;
   }
 
+  if (
+    binding !== undefined &&
+    (binding.statement.tag === "bind" ||
+      binding.statement.tag === "state_bind")
+  ) {
+    let slot = "name";
+
+    if (binding.statement.tag === "state_bind") {
+      slot = "value_name";
+    }
+
+    const definition_type = facts.definition_type_of.get(binding.statement)
+      ?.get(slot);
+
+    if (definition_type !== undefined) {
+      return definition_type.name;
+    }
+  }
+
   const entity_facts = index.facts.get(entity.id);
 
-  if (entity_facts !== undefined && entity_facts.editor_type !== undefined) {
+  if (
+    entity_facts !== undefined && entity_facts.editor_type !== undefined &&
+    (entity_facts.editor_type !== "unknown" ||
+      binding?.statement.tag !== "state_bind")
+  ) {
     return entity_facts.editor_type;
   }
 
@@ -663,6 +812,72 @@ export function editor_binding_facts(
 
       env.set(statement.name, value);
     }
+  }
+
+  const visited = new WeakSet<object>();
+  const visit_nested_bindings = (value: object): void => {
+    if (visited.has(value)) {
+      return;
+    }
+
+    visited.add(value);
+    const node = value as Record<string, unknown>;
+
+    if (
+      node.tag === "bind" && typeof node.name === "string" &&
+      node.value !== null && typeof node.value === "object"
+    ) {
+      const statement = value as Extract<Stmt, { tag: "bind" }>;
+      const entity = entity_for_owner(index, statement, "name", statement.name);
+
+      if (entity !== undefined && !facts.has(entity)) {
+        facts.set(entity, {
+          statement,
+          value: { expr: statement.value, captures: undefined },
+        });
+      }
+    }
+
+    if (
+      node.tag === "state_bind" && typeof node.value_name === "string" &&
+      node.value !== null && typeof node.value === "object"
+    ) {
+      const value_name = node.value_name;
+      const statement = value as Extract<Stmt, { tag: "state_bind" }>;
+      const entity = entity_for_owner(
+        index,
+        statement,
+        "value_name",
+        value_name,
+      );
+
+      if (entity !== undefined) {
+        facts.set(entity, {
+          statement,
+          value: { expr: statement.value, captures: undefined },
+        });
+      }
+    }
+
+    for (const child of Object.values(node)) {
+      if (child === null || typeof child !== "object") {
+        continue;
+      }
+
+      if (Array.isArray(child)) {
+        for (const entry of child) {
+          if (entry !== null && typeof entry === "object") {
+            visit_nested_bindings(entry);
+          }
+        }
+      } else {
+        visit_nested_bindings(child);
+      }
+    }
+  };
+
+  for (const statement of source.statements) {
+    visit_nested_bindings(statement);
   }
 
   cached_editor_binding_facts.set(index, facts);
@@ -1418,16 +1633,6 @@ function format_layout(
   return "layout — " + parts.join(", ");
 }
 
-function render_hover_documentation(documentation: string): string {
-  return documentation.split("\n").map((line) => {
-    if (line.startsWith("type:")) {
-      return "> " + line;
-    }
-
-    return line;
-  }).join("\n");
-}
-
 function append_captures(value: EditorValue, sections: string[]): void {
   const captures = value.captures;
 
@@ -1482,39 +1687,6 @@ function append_consume_points(
   } else {
     sections.push("consume point: " + points.join("; "));
   }
-}
-
-function ownership_class(entity: BindingEntity, fact: BindingFact): string {
-  if (entity.linear) {
-    return "linear_capability";
-  }
-
-  if (fact.statement.tag === "bind") {
-    if (fact.statement.value.tag === "freeze") {
-      return "frozen_shareable";
-    }
-
-    if (fact.statement.value.tag === "scratch") {
-      return "scratch_backed";
-    }
-
-    if (fact.statement.value.tag === "borrow") {
-      return "borrow_view";
-    }
-  }
-
-  if (
-    fact.value.expr.tag === "bool" || fact.value.expr.tag === "num" ||
-    fact.value.expr.tag === "unit" || fact.value.expr.tag === "atom"
-  ) {
-    return "scalar_local";
-  }
-
-  if (entity.kind === "const") {
-    return "compile_time_static";
-  }
-
-  return "unique_heap";
 }
 
 export function capped_format_expr(expr: FrontExpr): string {
@@ -1617,6 +1789,108 @@ function open_call_frames(
   return frames;
 }
 
+function unary_call_frame(
+  source: Source,
+  text: string,
+  offset: number,
+): { target: CallTarget; arguments_before: number } | undefined {
+  let candidate:
+    | { expr: Extract<FrontExpr, { tag: "app" }>; end: number }
+    | undefined;
+  const seen = new WeakSet<object>();
+
+  const visit = (value: object): void => {
+    if (seen.has(value)) {
+      return;
+    }
+
+    seen.add(value);
+
+    if (has_source_span(value)) {
+      const span = source_span(value);
+      const expr = value as Partial<FrontExpr>;
+
+      if (
+        expr.tag === "app" && span.end <= offset &&
+        /^[ \t]*$/.test(text.slice(span.end, offset)) &&
+        (candidate === undefined || candidate.end < span.end)
+      ) {
+        candidate = {
+          expr: value as Extract<FrontExpr, { tag: "app" }>,
+          end: span.end,
+        };
+      }
+    }
+
+    for (const child of Object.values(value)) {
+      if (child !== null && typeof child === "object") {
+        if (Array.isArray(child)) {
+          for (const entry of child) {
+            if (entry !== null && typeof entry === "object") {
+              visit(entry);
+            }
+          }
+        } else {
+          visit(child);
+        }
+      }
+    }
+  };
+
+  visit(source);
+
+  if (candidate !== undefined) {
+    let func: FrontExpr = candidate.expr.func;
+    let arguments_before = 1;
+
+    while (func.tag === "app") {
+      arguments_before += 1;
+      func = func.func;
+    }
+
+    const target = expression_call_target(func);
+
+    if (target !== undefined) {
+      return { target, arguments_before };
+    }
+  }
+
+  const prefix = text.slice(0, offset);
+  const initial =
+    /([A-Za-z_][A-Za-z0-9_]*)(?:\.([A-Za-z_][A-Za-z0-9_]*))?[ \t]+$/.exec(
+      prefix,
+    );
+
+  if (initial === null) {
+    return undefined;
+  }
+
+  const receiver = initial[1];
+  const name = initial[2];
+
+  if (receiver === undefined) {
+    throw new Error("Missing unary call target");
+  }
+
+  if (name !== undefined) {
+    return { target: { receiver, name }, arguments_before: 0 };
+  }
+
+  return { target: { name: receiver }, arguments_before: 0 };
+}
+
+function expression_call_target(expr: FrontExpr): CallTarget | undefined {
+  if (expr.tag === "var") {
+    return { name: expr.name };
+  }
+
+  if (expr.tag === "field" && expr.object.tag === "var") {
+    return { receiver: expr.object.name, name: expr.name };
+  }
+
+  return undefined;
+}
+
 function pop_delimiter(
   stack: { symbol: "(" | "[" | "{"; frame?: CallFrame }[],
   symbol: "(" | "[" | "{",
@@ -1634,7 +1908,7 @@ function pop_delimiter(
 function call_target(
   tokens: ReturnType<typeof source_tokens>,
   open_index: number,
-): { receiver?: string; name: string } | undefined {
+): CallTarget | undefined {
   let cursor = open_index - 1;
 
   while (cursor >= 0 && tokens[cursor]?.kind === "newline") {
@@ -1687,7 +1961,10 @@ function attach_signature_documentation(
   );
 
   if (documentation !== undefined) {
-    signature.documentation = { kind: "markdown", value: documentation };
+    signature.documentation = {
+      kind: "markdown",
+      value: render_documentation(documentation),
+    };
   }
 }
 

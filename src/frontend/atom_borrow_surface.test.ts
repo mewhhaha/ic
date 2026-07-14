@@ -19,5 +19,5 @@ Deno.test("atoms parse and borrows format canonically", () => {
 
 Deno.test("borrow is no longer a unary keyword", () => {
   const source = parse_source("let value = borrow item");
-  assert_equals(format_source(source), "let value = borrow\nitem");
+  assert_equals(format_source(source), "let value = borrow item");
 });

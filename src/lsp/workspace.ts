@@ -625,20 +625,42 @@ function analyze_workspace_file(
 
 function source_dependencies(source: FrontSource, uri: string): Set<string> {
   const dependencies = new Set<string>();
+  const seen = new WeakSet<object>();
 
-  for (const statement of source.statements) {
-    if (statement.tag !== "import") {
-      continue;
+  const visit = (value: object): void => {
+    if (seen.has(value)) {
+      return;
     }
 
-    try {
-      dependencies.add(new URL(statement.path, uri).href);
-    } catch (error) {
-      if (!(error instanceof TypeError)) {
-        throw error;
+    seen.add(value);
+    const record = value as { tag?: string; path?: unknown };
+
+    if (record.tag === "import" && typeof record.path === "string") {
+      try {
+        dependencies.add(new URL(record.path, uri).href);
+      } catch (error) {
+        if (!(error instanceof TypeError)) {
+          throw error;
+        }
       }
     }
-  }
+
+    for (const child of Object.values(value)) {
+      if (child !== null && typeof child === "object") {
+        if (Array.isArray(child)) {
+          for (const entry of child) {
+            if (entry !== null && typeof entry === "object") {
+              visit(entry);
+            }
+          }
+        } else {
+          visit(child);
+        }
+      }
+    }
+  };
+
+  visit(source);
 
   return dependencies;
 }
@@ -740,14 +762,18 @@ function imported_member_at(
 
   const alias = match[1];
   const statement = entry.source.statements.find((candidate) =>
-    candidate.tag === "import" && candidate.name === alias
+    candidate.tag === "bind" && candidate.name === alias &&
+    candidate.value.tag === "import"
   );
 
-  if (statement === undefined || statement.tag !== "import") {
+  if (
+    statement === undefined || statement.tag !== "bind" ||
+    statement.value.tag !== "import"
+  ) {
     return undefined;
   }
 
-  return { alias, path: statement.path };
+  return { alias, path: statement.value.path };
 }
 
 function imported_member_occurrences(

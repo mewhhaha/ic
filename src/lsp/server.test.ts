@@ -1,6 +1,6 @@
 import { assert_equals } from "../assert.ts";
 import { encode_message, MessageDecoder } from "./framing.ts";
-import type { LspRange } from "./position.ts";
+import type { LspPosition, LspRange } from "./position.ts";
 import { parse_diagnostics } from "./diagnostics.ts";
 import { parse_source_with_diagnostics } from "../frontend/parser.ts";
 import { document_symbols } from "./symbols.ts";
@@ -153,6 +153,120 @@ Deno.test("server handles the core lifecycle", () => {
   assert_equals(state.exited, true);
 });
 
+Deno.test("server keeps externally supplied host modules responsive", async () => {
+  const source_url = new URL(
+    "../../case-studies/grep/grep.ix",
+    import.meta.url,
+  );
+  const uri = source_url.href;
+  const text = await Deno.readTextFile(source_url);
+  const state = create_state();
+  const opened = handle_message(state, {
+    method: "textDocument/didOpen",
+    params: {
+      textDocument: { uri, version: 1, text },
+    },
+  }) as [{ params: { diagnostics: Array<{ message: string }> } }];
+
+  assert_equals(opened[0]?.params.diagnostics, []);
+
+  const formatting = handle_message(state, {
+    id: 1,
+    method: "textDocument/formatting",
+    params: { textDocument: { uri } },
+  });
+  assert_equals(formatting, [{ jsonrpc: "2.0", id: 1, result: [] }]);
+
+  const effect_offset = text.indexOf("Process.arg_count");
+  const effect_prefix = text.slice(0, effect_offset);
+  const effect_line = effect_prefix.split("\n").length - 1;
+  const effect_line_start = effect_prefix.lastIndexOf("\n") + 1;
+  const hovered = handle_message(state, {
+    id: 2,
+    method: "textDocument/hover",
+    params: {
+      textDocument: { uri },
+      position: {
+        line: effect_line,
+        character: effect_offset - effect_line_start + 9,
+      },
+    },
+  }) as [{ result: { contents: { value: string } } }];
+
+  assert_equals(
+    hovered[0]?.result.contents.value,
+    "**operation** `arg_count`\n\ntype: `() -> I32`\n\n" +
+      "signature: `Process.arg_count() => I32`",
+  );
+
+  const result_offset = text.indexOf("write_result <-");
+  const result_prefix = text.slice(0, result_offset);
+  const result_line = result_prefix.split("\n").length - 1;
+  const result_line_start = result_prefix.lastIndexOf("\n") + 1;
+  const result_hover = handle_message(state, {
+    id: 3,
+    method: "textDocument/hover",
+    params: {
+      textDocument: { uri },
+      position: {
+        line: result_line,
+        character: result_offset - result_line_start + 1,
+      },
+    },
+  }) as [{ result: { contents: { value: string } } }];
+
+  assert_equals(
+    result_hover[0]?.result.contents.value,
+    "```ix\nlet write_result: WriteResult\n```",
+  );
+
+  for (
+    const expected of [
+      { name: "current", offset: text.indexOf("current)") },
+      { name: "pending", offset: text.indexOf("pending, current") },
+    ]
+  ) {
+    const prefix = text.slice(0, expected.offset);
+    const line = prefix.split("\n").length - 1;
+    const line_start = prefix.lastIndexOf("\n") + 1;
+    const nested_hover = handle_message(state, {
+      id: 4,
+      method: "textDocument/hover",
+      params: {
+        textDocument: { uri },
+        position: {
+          line,
+          character: expected.offset - line_start + 1,
+        },
+      },
+    }) as [{ result: { contents: { value: string } } }];
+
+    assert_equals(
+      nested_hover[0]?.result.contents.value,
+      "```ix\nlet " + expected.name + ": Bytes\n```",
+    );
+  }
+
+  const inlays = handle_message(state, {
+    id: 5,
+    method: "textDocument/inlayHint",
+    params: {
+      textDocument: { uri },
+      range: {
+        start: { line: 0, character: 0 },
+        end: { line: text.split("\n").length - 1, character: 0 },
+      },
+    },
+  }) as [{ result: Array<{ label: string; position: LspPosition }> }];
+
+  assert_equals(
+    inlays[0]?.result.some((hint) =>
+      hint.label === ": WriteResult" && hint.position.line === result_line
+    ),
+    true,
+  );
+});
+
 Deno.test("server refuses to format broken documents", () => {
   const state = create_state();
   handle_message(state, {
@@ -212,8 +326,8 @@ Deno.test("server defaults to UTF-16 and advertises incremental sync", () => {
         },
         hoverProvider: true,
         signatureHelpProvider: {
-          triggerCharacters: ["(", ","],
-          retriggerCharacters: [","],
+          triggerCharacters: ["(", ",", " "],
+          retriggerCharacters: [",", " "],
         },
         inlayHintProvider: { resolveProvider: true },
         codeLensProvider: { resolveProvider: false },
@@ -307,8 +421,8 @@ Deno.test("server selects the first client-supported position encoding", () => {
         },
         hoverProvider: true,
         signatureHelpProvider: {
-          triggerCharacters: ["(", ","],
-          retriggerCharacters: [","],
+          triggerCharacters: ["(", ",", " "],
+          retriggerCharacters: [",", " "],
         },
         inlayHintProvider: { resolveProvider: true },
         codeLensProvider: { resolveProvider: false },
@@ -620,7 +734,7 @@ Deno.test("dependency edits invalidate and republish open importers", () => {
       textDocument: {
         uri: dependency_uri,
         version: 1,
-        text: "const available = 1\navailable\n",
+        text: "module () where\nreturn 1\n",
       },
     },
   });
@@ -630,7 +744,7 @@ Deno.test("dependency edits invalidate and republish open importers", () => {
       textDocument: {
         uri: importer_uri,
         version: 1,
-        text: 'import available from "./dep.ix"\navailable\n',
+        text: 'const available = import "./dep.ix"\navailable\n',
       },
     },
   }) as [{ params: { diagnostics: unknown[] } }];
@@ -866,8 +980,8 @@ Deno.test("server serves type, import, and workspace symbol navigation", () => {
       textDocument: {
         uri: main,
         version: 1,
-        text: "type Pair = [.left = Int]\n" +
-          "let value: Pair = [.left = 1]\nvalue.left\n",
+        text: "type Pair = (.left = Int)\n" +
+          "let value: Pair = (.left = 1)\nvalue.left\n",
       },
     },
   });
@@ -877,7 +991,7 @@ Deno.test("server serves type, import, and workspace symbol navigation", () => {
       textDocument: {
         uri: other,
         version: 1,
-        text: 'import dependency from "./dep.ix"\ndependency\n',
+        text: 'const dependency = import "./dep.ix"\ndependency\n',
       },
     },
   });
@@ -928,12 +1042,12 @@ Deno.test("workspace symbols include closed Ix files under the root", () => {
   const response = handle_message(state, {
     id: 2,
     method: "workspace/symbol",
-    params: { query: "scoremod" },
+    params: { query: "capab" },
   }) as [{ result: Array<{ name: string; location: { uri: string } }> }];
 
   assert_equals(
     response[0]?.result.some((symbol) =>
-      symbol.name === "score_module" &&
+      symbol.name === "capabilities" &&
       symbol.location.uri.endsWith("score_module.ix")
     ),
     true,
@@ -956,8 +1070,8 @@ Deno.test("server completes members, import paths, and resolved docs", () => {
     },
   });
   const text = "/// A user record.\n" +
-    "type User = [.name = Text]\n" +
-    'let user: User = [.name = "Ada"]\nuser.';
+    "type User = (.name = Text)\n" +
+    'let user: User = (.name = "Ada")\nuser.';
   handle_message(state, {
     method: "textDocument/didOpen",
     params: { textDocument: { uri, version: 1, text } },
@@ -979,7 +1093,7 @@ Deno.test("server completes members, import paths, and resolved docs", () => {
     method: "textDocument/didChange",
     params: {
       textDocument: { uri, version: 2 },
-      contentChanges: [{ text: 'import dependency from "d' }],
+      contentChanges: [{ text: 'const dependency = import "d' }],
     },
   });
   const imports = handle_message(state, {
@@ -987,7 +1101,7 @@ Deno.test("server completes members, import paths, and resolved docs", () => {
     method: "textDocument/completion",
     params: {
       textDocument: { uri },
-      position: { line: 0, character: 25 },
+      position: { line: 0, character: 28 },
     },
   }) as [{ result: { items: LspCompletionItem[] } }];
   assert_equals(imports[0]?.result.items.map((item) => item.label), [
@@ -999,7 +1113,7 @@ Deno.test("server completes members, import paths, and resolved docs", () => {
     params: {
       textDocument: { uri, version: 3 },
       contentChanges: [{
-        text: "/// A user record.\ntype User = [.name = Text]\nUs",
+        text: "/// A user record.\ntype User = (.name = Text)\nUs",
       }],
     },
   });
@@ -1394,7 +1508,7 @@ Deno.test("server suppresses assists that fail workspace resolution", () => {
   const state = create_state();
   handle_message(state, { id: 1, method: "initialize" });
   const uri = "file:///missing-import/main.ix";
-  const text = 'import dep from "./missing.ix"\nlet answer = 42\nanswer\n';
+  const text = 'let answer = 42\nconst dep = import "./missing.ix"\nanswer\n';
   handle_message(state, {
     method: "textDocument/didOpen",
     params: { textDocument: { uri, version: 1, text } },
@@ -1405,8 +1519,8 @@ Deno.test("server suppresses assists that fail workspace resolution", () => {
     params: {
       textDocument: { uri },
       range: {
-        start: { line: 1, character: 4 },
-        end: { line: 1, character: 10 },
+        start: { line: 0, character: 4 },
+        end: { line: 0, character: 10 },
       },
       context: { diagnostics: [] },
     },
@@ -1415,16 +1529,7 @@ Deno.test("server suppresses assists that fail workspace resolution", () => {
     candidate.title === "Annotate answer with inferred type"
   );
 
-  if (action === undefined) {
-    throw new Error("Missing unresolved annotation action");
-  }
-
-  const resolved = handle_message(state, {
-    id: 3,
-    method: "codeAction/resolve",
-    params: action,
-  }) as [{ result: { edit?: unknown } }];
-  assert_equals(resolved[0]?.result.edit, undefined);
+  assert_equals(action, undefined);
 });
 
 Deno.test("server exposes comptime and pipeline powertools", () => {
@@ -1516,7 +1621,7 @@ Deno.test("server exposes comptime and pipeline powertools", () => {
   assert_equals(broken[0]?.result, {
     ok: false,
     code: "broken_source",
-    message: "Source could not be parsed: Expected binding name at 1:5",
+    message: "Source could not be parsed: Expected pattern binding at 1:5",
   });
 });
 
@@ -1564,6 +1669,7 @@ Deno.test("server reports workspace progress and applies workspace config", asyn
   const root_path = await Deno.makeTempDir({ prefix: "ix-server-root-" });
 
   try {
+    await Deno.writeTextFile(root_path + "/AGENTS.md", "workspace\n");
     await Deno.writeTextFile(root_path + "/one.ix", "let value = 1\n");
     const root = new URL("file://" + root_path + "/").href;
     const state = create_state();
@@ -1616,7 +1722,7 @@ Deno.test("server follows cross-file members and renames workspace-wide", async 
 
   try {
     const a_text = "let exported = 1\nexported\n";
-    const b_text = 'import a from "./a.ix"\nlet value = a.exported\n';
+    const b_text = 'const a = import "./a.ix"\nlet value = a.exported\n';
     await Deno.writeTextFile(root_path + "/a.ix", a_text);
     await Deno.writeTextFile(root_path + "/b.ix", b_text);
     const root = new URL("file://" + root_path + "/").href;
@@ -1691,10 +1797,10 @@ Deno.test("three-module edits reanalyze only capped reverse dependencies", () =>
   const unrelated = "file:///chain/unrelated.ix";
   const fixtures = [{ uri: a, text: "let value = 1\n" }, {
     uri: b,
-    text: 'import a from "./a.ix"\nlet b = a\n',
+    text: 'const a = import "./a.ix"\nlet b = a\n',
   }, {
     uri: c,
-    text: 'import b from "./b.ix"\nlet c = b\n',
+    text: 'const b = import "./b.ix"\nlet c = b\n',
   }, { uri: unrelated, text: "let separate = 1\n" }];
 
   for (const fixture of fixtures) {
@@ -1747,7 +1853,7 @@ Deno.test("open dependency edits publish diagnostics for closed importers", asyn
     await Deno.writeTextFile(root_path + "/a.ix", "let value = 1\n");
     await Deno.writeTextFile(
       root_path + "/b.ix",
-      'import a from "./a.ix"\nlet imported = a\n',
+      'const a = import "./a.ix"\nlet imported = a\n',
     );
     const root = new URL("file://" + root_path + "/").href;
     const a = new URL("a.ix", root).href;

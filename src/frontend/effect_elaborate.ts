@@ -734,8 +734,8 @@ function rewrite_statements(
             });
             expect(
               field,
-              "Missing module export " + item.name + " from " +
-                stmt.value.func.name,
+              "Module " + stmt.value.func.name + " does not export " +
+                item.name,
             );
 
             if (
@@ -797,6 +797,152 @@ function rewrite_statements(
     }
 
     if (stmt.tag === "bind") {
+      if (
+        stmt.value.tag === "app" && stmt.value.func.tag === "var"
+      ) {
+        const module = elaboration.modules.get(stmt.value.func.name);
+
+        if (module) {
+          expect(
+            module.params.length === stmt.value.args.length,
+            "Module argument count mismatch: " + stmt.value.func.name,
+          );
+          const replacements = new Map<string, FrontExpr>();
+
+          for (let index = 0; index < module.params.length; index += 1) {
+            const param = module.params[index];
+            const arg = stmt.value.args[index];
+            expect(param, "Missing module parameter");
+            expect(arg, "Missing module argument");
+            replacements.set(param.name, arg);
+          }
+
+          const body = substitute_front_expr(module.body, replacements);
+          expect(
+            body.tag === "block",
+            "Module initializer body must be a block",
+          );
+          const body_statements = [...body.statements];
+          const export_stmt = body_statements.pop();
+          expect(
+            export_stmt && export_stmt.tag === "return" &&
+              export_stmt.value.tag === "struct_value",
+            "Module initializer must return an export record",
+          );
+          result.push(...rewrite_statements(
+            body_statements,
+            providers,
+            elaboration,
+          ));
+
+          if (
+            stmt.pattern === undefined || stmt.pattern.tag !== "record"
+          ) {
+            result.push({
+              ...stmt,
+              value: rewrite_expr(
+                export_stmt.value,
+                providers,
+                elaboration,
+              ),
+            });
+            continue;
+          }
+
+          const selected_names = new Set<string>();
+
+          for (const field_pattern of stmt.pattern.fields) {
+            selected_names.add(field_pattern.name);
+            const field = export_stmt.value.fields.find((candidate) => {
+              return candidate.name === field_pattern.name;
+            });
+            expect(
+              field,
+              "Module " + stmt.value.func.name + " does not export " +
+                field_pattern.name,
+            );
+
+            if (
+              field_pattern.pattern.tag === "binding" &&
+              field.value.tag === "var" &&
+              field.value.name === field_pattern.pattern.name &&
+              elaboration.effect_functions.has(field_pattern.pattern.name)
+            ) {
+              continue;
+            }
+
+            let name = "@no_demand_module_pattern_" + next_pattern.toString();
+            let is_linear = false;
+            let annotation: string | undefined;
+            let type_annotation: TypeExpr | undefined;
+            next_pattern += 1;
+
+            if (field_pattern.pattern.tag === "binding") {
+              name = field_pattern.pattern.name;
+              is_linear = field_pattern.pattern.mode === "linear";
+              annotation = field_pattern.pattern.annotation;
+              type_annotation = field_pattern.pattern.type_annotation;
+            }
+
+            result.push({
+              tag: "bind",
+              kind: stmt.kind,
+              pattern: field_pattern.pattern,
+              name,
+              is_recursive: false,
+              is_linear,
+              annotation,
+              type_annotation,
+              value: rewrite_expr(field.value, providers, elaboration),
+            });
+          }
+
+          if (
+            stmt.pattern.rest !== undefined &&
+            stmt.pattern.rest.tag !== "wildcard"
+          ) {
+            const rest_fields = export_stmt.value.fields.filter((field) => {
+              return !selected_names.has(field.name);
+            }).map((field) => {
+              return {
+                ...field,
+                value: rewrite_expr(field.value, providers, elaboration),
+              };
+            });
+            let name = "@no_demand_module_pattern_" + next_pattern.toString();
+            let is_linear = false;
+            let annotation: string | undefined;
+            let type_annotation: TypeExpr | undefined;
+            next_pattern += 1;
+
+            if (stmt.pattern.rest.tag === "binding") {
+              name = stmt.pattern.rest.name;
+              is_linear = stmt.pattern.rest.mode === "linear";
+              annotation = stmt.pattern.rest.annotation;
+              type_annotation = stmt.pattern.rest.type_annotation;
+            }
+
+            result.push({
+              tag: "bind",
+              kind: stmt.kind,
+              pattern: stmt.pattern.rest,
+              name,
+              is_recursive: false,
+              is_linear,
+              annotation,
+              type_annotation,
+              value: {
+                tag: "struct_value",
+                type_expr: { tag: "var", name: "object_type" },
+                fields: rest_fields,
+              },
+            });
+          }
+
+          continue;
+        }
+      }
+
       if (elaboration.modules.has(stmt.name)) {
         continue;
       }
@@ -864,7 +1010,10 @@ function rewrite_statements(
         throw new Error(
           "Rich type annotation is not lowered yet on " + stmt.name,
         );
-      } else if (stmt.type_annotation?.tag === "tuple") {
+      } else if (
+        stmt.type_annotation?.tag === "tuple" ||
+        stmt.type_annotation?.tag === "product"
+      ) {
         throw new Error(
           "Rich type annotation is not lowered yet on " + stmt.name,
         );
@@ -946,6 +1095,10 @@ function apply_function_parameter_types(
 
   if (type.param.tag === "tuple") {
     types = type.param.items;
+  }
+
+  if (type.param.tag === "product") {
+    types = type.param.entries.map((entry) => entry.type_expr);
   }
 
   return params.map((param, index) => {

@@ -1,4 +1,5 @@
 import type { Field, FrontExpr, Param, Stmt } from "./ast.ts";
+import { pattern_bindings } from "./pattern.ts";
 
 export function substitute_front_expr(
   expr: FrontExpr,
@@ -20,6 +21,13 @@ export function substitute_front_expr(
     case "is":
       return {
         tag: "is",
+        value: substitute_front_expr(expr.value, replacements),
+        type_expr: expr.type_expr,
+      };
+
+    case "as":
+      return {
+        tag: "as",
         value: substitute_front_expr(expr.value, replacements),
         type_expr: expr.type_expr,
       };
@@ -63,18 +71,62 @@ export function substitute_front_expr(
     case "rec": {
       const local = shadow_params(replacements, expr.params);
       return {
-        tag: "rec",
-        params: expr.params,
+        ...expr,
         body: substitute_front_expr(expr.body, local),
       };
     }
 
-    case "app":
+    case "app": {
+      let arg = expr.arg;
+
+      if (arg !== undefined) {
+        arg = substitute_front_expr(arg, replacements);
+      }
+
       return {
         ...expr,
         func: substitute_front_expr(expr.func, replacements),
-        args: expr.args.map((arg) => substitute_front_expr(arg, replacements)),
+        arg,
+        args: expr.args.map((item) =>
+          substitute_front_expr(item, replacements)
+        ),
       };
+    }
+
+    case "product":
+      return {
+        tag: "product",
+        entries: expr.entries.map((entry) => ({
+          ...entry,
+          value: substitute_front_expr(entry.value, replacements),
+        })),
+      };
+
+    case "array": {
+      let rest: FrontExpr | undefined;
+
+      if (expr.rest !== undefined) {
+        rest = substitute_front_expr(expr.rest, replacements);
+      }
+
+      return {
+        tag: "array",
+        items: expr.items.map((item) =>
+          substitute_front_expr(item, replacements)
+        ),
+        rest,
+      };
+    }
+
+    case "array_repeat":
+      return {
+        tag: "array_repeat",
+        value: substitute_front_expr(expr.value, replacements),
+        length: substitute_front_expr(expr.length, replacements),
+      };
+
+    case "import":
+      return expr;
 
     case "block":
       return {
@@ -202,6 +254,31 @@ export function substitute_front_expr(
         implicit_else: expr.implicit_else,
       };
     }
+
+    case "match":
+      return {
+        tag: "match",
+        target: substitute_front_expr(expr.target, replacements),
+        arms: expr.arms.map((arm) => {
+          let local = replacements;
+
+          for (const binding of pattern_bindings(arm.pattern)) {
+            local = shadow_name(local, binding.name);
+          }
+
+          let guard: FrontExpr | undefined;
+
+          if (arm.guard !== undefined) {
+            guard = substitute_front_expr(arm.guard, local);
+          }
+
+          return {
+            pattern: arm.pattern,
+            guard,
+            body: substitute_front_expr(arm.body, local),
+          };
+        }),
+      };
 
     case "field":
       return {

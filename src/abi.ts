@@ -1,6 +1,8 @@
-import type { FrontExpr, Source, TypeField } from "./frontend/ast.ts";
+import type { FrontExpr, Source, TypeExpr, TypeField } from "./frontend/ast.ts";
 import { analyze_front_effects } from "./frontend/effect_analysis.ts";
 import { resolve_front_type_value } from "./frontend/type_set_elaborate.ts";
+import { tokenize } from "./frontend/tokenize.ts";
+import { parse_type_expr } from "./frontend/type_expr.ts";
 import { align_to } from "./core/memory.ts";
 import type { Func, Mod } from "./mod.ts";
 import {
@@ -9,7 +11,8 @@ import {
 } from "./core/runtime_allocator.ts";
 import { closure_heap_global } from "./core/closure_runtime.ts";
 
-export const ix_abi_version = "ix-js-2";
+export const ix_abi_name = "ix-js";
+export const ix_abi_version = "ix-js-3";
 
 export type AbiOwnership =
   | "scalar"
@@ -56,6 +59,16 @@ export type AbiType =
     size: number;
     align: 8;
     cases: { name: string; tag_value: number; payload: AbiTypeRef }[];
+  }
+  | {
+    tag: "array";
+    name: string;
+    schema_id: number;
+    element: AbiTypeRef;
+    length: number;
+    stride: number;
+    size: number;
+    align: number;
   };
 
 export type AbiImport = {
@@ -118,8 +131,8 @@ export type AbiEntry = {
 };
 
 export type AbiManifest = {
-  abi_name: "ix-js";
-  abi_version: "ix-js-2";
+  abi_name: typeof ix_abi_name;
+  abi_version: typeof ix_abi_version;
   target: {
     profile: "core-3-nonweb";
     pointer: "wasm32";
@@ -145,6 +158,30 @@ export type AbiManifest = {
   };
 };
 
+export function abi_fixed_array_schema_name(
+  element: AbiTypeRef,
+  length: number,
+): string {
+  if (!Number.isInteger(length) || length < 0) {
+    throw new Error("ABI fixed array length must be a non-negative integer");
+  }
+
+  return "__ix_array_" + abi_type_ref_identity(element) + "_" +
+    length.toString();
+}
+
+function abi_type_ref_identity(type: AbiTypeRef): string {
+  if (type.tag === "resource") {
+    return "resource_" + encodeURIComponent(type.effect);
+  }
+
+  if (type.tag === "named") {
+    return "named_" + encodeURIComponent(type.name);
+  }
+
+  return type.tag;
+}
+
 export function build_abi_manifest(
   source: Source,
   compiled_source: Source = source,
@@ -156,8 +193,26 @@ export function build_abi_manifest(
     values.set(name, value);
   }
   const types: Record<string, AbiType> = {};
+  const fixed_arrays = new Map<
+    string,
+    { element: AbiTypeRef; length: number }
+  >();
   const resolving = new Set<string>();
   let next_schema_id = 1;
+
+  function resolve_fixed_array(
+    element: AbiTypeRef,
+    length: number,
+  ): AbiType {
+    const name = abi_fixed_array_schema_name(element, length);
+    const existing = fixed_arrays.get(name);
+
+    if (!existing) {
+      fixed_arrays.set(name, { element, length });
+    }
+
+    return resolve_named(name);
+  }
 
   function resolve_named(name: string): AbiType {
     reject_resume_abi_type(name);
@@ -169,6 +224,26 @@ export function build_abi_manifest(
 
     if (resolving.has(name)) {
       throw new Error("Recursive ABI type is not supported: " + name);
+    }
+
+    const fixed_array = fixed_arrays.get(name);
+
+    if (fixed_array) {
+      const layout = abi_type_ref_layout(fixed_array.element, resolve_named);
+      const stride = align_to(layout.size, layout.align);
+      const result: AbiType = {
+        tag: "array",
+        name,
+        schema_id: next_schema_id,
+        element: fixed_array.element,
+        length: fixed_array.length,
+        stride,
+        size: stride * fixed_array.length,
+        align: layout.align,
+      };
+      next_schema_id += 1;
+      types[name] = result;
+      return result;
     }
 
     const value = values.get(name);
@@ -202,7 +277,12 @@ export function build_abi_manifest(
         const fields: AbiStructField[] = [];
 
         for (const field of resolved_value.fields) {
-          const type = abi_type_ref(field.type_name, values, resolve_named);
+          const type = abi_type_ref(
+            field.type_name,
+            values,
+            resolve_named,
+            resolve_fixed_array,
+          );
           const layout = abi_type_ref_layout(type, resolve_named);
           offset = align_to(offset, layout.align);
           fields.push({ name: field.name, type, offset });
@@ -241,6 +321,7 @@ export function build_abi_manifest(
             union_case.type_name,
             values,
             resolve_named,
+            resolve_fixed_array,
           );
           const layout = abi_type_ref_layout(payload, resolve_named);
 
@@ -312,6 +393,7 @@ export function build_abi_manifest(
             param.ownership,
             values,
             resolve_named,
+            resolve_fixed_array,
           ),
         );
       }
@@ -321,6 +403,7 @@ export function build_abi_manifest(
         operation.result.ownership,
         values,
         resolve_named,
+        resolve_fixed_array,
       );
       operations[operation.name] = {
         name: operation.name,
@@ -355,7 +438,7 @@ export function build_abi_manifest(
   const requirements = abi_effect_requirements(source, effects);
 
   return {
-    abi_name: "ix-js",
+    abi_name: ix_abi_name,
     abi_version: ix_abi_version,
     target: {
       profile: "core-3-nonweb",
@@ -421,8 +504,14 @@ function abi_effect_param_contract(
   ownership: AbiOwnership,
   values: Map<string, FrontExpr>,
   resolve_named: (name: string) => AbiType,
+  resolve_fixed_array: (element: AbiTypeRef, length: number) => AbiType,
 ): AbiValueContract {
-  const type = abi_type_ref(type_name, values, resolve_named);
+  const type = abi_type_ref(
+    type_name,
+    values,
+    resolve_named,
+    resolve_fixed_array,
+  );
 
   validate_effect_ownership(type_name, type, ownership, false);
   return { type, ownership };
@@ -433,8 +522,14 @@ function abi_effect_result_contract(
   ownership: AbiOwnership,
   values: Map<string, FrontExpr>,
   resolve_named: (name: string) => AbiType,
+  resolve_fixed_array: (element: AbiTypeRef, length: number) => AbiType,
 ): AbiValueContract {
-  const type = abi_type_ref(type_name, values, resolve_named);
+  const type = abi_type_ref(
+    type_name,
+    values,
+    resolve_named,
+    resolve_fixed_array,
+  );
 
   validate_effect_ownership(type_name, type, ownership, true);
   return { type, ownership };
@@ -728,6 +823,7 @@ function abi_type_ref(
   name: string,
   values: Map<string, FrontExpr>,
   resolve_named: (name: string) => AbiType,
+  resolve_fixed_array: (element: AbiTypeRef, length: number) => AbiType,
 ): AbiTypeRef {
   const primitive = primitive_abi_type_ref(name);
 
@@ -741,12 +837,110 @@ function abi_type_ref(
     return primitive_alias;
   }
 
+  if (name.startsWith("[")) {
+    const parsed = parse_type_expr(tokenize(name));
+
+    if (parsed.tag === "array") {
+      return abi_fixed_array_type_ref(
+        parsed,
+        values,
+        resolve_named,
+        resolve_fixed_array,
+      );
+    }
+  }
+
   if (!values.has(name)) {
     throw new Error("Missing ABI type reference: " + name);
   }
 
   resolve_named(name);
   return { tag: "named", name };
+}
+
+function abi_fixed_array_type_ref(
+  array: Extract<TypeExpr, { tag: "array" }>,
+  values: Map<string, FrontExpr>,
+  resolve_named: (name: string) => AbiType,
+  resolve_fixed_array: (element: AbiTypeRef, length: number) => AbiType,
+): AbiTypeRef {
+  const element = abi_type_ref_from_expr(
+    array.element,
+    values,
+    resolve_named,
+    resolve_fixed_array,
+  );
+  const length = abi_fixed_array_length(array.length);
+  const schema = resolve_fixed_array(element, length);
+  return { tag: "named", name: schema.name };
+}
+
+function abi_type_ref_from_expr(
+  type: TypeExpr,
+  values: Map<string, FrontExpr>,
+  resolve_named: (name: string) => AbiType,
+  resolve_fixed_array: (element: AbiTypeRef, length: number) => AbiType,
+): AbiTypeRef {
+  if (type.tag === "name" || type.tag === "atom") {
+    return abi_type_ref(type.name, values, resolve_named, resolve_fixed_array);
+  }
+
+  if (type.tag === "array") {
+    return abi_fixed_array_type_ref(
+      type,
+      values,
+      resolve_named,
+      resolve_fixed_array,
+    );
+  }
+
+  throw new Error("Unsupported ABI fixed-array element type");
+}
+
+function abi_fixed_array_length(
+  length: Extract<TypeExpr, { tag: "array" }>["length"],
+): number {
+  if (length.tag === "number") {
+    return length.value;
+  }
+
+  if (length.tag === "binary") {
+    const left = abi_fixed_array_length(length.left);
+    const right = abi_fixed_array_length(length.right);
+
+    if (length.op === "+") {
+      return left + right;
+    }
+
+    if (length.op === "-") {
+      return left - right;
+    }
+
+    if (length.op === "*") {
+      return left * right;
+    }
+
+    if (length.op === "/") {
+      if (right === 0) {
+        throw new Error("ABI fixed array length divides by zero");
+      }
+
+      return Math.trunc(left / right);
+    }
+
+    if (length.op === "%") {
+      if (right === 0) {
+        throw new Error("ABI fixed array length divides by zero");
+      }
+
+      return left % right;
+    }
+
+    length.op satisfies never;
+    throw new Error("Unsupported ABI fixed array length operator");
+  }
+
+  throw new Error("ABI fixed array length must be a numeric constant");
 }
 
 function primitive_abi_type_alias(
@@ -845,7 +1039,7 @@ function abi_type_ref_layout(
   if (type.tag === "named") {
     const named = resolve_named(type.name);
 
-    if (named.tag === "struct") {
+    if (named.tag === "struct" || named.tag === "array") {
       return { size: named.size, align: named.align };
     }
 

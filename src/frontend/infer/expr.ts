@@ -9,6 +9,12 @@ import { infer_field_type, infer_index_type } from "./access.ts";
 import { infer_prim_result_type } from "./prim.ts";
 import type { InferHooks } from "./types.ts";
 import { prim_returns_bool } from "../numeric.ts";
+import {
+  elaborate_array_repeat_expr,
+  elaborate_fixed_array_expr,
+  elaborate_product_as_expr,
+  elaborate_product_expr,
+} from "../aggregate.ts";
 
 export function infer_front_expr(
   expr: FrontExpr,
@@ -39,6 +45,14 @@ export function infer_front_expr(
 
     case "is":
       return { tag: "bool" };
+
+    case "as":
+      return infer_front_expr(elaborate_product_as_expr(expr), env, hooks);
+
+    case "match":
+      throw new Error(
+        "Match expression must be elaborated before frontend inference",
+      );
 
     case "var": {
       const binding = lookup(env, expr.name);
@@ -82,6 +96,25 @@ export function infer_front_expr(
 
     case "app":
       return infer_app_expr_type(expr, env, hooks);
+
+    case "product":
+      return infer_front_expr(elaborate_product_expr(expr), env, hooks);
+
+    case "array":
+      return infer_front_expr(elaborate_fixed_array_expr(expr), env, hooks);
+
+    case "array_repeat":
+      return infer_front_expr(
+        elaborate_array_repeat_expr(expr, "_array_repeat#inference"),
+        env,
+        hooks,
+      );
+
+    case "import":
+      throw new Error(
+        "Expression import must be resolved before frontend inference: " +
+          expr.path,
+      );
 
     case "block":
       return infer_block_type(expr.statements, env, hooks, infer_front_expr);

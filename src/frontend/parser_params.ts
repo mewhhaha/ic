@@ -1,5 +1,6 @@
 import { expect } from "../expect.ts";
-import type { Param, Token, TypeExpr } from "./ast.ts";
+import type { Param, Pattern, PatternMode, Token, TypeExpr } from "./ast.ts";
+import { front_literal_expr } from "./literal.ts";
 import {
   expect_const_binding_name,
   expect_snake_case,
@@ -37,118 +38,338 @@ export class ParserParams extends ParserCursor {
     this.affine_call_names = state.affine_call_names;
     this.allow_pascal_type_names = state.allow_pascal_type_names;
   }
-  protected try_single_param_arrow(): Param | undefined {
+  protected starts_pattern_arrow(offset = 0): boolean {
+    let parens = 0;
+    let brackets = 0;
+    let braces = 0;
+
+    for (
+      let index = this.index + offset;
+      index < this.tokens.length;
+      index += 1
+    ) {
+      const token = this.tokens[index];
+      expect(token, "Missing token while finding pattern arrow");
+
+      if (token.kind === "eof") {
+        return false;
+      }
+
+      if (token.kind === "newline") {
+        if (parens > 0 || brackets > 0 || braces > 0) {
+          continue;
+        }
+
+        return false;
+      }
+
+      if (token.kind !== "symbol") {
+        continue;
+      }
+
+      if (
+        parens === 0 && brackets === 0 && braces === 0 &&
+        (token.text === "|" || token.text === "," || token.text === "+" ||
+          token.text === "-" || token.text === "*" || token.text === "/" ||
+          token.text === "%" || token.text === "==" || token.text === "!=" ||
+          token.text === "<" || token.text === ">" || token.text === "<=" ||
+          token.text === ">=" || token.text === "&&" || token.text === "||")
+      ) {
+        return false;
+      }
+
+      if (
+        token.text === "=>" && parens === 0 && brackets === 0 && braces === 0
+      ) {
+        return true;
+      }
+
+      if (token.text === "(") parens += 1;
+      if (token.text === "[") brackets += 1;
+      if (token.text === "{") braces += 1;
+      if (token.text === ")") parens -= 1;
+      if (token.text === "]") brackets -= 1;
+      if (token.text === "}") braces -= 1;
+
+      if (parens < 0 || brackets < 0 || braces < 0) {
+        return false;
+      }
+    }
+
+    return false;
+  }
+
+  protected parse_pattern(): Pattern {
     const start = this.index;
+    const pattern = this.parse_pattern_inner();
+    return this.concrete_node(start, pattern);
+  }
+
+  private parse_pattern_inner(): Pattern {
+    let mode: PatternMode = "default";
+
+    if (this.match_name("const")) {
+      mode = "const";
+    } else if (this.match_symbol("!")) {
+      mode = "linear";
+    }
+
+    if (mode !== "default") {
+      return this.parse_binding_pattern(mode);
+    }
+
+    const token = this.peek();
+    const literal = front_literal_expr(token);
+
+    if (literal) {
+      this.advance();
+      expect(
+        literal.tag === "bool" || literal.tag === "num" ||
+          literal.tag === "text",
+        "Unsupported pattern literal",
+      );
+      return { tag: "literal", value: literal };
+    }
+
+    if (this.match_symbol("#")) {
+      const name = this.expect_name("Expected atom pattern name");
+      expect_snake_case(name, "Atom pattern");
+      return { tag: "literal", value: { tag: "atom", name } };
+    }
+
+    if (this.match_symbol(".")) {
+      const name = this.expect_name("Expected union case pattern name");
+      expect_snake_case(name, "Union case pattern");
+      let value: Pattern | undefined;
+
+      if (this.starts_union_pattern_payload()) {
+        value = this.parse_pattern();
+      }
+
+      return { tag: "union_case", name, value };
+    }
+
+    if (this.match_symbol("(")) {
+      return this.parse_product_pattern();
+    }
+
+    if (this.match_symbol("[")) {
+      return this.parse_array_pattern();
+    }
+
+    if (this.match_symbol("{")) {
+      return this.parse_record_pattern();
+    }
+
+    return this.parse_binding_pattern("default");
+  }
+
+  private starts_union_pattern_payload(): boolean {
     const token = this.peek();
 
-    if (token.kind !== "name") {
-      return undefined;
-    }
-
-    if (this.peek(1).kind !== "symbol" || this.peek(1).text !== "=>") {
-      return undefined;
-    }
-
-    const name = this.expect_binding_name("Expected lambda parameter");
-
-    if (!is_no_demand_name(name)) {
-      this.expect_param_name(name);
-    }
-
-    return this.concrete_node(start, {
-      name,
-      is_const: false,
-      is_linear: false,
-      annotation: undefined,
-    });
-  }
-
-  protected try_param_list_arrow(): Param[] | undefined {
-    if (this.peek().kind !== "symbol" || this.peek().text !== "(") {
-      return undefined;
-    }
-
-    const close = this.find_matching(this.index, "(", ")");
-    const after = this.tokens[close + 1];
-    expect(after, "Missing token after parameter list");
-
-    if (after.kind !== "symbol" || after.text !== "=>") {
-      return undefined;
-    }
-
-    this.expect_symbol("(");
-    const params: Param[] = [];
-
-    if (!this.match_symbol(")")) {
-      while (true) {
-        params.push(this.parse_param());
-
-        if (this.match_symbol(")")) {
-          break;
-        }
-
-        this.expect_symbol(",");
-      }
-    }
-
-    return params;
-  }
-
-  protected parse_arrow_params(): Param[] {
-    if (this.peek().kind === "symbol" && this.peek().text === "(") {
-      this.expect_symbol("(");
-      const params: Param[] = [];
-
-      if (!this.match_symbol(")")) {
-        while (true) {
-          params.push(this.parse_param());
-
-          if (this.match_symbol(")")) {
-            break;
-          }
-
-          this.expect_symbol(",");
-        }
-      }
-
-      return params;
-    }
-
-    const start = this.index;
-    const name = this.expect_binding_name("Expected recursive parameter");
-
-    if (!is_no_demand_name(name)) {
-      this.expect_param_name(name);
-    }
-
-    return [this.concrete_node(start, {
-      name,
-      is_const: false,
-      is_linear: false,
-      annotation: undefined,
-    })];
-  }
-
-  protected is_rec_arrow(): boolean {
-    if (this.peek().kind !== "name" || this.peek().text !== "rec") {
+    if (token.kind === "newline" || token.kind === "eof") {
       return false;
     }
 
-    const next = this.peek(1);
-
-    if (next.kind === "name") {
-      const after = this.peek(2);
-      return after.kind === "symbol" && after.text === "=>";
+    if (token.kind === "name") {
+      return token.text !== "if";
     }
 
-    if (next.kind !== "symbol" || next.text !== "(") {
+    if (
+      token.kind === "number" || token.kind === "string" ||
+      token.kind === "character"
+    ) {
+      return true;
+    }
+
+    return token.kind === "symbol" &&
+      (token.text === "!" || token.text === "." || token.text === "(" ||
+        token.text === "[" || token.text === "{" || token.text === "#");
+  }
+
+  private parse_binding_pattern(mode: PatternMode): Pattern {
+    const source_name = this.expect_name("Expected pattern binding");
+
+    if (source_name === "_") {
+      if (mode === "linear") {
+        throw new Error("`!_` is not supported");
+      }
+
+      return { tag: "wildcard", mode };
+    }
+
+    if (mode === "const") {
+      this.expect_const_binding_name(source_name);
+    } else {
+      this.expect_param_name(source_name);
+    }
+
+    let annotation: string | undefined;
+    let type_annotation: TypeExpr | undefined;
+
+    if (this.match_symbol(":")) {
+      const parsed = this.consume_annotation();
+      annotation = parsed.annotation;
+      type_annotation = parsed.type_annotation;
+    }
+
+    const pattern: Extract<Pattern, { tag: "binding" }> = {
+      tag: "binding",
+      name: source_name,
+      mode,
+      annotation,
+    };
+
+    if (type_annotation) {
+      pattern.type_annotation = type_annotation;
+    }
+
+    return pattern;
+  }
+
+  private parse_product_pattern(): Pattern {
+    this.skip_newlines();
+
+    if (this.match_symbol(")")) {
+      return { tag: "unit" };
+    }
+
+    const entries = [this.parse_product_pattern_entry()];
+
+    if (this.match_symbol(")")) {
+      const entry = entries[0];
+      expect(entry, "Missing parenthesized pattern");
+
+      if (entry.label === undefined) {
+        return entry.pattern;
+      }
+
+      return { tag: "product", entries };
+    }
+
+    this.expect_symbol(",");
+    this.skip_newlines();
+
+    while (true) {
+      entries.push(this.parse_product_pattern_entry());
+
+      if (this.match_symbol(")")) {
+        break;
+      }
+
+      this.expect_symbol(",");
+      this.skip_newlines();
+    }
+
+    return { tag: "product", entries };
+  }
+
+  private parse_product_pattern_entry(): import("./ast.ts").ProductPatternEntry {
+    let label: string | undefined;
+
+    if (
+      this.peek().kind === "symbol" && this.peek().text === "." &&
+      this.peek(1).kind === "name" && this.peek(2).kind === "symbol" &&
+      this.peek(2).text === "="
+    ) {
+      this.expect_symbol(".");
+      label = this.expect_name("Expected product pattern label");
+      expect_snake_case(label, "Product pattern label");
+      this.expect_symbol("=");
+    }
+
+    const entry: import("./ast.ts").ProductPatternEntry = {
+      pattern: this.parse_pattern(),
+    };
+
+    if (label !== undefined) {
+      entry.label = label;
+    }
+
+    return entry;
+  }
+
+  private parse_array_pattern(): Pattern {
+    this.skip_newlines();
+    const items: Pattern[] = [];
+    let rest: Pattern | undefined;
+
+    if (this.match_symbol("]")) {
+      return { tag: "array", items, rest };
+    }
+
+    while (true) {
+      if (this.match_rest_prefix()) {
+        rest = this.parse_pattern();
+        this.skip_newlines();
+        this.expect_symbol("]");
+        break;
+      }
+
+      items.push(this.parse_pattern());
+
+      if (this.match_symbol("]")) {
+        break;
+      }
+
+      this.expect_symbol(",");
+      this.skip_newlines();
+    }
+
+    return { tag: "array", items, rest };
+  }
+
+  private parse_record_pattern(): Pattern {
+    this.skip_newlines();
+    const fields: import("./ast.ts").RecordPatternField[] = [];
+    let rest: Pattern | undefined;
+
+    while (!this.match_symbol("}")) {
+      if (this.match_rest_prefix()) {
+        rest = this.parse_pattern();
+        this.skip_newlines();
+        this.expect_symbol("}");
+        break;
+      }
+
+      const name = this.expect_name("Expected record pattern field");
+      expect_snake_case(name, "Record pattern field");
+      this.expect_param_name(name);
+      let pattern: Pattern = {
+        tag: "binding",
+        name,
+        mode: "default",
+        annotation: undefined,
+      };
+
+      if (this.match_symbol(":")) {
+        pattern = this.parse_pattern();
+      }
+
+      fields.push({ name, pattern });
+
+      if (this.match_symbol("}")) {
+        break;
+      }
+
+      this.expect_symbol(",");
+      this.skip_newlines();
+    }
+
+    return { tag: "record", fields, rest };
+  }
+
+  protected match_rest_prefix(): boolean {
+    if (
+      this.peek().kind !== "symbol" || this.peek().text !== ".." ||
+      this.peek(1).kind !== "symbol" || this.peek(1).text !== "."
+    ) {
       return false;
     }
 
-    const close = this.find_matching(this.index + 1, "(", ")");
-    const after = this.tokens[close + 1];
-    expect(after, "Missing token after recursive parameter list");
-    return after.kind === "symbol" && after.text === "=>";
+    this.advance();
+    this.advance();
+    return true;
   }
 
   protected parse_param(): Param {
@@ -247,16 +468,21 @@ export class ParserParams extends ParserCursor {
   } {
     const tokens: Token[] = [];
     let parens = 0;
+    let brackets = 0;
+    let braces = 0;
     let angles = 0;
 
     while (!this.is("eof")) {
       const token = this.peek();
 
       if (
-        token.kind === "newline" ||
-        (parens === 0 && angles === 0 && token.kind === "symbol" &&
+        (token.kind === "newline" && token.raw !== ";") ||
+        (parens === 0 && brackets === 0 && braces === 0 && angles === 0 &&
+          token.kind === "name" && token.text === "if") ||
+        (parens === 0 && brackets === 0 && braces === 0 && angles === 0 &&
+          token.kind === "symbol" &&
           (token.text === "," || token.text === ")" || token.text === "=" ||
-            token.text === "=>"))
+            token.text === "]" || token.text === "}" || token.text === "=>"))
       ) {
         break;
       }
@@ -265,6 +491,14 @@ export class ParserParams extends ParserCursor {
         parens += 1;
       } else if (token.kind === "symbol" && token.text === ")") {
         parens -= 1;
+      } else if (token.kind === "symbol" && token.text === "[") {
+        brackets += 1;
+      } else if (token.kind === "symbol" && token.text === "]") {
+        brackets -= 1;
+      } else if (token.kind === "symbol" && token.text === "{") {
+        braces += 1;
+      } else if (token.kind === "symbol" && token.text === "}") {
+        braces -= 1;
       } else if (token.kind === "symbol" && token.text === "<") {
         angles += 1;
       } else if (token.kind === "symbol" && token.text === ">") {

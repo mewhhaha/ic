@@ -1,5 +1,6 @@
 import { expect } from "../../expect.ts";
 import type { FrontExpr, Stmt } from "../ast.ts";
+import { pattern_bindings } from "../pattern.ts";
 
 export type CallOnlyUseScan = {
   valid: boolean;
@@ -158,6 +159,74 @@ function scan_call_only_expr(
 
     case "is":
       return scan_call_only_expr(name, expr.value, false);
+
+    case "as":
+      return scan_call_only_expr(name, expr.value, false);
+
+    case "product":
+      return merge_call_only_scans(
+        ...expr.entries.map((entry) =>
+          scan_call_only_expr(name, entry.value, false)
+        ),
+      );
+
+    case "array": {
+      const scans = expr.items.map((item) =>
+        scan_call_only_expr(name, item, false)
+      );
+
+      if (expr.rest !== undefined) {
+        scans.push(scan_call_only_expr(name, expr.rest, false));
+      }
+
+      return merge_call_only_scans(...scans);
+    }
+
+    case "array_repeat":
+      return merge_call_only_scans(
+        scan_call_only_expr(name, expr.value, false),
+        scan_call_only_expr(name, expr.length, false),
+      );
+
+    case "import":
+      return { valid: true, used: false };
+
+    case "match": {
+      let result = scan_call_only_expr(name, expr.target, false);
+
+      for (const arm of expr.arms) {
+        let shadows_name = false;
+
+        for (const binding of pattern_bindings(arm.pattern)) {
+          if (binding.name === name) {
+            shadows_name = true;
+            break;
+          }
+        }
+
+        if (shadows_name) {
+          continue;
+        }
+
+        if (arm.guard !== undefined) {
+          result = merge_call_only_scans(
+            result,
+            scan_call_only_expr(name, arm.guard, false),
+          );
+        }
+
+        result = merge_call_only_scans(
+          result,
+          scan_call_only_expr(name, arm.body, false),
+        );
+
+        if (!result.valid) {
+          return result;
+        }
+      }
+
+      return result;
+    }
 
     case "var":
       if (expr.name !== name) {

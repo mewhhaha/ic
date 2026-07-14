@@ -255,8 +255,8 @@ Deno.test("destructured declared fields retain their named types", () => {
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Pair = [.flag = Bool, .number = I32]
-let pair: Pair = [.flag = true, .number = 1]
+type Pair = (.flag = Bool, .number = I32)
+let pair: Pair = (.flag = true, .number = 1)
 let { number, flag } = pair
 flag + number
 `),
@@ -265,8 +265,8 @@ flag + number
   );
 
   Source.wat(`
-type Pair = [.flag = Bool, .number = I32]
-let pair: Pair = [.flag = true, .number = 1]
+type Pair = (.flag = Bool, .number = I32)
+let pair: Pair = (.flag = true, .number = 1)
 let { number, flag } = pair
 if flag { number } else { 0 }
 `);
@@ -454,7 +454,10 @@ accept(1)
 
 Deno.test("Bool call parameters reject Unit and atom values", () => {
   assert_source_diagnostic(
-    () => Source.core("((value: Bool) => value)(())"),
+    () =>
+      Source.core(
+        "let nothing: Unit = ()\n((value: Bool) => value)(nothing)",
+      ),
     "IX2307",
     "Call to anonymous function argument 1 for parameter value expects Bool, got Unit",
   );
@@ -713,7 +716,7 @@ Deno.test("selected closures cannot mix Bool and I32 parameters", () => {
 module (!init: Init) where
 
 declare effect Input { flag: () => Bool }
-type Init = [.input = Input]
+type Init = (.input = Input)
 
 cond <- Input.flag()
 let selected = if cond { (value: Bool) => value } else { (value: I32) => value }
@@ -732,7 +735,7 @@ Deno.test("selected closures cannot mix Bool and I32 results", () => {
 module (!init: Init) where
 
 declare effect Input { flag: () => Bool }
-type Init = [.input = Input]
+type Init = (.input = Input)
 
 cond <- Input.flag()
 let selected = if cond { () => true } else { () => 2 }
@@ -787,7 +790,7 @@ Deno.test("nested loop breaks cannot mix Bool and I32", () => {
 module (!init: Init) where
 
 declare effect Input { flag: () => Bool }
-type Init = [.input = Input]
+type Init = (.input = Input)
 
 cond <- Input.flag()
 let value: Bool = loop {
@@ -891,8 +894,8 @@ Deno.test("declared Bool struct fields reject I32 payloads", () => {
   assert_source_diagnostic(
     () =>
       Source.wat(`
-type Status = [.ready = Bool]
-let status: Status = [.ready = 1]
+type Status = (.ready = Bool)
+let status: Status = (.ready = 1)
 status.ready
 `),
     "IX2306",
@@ -904,8 +907,8 @@ Deno.test("declared Bool fields reject Unit and atom payloads", () => {
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Status = [.ready = Bool]
-let status: Status = [.ready = ()]
+type Status = (.ready = Bool)
+let status: Status = (.ready = ())
 status.ready
 `),
     "IX2306",
@@ -914,8 +917,8 @@ status.ready
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Status = [.ready = Bool]
-let status: Status = [.ready = #yes]
+type Status = (.ready = Bool)
+let status: Status = (.ready = #yes)
 status.ready
 `),
     "IX2306",
@@ -927,8 +930,8 @@ Deno.test("declared I32 struct fields reject Bool payloads", () => {
   assert_source_diagnostic(
     () =>
       Source.wat(`
-type Status = [.ready = I32]
-let status: Status = [.ready = true]
+type Status = (.ready = I32)
+let status: Status = (.ready = true)
 status.ready
 `),
     "IX2306",
@@ -951,7 +954,10 @@ Status.ready(1)
 Deno.test("declared Bool union cases reject Unit and atom payloads", () => {
   assert_source_diagnostic(
     () =>
-      Source.core("type Status = .ready = Bool | .waiting\nStatus.ready(())"),
+      Source.core(
+        "type Status = .ready = Bool | .waiting\n" +
+          "let nothing: Unit = ()\nStatus.ready(nothing)",
+      ),
     "IX2305",
     "Union case ready expects Bool, got Unit",
   );
@@ -969,9 +975,10 @@ Deno.test("Bool aggregate call arguments validate nested fields", () => {
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Box = [.value = Bool]
+type Box = (.value = Bool)
 let accept: Box -> Bool = box => box.value
-accept([.value = 1])
+let box = (.value = 1)
+accept(box)
 `),
     "IX2307",
     "Call to accept argument 1 for parameter box expects struct, got struct",
@@ -979,9 +986,10 @@ accept([.value = 1])
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Box a = [.value = a]
+type Box a = (.value = a)
 let accept: Box Bool -> Bool = box => box.value
-accept([.value = 1])
+let box = (.value = 1)
+accept(box)
 `),
     "IX2307",
     "Call to accept argument 1 for parameter box expects struct, got struct",
@@ -989,10 +997,11 @@ accept([.value = 1])
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Box = [.value = Bool]
-type Wrapper = [.box = Box]
+type Box = (.value = Bool)
+type Wrapper = (.box = Box)
 let accept: Wrapper -> Bool = wrapper => wrapper.box.value
-accept([.box = [.value = 1]])
+let wrapper = (.box = (.value = 1))
+accept(wrapper)
 `),
     "IX2307",
     "Call to accept argument 1 for parameter wrapper expects struct, got struct",
@@ -1003,9 +1012,9 @@ Deno.test("Bool aggregate fields and cases validate nested values", () => {
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Box = [.value = Bool]
-type Wrapper = [.box = Box]
-let wrapper: Wrapper = [.box = [.value = 1]]
+type Box = (.value = Bool)
+type Wrapper = (.box = Box)
+let wrapper: Wrapper = (.box = (.value = 1))
 wrapper.box.value
 `),
     "IX2306",
@@ -1014,9 +1023,9 @@ wrapper.box.value
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Box = [.value = Bool]
+type Box = (.value = Bool)
 type Result = .ok = Box | .none
-Result.ok([.value = 1])
+Result.ok (.value = 1)
 `),
     "IX2305",
     "Union case ok expects struct, got struct",
@@ -1040,7 +1049,7 @@ Deno.test("dynamic Bool struct access remains Bool in arithmetic", () => {
   assert_source_diagnostic(
     () =>
       Source.wat(`
-let status = [.left = true, .right = false]
+let status = (.left = true, .right = false)
 status[input] + 1
 `),
     "IX2302",
@@ -1052,7 +1061,7 @@ Deno.test("dynamic Bool struct updates reject I32 values", () => {
   assert_source_diagnostic(
     () =>
       Source.wat(`
-let status = [.left = true, .right = false]
+let status = (.left = true, .right = false)
 status[input] = 1
 status[input]
 `),
@@ -1065,7 +1074,7 @@ Deno.test("dynamic mixed Bool and I32 struct access is rejected", () => {
   assert_source_diagnostic(
     () =>
       Source.wat(`
-let status = [.left = true, .right = 1]
+let status = (.left = true, .right = 1)
 status[input]
 `),
     "IX2304",
@@ -1074,7 +1083,7 @@ status[input]
 });
 
 Deno.test("mixed dynamic access in a validated branch stays structured", () => {
-  const source = "let pair=[.a=true,.b=1]\nif true { pair[input] } else { 0 }";
+  const source = "let pair=(.a=true,.b=1)\nif true { pair[input] } else { 0 }";
 
   assert_analysis_diagnostic(
     source,
@@ -1091,7 +1100,7 @@ Deno.test("managed effects reject I32 passed to Bool operations", () => {
 module (!init: Init) where
 
 declare effect Input { choose: (Bool) => Bool }
-type Init = [.input = Input]
+type Init = (.input = Input)
 
 value <- Input.choose(1)
 return { value }
@@ -1106,7 +1115,7 @@ Deno.test("managed effects accept Bool arguments and results", () => {
 module (!init: Init) where
 
 declare effect Input { choose: (Bool) => Bool }
-type Init = [.input = Input]
+type Init = (.input = Input)
 
 value <- Input.choose(true)
 return { value }
@@ -1122,7 +1131,7 @@ Deno.test("managed effects reject Bool passed to I32 operations", () => {
 module (!init: Init) where
 
 declare effect Input { choose: (I32) => Bool }
-type Init = [.input = Input]
+type Init = (.input = Input)
 
 value <- Input.choose(true)
 return { value }
@@ -1139,7 +1148,7 @@ Deno.test("managed Bool effect results cannot enter arithmetic", () => {
 module (!init: Init) where
 
 declare effect Input { ready: () => Bool }
-type Init = [.input = Input]
+type Init = (.input = Input)
 
 ready <- Input.ready()
 let result = ready + 1

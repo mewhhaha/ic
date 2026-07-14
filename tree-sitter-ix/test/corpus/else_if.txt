@@ -14,17 +14,20 @@ if let .some(value) = option { 1 } else if let .none = option { 2 } else { 3 }
         (boolean))
       consequence: (block
         (expression_statement
-          (number)))
+          (postfix_expression
+            (number))))
       alternative: (if_expression
         pattern: (character)
         value: (condition_expression
           (identifier))
         consequence: (block
           (expression_statement
-            (number)))
+            (postfix_expression
+              (number))))
         alternative: (block
           (expression_statement
-            (number))))))
+            (postfix_expression
+              (number)))))))
   (expression_statement
     (if_expression
       pattern: (union_pattern
@@ -34,7 +37,8 @@ if let .some(value) = option { 1 } else if let .none = option { 2 } else { 3 }
         (identifier))
       consequence: (block
         (expression_statement
-          (number)))
+          (postfix_expression
+            (number))))
       alternative: (if_expression
         pattern: (union_pattern
           case: (identifier))
@@ -42,7 +46,9 @@ if let .some(value) = option { 1 } else if let .none = option { 2 } else { 3 }
           (identifier))
         consequence: (block
           (expression_statement
-            (number)))
+            (postfix_expression
+              (number))))
         alternative: (block
           (expression_statement
-            (number)))))))
+            (postfix_expression
+              (number))))))))

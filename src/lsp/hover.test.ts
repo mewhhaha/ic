@@ -27,9 +27,10 @@ function assert_hover_type(
   }
 
   const type_lines = result.contents.value.split("\n").filter((line) =>
-    line.startsWith("type:")
+    line.startsWith("type:") || /^(let|const) !?[^:]+: /.test(line)
   );
-  assert_equals(type_lines, ["type: `" + expected + "`"]);
+  assert_equals(type_lines.length, 1);
+  assert_equals(type_lines[0].includes(expected), true);
 }
 
 Deno.test("hover shows folded const closure captures", () => {
@@ -48,12 +49,10 @@ Deno.test("hover shows folded const closure captures", () => {
   assert_equals(result, {
     contents: {
       kind: "markdown",
-      value: "**const closure** `add_three`\n\n" +
-        "type: `function`\n\n" +
-        "```ix\n(x) => x + n\n```\n\n" +
+      value: "```ix\nconst add_three: function\n```\n\n" +
+        "```ix\nx => x + n\n```\n\n" +
         "captures:\n- `n = 3`\n\n" +
-        "latent effects: `<pure>`\n\n" +
-        "ownership: `compile_time_static`",
+        "latent effects: `<pure>`",
     },
     range: {
       start: { line: 6, character: 12 },
@@ -104,7 +103,7 @@ Deno.test("hover names linear consume status and points", () => {
 
 Deno.test("hover shows declaration docs and complete layout facts", () => {
   const text = "// Point documentation.\n" +
-    "type Point = [.x = I32, .wide = I64]\n";
+    "type Point = (.x = I32, .wide = I64)\n";
   const { parsed, index } = analyzed(text);
   const result = hover(
     parsed.source,
@@ -122,8 +121,41 @@ Deno.test("hover shows declaration docs and complete layout facts", () => {
     result.contents.value,
     "**type** `Point`\n\n" +
       "Point documentation.\n\n" +
-      "```ix\ntype Point = [.x = I32, .wide = I64]\n```\n\n" +
+      "```ix\ntype Point = (.x = I32, .wide = I64)\n```\n\n" +
       "layout — size: `16`, align: `8`, field offsets: `x @ 0`, `wide @ 8`",
+  );
+});
+
+Deno.test("hover renders TSDoc for documented functions", () => {
+  const text = "/// Adds one to a value.\n" +
+    "/// @param value The value to increment.\n" +
+    "/// @returns The incremented value.\n" +
+    "let add_one = value => value + 1\n";
+  const { parsed, index } = analyzed(text);
+  const result = hover(
+    parsed.source,
+    parsed.syntax,
+    index,
+    text.indexOf("add_one"),
+    "utf-16",
+  );
+
+  if (result === undefined) {
+    throw new Error("Missing documented function hover");
+  }
+
+  assert_includes(result.contents.value, "```ix\nlet add_one: function\n```");
+  assert_equals(
+    result.contents.value.startsWith(
+      "```ix\nlet add_one: function\n```\n\nAdds one to a value.",
+    ),
+    true,
+  );
+  assert_includes(
+    result.contents.value,
+    "Adds one to a value.\n\n**Parameters**\n\n" +
+      "- `value` — The value to increment.\n\n" +
+      "**Returns**\n\nThe incremented value.",
   );
 });
 
@@ -147,7 +179,7 @@ Deno.test("hover shows inferred latent effect rows", () => {
   assert_includes(result.contents.value, "latent effects: `<Counter.get>`");
 });
 
-Deno.test("hover exposes frozen, scratch, and borrow provenance", () => {
+Deno.test("hover represents frozen, scratch, and borrow bindings as declarations", () => {
   const text = 'let frozen = freeze "value"\n' +
     "let temporary = scratch { 1 }\n" +
     "let view = &frozen\n";
@@ -155,9 +187,9 @@ Deno.test("hover exposes frozen, scratch, and borrow provenance", () => {
 
   for (
     const expected of [
-      { name: "frozen", type: "Text", ownership: "frozen_shareable" },
-      { name: "temporary", type: "I32", ownership: "scratch_backed" },
-      { name: "view", type: "Text", ownership: "borrow_view" },
+      { name: "frozen", type: "Text" },
+      { name: "temporary", type: "I32" },
+      { name: "view", type: "Text" },
     ]
   ) {
     const result = hover(
@@ -172,9 +204,68 @@ Deno.test("hover exposes frozen, scratch, and borrow provenance", () => {
       throw new Error("Missing wrapper hover for " + expected.name);
     }
 
-    assert_includes(result.contents.value, expected.ownership);
-    assert_includes(result.contents.value, "type: `" + expected.type + "`");
+    assert_equals(
+      result.contents.value,
+      "```ix\nlet " + expected.name + ": " + expected.type + "\n```",
+    );
   }
+});
+
+Deno.test("hover declarations show runtime, linear, and const binding modes", () => {
+  const text = "let runtime = 1\n" +
+    "let !linear = 2\n" +
+    "const compile_time = 3\n";
+  const { parsed, index } = analyzed(text);
+
+  for (
+    const expected of [
+      { name: "runtime", declaration: "let runtime: I32" },
+      { name: "linear", declaration: "let !linear: I32" },
+      {
+        name: "compile_time",
+        declaration: "const compile_time: I32",
+      },
+    ]
+  ) {
+    const result = hover(
+      parsed.source,
+      parsed.syntax,
+      index,
+      text.indexOf(expected.name),
+      "utf-16",
+    );
+
+    if (result === undefined) {
+      throw new Error("Missing declaration hover for " + expected.name);
+    }
+
+    assert_includes(
+      result.contents.value,
+      "```ix\n" + expected.declaration + "\n```",
+    );
+  }
+});
+
+Deno.test("hover uses declarations for nested annotated bindings", () => {
+  const text = "let outer = 1\n" +
+    "if true {\n" +
+    "  let current: I32 = outer\n" +
+    "  current\n" +
+    "}\n";
+  const { parsed, index } = analyzed(text);
+  const result = hover(
+    parsed.source,
+    parsed.syntax,
+    index,
+    text.lastIndexOf("current"),
+    "utf-16",
+  );
+
+  if (result === undefined) {
+    throw new Error("Missing nested binding hover");
+  }
+
+  assert_equals(result.contents.value, "```ix\nlet current: I32\n```");
 });
 
 Deno.test("hover reports Bool for boolean bindings and expressions", () => {
@@ -206,7 +297,7 @@ Deno.test("hover reports Bool for boolean bindings and expressions", () => {
     throw new Error("Missing boolean binding hover");
   }
 
-  assert_includes(binding.contents.value, "type: `Bool`");
+  assert_equals(binding.contents.value, "```ix\nlet ready: Bool\n```");
   assert_equals(literal, {
     contents: { kind: "markdown", value: "**expression**\n\ntype: `Bool`" },
     range: {
@@ -246,8 +337,8 @@ Deno.test("hover excludes type positions from enclosing value expressions", () =
 
   assert_includes(is_expression.contents.value, "type: `Bool`");
 
-  const custom_text = "type Point = [.x = I32]\n" +
-    "let point: Point = [.x = 1]\n";
+  const custom_text = "type Point = (.x = I32)\n" +
+    "let point: Point = (.x = 1)\n";
   const custom_analysis = analyzed(custom_text);
   const custom_annotation = hover(
     custom_analysis.parsed.source,
@@ -264,7 +355,7 @@ Deno.test("hover excludes type positions from enclosing value expressions", () =
   assert_includes(custom_annotation.contents.value, "**type** `Point`");
   assert_includes(
     custom_annotation.contents.value,
-    "```ix\ntype Point = [.x = I32]\n```",
+    "```ix\ntype Point = (.x = I32)\n```",
   );
 });
 
@@ -292,7 +383,7 @@ Deno.test("handler state annotations suppress only their type token", () => {
 });
 
 Deno.test("hover preserves nominal parameter annotations", () => {
-  const text = "type Point = [.x = I32]\n" +
+  const text = "type Point = (.x = I32)\n" +
     "let f = (point: Point) => point\n";
   const { parsed, index } = analyzed(text);
 
@@ -307,7 +398,7 @@ Deno.test("hover preserves nominal parameter annotations", () => {
   }
 
   const module_text = "module (point: Point) where\n" +
-    "type Point = [.x = I32]\n" +
+    "type Point = (.x = I32)\n" +
     "point\n";
   const module_analysis = analyzed(module_text);
 
@@ -370,7 +461,7 @@ Deno.test("hover infers primitive result types from operands", () => {
 });
 
 Deno.test("hover infers results of known calls and declared fields", () => {
-  const text = "type Flags = [.ready = Bool]\n" +
+  const text = "type Flags = (.ready = Bool)\n" +
     "declare effect Choice { decide: (I32) => Bool }\n" +
     "let predicate: (I32) -> Bool = x => true\n" +
     "let choose = Choice.decide\n" +
@@ -404,7 +495,7 @@ Deno.test("hover infers results of known calls and declared fields", () => {
       throw new Error("Missing known expression hover at " + expected.offset);
     }
 
-    assert_includes(result.contents.value, "type: `" + expected.type + "`");
+    assert_hover_type(text, { parsed, index }, expected.offset, expected.type);
   }
 });
 
@@ -450,7 +541,7 @@ Deno.test("hover rejects incompatible primitive operand types", () => {
     throw new Error("Missing mixed-width binding hover");
   }
 
-  assert_includes(binding.contents.value, "type: `unknown`");
+  assert_equals(binding.contents.value, "```ix\nlet mixed: unknown\n```");
 });
 
 Deno.test("hover documentation cannot add a generated type line", () => {
@@ -470,10 +561,7 @@ Deno.test("hover documentation cannot add a generated type line", () => {
     throw new Error("Missing documented binding hover");
   }
 
-  const type_lines = result.contents.value.split("\n").filter((line) =>
-    line.startsWith("type:")
-  );
-  assert_equals(type_lines, ["type: `Bool`"]);
+  assert_includes(result.contents.value, "```ix\nlet ready: Bool\n```");
   assert_includes(result.contents.value, "> type: misleading documentation");
   assert_includes(result.contents.value, "Ordinary documentation.");
 });
@@ -493,12 +581,11 @@ Deno.test("hover folds boolean const values without losing their type", () => {
     throw new Error("Missing folded boolean hover");
   }
 
-  assert_includes(result.contents.value, "type: `Bool`");
+  assert_includes(result.contents.value, "```ix\nconst ready: Bool\n```");
   assert_includes(result.contents.value, "value:\n```ix\ntrue\n```");
-  assert_includes(result.contents.value, "ownership: `scalar_local`");
 });
 
-Deno.test("hover shows one honest type line for every value entity", () => {
+Deno.test("hover shows one honest type presentation for every value entity", () => {
   const text = "type Result = .ok = Bool | .err = Text\n" +
     "declare effect Choice { decide: (I32) => Bool }\n" +
     "let identity = value => value\n" +
@@ -528,10 +615,10 @@ Deno.test("hover shows one honest type line for every value entity", () => {
     }
 
     const type_lines = result.contents.value.split("\n").filter((line) =>
-      line.startsWith("type:")
+      line.startsWith("type:") || /^(let|const) !?[^:]+: /.test(line)
     );
     assert_equals(type_lines.length, 1);
-    assert_equals(type_lines[0], "type: `" + expected.type + "`");
+    assert_equals(type_lines[0].includes(expected.type), true);
   }
 });
 
@@ -564,7 +651,7 @@ Deno.test("hover reports union case constructor types", () => {
 });
 
 Deno.test("hover keeps invalid recovered values unknown", () => {
-  const text = "type Pair = [.ready = Bool]\n" +
+  const text = "type Pair = (.ready = Bool)\n" +
     "effect Check { test: () => Bool }\n" +
     "let checker = Check { test: (!resume) => !resume(true), " +
     "return: (value: Bool) => value }\n" +
@@ -594,7 +681,7 @@ Deno.test("hover keeps invalid recovered values unknown", () => {
 
 Deno.test("hover exposes unresolved declarations and invalid arities as unknown", () => {
   const text = "type Alias = missing_type\n" +
-    "type Broken = [.value = missing_type]\n" +
+    "type Broken = (.value = missing_type)\n" +
     "effect Bad { run: (missing_type) => Bool }\n" +
     "effect Check { test: (I32) => Bool }\n" +
     "let identity = (value: Alias) => value\n" +
@@ -751,11 +838,11 @@ Deno.test("hover derives resumption call results from the handler return", () =>
 });
 
 Deno.test("hover resolves struct fields and indexes through product aliases", () => {
-  const text = "type Pair = [.ready = Bool, .other = Bool]\n" +
+  const text = "type Pair = (.ready = Bool, .other = Bool)\n" +
     "type Alias = Pair\n" +
     "type Again = Alias\n" +
-    "let declared: Again = [.ready = true, .other = false]\n" +
-    "let inline = [.ready = true, .other = false]\n" +
+    "let declared: Again = (.ready = true, .other = false)\n" +
+    "let inline = (.ready = true, .other = false)\n" +
     "let index = 1\n" +
     "declared[0]\n" +
     "declared[index]\n" +
@@ -774,8 +861,8 @@ Deno.test("hover resolves struct fields and indexes through product aliases", ()
     assert_hover_type(text, analysis, offset, "Bool");
   }
 
-  const mixed = "type Pair = [.ready = Bool, .wide = I64]\n" +
-    "let pair: Pair = [.ready = true, .wide = 1i64]\n" +
+  const mixed = "type Pair = (.ready = Bool, .wide = I64)\n" +
+    "let pair: Pair = (.ready = true, .wide = 1i64)\n" +
     "pair[0]\n" +
     "pair[1]\n" +
     "pair[index]\n";
@@ -975,6 +1062,44 @@ Deno.test("signature help tracks const parameters in an incomplete call", () => 
       }],
       activeSignature: 0,
       activeParameter: 1,
+    },
+  );
+});
+
+Deno.test("signature help tracks arguments in whitespace applications", () => {
+  const text = "let apply = (first, second) => first\n" +
+    "apply 1 ";
+  const { parsed, index } = analyzed(text);
+
+  assert_equals(
+    signature_help(parsed.source, parsed.syntax, index, text.length),
+    {
+      signatures: [{
+        label: "apply(first, second) <effects unavailable>",
+        parameters: [{ label: "first" }, { label: "second" }],
+        activeParameter: 1,
+      }],
+      activeSignature: 0,
+      activeParameter: 1,
+    },
+  );
+});
+
+Deno.test("signature help treats a delimited whitespace argument as one value", () => {
+  const text = "let apply = value => value\n" +
+    "apply (1, ";
+  const { parsed, index } = analyzed(text);
+
+  assert_equals(
+    signature_help(parsed.source, parsed.syntax, index, text.length),
+    {
+      signatures: [{
+        label: "apply(value) <pure>",
+        parameters: [{ label: "value" }],
+        activeParameter: 0,
+      }],
+      activeSignature: 0,
+      activeParameter: 0,
     },
   );
 });

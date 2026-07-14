@@ -1,5 +1,6 @@
 import type { TypeExpr } from "../../frontend/ast.ts";
 import { sem_type_from_expr } from "../../frontend/semantic_type.ts";
+import { fixed_array_length } from "../../frontend/fixed_array_type.ts";
 import { front_type_value_for_semantic_type } from "../../frontend/type_declaration.ts";
 import { format_type_expr, parse_type_expr } from "../../frontend/type_expr.ts";
 import { tokenize } from "../../frontend/tokenize.ts";
@@ -519,6 +520,10 @@ function apply_core_semantic_annotation<ctx extends CoreTypeCheckCtx>(
     return value;
   }
 
+  if (type.tag === "array") {
+    return apply_core_fixed_array_annotation(label, type, value, ctx, hooks);
+  }
+
   if (
     type.tag === "union" || type.tag === "intersection" ||
     type.tag === "difference"
@@ -581,6 +586,93 @@ function apply_core_semantic_annotation<ctx extends CoreTypeCheckCtx>(
   }
 
   return undefined;
+}
+
+function apply_core_fixed_array_annotation<ctx extends CoreTypeCheckCtx>(
+  label: "binding" | "parameter",
+  type: Extract<TypeExpr, { tag: "array" }>,
+  value: CoreExpr,
+  ctx: ctx,
+  hooks: CoreTypeCheckHooks<ctx>,
+): CoreExpr {
+  const annotation = format_type_expr(type);
+  const length = fixed_array_length(type.length);
+  let frozen = false;
+  let annotated_value = value;
+
+  if (value.tag === "freeze") {
+    frozen = true;
+    annotated_value = value.value;
+  }
+
+  const struct_value = hooks.static_struct_value(annotated_value, ctx);
+
+  if (!struct_value) {
+    throw new Error(
+      "Core " + label + " annotation expects " + annotation + ", got " +
+        core_direct_annotation_actual_name(value, ctx, hooks),
+    );
+  }
+
+  if (struct_value.fields.length !== length) {
+    throw new Error(
+      "Core " + label + " annotation expects " + annotation + " with " +
+        length.toString() + " items, got " +
+        struct_value.fields.length.toString(),
+    );
+  }
+
+  const fields: Extract<CoreExpr, { tag: "struct_value" }>["fields"] = [];
+
+  for (let index = 0; index < length; index += 1) {
+    const field = struct_value.fields[index];
+    const expected_name = "item_" + index.toString();
+    expect(field, "Missing fixed array field " + index.toString());
+
+    if (field.name !== expected_name) {
+      throw new Error(
+        "Core " + label + " annotation expects " + annotation + " item " +
+          index.toString() + ", got field " + field.name,
+      );
+    }
+
+    let item: CoreExpr;
+
+    try {
+      item = apply_core_value_annotation(
+        label,
+        format_type_expr(type.element),
+        field.value,
+        ctx,
+        hooks,
+      );
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(
+          "Core " + label + " annotation " + annotation + " item " +
+            index.toString() + ": " + error.message,
+        );
+      }
+
+      throw error;
+    }
+
+    fields.push({ ...field, value: item });
+  }
+
+  const annotated: CoreExpr = record_core_expr_provenance({
+    ...struct_value,
+    fields,
+  }, value);
+
+  if (!frozen) {
+    return annotated;
+  }
+
+  return record_core_expr_provenance(
+    { tag: "freeze", value: annotated },
+    value,
+  );
 }
 
 function core_semantic_member_annotation(type: TypeExpr): string | undefined {

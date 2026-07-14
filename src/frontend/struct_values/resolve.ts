@@ -1,5 +1,6 @@
 import { expect } from "../../expect.ts";
 import type { Env, FrontExpr, Stmt } from "../ast.ts";
+import { elaborate_product_expr } from "../aggregate.ts";
 import { clone_env, lookup, push_binding } from "../env.ts";
 import { apply_struct_update_with_resolver } from "./update.ts";
 import type { StructValueHooks, StructValueTarget } from "./types.ts";
@@ -15,6 +16,10 @@ export function resolve_struct_value(
 
   if (expr.tag === "struct_value") {
     return { expr, env };
+  }
+
+  if (expr.tag === "product") {
+    return { expr: elaborate_product_expr(expr), env };
   }
 
   if (expr.tag === "borrow" || expr.tag === "freeze") {
@@ -42,8 +47,11 @@ export function resolve_struct_value(
       hooks,
       resolve_struct_value,
     );
-    expect(value.tag === "struct_value", "Expected struct update value");
-    return { expr: value, env };
+    if (value.tag === "struct_value") {
+      return { expr: value, env };
+    }
+
+    return resolve_struct_value(value, env, hooks);
   }
 
   if (expr.tag === "if") {

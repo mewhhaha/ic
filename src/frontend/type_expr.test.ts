@@ -13,29 +13,33 @@ Deno.test("type expressions compose with whitespace application and arrows", () 
   assert_equals(type, {
     tag: "arrow",
     param: {
-      tag: "tuple",
-      items: [
+      tag: "product",
+      entries: [
         {
-          tag: "apply",
-          func: { tag: "name", name: "List" },
-          arg: { tag: "name", name: "a" },
-        },
-        {
-          tag: "arrow",
-          param: { tag: "name", name: "a" },
-          effects: {
-            tag: "union",
-            left: {
-              tag: "union",
-              left: { tag: "family", name: "Stdin" },
-              right: { tag: "family", name: "Stdout" },
-            },
-            right: { tag: "variable", name: "e" },
-          },
-          result: {
+          type_expr: {
             tag: "apply",
             func: { tag: "name", name: "List" },
-            arg: { tag: "name", name: "b" },
+            arg: { tag: "name", name: "a" },
+          },
+        },
+        {
+          type_expr: {
+            tag: "arrow",
+            param: { tag: "name", name: "a" },
+            effects: {
+              tag: "union",
+              left: {
+                tag: "union",
+                left: { tag: "family", name: "Stdin" },
+                right: { tag: "family", name: "Stdout" },
+              },
+              right: { tag: "variable", name: "e" },
+            },
+            result: {
+              tag: "apply",
+              func: { tag: "name", name: "List" },
+              arg: { tag: "name", name: "b" },
+            },
           },
         },
       ],
@@ -63,6 +67,18 @@ Deno.test("type expression arrows associate right and keep lambda arrows distinc
     tag: "bind",
     kind: "let",
     name: "id",
+    pattern: {
+      tag: "binding",
+      name: "id",
+      mode: "default",
+      annotation: "a -> b",
+      type_annotation: {
+        tag: "arrow",
+        param: { tag: "name", name: "a" },
+        effects: undefined,
+        result: { tag: "name", name: "b" },
+      },
+    },
     is_recursive: false,
     is_linear: false,
     annotation: "a -> b",

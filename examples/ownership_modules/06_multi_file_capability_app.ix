@@ -1,4 +1,4 @@
-import score_module from "./multi_file/score_module.ix"
+const score_module = import "./multi_file/score_module.ix"
 
 const capabilities = {
   base: 40,

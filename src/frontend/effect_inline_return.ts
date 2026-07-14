@@ -104,7 +104,24 @@ function stmt_contains_return(stmt: Stmt): boolean {
       return stmts_contain_return(stmt.body);
 
     case "bind":
+    case "state_bind":
+    case "bind_pattern":
+    case "resume_dup":
     case "assign":
+      return expr_contains_return(stmt.value);
+
+    case "index_assign":
+      return expr_contains_return(stmt.index) ||
+        expr_contains_return(stmt.value);
+
+    case "type_check":
+      return expr_contains_return(stmt.target);
+
+    case "break":
+      if (stmt.value === undefined) {
+        return false;
+      }
+
       return expr_contains_return(stmt.value);
 
     case "expr":
@@ -146,6 +163,41 @@ function expr_contains_return(expr: FrontExpr): boolean {
       return expr_contains_return(expr.left) ||
         expr_contains_return(expr.right);
 
+    case "product":
+      return expr.entries.some((entry) => expr_contains_return(entry.value));
+
+    case "array":
+      if (expr.items.some(expr_contains_return)) {
+        return true;
+      }
+
+      if (expr.rest !== undefined) {
+        return expr_contains_return(expr.rest);
+      }
+
+      return false;
+
+    case "array_repeat":
+      return expr_contains_return(expr.value) ||
+        expr_contains_return(expr.length);
+
+    case "match":
+      if (expr_contains_return(expr.target)) {
+        return true;
+      }
+
+      for (const arm of expr.arms) {
+        if (arm.guard !== undefined && expr_contains_return(arm.guard)) {
+          return true;
+        }
+
+        if (expr_contains_return(arm.body)) {
+          return true;
+        }
+      }
+
+      return false;
+
     case "comptime":
     case "borrow":
     case "freeze":
@@ -157,6 +209,52 @@ function expr_contains_return(expr: FrontExpr): boolean {
 
     case "scratch":
       return expr_contains_return(expr.body);
+
+    case "captured":
+      return expr_contains_return(expr.expr);
+
+    case "try_with":
+      return expr_contains_return(expr.body) ||
+        expr_contains_return(expr.handler);
+
+    case "with":
+    case "struct_update":
+      if (expr_contains_return(expr.base)) {
+        return true;
+      }
+
+      return expr.fields.some((field) => expr_contains_return(field.value));
+
+    case "struct_value":
+      if (expr_contains_return(expr.type_expr)) {
+        return true;
+      }
+
+      return expr.fields.some((field) => expr_contains_return(field.value));
+
+    case "field":
+      return expr_contains_return(expr.object);
+
+    case "index":
+      return expr_contains_return(expr.object) ||
+        expr_contains_return(expr.index);
+
+    case "is":
+    case "as":
+      return expr_contains_return(expr.value);
+
+    case "union_case":
+      if (
+        expr.type_expr !== undefined && expr_contains_return(expr.type_expr)
+      ) {
+        return true;
+      }
+
+      if (expr.value !== undefined) {
+        return expr_contains_return(expr.value);
+      }
+
+      return false;
 
     default:
       // Nested lam/rec/handler bodies own their returns; other leaves

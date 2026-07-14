@@ -49,10 +49,10 @@ Deno.test("semantic tokens preserve const and runtime shadow generations", () =>
 });
 
 Deno.test("semantic tokens classify types, members, effects, and linear uses", () => {
-  const text = "type Box item = [.value = item]\n" +
+  const text = "type Box item = (.value = item)\n" +
     "effect Counter { get: () => I32 }\n" +
     "let !token = 1\n!token\n" +
-    "let box: Box = Box { value: 1 }\nbox.value\n";
+    "let box: Box = (.value = 1)\nbox.value\n";
   const dump = dump_semantic_tokens(tokens(text));
 
   assert_equals(
@@ -115,13 +115,7 @@ Deno.test("semantic tokens classify types, members, effects, and linear uses", (
       modifiers: [],
     }, {
       line: 4,
-      character: 15,
-      length: 3,
-      type: "type",
-      modifiers: [],
-    }, {
-      line: 4,
-      character: 21,
+      character: 17,
       length: 5,
       type: "property",
       modifiers: [],
@@ -161,6 +155,17 @@ Deno.test("semantic tokens mark const calls and comptime regions", () => {
     type: "function",
     modifiers: ["readonly", "comptime"],
   }]);
+});
+
+Deno.test("semantic tokens mark whitespace const calls as comptime", () => {
+  const text = "const identity = x => x\n" +
+    "const answer = identity 21\n";
+  const dump = dump_semantic_tokens(tokens(text));
+  const identity = dump.find((token) =>
+    token.line === 1 && token.character === 15
+  );
+
+  assert_equals(identity?.modifiers, ["readonly", "comptime"]);
 });
 
 Deno.test("semantic tokens range and recovery retain unaffected tokens", () => {

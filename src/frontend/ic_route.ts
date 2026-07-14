@@ -138,6 +138,51 @@ function validate_ic_route_expr(
       validate_ic_route_expr(expr.value, diagnostics);
       return;
 
+    case "as":
+      validate_ic_route_expr(expr.value, diagnostics);
+      return;
+
+    case "product":
+      for (const entry of expr.entries) {
+        validate_ic_route_expr(entry.value, diagnostics);
+      }
+      return;
+
+    case "array":
+      for (const item of expr.items) {
+        validate_ic_route_expr(item, diagnostics);
+      }
+
+      if (expr.rest !== undefined) {
+        validate_ic_route_expr(expr.rest, diagnostics);
+      }
+      return;
+
+    case "array_repeat":
+      validate_ic_route_expr(expr.value, diagnostics);
+      validate_ic_route_expr(expr.length, diagnostics);
+      return;
+
+    case "import":
+      reject_ic_route(
+        "unresolved expression import " + expr.path,
+        expr,
+        diagnostics,
+      );
+      return;
+
+    case "match":
+      validate_ic_route_expr(expr.target, diagnostics);
+
+      for (const arm of expr.arms) {
+        if (arm.guard !== undefined) {
+          validate_ic_route_expr(arm.guard, diagnostics);
+        }
+
+        validate_ic_route_expr(arm.body, diagnostics);
+      }
+      return;
+
     case "handler":
       reject_ic_route("handler", expr, diagnostics);
       return;

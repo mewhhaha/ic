@@ -181,6 +181,18 @@ function type_expr_uses_set_surface(type: TypeExpr): boolean {
 
       return false;
 
+    case "product":
+      for (const entry of type.entries) {
+        if (type_expr_uses_set_surface(entry.type_expr)) {
+          return true;
+        }
+      }
+
+      return false;
+
+    case "array":
+      return type_expr_uses_set_surface(type.element);
+
     case "arrow":
       return type_expr_uses_set_surface(type.param) ||
         type_expr_uses_set_surface(type.result);
@@ -310,6 +322,8 @@ function runtime_type_name(type: SemType, declaration_name: string): string {
     case "never":
     case "apply":
     case "tuple":
+    case "product":
+    case "array":
     case "union":
     case "intersection":
     case "difference":
@@ -354,6 +368,22 @@ function type_expr_for_semantic_type(type: SemType): TypeExpr {
       return {
         tag: "tuple",
         items: type.items.map(type_expr_for_semantic_type),
+      };
+
+    case "product":
+      return {
+        tag: "product",
+        entries: type.entries.map((entry) => ({
+          label: entry.label,
+          type_expr: type_expr_for_semantic_type(entry.type),
+        })),
+      };
+
+    case "array":
+      return {
+        tag: "array",
+        element: type_expr_for_semantic_type(type.element),
+        length: type.length,
       };
 
     case "union": {

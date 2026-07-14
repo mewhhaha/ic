@@ -1,5 +1,6 @@
 import { assert_equals } from "../assert.ts";
 import { Source } from "../frontend.ts";
+import { source_facts } from "../frontend/source_facts.ts";
 import { analysis_diagnostics, parse_diagnostics } from "./diagnostics.ts";
 
 Deno.test("parse diagnostics use scanner offsets instead of error text positions", () => {
@@ -12,7 +13,7 @@ Deno.test("parse diagnostics use scanner offsets instead of error text positions
     },
     severity: 1,
     source: "ix",
-    message: "Expected binding name at 1:5",
+    message: "Expected pattern binding at 1:5",
   }]);
 });
 
@@ -36,6 +37,7 @@ Deno.test("semantic warnings retain code and map to LSP warning severity", () =>
   const diagnostics = analysis_diagnostics(
     {
       source: parsed.source,
+      facts: source_facts(parsed.source),
       syntax: parsed.syntax,
       syntax_diagnostics: [],
       diagnostics: [{

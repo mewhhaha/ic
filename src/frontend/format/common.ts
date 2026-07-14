@@ -1,4 +1,4 @@
-import type { Field, Param, TypeField, TypePattern } from "../ast.ts";
+import type { Field, Param, Pattern, TypeField, TypePattern } from "../ast.ts";
 import { format_binding_name } from "../names.ts";
 import { format_type_expr } from "../type_expr.ts";
 
@@ -45,4 +45,103 @@ export function format_params(params: Param[]): string {
 
     return text;
   }).join(", ");
+}
+
+export function format_pattern(pattern: Pattern): string {
+  if (pattern.tag === "binding") {
+    let text = "";
+
+    if (pattern.mode === "const") {
+      text += "const ";
+    } else if (pattern.mode === "linear") {
+      text += "!";
+    }
+
+    text += format_binding_name(pattern.name);
+
+    if (pattern.type_annotation) {
+      text += ": " + format_type_expr(pattern.type_annotation);
+    } else if (pattern.annotation) {
+      text += ": " + pattern.annotation;
+    }
+
+    return text;
+  }
+
+  if (pattern.tag === "wildcard") {
+    if (pattern.mode === "const") {
+      return "const _";
+    }
+
+    return "_";
+  }
+
+  if (pattern.tag === "unit") {
+    return "()";
+  }
+
+  if (pattern.tag === "literal") {
+    if (pattern.value.tag === "text") {
+      return Deno.inspect(pattern.value.value);
+    }
+
+    if (pattern.value.tag === "atom") {
+      return "#" + pattern.value.name;
+    }
+
+    return pattern.value.value.toString();
+  }
+
+  if (pattern.tag === "union_case") {
+    let text = "." + pattern.name;
+
+    if (pattern.value) {
+      text += " " + format_pattern(pattern.value);
+    }
+
+    return text;
+  }
+
+  if (pattern.tag === "product") {
+    const entries = pattern.entries.map((entry) => {
+      let text = format_pattern(entry.pattern);
+
+      if (entry.label !== undefined) {
+        text = "." + entry.label + " = " + text;
+      }
+
+      return text;
+    });
+    return "(" + entries.join(", ") + ")";
+  }
+
+  if (pattern.tag === "record") {
+    const fields = pattern.fields.map((field) => {
+      if (
+        field.pattern.tag === "binding" &&
+        field.pattern.name === field.name &&
+        field.pattern.mode === "default" &&
+        field.pattern.annotation === undefined &&
+        field.pattern.type_annotation === undefined
+      ) {
+        return field.name;
+      }
+
+      return field.name + ": " + format_pattern(field.pattern);
+    });
+
+    if (pattern.rest) {
+      fields.push("..." + format_pattern(pattern.rest));
+    }
+
+    return "{ " + fields.join(", ") + " }";
+  }
+
+  const items = pattern.items.map(format_pattern);
+
+  if (pattern.rest) {
+    items.push("..." + format_pattern(pattern.rest));
+  }
+
+  return "[" + items.join(", ") + "]";
 }

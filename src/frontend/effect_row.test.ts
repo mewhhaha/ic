@@ -49,9 +49,9 @@ result
     formatted,
     "run: () -> <Io | (Io & Io.read) \\ Io.print> Text",
   );
-  assert_includes(formatted, "value <- Io.read()");
-  assert_includes(formatted, "_ <- Io.print(value)");
-  assert_includes(formatted, "result <- run()");
+  assert_includes(formatted, "value <- Io.read ()");
+  assert_includes(formatted, "_ <- Io.print value");
+  assert_includes(formatted, "result <- run ()");
   assert_equals(Source.parse(formatted), source);
 });
 

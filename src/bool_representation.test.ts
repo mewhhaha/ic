@@ -141,8 +141,8 @@ Deno.test("direct and chained Bool aliases type aggregate fields", () => {
   const wat = Source.wat(`
 type Flag = Bool
 type Ready = Flag
-type Box = [.direct = Flag, .chained = Ready]
-let box: Box = [.direct = true, .chained = false]
+type Box = (.direct = Flag, .chained = Ready)
+let box: Box = (.direct = true, .chained = false)
 box.direct
 `);
 
@@ -154,8 +154,8 @@ Deno.test("direct and chained I32 aliases type aggregate fields", () => {
   const wat = Source.wat(`
 type Count = I32
 type Total = Count
-type Box = [.direct = Count, .chained = Total]
-let box: Box = [.direct = 40, .chained = 2]
+type Box = (.direct = Count, .chained = Total)
+let box: Box = (.direct = 40, .chained = 2)
 box.direct + box.chained
 `);
 
@@ -167,8 +167,8 @@ Deno.test("direct and chained I64 aliases type aggregate fields", () => {
   const wat = Source.wat(`
 type Wide = I64
 type Wider = Wide
-type Box = [.direct = Wide, .chained = Wider]
-let box: Box = [.direct = 40i64, .chained = 2i64]
+type Box = (.direct = Wide, .chained = Wider)
+let box: Box = (.direct = 40i64, .chained = 2i64)
 box.direct + box.chained
 `);
 
@@ -180,7 +180,7 @@ Deno.test("Bool aliases resolve in aggregate type patterns", () => {
   const wat = Source.wat(`
 type Flag = Bool
 type Ready = Flag
-type Box = [.direct = Flag, .chained = Ready]
+type Box = (.direct = Flag, .chained = Ready)
 let struct { direct: Flag, chained: Ready } = Box
 0
 `);
@@ -196,7 +196,7 @@ Deno.test("Bool alias closure parameters reject I32 arguments", () => {
 type Flag = Bool
 type Ready = Flag
 let identity: Ready -> Flag = (value: Ready) => value
-identity(1)
+identity 1
 `),
     "Call to identity argument 1 for parameter value expects Bool, got I32",
   );
@@ -208,11 +208,11 @@ module (!init: Init) where
 
 type Flag = Bool
 type Ready = Flag
-type Result = [.flag = Ready]
+type Result = (.flag = Ready)
 declare effect Host { get: () => Result }
 declare Init { host: Host }
 
-result <- Host.get()
+result <- Host.get ()
 return { result }
 `);
 
@@ -233,9 +233,9 @@ module (!init: Init) where
 type Flag = Bool
 type Ready = Flag
 declare effect Gate { choose: (Ready) => Flag }
-type Init = [.gate = Gate]
+type Init = (.gate = Gate)
 
-value <- Gate.choose(true)
+value <- Gate.choose true
 return { value }
 `);
 
@@ -257,9 +257,9 @@ module (!init: Init) where
 type Flag = Bool
 type Ready = Flag
 declare effect Gate { choose: (Ready) => Flag }
-type Init = [.gate = Gate]
+type Init = (.gate = Gate)
 
-value <- Gate.choose(1)
+value <- Gate.choose 1
 return { value }
 `),
     "Call to Gate.choose argument 1 expects Bool, got I32",

@@ -93,7 +93,7 @@ Deno.test("multi-file fixtures drive workspace navigation", async () => {
     "//    ^^^^^^^^ definition",
     "exported",
     "//- /b.ix",
-    'import a from "./a.ix"',
+    'const a = import "./a.ix"',
     "let value = a.exported",
     "//              ^^^^^^^^ reference",
   ].join("\n"));

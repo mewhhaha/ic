@@ -1,9 +1,11 @@
 import type {
+  ArrayLengthExpr,
   Declaration,
   EffectRowExpr,
   FrontExpr,
   FrontType,
   Param,
+  Pattern,
   Source,
   Stmt,
   TypeExpr,
@@ -385,21 +387,37 @@ function visit_statements(
       let kind: BindingEntityKind = "value";
       if (statement.kind === "const") kind = "const";
       if (statement.is_recursive) {
-        entity = define(
-          statement,
-          "name",
-          undefined,
-          statement.name,
-          kind,
-          "definition",
-          scope,
-          state,
-        );
+        if (
+          statement.pattern !== undefined &&
+          statement.pattern.tag !== "binding"
+        ) {
+          visit_pattern(statement.pattern, kind, scope, state);
+        } else {
+          entity = define(
+            statement,
+            "name",
+            undefined,
+            statement.name,
+            kind,
+            "definition",
+            scope,
+            state,
+          );
+
+          if (statement.pattern?.tag === "binding") {
+            mark_name_slot_visited(statement.pattern, "name", state);
+          }
+        }
       }
       visit_expr(statement.value, scope, state);
       visit_name_slot(statement, "annotation", scope, state);
       visit_type(statement.type_annotation, scope, state);
-      if (!statement.is_recursive) {
+      if (
+        statement.pattern !== undefined &&
+        statement.pattern.tag !== "binding" && !statement.is_recursive
+      ) {
+        visit_pattern(statement.pattern, kind, scope, state);
+      } else if (!statement.is_recursive) {
         let kind: BindingEntityKind = "value";
         if (statement.kind === "const") kind = "const";
         define(
@@ -412,6 +430,10 @@ function visit_statements(
           scope,
           state,
         );
+
+        if (statement.pattern?.tag === "binding") {
+          mark_name_slot_visited(statement.pattern, "name", state);
+        }
       }
       if (entity !== undefined) continue;
       continue;
@@ -681,7 +703,75 @@ function visit_expr(expr: FrontExpr, scope: ScopeId, state: State): void {
   }
   if (expr.tag === "app") {
     visit_expr(expr.func, scope, state);
-    for (const arg of expr.args) visit_expr(arg, scope, state);
+
+    if (expr.arg !== undefined) {
+      visit_expr(expr.arg, scope, state);
+    } else {
+      for (const arg of expr.args) visit_expr(arg, scope, state);
+    }
+    return;
+  }
+  if (expr.tag === "product") {
+    const owner = nominal_owner(expr, scope, state);
+
+    for (const entry of expr.entries) {
+      if (entry.label !== undefined) {
+        if (owner === undefined) {
+          unresolved(
+            entry,
+            "name",
+            undefined,
+            entry.label,
+            "member",
+            "dynamic_member",
+            scope,
+            state,
+          );
+        } else {
+          member_reference(entry, entry.label, owner, scope, state);
+        }
+      }
+
+      visit_expr(entry.value, scope, state);
+    }
+    return;
+  }
+  if (expr.tag === "array") {
+    for (const item of expr.items) {
+      visit_expr(item, scope, state);
+    }
+
+    if (expr.rest !== undefined) {
+      visit_expr(expr.rest, scope, state);
+    }
+    return;
+  }
+  if (expr.tag === "array_repeat") {
+    visit_expr(expr.value, scope, state);
+    visit_expr(expr.length, scope, state);
+    return;
+  }
+  if (expr.tag === "import") {
+    return;
+  }
+  if (expr.tag === "as") {
+    visit_expr(expr.value, scope, state);
+    visit_type(expr.type_expr, scope, state);
+    return;
+  }
+  if (expr.tag === "match") {
+    visit_expr(expr.target, scope, state);
+
+    for (const arm of expr.arms) {
+      const arm_scope = child_scope(scope, state, arm.body);
+      visit_pattern(arm.pattern, "value", arm_scope, state);
+
+      if (arm.guard !== undefined) {
+        visit_expr(arm.guard, arm_scope, state);
+      }
+
+      visit_expr(arm.body, arm_scope, state);
+    }
     return;
   }
   if (expr.tag === "block") {
@@ -900,6 +990,77 @@ function visit_expr(expr: FrontExpr, scope: ScopeId, state: State): void {
   }
 }
 
+function visit_pattern(
+  pattern: Pattern,
+  default_kind: "value" | "const",
+  scope: ScopeId,
+  state: State,
+): void {
+  if (pattern.tag === "binding") {
+    let kind = default_kind;
+
+    if (pattern.mode === "const") {
+      kind = "const";
+    }
+
+    define(
+      pattern,
+      "name",
+      undefined,
+      pattern.name,
+      kind,
+      "definition",
+      scope,
+      state,
+    );
+    visit_name_slot(pattern, "annotation", scope, state);
+    visit_type(pattern.type_annotation, scope, state);
+    return;
+  }
+
+  if (
+    pattern.tag === "wildcard" || pattern.tag === "unit" ||
+    pattern.tag === "literal"
+  ) {
+    return;
+  }
+
+  if (pattern.tag === "union_case") {
+    case_reference(pattern, "name", pattern.name, scope, state);
+
+    if (pattern.value !== undefined) {
+      visit_pattern(pattern.value, default_kind, scope, state);
+    }
+    return;
+  }
+
+  if (pattern.tag === "product") {
+    for (const entry of pattern.entries) {
+      visit_pattern(entry.pattern, default_kind, scope, state);
+    }
+    return;
+  }
+
+  if (pattern.tag === "record") {
+    for (const field of pattern.fields) {
+      visit_pattern(field.pattern, default_kind, scope, state);
+    }
+
+    if (pattern.rest !== undefined) {
+      visit_pattern(pattern.rest, default_kind, scope, state);
+    }
+    return;
+  }
+
+  for (const item of pattern.items) {
+    visit_pattern(item, default_kind, scope, state);
+  }
+
+  if (pattern.rest !== undefined) {
+    visit_pattern(pattern.rest, default_kind, scope, state);
+  }
+}
+
 function visit_type(
   type: TypeExpr | undefined,
   scope: ScopeId,
@@ -960,6 +1121,20 @@ function visit_type(
     return;
   }
 
+  if (type.tag === "product") {
+    for (const entry of type.entries) {
+      visit_type(entry.type_expr, scope, state);
+    }
+
+    return;
+  }
+
+  if (type.tag === "array") {
+    visit_type(type.element, scope, state);
+    visit_array_length(type.length, scope, state);
+    return;
+  }
+
   if (type.tag === "arrow") {
     visit_type(type.param, scope, state);
 
@@ -969,6 +1144,32 @@ function visit_type(
 
     visit_type(type.result, scope, state);
   }
+}
+
+function visit_array_length(
+  length: ArrayLengthExpr,
+  scope: ScopeId,
+  state: State,
+): void {
+  if (length.tag === "number") {
+    return;
+  }
+
+  if (length.tag === "name") {
+    reference(
+      length,
+      "name",
+      undefined,
+      length.name,
+      "reference",
+      scope,
+      state,
+    );
+    return;
+  }
+
+  visit_array_length(length.left, scope, state);
+  visit_array_length(length.right, scope, state);
 }
 
 function visit_effect_row(
@@ -1171,6 +1372,18 @@ function visit_name_slot(
         scope,
         state,
       );
+    }
+  }
+}
+
+function mark_name_slot_visited(
+  owner: object,
+  slot: string,
+  state: State,
+): void {
+  for (const site of name_sites(owner)) {
+    if (site.slot === slot) {
+      state.sites.add(site);
     }
   }
 }

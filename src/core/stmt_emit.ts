@@ -155,7 +155,15 @@ export function emit_core_stmt<ctx extends CoreStmtEmitCtx & StaticCoreCallCtx>(
   }
   emitted = emit_conditional_fallthrough_cleanup(stmt, emitted, ctx);
   const after = emit_statement_cleanup(stmt, "after", ctx);
-  return [before, emitted, after].filter((line) => line !== "").join("\n");
+  let result = [before, emitted, after].filter((line) => line !== "").join(
+    "\n",
+  );
+
+  if (is_final && stmt.tag === "assign") {
+    result += "\ni32.const 0";
+  }
+
+  return result;
 }
 
 function emit_assignment_replacement(

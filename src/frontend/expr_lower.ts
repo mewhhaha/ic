@@ -1,6 +1,6 @@
 import { Ic, type Ic as IcNode } from "../ic.ts";
 import type { Env, FrontExpr } from "./ast.ts";
-import { clone_env } from "./env.ts";
+import { clone_env, fresh } from "./env.ts";
 import { structured_core_route } from "./diagnostic.ts";
 import {
   lower_app_expr,
@@ -13,11 +13,18 @@ import {
   lower_var_expr,
 } from "./expr_lower_binding.ts";
 import type { ExprLowerHooks } from "./expr_lower_types.ts";
+import { is_const_expr_known } from "./const_known.ts";
 import { lower_ownership_wrapper_expr } from "./expr_ownership.ts";
 import { lower_prim_expr } from "./expr_primitive.ts";
 import { validate_rec_tail } from "./rec.ts";
 import { validate_const_expr } from "./constness.ts";
 import { atom_i32 } from "./atom.ts";
+import {
+  elaborate_array_repeat_expr,
+  elaborate_fixed_array_expr,
+  elaborate_product_as_expr,
+  elaborate_product_expr,
+} from "./aggregate.ts";
 
 export type { ExprLowerHooks } from "./expr_lower_types.ts";
 
@@ -63,6 +70,14 @@ export function lower_expr(
     case "is":
       throw new Error("`is` expression must be elaborated before Ic lowering");
 
+    case "as":
+      return lower_expr(elaborate_product_as_expr(expr), env, hooks);
+
+    case "match":
+      throw new Error(
+        "Match expression must be elaborated before Ic lowering",
+      );
+
     case "var":
       return lower_var_expr(expr, env, hooks, lower_expr);
 
@@ -81,6 +96,24 @@ export function lower_expr(
 
     case "app":
       return lower_app_expr(expr, env, hooks, lower_expr);
+
+    case "product":
+      return lower_expr(elaborate_product_expr(expr), env, hooks);
+
+    case "array":
+      return lower_expr(elaborate_fixed_array_expr(expr), env, hooks);
+
+    case "array_repeat":
+      return lower_expr(
+        elaborate_array_repeat_expr(expr, fresh(env, "array_repeat")),
+        env,
+        hooks,
+      );
+
+    case "import":
+      throw new Error(
+        "Expression import must be resolved before Ic lowering: " + expr.path,
+      );
 
     case "block": {
       const local = clone_env(env);
@@ -135,6 +168,12 @@ export function lower_expr(
       return hooks.lower_struct_value(expr, env);
 
     case "struct_update":
+      if (is_const_expr_known(expr.base, env, new Set())) {
+        throw new Error(
+          "Compile-time extension value cannot be emitted as an Ic result",
+        );
+      }
+
       return lower_expr(
         hooks.apply_struct_update(expr, env),
         env,

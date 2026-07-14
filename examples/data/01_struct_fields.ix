@@ -1,5 +1,5 @@
-type User = [.name = Text, .age = Int]
+type User = (.name = Text, .age = Int)
 
-let user: User = [.name = "Ada", .age = 36]
+let user: User = (.name = "Ada", .age = 36)
 
 user.age + len(user.name)

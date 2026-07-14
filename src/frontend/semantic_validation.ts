@@ -1,5 +1,7 @@
 import { specialize_prim_for_operands } from "../op.ts";
+import { expect } from "../expect.ts";
 import type {
+  ArrayLengthExpr,
   Binding,
   Declaration,
   EffectDeclaration,
@@ -8,6 +10,7 @@ import type {
   FrontExpr,
   FrontType,
   Param,
+  Pattern,
   RecordDeclaration,
   Source,
   Stmt,
@@ -15,6 +18,7 @@ import type {
   TypeExpr,
   TypeField,
 } from "./ast.ts";
+import { elaborate_product_expr } from "./aggregate.ts";
 import { call_message, lookup_type_field } from "./fields.ts";
 import { validate_const_expr } from "./constness.ts";
 import { clone_env, create_env, push_binding } from "./env.ts";
@@ -30,6 +34,7 @@ import { format_type_expr } from "./type_expr.ts";
 import { front_type_from_type_name, same_type } from "./types.ts";
 import { scan_source, source_tokens } from "./tokenize.ts";
 import { validate_union_payload_type } from "./union_payload.ts";
+import { fixed_array_length } from "./fixed_array_type.ts";
 
 type SemanticBinding = {
   type: FrontType;
@@ -239,8 +244,17 @@ function validate_statement(
     }
 
     validate_basic_annotation(stmt, type, env, diagnostics);
+    validate_fixed_array_annotation(stmt, env, diagnostics);
+
+    let struct_value: Extract<FrontExpr, { tag: "struct_value" }> | undefined;
 
     if (stmt.value.tag === "struct_value") {
+      struct_value = stmt.value;
+    } else if (stmt.value.tag === "product") {
+      struct_value = elaborate_product_expr(stmt.value);
+    }
+
+    if (struct_value !== undefined) {
       let annotation_type: FrontType = { tag: "unknown" };
 
       if (stmt.annotation !== undefined) {
@@ -253,7 +267,7 @@ function validate_statement(
         annotation_type.tag === "struct" && annotation_type.field_types
       ) {
         validate_struct_field_values(
-          stmt.value.fields,
+          struct_value.fields,
           annotation_type.field_types,
           env,
           diagnostics,
@@ -303,6 +317,11 @@ function validate_statement(
     }
 
     env.bindings.set(stmt.name, binding);
+
+    if (stmt.pattern !== undefined && stmt.pattern.tag !== "binding") {
+      bind_pattern_types(stmt.pattern, type, env, stmt.kind === "const");
+    }
+
     return;
   }
 
@@ -528,6 +547,47 @@ function validate_statement(
 
   if (stmt.tag === "state_bind") {
     validate_expr(stmt.value, env, diagnostics);
+
+    if (
+      stmt.value.tag !== "app" || stmt.value.func.tag !== "field" ||
+      stmt.value.func.object.tag !== "var"
+    ) {
+      diagnostics.push(source_diagnostic(
+        "IX2307",
+        "error",
+        "Effect bind must call a declared effect operation",
+        stmt.value,
+      ));
+      return;
+    }
+
+    const effect_name = stmt.value.func.object.name;
+    const effect = env.effects.get(effect_name);
+
+    if (effect === undefined) {
+      diagnostics.push(source_diagnostic(
+        "IX2307",
+        "error",
+        "Unknown effect: " + effect_name,
+        stmt.value.func.object,
+      ));
+      return;
+    }
+
+    const operation_name = stmt.value.func.name;
+    const operation = effect.operations.find((candidate) => {
+      return candidate.name === operation_name;
+    });
+
+    if (operation === undefined) {
+      diagnostics.push(source_diagnostic(
+        "IX2307",
+        "error",
+        "Unknown effect operation: " + effect_name + "." + operation_name,
+        stmt.value.func,
+      ));
+      return;
+    }
 
     if (stmt.value_name !== undefined) {
       const result_type = infer_type(stmt.value, env);
@@ -1130,6 +1190,14 @@ function validate_expr(
     return;
   }
 
+  if (expr.tag === "product") {
+    for (const entry of expr.entries) {
+      validate_expr(entry.value, env, diagnostics, check_comptime);
+    }
+
+    return;
+  }
+
   if (expr.tag === "set_type") {
     mark_type_expr_uses(expr.type_expr, env);
     return;
@@ -1293,7 +1361,11 @@ function validate_union_constructor(
     return;
   }
 
-  const payload = expr.args[0];
+  let payload = expr.args[0];
+
+  if (expr.arg !== undefined && expr.arg.tag !== "unit") {
+    payload = expr.arg;
+  }
 
   if (!payload) {
     return;
@@ -2182,10 +2254,18 @@ function bool_value_representation_mismatch(
 
   if (
     expected.tag === "struct" && expected.field_types !== undefined &&
-    value.tag === "struct_value"
+    (value.tag === "struct_value" || value.tag === "product")
   ) {
+    let fields: Field[];
+
+    if (value.tag === "struct_value") {
+      fields = value.fields;
+    } else {
+      fields = elaborate_product_expr(value).fields;
+    }
+
     for (const expected_field of expected.field_types) {
-      const actual_field = find_field(value.fields, expected_field.name);
+      const actual_field = find_field(fields, expected_field.name);
 
       if (actual_field === undefined) {
         continue;
@@ -2513,6 +2593,14 @@ function infer_type(
 
   if (expr.tag === "struct_value") {
     return infer_struct_value_type(expr, env, active_calls);
+  }
+
+  if (expr.tag === "product") {
+    return infer_struct_value_type(
+      elaborate_product_expr(expr),
+      env,
+      active_calls,
+    );
   }
 
   if (expr.tag === "with" || expr.tag === "struct_update") {
@@ -3515,6 +3603,10 @@ function arrow_parameter_types(
     return annotation.param.items;
   }
 
+  if (annotation.param.tag === "product") {
+    return annotation.param.entries.map((entry) => entry.type_expr);
+  }
+
   return [annotation.param];
 }
 
@@ -3542,7 +3634,10 @@ function type_from_type_expr(
     return resolve_type_name(format_type_expr(type), env);
   }
 
-  if (type.tag === "tuple" && type.items.length === 0) {
+  if (
+    (type.tag === "tuple" && type.items.length === 0) ||
+    (type.tag === "product" && type.entries.length === 0)
+  ) {
     return { tag: "atom", name: semantic_unit_atom_name };
   }
 
@@ -3703,6 +3798,10 @@ function struct_fields_of(
     return expr.fields;
   }
 
+  if (expr.tag === "product") {
+    return elaborate_product_expr(expr).fields;
+  }
+
   if (expr.tag === "var" || expr.tag === "linear") {
     const binding = env.bindings.get(expr.name);
 
@@ -3712,6 +3811,131 @@ function struct_fields_of(
   }
 
   return undefined;
+}
+
+function bind_pattern_types(
+  pattern: Pattern,
+  type: FrontType,
+  env: SemanticEnv,
+  binding_is_const: boolean,
+): void {
+  if (pattern.tag === "binding") {
+    mark_annotation_use(pattern.annotation, pattern.type_annotation, env);
+    let binding_type = type;
+
+    if (pattern.annotation !== undefined) {
+      binding_type = resolve_type_name(pattern.annotation, env);
+    } else if (pattern.type_annotation !== undefined) {
+      binding_type = type_from_type_expr(pattern.type_annotation, env);
+    }
+
+    bind_local(
+      env,
+      pattern.name,
+      binding_type,
+      pattern.type_annotation,
+      binding_is_const || pattern.mode === "const",
+      pattern.mode === "linear",
+    );
+    return;
+  }
+
+  if (
+    pattern.tag === "wildcard" || pattern.tag === "unit" ||
+    pattern.tag === "literal"
+  ) {
+    return;
+  }
+
+  if (pattern.tag === "union_case") {
+    if (pattern.value === undefined) {
+      return;
+    }
+
+    let payload_type: FrontType = { tag: "unknown" };
+
+    if (type.tag === "union_value") {
+      const union_case = lookup_type_field(type.cases, pattern.name);
+
+      if (union_case !== undefined) {
+        payload_type = resolve_type_name(union_case.type_name, env);
+      }
+    }
+
+    bind_pattern_types(pattern.value, payload_type, env, binding_is_const);
+    return;
+  }
+
+  if (pattern.tag === "record") {
+    for (const field of pattern.fields) {
+      let field_type: FrontType = { tag: "unknown" };
+
+      if (type.tag === "struct" && type.field_types !== undefined) {
+        const declared = lookup_type_field(type.field_types, field.name);
+
+        if (declared !== undefined) {
+          field_type = resolve_type_name(declared.type_name, env);
+        }
+      }
+
+      bind_pattern_types(
+        field.pattern,
+        field_type,
+        env,
+        binding_is_const,
+      );
+    }
+
+    if (pattern.rest !== undefined) {
+      bind_pattern_types(
+        pattern.rest,
+        { tag: "unknown" },
+        env,
+        binding_is_const,
+      );
+    }
+
+    return;
+  }
+
+  const patterns: Pattern[] = [];
+
+  if (pattern.tag === "product") {
+    for (const entry of pattern.entries) {
+      patterns.push(entry.pattern);
+    }
+  } else {
+    patterns.push(...pattern.items);
+  }
+
+  for (let index = 0; index < patterns.length; index += 1) {
+    const nested = patterns[index];
+
+    if (nested === undefined) {
+      continue;
+    }
+
+    let item_type: FrontType = { tag: "unknown" };
+
+    if (type.tag === "struct" && type.field_types !== undefined) {
+      const declared = type.field_types[index];
+
+      if (declared !== undefined) {
+        item_type = resolve_type_name(declared.type_name, env);
+      }
+    }
+
+    bind_pattern_types(nested, item_type, env, binding_is_const);
+  }
+
+  if (pattern.tag === "array" && pattern.rest !== undefined) {
+    bind_pattern_types(
+      pattern.rest,
+      { tag: "unknown" },
+      env,
+      binding_is_const,
+    );
+  }
 }
 
 function find_field(fields: Field[], name: string): Field | undefined {
@@ -4023,10 +4247,41 @@ function mark_type_expr_uses(type: TypeExpr, env: SemanticEnv): void {
     return;
   }
 
+  if (type.tag === "product") {
+    for (const entry of type.entries) {
+      mark_type_expr_uses(entry.type_expr, env);
+    }
+
+    return;
+  }
+
+  if (type.tag === "array") {
+    mark_type_expr_uses(type.element, env);
+    mark_array_length_uses(type.length, env);
+    return;
+  }
+
   if (type.tag === "arrow") {
     mark_type_expr_uses(type.param, env);
     mark_type_expr_uses(type.result, env);
   }
+}
+
+function mark_array_length_uses(
+  length: ArrayLengthExpr,
+  env: SemanticEnv,
+): void {
+  if (length.tag === "number") {
+    return;
+  }
+
+  if (length.tag === "name") {
+    mark_binding_used(length.name, env);
+    return;
+  }
+
+  mark_array_length_uses(length.left, env);
+  mark_array_length_uses(length.right, env);
 }
 
 function append_unused_binding_warnings(
@@ -4255,7 +4510,10 @@ function validate_basic_annotation(
     return;
   }
 
-  if (expected.tag === "struct" && stmt.value.tag === "struct_value") {
+  if (
+    expected.tag === "struct" &&
+    (stmt.value.tag === "struct_value" || stmt.value.tag === "product")
+  ) {
     return;
   }
 
@@ -4298,6 +4556,87 @@ function validate_basic_annotation(
     message,
     stmt.value,
   ));
+}
+
+function validate_fixed_array_annotation(
+  stmt: Extract<Stmt, { tag: "bind" }>,
+  env: SemanticEnv,
+  diagnostics: SourceDiagnostic[],
+): void {
+  const annotation = stmt.type_annotation;
+
+  if (annotation?.tag !== "array") {
+    return;
+  }
+
+  let length: number;
+
+  try {
+    length = fixed_array_length(annotation.length);
+  } catch (error) {
+    if (error instanceof Error) {
+      diagnostics.push(source_diagnostic(
+        "IX2306",
+        "error",
+        error.message,
+        stmt,
+      ));
+      return;
+    }
+
+    throw error;
+  }
+
+  if (stmt.value.tag !== "array") {
+    return;
+  }
+
+  if (stmt.value.rest !== undefined) {
+    diagnostics.push(source_diagnostic(
+      "IX2306",
+      "error",
+      "Fixed array annotation " + format_type_expr(annotation) +
+        " cannot use an array spread",
+      stmt.value,
+    ));
+    return;
+  }
+
+  if (stmt.value.items.length !== length) {
+    diagnostics.push(source_diagnostic(
+      "IX2306",
+      "error",
+      "Binding annotation expects " + format_type_expr(annotation) + " with " +
+        length.toString() + " items, got " + stmt.value.items.length.toString(),
+      stmt.value,
+    ));
+    return;
+  }
+
+  const expected = type_from_type_expr(annotation.element, env);
+
+  if (expected.tag === "unknown") {
+    return;
+  }
+
+  for (let index = 0; index < stmt.value.items.length; index += 1) {
+    const item = stmt.value.items[index];
+    expect(item, "Missing fixed array item " + index.toString());
+    const actual = infer_type(item, env);
+
+    if (same_type(actual, expected)) {
+      continue;
+    }
+
+    diagnostics.push(source_diagnostic(
+      "IX2306",
+      "error",
+      "Binding annotation " + format_type_expr(annotation) + " item " +
+        index.toString() + " expects " + type_name(expected) + ", got " +
+        type_name(actual),
+      item,
+    ));
+  }
 }
 
 function type_name(type: FrontType): string {

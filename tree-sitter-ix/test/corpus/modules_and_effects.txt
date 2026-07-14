@@ -78,30 +78,39 @@ return { result }
               (identifier))))))
     (arrow_function
       (parameter_list)
-      (block
-        (effect_binding_statement
-          (identifier)
-          (call_expression
-            (field_expression
-              (identifier)
-              (identifier))
-            (argument_list)))
-        (effect_binding_statement
-          (wildcard)
-          (call_expression
-            (field_expression
-              (identifier)
-              (identifier))
-            (argument_list
-              (unary_expression
-                (identifier)))))
-        (expression_statement
-          (identifier)))))
+      (postfix_expression
+        (block
+          (effect_binding_statement
+            (identifier)
+            (application_expression
+              (postfix_expression
+                (field_expression
+                  (identifier)
+                  (identifier)))
+              (parenthesized_or_product
+                (unit_pattern))))
+          (effect_binding_statement
+            (wildcard)
+            (application_expression
+              (postfix_expression
+                (field_expression
+                  (identifier)
+                  (identifier)))
+              (parenthesized_or_product
+                (parenthesized_expression
+                  (unary_expression
+                    (postfix_expression
+                      (identifier)))))))
+          (expression_statement
+            (postfix_expression
+              (identifier)))))))
   (binding_statement
     (identifier)
-    (call_expression
-      (identifier)
-      (argument_list)))
+    (application_expression
+      (postfix_expression
+        (identifier))
+      (parenthesized_or_product
+        (unit_pattern))))
   (module_return_statement
     (object_literal
       (field_block
@@ -151,25 +160,32 @@ let inspect: () -> <Stdin | Stdout.write_line | Trace \ Debug> Unit = () => ()
               (identifier))))))
     (arrow_function
       (parameter_list)
-      (block
-        (effect_binding_statement
-          (identifier)
-          (call_expression
-            (field_expression
-              (identifier)
-              (identifier))
-            (argument_list)))
-        (effect_binding_statement
-          (wildcard)
-          (call_expression
-            (field_expression
-              (identifier)
-              (identifier))
-            (argument_list
-              (unary_expression
-                (identifier)))))
-        (expression_statement
-          (identifier)))))
+      (postfix_expression
+        (block
+          (effect_binding_statement
+            (identifier)
+            (application_expression
+              (postfix_expression
+                (field_expression
+                  (identifier)
+                  (identifier)))
+              (parenthesized_or_product
+                (unit_pattern))))
+          (effect_binding_statement
+            (wildcard)
+            (application_expression
+              (postfix_expression
+                (field_expression
+                  (identifier)
+                  (identifier)))
+              (parenthesized_or_product
+                (parenthesized_expression
+                  (unary_expression
+                    (postfix_expression
+                      (identifier)))))))
+          (expression_statement
+            (postfix_expression
+              (identifier)))))))
   (binding_statement
     (identifier)
     (type_reference
@@ -198,7 +214,8 @@ let inspect: () -> <Stdin | Stdout.write_line | Trace \ Debug> Unit = () => ()
               (identifier))))))
     (arrow_function
       (parameter_list)
-      (unit_pattern))))
+      (postfix_expression
+        (unit_pattern)))))
 
 ==================
 Source fragment
@@ -213,10 +230,13 @@ answer
   (binding_statement
     (identifier)
     (binary_expression
-      (number)
-      (number)))
+      (postfix_expression
+        (number))
+      (postfix_expression
+        (number))))
   (expression_statement
-    (identifier)))
+    (postfix_expression
+      (identifier))))
 
 ==================
 Ix handler and resumptions
@@ -272,92 +292,109 @@ return { result }
           (type_reference)))))
   (binding_statement
     (identifier)
-    (block
-      (binding_statement
-        (identifier)
-        (type_reference
-          (type_union
-            (type_intersection
-              (type_difference
-                (identifier)))))
-        (number))
-      (expression_statement
-        (struct_expression
+    (postfix_expression
+      (block
+        (binding_statement
           (identifier)
-          (field_block
-            (field_definition
-              (identifier)
-              (arrow_function
-                (parameter_list
-                  (parameter
-                    (identifier)))
-                (call_expression
-                  (linear_reference
-                    (identifier))
-                  (argument_list
-                    (identifier)))))
-            (field_definition
-              (identifier)
-              (arrow_function
-                (parameter_list
-                  (parameter
-                    (identifier))
-                  (parameter
-                    (identifier)))
-                (block
-                  (assignment
-                    (identifier)
-                    (binary_expression
-                      (identifier)
+          (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier)))))
+          (postfix_expression
+            (number)))
+        (expression_statement
+          (effect_handler_expression
+            (effect_identifier)
+            (handler_clause_block
+              (handler_operation_clause
+                (identifier)
+                (arrow_function
+                  (parameter_list
+                    (parameter
                       (identifier)))
-                  (expression_statement
-                    (call_expression
+                  (application_expression
+                    (postfix_expression
                       (linear_reference
-                        (identifier))
-                      (argument_list
-                        (unit_pattern)))))))
-            (field_definition
-              (identifier)
-              (arrow_function
-                (parameter
-                  (identifier))
-                (object_literal
-                  (field_block
-                    (shorthand_field
+                        (identifier)))
+                    (parenthesized_or_product
+                      (parenthesized_expression
+                        (postfix_expression
+                          (identifier)))))))
+              (handler_operation_clause
+                (identifier)
+                (arrow_function
+                  (parameter_list
+                    (parameter
                       (identifier))
-                    (shorthand_field
-                      (identifier)))))))))))
+                    (parameter
+                      (identifier)))
+                  (postfix_expression
+                    (block
+                      (assignment
+                        (identifier)
+                        (binary_expression
+                          (postfix_expression
+                            (identifier))
+                          (postfix_expression
+                            (identifier))))
+                      (expression_statement
+                        (application_expression
+                          (postfix_expression
+                            (linear_reference
+                              (identifier)))
+                          (parenthesized_or_product
+                            (parenthesized_expression
+                              (postfix_expression
+                                (unit_pattern))))))))))
+              (handler_return_clause
+                (arrow_function
+                  (parameter
+                    (identifier))
+                  (postfix_expression
+                    (object_literal
+                      (field_block
+                        (shorthand_field
+                          (identifier))
+                        (shorthand_field
+                          (identifier)))))))))))))
   (binding_statement
     (identifier)
     (arrow_function
       (parameter_list)
-      (struct_expression
-        (identifier)
-        (field_block
-          (field_definition
+      (effect_handler_expression
+        (effect_identifier)
+        (handler_clause_block
+          (handler_operation_clause
             (identifier)
             (arrow_function
               (parameter_list
                 (parameter
                   (identifier)))
-              (call_expression
-                (linear_reference
-                  (identifier))
-                (argument_list
-                  (number)))))
-          (field_definition
-            (identifier)
+              (application_expression
+                (postfix_expression
+                  (linear_reference
+                    (identifier)))
+                (parenthesized_or_product
+                  (parenthesized_expression
+                    (postfix_expression
+                      (number)))))))
+          (handler_return_clause
             (arrow_function
               (parameter
                 (identifier))
-              (identifier)))))))
+              (postfix_expression
+                (identifier))))))))
   (binding_statement
     (identifier)
     (try_with_expression
-      (call_expression
-        (identifier)
-        (argument_list))
-      (identifier)))
+      (application_expression
+        (postfix_expression
+          (identifier))
+        (parenthesized_or_product
+          (unit_pattern)))
+      (postfix_expression
+        (identifier))))
   (resume_dup_statement
     (identifier)
     (identifier)
@@ -375,7 +412,7 @@ Annotated effect row and module instantiation
 
 module (!init: Init) where
 
-import console from "./console.ix"
+let console = import "./console.ix"
 
 let greet: () -> <Io.read | Io.print> Text = () => {
   name <- Io.read()
@@ -399,9 +436,11 @@ return { result, close }
             (type_intersection
               (type_difference
                 (identifier))))))))
-  (import_statement
+  (binding_statement
     (identifier)
-    (string))
+    (postfix_expression
+      (import_expression
+        (string))))
   (binding_statement
     (identifier)
     (type_reference
@@ -425,45 +464,59 @@ return { result, close }
               (identifier))))))
     (arrow_function
       (parameter_list)
-      (block
-        (effect_binding_statement
-          (identifier)
-          (call_expression
-            (field_expression
-              (identifier)
-              (identifier))
-            (argument_list)))
-        (effect_binding_statement
-          (wildcard)
-          (call_expression
-            (field_expression
-              (identifier)
-              (identifier))
-            (argument_list
-              (unary_expression
-                (identifier)))))
-        (expression_statement
-          (identifier)))))
+      (postfix_expression
+        (block
+          (effect_binding_statement
+            (identifier)
+            (application_expression
+              (postfix_expression
+                (field_expression
+                  (identifier)
+                  (identifier)))
+              (parenthesized_or_product
+                (unit_pattern))))
+          (effect_binding_statement
+            (wildcard)
+            (application_expression
+              (postfix_expression
+                (field_expression
+                  (identifier)
+                  (identifier)))
+              (parenthesized_or_product
+                (parenthesized_expression
+                  (unary_expression
+                    (postfix_expression
+                      (identifier)))))))
+          (expression_statement
+            (postfix_expression
+              (identifier)))))))
   (binding_statement
     (destructuring_pattern
       (identifier)
       (identifier))
-    (call_expression
-      (identifier)
-      (argument_list
-        (object_literal
-          (field_block
-            (field_definition
-              (identifier)
-              (field_expression
-                (linear_reference
-                  (identifier))
-                (identifier))))))))
+    (application_expression
+      (postfix_expression
+        (identifier))
+      (parenthesized_or_product
+        (parenthesized_expression
+          (postfix_expression
+            (object_literal
+              (field_block
+                (field_definition
+                  (identifier)
+                  (postfix_expression
+                    (field_expression
+                      (postfix_expression
+                        (linear_reference
+                          (identifier)))
+                      (identifier)))))))))))
   (binding_statement
     (identifier)
-    (call_expression
-      (identifier)
-      (argument_list)))
+    (application_expression
+      (postfix_expression
+        (identifier))
+      (parenthesized_or_product
+        (unit_pattern))))
   (module_return_statement
     (object_literal
       (field_block

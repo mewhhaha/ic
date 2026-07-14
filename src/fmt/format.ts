@@ -92,6 +92,7 @@ export function format_syntax(syntax: SourceSyntax): string {
   const brackets: Bracket[] = [];
   let previous_blank = true;
   let previous_opened = false;
+  let previous_assignment = false;
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
@@ -130,7 +131,13 @@ export function format_syntax(syntax: SourceSyntax): string {
       indent = enclosing.open_indent;
     }
 
-    if (starts_with_alternative(line)) {
+    const alternative = starts_with_alternative(line);
+
+    if (previous_assignment && !alternative) {
+      indent += 1;
+    }
+
+    if (alternative) {
       indent += 1;
     }
 
@@ -151,6 +158,7 @@ export function format_syntax(syntax: SourceSyntax): string {
     previous_blank = false;
     const last = line[line.length - 1];
     previous_opened = last?.kind === "symbol" && openers.has(last.text);
+    previous_assignment = last?.kind === "symbol" && last.text === "=";
   }
 
   return parts.join("\n") + "\n";

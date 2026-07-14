@@ -1,7 +1,8 @@
 import { expect } from "../../expect.ts";
-import type { FrontExpr, Stmt, TypeExpr } from "../ast.ts";
-import { expect_snake_case, is_no_demand_name } from "../names.ts";
+import type { FrontExpr, Stmt } from "../ast.ts";
+import { expect_snake_case } from "../names.ts";
 import { module_value } from "../parser_support.ts";
+import { pattern_bindings } from "../pattern.ts";
 import { ParserStmtControl } from "./control.ts";
 
 export abstract class ParserStmtBinding extends ParserStmtControl {
@@ -21,18 +22,6 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
     };
   }
 
-  protected parse_import_stmt(): Stmt {
-    this.expect_name("Expected import");
-    const name = this.expect_name("Expected import name");
-    this.expect_supported_name(name, "Import");
-    expect_snake_case(name, "Import");
-    expect(this.match_name("from"), "Expected from");
-    const path = this.peek();
-    expect(path.kind === "string", "Expected import path");
-    this.advance();
-    return { tag: "import", name, path: path.text };
-  }
-
   protected parse_bind(kind: "let" | "const"): Stmt {
     if (
       kind === "let" && this.peek().kind === "name" &&
@@ -41,10 +30,6 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
       const pattern = this.parse_type_pattern();
       this.expect_symbol("=");
       return { tag: "type_check", pattern, target: this.parse_expr() };
-    }
-
-    if (this.peek().kind === "symbol" && this.peek().text === "{") {
-      return this.parse_bind_pattern(kind);
     }
 
     if (kind === "let" && this.is_resume_dup()) {
@@ -96,55 +81,36 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
       is_recursive = true;
     }
 
+    const pattern = this.parse_pattern();
+    const bindings = pattern_bindings(pattern);
+    let name: string;
     let is_linear = false;
-
-    if (this.match_symbol("!")) {
-      is_linear = true;
-    }
-
-    const name = this.expect_binding_name("Expected binding name");
-    let binding_label = "Const binding";
-
-    if (kind === "let") {
-      binding_label = "Runtime binding";
-    }
-
-    if (is_linear && is_no_demand_name(name)) {
-      throw new Error("`!_` is not supported");
-    }
-
-    if (!is_no_demand_name(name)) {
-      this.expect_supported_name(name, binding_label);
-
-      if (kind === "let") {
-        expect_snake_case(name, "Runtime binding");
-      } else {
-        this.expect_const_binding_name(name);
-      }
-    }
-
     let annotation: string | undefined;
-    let type_annotation: TypeExpr | undefined;
 
-    if (this.match_symbol(":")) {
-      const parsed = this.consume_annotation();
-      annotation = parsed.annotation;
-      type_annotation = parsed.type_annotation;
+    if (pattern.tag === "binding") {
+      name = pattern.name;
+      is_linear = pattern.mode === "linear";
+      annotation = pattern.annotation;
+    } else {
+      name = this.fresh_no_demand_name();
     }
 
     this.expect_symbol("=");
     this.skip_newlines();
     const value = this.parse_expr();
 
-    if (is_linear) {
-      this.affine_call_names.add(name);
-    } else {
-      this.affine_call_names.delete(name);
+    for (const binding of bindings) {
+      if (binding.mode === "linear") {
+        this.affine_call_names.add(binding.name);
+      } else {
+        this.affine_call_names.delete(binding.name);
+      }
     }
 
     const stmt: Extract<Stmt, { tag: "bind" }> = {
       tag: "bind",
       kind,
+      pattern,
       name,
       is_recursive,
       is_linear,
@@ -152,8 +118,8 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
       value,
     };
 
-    if (type_annotation) {
-      stmt.type_annotation = type_annotation;
+    if (pattern.tag === "binding" && pattern.type_annotation) {
+      stmt.type_annotation = pattern.type_annotation;
     }
 
     return stmt;
@@ -250,36 +216,6 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
 
     return object.tag === "field" && object.object.tag === "var" &&
       /^[A-Z][A-Za-z0-9]*$/.test(object.object.name);
-  }
-
-  private parse_bind_pattern(kind: "let" | "const"): Stmt {
-    this.expect_symbol("{");
-    const items = [];
-
-    while (!this.match_symbol("}")) {
-      const is_linear = this.match_symbol("!");
-      const name = this.expect_binding_name(
-        "Expected destructured binding name",
-      );
-
-      if (is_linear && is_no_demand_name(name)) {
-        throw new Error("`!_` is not supported");
-      }
-
-      if (!is_no_demand_name(name)) {
-        expect_snake_case(name, "Destructured binding");
-      }
-      items.push({ name, is_linear });
-
-      if (!this.match_symbol("}")) {
-        this.expect_symbol(",");
-      } else {
-        break;
-      }
-    }
-
-    this.expect_symbol("=");
-    return { tag: "bind_pattern", kind, items, value: this.parse_expr() };
   }
 
   protected parse_unsupported_stmt(feature: string): Stmt {

@@ -8,6 +8,7 @@ import type {
 } from "../frontend/ast.ts";
 import { name_sites } from "../frontend/name_site.ts";
 import { prim_returns_bool } from "../frontend/numeric.ts";
+import { source_facts } from "../frontend/source_facts.ts";
 import {
   source_span,
   type SourceSpan,
@@ -79,6 +80,7 @@ export function inlay_hints(
   const parameter_types = inferred_parameter_types(source, index);
   const editor_facts = editor_binding_facts(source, index);
   const effects = editor_effect_analysis(source);
+  const type_facts = source_facts(source);
 
   const add = (
     offset: number,
@@ -213,6 +215,43 @@ export function inlay_hints(
         config,
         add,
       );
+    }
+
+    if (
+      config.types && statement.tag === "state_bind" &&
+      statement.value_name !== undefined
+    ) {
+      const entity = entity_for_owner(
+        index,
+        statement,
+        "value_name",
+        statement.value_name,
+      );
+      const site = site_for_owner(
+        statement,
+        "value_name",
+        statement.value_name,
+      );
+
+      if (entity !== undefined && site !== undefined) {
+        let inferred = entity_type_name(index, entity);
+
+        if (inferred === undefined || inferred === "unknown") {
+          inferred = type_facts.editor_type_of.get(statement.value)?.name;
+        }
+
+        if (inferred !== undefined && inferred !== "unknown") {
+          add(
+            site.end,
+            ": " + inferred,
+            "types",
+            "Inferred state binding type: " + inferred,
+            1,
+            false,
+            false,
+          );
+        }
+      }
     }
 
     if (config.loops && statement.tag === "for_range") {

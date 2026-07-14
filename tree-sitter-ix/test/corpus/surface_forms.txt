@@ -1,0 +1,149 @@
+==================
+Unary applications and products
+==================
+
+let applied = f x
+let delimited = f(x)
+let positional = (x, y)
+let named = (.x = x, .y = y)
+
+---
+
+(source_file
+  (binding_statement
+    (identifier)
+    (application_expression
+      (postfix_expression
+        (identifier))
+      (postfix_expression
+        (identifier))))
+  (binding_statement
+    (identifier)
+    (application_expression
+      (postfix_expression
+        (identifier))
+      (parenthesized_or_product
+        (parenthesized_expression
+          (postfix_expression
+            (identifier))))))
+  (binding_statement
+    (identifier)
+    (postfix_expression
+      (positional_product
+        (postfix_expression
+          (identifier))
+        (postfix_expression
+          (identifier)))))
+  (binding_statement
+    (identifier)
+    (postfix_expression
+      (named_product
+        (product_field
+          (identifier)
+          (postfix_expression
+            (identifier)))
+        (product_field
+          (identifier)
+          (postfix_expression
+            (identifier)))))))
+
+==================
+Arrays, imports, casts, updates, and matches
+==================
+
+let values = [x, y]
+let repeated = [x; 3]
+let source = import "./source.ix"
+let cast = x as Text
+let updated = x with {field: y}
+let [first, ...rest] = values
+let result = match target {
+| .ok(value) if ready => value
+| _ => 0
+}
+type Values = [I32; 3]
+
+---
+
+(source_file
+  (binding_statement
+    (identifier)
+    (postfix_expression
+      (array_expression
+        (postfix_expression
+          (identifier))
+        (postfix_expression
+          (identifier)))))
+  (binding_statement
+    (identifier)
+    (postfix_expression
+      (array_repeat_expression
+        (postfix_expression
+          (identifier))
+        (postfix_expression
+          (number)))))
+  (binding_statement
+    (identifier)
+    (postfix_expression
+      (import_expression
+        (string))))
+  (binding_statement
+    (identifier)
+    (as_expression
+      (postfix_expression
+        (identifier))
+      (as_keyword)
+      (type_reference
+        (type_union
+          (type_intersection
+            (type_difference
+              (identifier)))))))
+  (binding_statement
+    (identifier)
+    (postfix_expression
+      (update_expression
+        (postfix_expression
+          (identifier))
+        (with_keyword)
+        (field_block
+          (field_definition
+            (identifier)
+            (postfix_expression
+              (identifier)))))))
+  (binding_statement
+    (array_pattern
+      (identifier)
+      (array_rest_pattern
+        (identifier)))
+    (postfix_expression
+      (identifier)))
+  (binding_statement
+    (identifier)
+    (match_expression
+      (condition_expression
+        (identifier))
+      (match_case_block
+        (match_case
+          (union_pattern
+            (identifier)
+            (identifier))
+          (condition_expression
+            (identifier))
+          (postfix_expression
+            (identifier)))
+        (match_case
+          (wildcard)
+          (postfix_expression
+            (number))))))
+  (type_declaration_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_intersection
+          (type_difference
+            (array_type
+              (type_union
+                (type_intersection
+                  (type_difference
+                    (identifier))))
+              (number))))))))

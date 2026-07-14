@@ -22,6 +22,12 @@ export type {
   SourceArtifactOptions,
 } from "./frontend/source.ts";
 export type {
+  SourceFacts,
+  SourceFieldTypeFact,
+  SourceTypeFact,
+  SourceTypeSetFact,
+} from "./frontend/source_facts.ts";
+export type {
   SourceDiagnostic,
   SourceDiagnosticRelated,
   SourceDiagnosticSeverity,
@@ -66,6 +72,11 @@ export type {
   AbiValueContract,
 } from "./abi.ts";
 export {
+  abi_fixed_array_schema_name,
+  ix_abi_name,
+  ix_abi_version,
+} from "./abi.ts";
+export {
   IxAbiError,
   type IxEffectObject,
   IxHost,
@@ -83,6 +94,7 @@ export type {
   CoreTypeField,
 } from "./core.ts";
 export type {
+  ArrayLengthExpr,
   Binding,
   Declaration,
   EffectRowExpr,
@@ -93,7 +105,14 @@ export type {
   HandlerClause,
   HandlerReturnClause,
   HandlerState,
+  MatchArm,
   Param,
+  Pattern,
+  PatternLiteral,
+  PatternMode,
+  ProductExprEntry,
+  ProductPatternEntry,
+  RecordPatternField,
   ResolvedCallTarget,
   ResolvedFrontExpr,
   Source as SourceNode,
@@ -104,4 +123,25 @@ export type {
   TypeExpr,
   TypeField,
   TypePattern,
+  TypeProductEntry,
 } from "./frontend/ast.ts";
+export {
+  format_inference_type,
+  monomorphic_type_binding,
+  scalar_representation_compatible,
+  statically_known_const_type_binding,
+  TypeInference,
+} from "./frontend/type_inference.ts";
+export type {
+  InferenceAliasNormalizer,
+  InferenceBinding,
+  InferenceEffect,
+  InferenceOwnership,
+  InferenceProductField,
+  InferenceRecordField,
+  InferenceScalar,
+  InferenceSumCase,
+  InferenceType,
+  TypeConstraint,
+  TypeScheme,
+} from "./frontend/type_inference.ts";

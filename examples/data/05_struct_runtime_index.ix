@@ -6,8 +6,8 @@ declare effect Input {
 
 declare Init { input: Input }
 
-type Pair = [.first = Int, .second = Int]
-let pair: Pair = [.first = 20, .second = 22]
+type Pair = (.first = Int, .second = Int)
+let pair: Pair = (.first = 20, .second = 22)
 
 index <- Input.index()
 let result: I32 = pair[index]

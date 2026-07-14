@@ -312,7 +312,7 @@ Deno.test("selected type-set closures share an injected argument layout", () => 
 module (!init: Init) where
 
 declare effect Input { flag: () => I32 }
-type Init = [.input = Input]
+type Init = (.input = Input)
 type Choice = Int | Text
 
 flag <- Input.flag()
@@ -380,7 +380,7 @@ module (!init: Init) where
 
 type Read = Int | Text
 declare effect Input { read: () => Read }
-type Init = [.input = Input]
+type Init = (.input = Input)
 
 value <- Input.read()
 let result: I32 = if value is Int { value } else { len(value) }
@@ -407,7 +407,7 @@ module (!init: Init) where
 type Maybe a = a | #nothing
 type MaybeInt = Maybe Int
 declare effect Input { value: () => MaybeInt }
-type Init = [.input = Input]
+type Init = (.input = Input)
 
 value <- Input.value()
 let result: I32 = if value is Int { value } else { 0 }
@@ -475,10 +475,10 @@ if value is Int { value } else { 0 }
 
 Deno.test("record intersections merge compatible fields", () => {
   const wat = Source.wat(`
-type HasX = [.x = Int]
-type HasY = [.y = Int]
+type HasX = (.x = Int)
+type HasY = (.y = Int)
 type Point = HasX & HasY
-let point: Point = [.x = 40, .y = 2]
+let point: Point = (.x = 40, .y = 2)
 point.x + point.y
 `);
 

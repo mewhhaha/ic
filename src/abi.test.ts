@@ -1,5 +1,6 @@
 import { assert_equals, assert_includes, assert_throws } from "./assert.ts";
 import {
+  abi_fixed_array_schema_name,
   type AbiManifest,
   IxAbiError,
   IxHost,
@@ -180,6 +181,54 @@ return ix_entry_result_type { answer: 42 }
   });
 });
 
+Deno.test("managed ABI builds deterministic schemas for source fixed arrays", () => {
+  const manifest = build_abi_manifest({
+    tag: "program",
+    declarations: [
+      {
+        tag: "record",
+        name: "pair",
+        fields: [{ name: "values", type_name: "[I32; 2]" }],
+      },
+      {
+        tag: "effect",
+        implementation: "host",
+        name: "Host",
+        operations: [{
+          name: "read",
+          params: [],
+          result: { type_name: "pair", ownership: "unique_heap" },
+        }],
+      },
+    ],
+    statements: [],
+  });
+  const array_name = abi_fixed_array_schema_name({ tag: "i32" }, 2);
+
+  assert_equals(manifest.types[array_name], {
+    tag: "array",
+    name: array_name,
+    schema_id: 1,
+    element: { tag: "i32" },
+    length: 2,
+    stride: 4,
+    size: 8,
+    align: 4,
+  });
+  assert_equals(manifest.types.pair, {
+    tag: "struct",
+    name: "pair",
+    schema_id: 2,
+    size: 8,
+    align: 4,
+    fields: [{
+      name: "values",
+      type: { tag: "named", name: array_name },
+      offset: 0,
+    }],
+  });
+});
+
 async function wasm_from_wat(wat: string): Promise<Uint8Array> {
   const command = new Deno.Command("wat2wasm", {
     args: ["-o", "-", "-"],
@@ -210,7 +259,7 @@ function effect_manifest(result: "i32" | "text"): AbiManifest {
 
   return {
     abi_name: "ix-js",
-    abi_version: "ix-js-2",
+    abi_version: "ix-js-3",
     target: {
       profile: "core-3-nonweb",
       pointer: "wasm32",
@@ -267,10 +316,10 @@ function effect_manifest(result: "i32" | "text"): AbiManifest {
   };
 }
 
-Deno.test("managed ABI rejects ix-js-1 manifests", async () => {
+Deno.test("managed ABI rejects ix-js-2 manifests", async () => {
   const legacy_manifest = {
     ...effect_manifest("i32"),
-    abi_version: "ix-js-1",
+    abi_version: "ix-js-2",
   } as unknown as AbiManifest;
 
   try {
@@ -283,7 +332,7 @@ Deno.test("managed ABI rejects ix-js-1 manifests", async () => {
 
     assert_equals(error.code, "version_mismatch");
     assert_equals(error.path, "abi_version");
-    assert_includes(error.message, "Expected ix-js-2");
+    assert_includes(error.message, "Expected ix-js-3");
   }
 });
 
@@ -362,6 +411,163 @@ function effect_wat(): string {
   (func (export "probe") (param $io i32) (result i32)
     local.get $io
     call $__ix_effect_Io_read))`;
+}
+
+function fixed_array_effect_manifest(): {
+  manifest: AbiManifest;
+  root_array: string;
+} {
+  const i32_pair = abi_fixed_array_schema_name({ tag: "i32" }, 2);
+  const root_array = abi_fixed_array_schema_name(
+    { tag: "named", name: "row" },
+    2,
+  );
+
+  return {
+    root_array,
+    manifest: {
+      abi_name: "ix-js",
+      abi_version: "ix-js-3",
+      target: {
+        profile: "core-3-nonweb",
+        pointer: "wasm32",
+        endianness: "little",
+        i64_js: "bigint",
+      },
+      frame: { byte_size_offset: 0, schema_id_offset: 4, root_offset: 8 },
+      types: {
+        [i32_pair]: {
+          tag: "array",
+          name: i32_pair,
+          schema_id: 1,
+          element: { tag: "i32" },
+          length: 2,
+          stride: 4,
+          size: 8,
+          align: 4,
+        },
+        result: {
+          tag: "union",
+          name: "result",
+          schema_id: 2,
+          size: 16,
+          align: 8,
+          cases: [{ name: "ok", tag_value: 0, payload: { tag: "text" } }],
+        },
+        row: {
+          tag: "struct",
+          name: "row",
+          schema_id: 3,
+          size: 24,
+          align: 8,
+          fields: [
+            { name: "count", type: { tag: "i64" }, offset: 0 },
+            { name: "label", type: { tag: "text" }, offset: 8 },
+            {
+              name: "pair",
+              type: { tag: "named", name: i32_pair },
+              offset: 12,
+            },
+            {
+              name: "outcome",
+              type: { tag: "named", name: "result" },
+              offset: 20,
+            },
+          ],
+        },
+        [root_array]: {
+          tag: "array",
+          name: root_array,
+          schema_id: 4,
+          element: { tag: "named", name: "row" },
+          length: 2,
+          stride: 24,
+          size: 48,
+          align: 8,
+        },
+      },
+      imports: {
+        __ix_effect_Host_read: {
+          name: "__ix_effect_Host_read",
+          module: "ix_effect",
+          field: "Host.read",
+          params: [{
+            type: { tag: "resource", effect: "Host" },
+            ownership: "scalar",
+          }],
+          result: {
+            type: { tag: "named", name: root_array },
+            ownership: "unique_heap",
+          },
+          effect: { name: "Host", operation: "read", resource_param: 0 },
+        },
+      },
+      effects: {
+        Host: {
+          name: "Host",
+          operations: {
+            read: {
+              name: "read",
+              import: "__ix_effect_Host_read",
+              params: [],
+              result: {
+                type: { tag: "named", name: root_array },
+                ownership: "unique_heap",
+              },
+            },
+          },
+        },
+      },
+      requirements: { module: [], functions: {} },
+      init: {
+        name: "Init",
+        fields: [{
+          name: "host",
+          type: { tag: "resource", effect: "Host" },
+          import: "__ix_init_host",
+        }],
+      },
+      entry: {
+        params: [{ tag: "resource", effect: "Host" }],
+        result: {
+          type: { tag: "named", name: root_array },
+          ownership: "unique_heap",
+        },
+      },
+      exports: {
+        memory: "memory",
+        alloc: "__ix_abi_alloc",
+        free: "__ix_abi_free",
+        main: "__ix_abi_main",
+      },
+    },
+  };
+}
+
+function fixed_array_effect_wat(): string {
+  return `(module
+  (import "ix_effect" "Host.read"
+    (func $__ix_effect_Host_read (param i32) (result i32)))
+  (memory (export "memory") 1)
+  (global $heap (mut i32) (i32.const 1024))
+  (global $free_count (export "free_count") (mut i32) (i32.const 0))
+  (func (export "__ix_abi_alloc") (param $size i32) (param i32) (result i32)
+    (local $ptr i32)
+    global.get $heap
+    local.tee $ptr
+    local.get $size
+    i32.add
+    global.set $heap
+    local.get $ptr)
+  (func (export "__ix_abi_free") (param i32) (result i32)
+    global.get $free_count
+    i32.const 1
+    i32.add
+    global.set $free_count
+    i32.const 0)
+  (func (export "__ix_abi_main") (param $host i32) (result i32)
+    local.get $host
+    call $__ix_effect_Host_read))`;
 }
 
 function getter_effect_manifest(): AbiManifest {
@@ -492,6 +698,107 @@ Deno.test("managed ABI decodes rich effect entry results and frees them", async 
   }
 
   assert_equals(free_count.value, 1);
+});
+
+Deno.test("managed ABI round trips nested fixed arrays and frees owned children", async () => {
+  const fixture = fixed_array_effect_manifest();
+  const wasm = await wasm_from_wat(fixed_array_effect_wat());
+  const host = await IxHost.instantiate(wasm, fixture.manifest);
+
+  const result = host.run({
+    host: {
+      read() {
+        return [
+          {
+            count: 21n,
+            label: "first",
+            pair: [1, 2],
+            outcome: { tag: "ok", value: "ready" },
+          },
+          {
+            count: -9n,
+            label: "second",
+            pair: [-3, 5],
+            outcome: { tag: "ok", value: "done" },
+          },
+        ];
+      },
+    },
+  });
+
+  assert_equals(result, [
+    {
+      count: 21n,
+      label: "first",
+      pair: [1, 2],
+      outcome: { tag: "ok", value: "ready" },
+    },
+    {
+      count: -9n,
+      label: "second",
+      pair: [-3, 5],
+      outcome: { tag: "ok", value: "done" },
+    },
+  ]);
+  const free_count = host.instance.exports.free_count;
+
+  if (!(free_count instanceof WebAssembly.Global)) {
+    throw new Error("Missing free counter export");
+  }
+
+  assert_equals(free_count.value, 7);
+});
+
+Deno.test("managed ABI requires exact fixed-array lengths", async () => {
+  const fixture = fixed_array_effect_manifest();
+  const wasm = await wasm_from_wat(fixed_array_effect_wat());
+  const host = await IxHost.instantiate(wasm, fixture.manifest);
+
+  try {
+    host.run({
+      host: {
+        read() {
+          return [{
+            count: 1n,
+            label: "only row",
+            pair: [1, 2],
+            outcome: { tag: "ok", value: "nope" },
+          }];
+        },
+      },
+    });
+    throw new Error("Expected array length mismatch");
+  } catch (error) {
+    if (!(error instanceof IxAbiError)) {
+      throw error;
+    }
+
+    assert_equals(error.code, "array_length_mismatch");
+    assert_equals(error.path, "__ix_effect_Host_read.result");
+  }
+});
+
+Deno.test("managed ABI validates fixed-array structural schema names", async () => {
+  const fixture = fixed_array_effect_manifest();
+  const schema = fixture.manifest.types[fixture.root_array];
+
+  if (!schema || schema.tag !== "array") {
+    throw new Error("Missing root fixed-array schema");
+  }
+
+  schema.name = "incorrect_array_schema_name";
+
+  try {
+    await IxHost.instantiate(new Uint8Array(), fixture.manifest);
+    throw new Error("Expected array schema validation failure");
+  } catch (error) {
+    if (!(error instanceof IxAbiError)) {
+      throw error;
+    }
+
+    assert_equals(error.code, "invalid_manifest");
+    assert_equals(error.path, "types." + fixture.root_array + ".name");
+  }
 });
 
 Deno.test("managed ABI runs declared effects through Init end to end", async () => {
@@ -646,7 +953,7 @@ result <- Measure.text(&"hello")
 return { result }
 `);
 
-  assert_equals(artifact.abi.abi_version, "ix-js-2");
+  assert_equals(artifact.abi.abi_version, "ix-js-3");
   assert_equals(artifact.abi.target.profile, "core-3-nonweb");
   assert_equals(artifact.abi.imports.__ix_effect_Measure_text, {
     name: "__ix_effect_Measure_text",

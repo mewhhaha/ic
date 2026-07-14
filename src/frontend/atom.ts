@@ -2,6 +2,7 @@ import { expect } from "../expect.ts";
 import type {
   FrontExpr,
   Param,
+  Pattern,
   Source,
   Stmt,
   TypeExpr,
@@ -78,6 +79,16 @@ export function validate_atom_identities(source: Source): void {
         }
         return;
 
+      case "product":
+        for (const entry of type.entries) {
+          visit_type_expr(entry.type_expr);
+        }
+        return;
+
+      case "array":
+        visit_type_expr(type.element);
+        return;
+
       case "arrow":
         visit_type_expr(type.param);
         visit_type_expr(type.result);
@@ -100,6 +111,61 @@ export function validate_atom_identities(source: Source): void {
       } else {
         visit_type_text(param.annotation);
       }
+    }
+  }
+
+  function visit_pattern(pattern: Pattern): void {
+    if (pattern.tag === "binding") {
+      if (pattern.type_annotation) {
+        visit_type_expr(pattern.type_annotation);
+      } else {
+        visit_type_text(pattern.annotation);
+      }
+      return;
+    }
+
+    if (pattern.tag === "literal") {
+      if (pattern.value.tag === "atom") {
+        record(pattern.value.name);
+      }
+      return;
+    }
+
+    if (pattern.tag === "wildcard" || pattern.tag === "unit") {
+      return;
+    }
+
+    if (pattern.tag === "union_case") {
+      if (pattern.value !== undefined) {
+        visit_pattern(pattern.value);
+      }
+      return;
+    }
+
+    if (pattern.tag === "product") {
+      for (const entry of pattern.entries) {
+        visit_pattern(entry.pattern);
+      }
+      return;
+    }
+
+    if (pattern.tag === "record") {
+      for (const field of pattern.fields) {
+        visit_pattern(field.pattern);
+      }
+
+      if (pattern.rest !== undefined) {
+        visit_pattern(pattern.rest);
+      }
+      return;
+    }
+
+    for (const item of pattern.items) {
+      visit_pattern(item);
+    }
+
+    if (pattern.rest !== undefined) {
+      visit_pattern(pattern.rest);
     }
   }
 
@@ -147,6 +213,9 @@ export function validate_atom_identities(source: Source): void {
 
       case "lam":
       case "rec":
+        if (expr.pattern !== undefined) {
+          visit_pattern(expr.pattern);
+        }
         visit_params(expr.params);
         visit_expr(expr.body);
         return;
@@ -243,6 +312,49 @@ export function validate_atom_identities(source: Source): void {
       case "is":
         visit_expr(expr.value);
         visit_type_expr(expr.type_expr);
+        return;
+
+      case "as":
+        visit_expr(expr.value);
+        visit_type_expr(expr.type_expr);
+        return;
+
+      case "product":
+        for (const entry of expr.entries) {
+          visit_expr(entry.value);
+        }
+        return;
+
+      case "array":
+        for (const item of expr.items) {
+          visit_expr(item);
+        }
+
+        if (expr.rest !== undefined) {
+          visit_expr(expr.rest);
+        }
+        return;
+
+      case "array_repeat":
+        visit_expr(expr.value);
+        visit_expr(expr.length);
+        return;
+
+      case "import":
+        return;
+
+      case "match":
+        visit_expr(expr.target);
+
+        for (const arm of expr.arms) {
+          visit_pattern(arm.pattern);
+
+          if (arm.guard !== undefined) {
+            visit_expr(arm.guard);
+          }
+
+          visit_expr(arm.body);
+        }
         return;
 
       case "union_case":

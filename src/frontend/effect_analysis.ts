@@ -619,6 +619,10 @@ function function_type_params(type: FunctionTypeExpr): TypeExpr[] {
     return type.param.items;
   }
 
+  if (type.param.tag === "product") {
+    return type.param.entries.map((entry) => entry.type_expr);
+  }
+
   return [type.param];
 }
 
@@ -2092,11 +2096,16 @@ function validate_resume_argument_types(
     (expr.func.tag === "linear" || expr.func.tag === "var") &&
     expr.func.name === resume_name
   ) {
-    expect(
-      expr.args.length === 1,
-      "Resumption " + resume_name + " expects exactly one argument",
-    );
-    const arg = expr.args[0];
+    let arg = expr.arg;
+
+    if (arg === undefined) {
+      expect(
+        expr.args.length === 1,
+        "Resumption " + resume_name + " expects exactly one argument",
+      );
+      arg = expr.args[0];
+    }
+
     expect(arg, "Missing resumption argument");
     const actual = infer_simple_type(arg, types);
 

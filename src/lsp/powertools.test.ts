@@ -8,21 +8,21 @@ import {
 } from "./powertools.ts";
 
 const adder = "const make_adder = n => { x => x + n }\n" +
-  "const add_three = comptime make_adder(3)\n" +
-  "add_three(39)\n";
+  "const add_three = comptime make_adder 3\n" +
+  "add_three 39\n";
 
 Deno.test("powertools expands comptime closures with captures", () => {
   const position = {
     line: 1,
-    character: adder.indexOf("make_adder(3)") -
-      adder.lastIndexOf("\n", adder.indexOf("make_adder(3)")) - 1,
+    character: adder.indexOf("make_adder 3") -
+      adder.lastIndexOf("\n", adder.indexOf("make_adder 3")) - 1,
   };
   const result = expand_comptime(adder, position, "utf-16");
 
   assert_equals(result.ok, true);
 
   if (result.ok) {
-    assert_includes(result.value.source, "(x) => x + n");
+    assert_includes(result.value.source, "x => x + n");
     assert_includes(result.value.source, "captured n = 3");
     assert_equals(result.value.facts, [{
       kind: "capture",
@@ -31,13 +31,13 @@ Deno.test("powertools expands comptime closures with captures", () => {
     }]);
     assert_equals(result.value.trace, [{
       kind: "input",
-      detail: "make_adder(3)",
+      detail: "make_adder 3",
     }, {
       kind: "capture",
       detail: "n = 3",
     }, {
       kind: "result",
-      detail: "(x) => x + n",
+      detail: "x => x + n",
     }]);
   }
 });

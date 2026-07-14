@@ -30,7 +30,7 @@ import { elaborate_front_type_sets } from "./type_set_elaborate.ts";
 import {
   load_source,
   load_source_fragment_file,
-  source_exports_name,
+  resolve_source_imports,
   source_file_url,
 } from "./load.ts";
 import { lower_program } from "./lower.ts";
@@ -40,7 +40,9 @@ import {
   type ParseSourceResult,
 } from "./parser.ts";
 import {
+  source_import_expressions,
   type SourceImportResolver,
+  validate_source_import_context,
   validate_source_imports,
 } from "./import_diagnostic.ts";
 import { validate_frontend_semantics } from "./semantic_validation.ts";
@@ -53,6 +55,11 @@ import {
   derive_missing_source_spans,
   type SyntaxDiagnostic,
 } from "./syntax.ts";
+import {
+  source_facts,
+  source_inference_diagnostics,
+  type SourceFacts,
+} from "./source_facts.ts";
 
 export type Source = SourceNode;
 
@@ -73,6 +80,7 @@ export type SourceArtifactFileOptions = {
 };
 
 export type SourceAnalyzeOptions = {
+  host_interface?: SourceNode;
   route?: "ic" | "core" | "managed";
   uri?: string;
   resolve_import?: SourceImportResolver;
@@ -81,6 +89,7 @@ export type SourceAnalyzeOptions = {
 
 export type SourceAnalysis = {
   source: SourceNode;
+  facts: SourceFacts;
   syntax: ReturnType<typeof parse_source_with_diagnostics>["syntax"];
   syntax_diagnostics: SyntaxDiagnostic[];
   diagnostics: SourceDiagnostic[];
@@ -102,6 +111,12 @@ Source.analyze_parsed = function analyze_parsed(
   parsed: ParseSourceResult,
   options: SourceAnalyzeOptions = {},
 ): SourceAnalysis {
+  let source = parsed.source;
+
+  if (options.host_interface !== undefined) {
+    source = merge_host_interface(source, options.host_interface);
+  }
+
   const diagnostics: SourceDiagnostic[] = [];
 
   for (const diagnostic of parsed.diagnostics) {
@@ -119,14 +134,22 @@ Source.analyze_parsed = function analyze_parsed(
       options.uri,
       options.resolve_import,
     ));
+  } else {
+    diagnostics.push(...validate_source_import_context(source));
   }
 
-  diagnostics.push(...validate_frontend_semantics(parsed.source, {
+  diagnostics.push(...validate_frontend_semantics(source, {
     warnings: options.warnings,
   }));
 
+  const facts = source_facts(source);
+
+  if (!has_error_diagnostic(diagnostics)) {
+    diagnostics.push(...source_inference_diagnostics(source, facts));
+  }
+
   try {
-    validate_source_linear(parsed.source);
+    validate_source_linear(source);
   } catch (error) {
     if (error instanceof CompilerDiagnosticError) {
       diagnostics.push(error.diagnostic);
@@ -136,14 +159,14 @@ Source.analyze_parsed = function analyze_parsed(
   }
 
   if (!has_error_diagnostic(diagnostics) && options.route === "ic") {
-    diagnostics.push(...diagnose_ic_route(parsed.source));
+    diagnostics.push(...diagnose_ic_route(source));
   }
 
   if (
     !has_error_diagnostic(diagnostics) &&
     (options.route === "core" || options.route === "managed")
   ) {
-    const route_source = source_for_route_analysis(parsed.source, options);
+    const route_source = source_for_route_analysis(source, options);
 
     if (route_source !== undefined) {
       diagnostics.push(...core_route_diagnostics(route_source));
@@ -155,7 +178,8 @@ Source.analyze_parsed = function analyze_parsed(
   }
 
   return {
-    source: parsed.source,
+    source,
+    facts,
     syntax: parsed.syntax,
     syntax_diagnostics: parsed.diagnostics,
     diagnostics,
@@ -616,16 +640,7 @@ function source_for_route_analysis(
   source: SourceNode,
   options: SourceAnalyzeOptions,
 ): SourceNode | undefined {
-  let has_import = false;
-
-  for (const stmt of source.statements) {
-    if (stmt.tag === "import") {
-      has_import = true;
-      break;
-    }
-  }
-
-  if (!has_import) {
+  if (source_import_expressions(source).length === 0) {
     return source;
   }
 
@@ -633,100 +648,7 @@ function source_for_route_analysis(
     return undefined;
   }
 
-  return resolve_route_imports(
-    source,
-    options.uri,
-    options.resolve_import,
-    [options.uri],
-  );
-}
-
-function resolve_route_imports(
-  source: SourceNode,
-  uri: string,
-  resolve_import: SourceImportResolver,
-  stack: string[],
-): SourceNode | undefined {
-  const statements: SourceNode["statements"] = [];
-  const declarations = [...(source.declarations || [])];
-
-  for (const stmt of source.statements) {
-    if (stmt.tag !== "import") {
-      statements.push(stmt);
-      continue;
-    }
-
-    let dependency_uri: string;
-
-    try {
-      dependency_uri = new URL(stmt.path, uri).href;
-    } catch (error) {
-      if (error instanceof TypeError) {
-        return undefined;
-      }
-
-      throw error;
-    }
-
-    if (stack.includes(dependency_uri)) {
-      return undefined;
-    }
-
-    const text = resolve_import(dependency_uri);
-
-    if (text === undefined) {
-      return undefined;
-    }
-
-    const imported = resolve_route_imports(
-      parse_source(text),
-      dependency_uri,
-      resolve_import,
-      [...stack, dependency_uri],
-    );
-
-    if (imported === undefined) {
-      return undefined;
-    }
-
-    if (imported.module !== undefined) {
-      declarations.push(...(imported.declarations || []));
-      statements.push({
-        tag: "bind",
-        kind: "const",
-        name: stmt.name,
-        is_linear: false,
-        annotation: undefined,
-        value: {
-          tag: "lam",
-          params: imported.module.params,
-          body: { tag: "block", statements: imported.statements },
-        },
-      });
-      continue;
-    }
-
-    if (!source_exports_name(imported, stmt.name)) {
-      return undefined;
-    }
-
-    for (const imported_stmt of imported.statements) {
-      if (
-        imported_stmt.tag !== "bind" && imported_stmt.tag !== "type_check"
-      ) {
-        return undefined;
-      }
-
-      statements.push(imported_stmt);
-    }
-  }
-
-  return {
-    tag: "program",
-    module: source.module,
-    declarations,
-    statements,
-  };
+  return resolve_source_imports(source, options.uri, options.resolve_import);
 }
 
 function is_core_route_coverage_error(error: unknown): boolean {

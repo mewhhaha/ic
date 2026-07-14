@@ -1,5 +1,5 @@
 import { expect } from "../expect.ts";
-import type { FrontExpr } from "./ast.ts";
+import type { FrontExpr, MatchArm, Pattern } from "./ast.ts";
 import { front_literal_expr } from "./literal.ts";
 import { expect_snake_case, is_no_demand_name } from "./names.ts";
 import { binary_prim } from "./numeric.ts";
@@ -12,10 +12,13 @@ type ParsedIfLetCondition =
     value_name: string | undefined;
     target: FrontExpr;
   }
-  | { tag: "literal"; cond: FrontExpr };
+  | { tag: "literal"; cond: FrontExpr }
+  | { tag: "pattern"; pattern: Pattern; target: FrontExpr };
 
 export abstract class ParserConditional extends ParserAggregate {
   protected abstract parse_expr_without_postfix_block(): FrontExpr;
+
+  protected abstract parse_expr_before_arrow(): FrontExpr;
 
   protected abstract parse_block(): FrontExpr;
 
@@ -76,6 +79,21 @@ export abstract class ParserConditional extends ParserAggregate {
       return result;
     }
 
+    if (pattern.tag === "pattern") {
+      return {
+        tag: "match",
+        target: pattern.target,
+        arms: [
+          { pattern: pattern.pattern, guard: undefined, body: then_branch },
+          {
+            pattern: { tag: "wildcard", mode: "default" },
+            guard: undefined,
+            body: else_branch,
+          },
+        ],
+      };
+    }
+
     const result: Extract<FrontExpr, { tag: "if_let" }> = {
       tag: "if_let",
       case_name: pattern.case_name,
@@ -119,6 +137,40 @@ export abstract class ParserConditional extends ParserAggregate {
     return token.kind === "name" && token.text === "let";
   }
 
+  protected parse_match_expr(): FrontExpr {
+    const target = this.parse_expr_without_postfix_block();
+    this.skip_newlines();
+    this.expect_symbol("{");
+    this.skip_newlines();
+    const arms: MatchArm[] = [];
+
+    while (!this.match_symbol("}")) {
+      this.expect_symbol("|");
+      const pattern = this.parse_pattern();
+      let guard: FrontExpr | undefined;
+
+      if (this.match_name("if")) {
+        guard = this.parse_expr_before_arrow();
+      }
+
+      this.expect_symbol("=>");
+      let body: FrontExpr;
+
+      if (this.peek().kind === "symbol" && this.peek().text === "{") {
+        body = this.parse_block();
+      } else {
+        body = this.parse_expr_without_postfix_block();
+      }
+
+      arms.push({ pattern, guard, body });
+      this.match_symbol(",");
+      this.skip_newlines();
+    }
+
+    expect(arms.length > 0, "Match expression requires at least one arm");
+    return { tag: "match", target, arms };
+  }
+
   protected parse_if_let_condition(): ParsedIfLetCondition {
     const parenthesized = this.match_symbol("(");
     expect(this.match_name("let"), "Expected let");
@@ -156,7 +208,19 @@ export abstract class ParserConditional extends ParserAggregate {
 
     const literal_token = this.peek();
     const literal = front_literal_expr(literal_token);
-    expect(literal, "Expected union case or literal pattern");
+
+    if (!literal) {
+      const pattern = this.parse_pattern();
+      this.expect_symbol("=");
+      const target = this.parse_expr_without_postfix_block();
+
+      if (parenthesized) {
+        this.expect_symbol(")");
+      }
+
+      return { tag: "pattern", pattern, target };
+    }
+
     this.advance();
     this.expect_symbol("=");
     const target = this.parse_expr_without_postfix_block();

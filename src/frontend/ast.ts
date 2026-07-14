@@ -87,12 +87,63 @@ export type TypeExpr =
   | { tag: "difference"; left: TypeExpr; right: TypeExpr }
   | { tag: "apply"; func: TypeExpr; arg: TypeExpr }
   | { tag: "tuple"; items: TypeExpr[] }
+  | { tag: "product"; entries: TypeProductEntry[] }
+  | { tag: "array"; element: TypeExpr; length: ArrayLengthExpr }
   | {
     tag: "arrow";
     param: TypeExpr;
     effects: EffectRowExpr | undefined;
     result: TypeExpr;
   };
+
+export type TypeProductEntry = {
+  label?: string;
+  type_expr: TypeExpr;
+};
+
+export type ArrayLengthExpr =
+  | { tag: "number"; value: number }
+  | { tag: "name"; name: string }
+  | {
+    tag: "binary";
+    op: "+" | "-" | "*" | "/" | "%";
+    left: ArrayLengthExpr;
+    right: ArrayLengthExpr;
+  };
+
+export type PatternMode = "default" | "const" | "linear";
+
+export type PatternLiteral =
+  | { tag: "bool"; value: boolean }
+  | { tag: "num"; type: ValType; value: number | bigint }
+  | { tag: "text"; value: string }
+  | { tag: "atom"; name: string };
+
+export type Pattern =
+  | {
+    tag: "binding";
+    name: string;
+    mode: PatternMode;
+    annotation: string | undefined;
+    type_annotation?: TypeExpr;
+  }
+  | { tag: "wildcard"; mode: "default" | "const" }
+  | { tag: "unit" }
+  | { tag: "literal"; value: PatternLiteral }
+  | { tag: "union_case"; name: string; value: Pattern | undefined }
+  | { tag: "product"; entries: ProductPatternEntry[] }
+  | { tag: "record"; fields: RecordPatternField[]; rest: Pattern | undefined }
+  | { tag: "array"; items: Pattern[]; rest: Pattern | undefined };
+
+export type ProductPatternEntry = {
+  label?: string;
+  pattern: Pattern;
+};
+
+export type RecordPatternField = {
+  name: string;
+  pattern: Pattern;
+};
 
 export type BindingPatternItem = {
   name: string;
@@ -127,6 +178,7 @@ export type Stmt =
   | {
     tag: "bind";
     kind: "let" | "const";
+    pattern?: Pattern;
     name: string;
     is_recursive?: boolean;
     is_linear: boolean;
@@ -193,14 +245,19 @@ export type FrontExpr =
   | { tag: "type_name"; name: string }
   | { tag: "var"; name: string; resume_signature?: ResumeSignature }
   | { tag: "prim"; prim: Prim; left: FrontExpr; right: FrontExpr }
-  | { tag: "lam"; params: Param[]; body: FrontExpr }
-  | { tag: "rec"; params: Param[]; body: FrontExpr }
+  | { tag: "lam"; pattern?: Pattern; params: Param[]; body: FrontExpr }
+  | { tag: "rec"; pattern?: Pattern; params: Param[]; body: FrontExpr }
   | {
     tag: "app";
     func: FrontExpr;
+    arg?: FrontExpr;
     args: FrontExpr[];
     resume_payload?: boolean;
   }
+  | { tag: "product"; entries: ProductExprEntry[] }
+  | { tag: "array"; items: FrontExpr[]; rest: FrontExpr | undefined }
+  | { tag: "array_repeat"; value: FrontExpr; length: FrontExpr }
+  | { tag: "import"; path: string }
   | { tag: "block"; statements: Stmt[] }
   | { tag: "comptime"; expr: FrontExpr }
   | { tag: "borrow"; value: FrontExpr }
@@ -251,6 +308,8 @@ export type FrontExpr =
   }
   | { tag: "index"; object: FrontExpr; index: FrontExpr }
   | { tag: "is"; value: FrontExpr; type_expr: TypeExpr }
+  | { tag: "as"; value: FrontExpr; type_expr: TypeExpr }
+  | { tag: "match"; target: FrontExpr; arms: MatchArm[] }
   | {
     tag: "union_case";
     name: string;
@@ -260,6 +319,17 @@ export type FrontExpr =
   }
   | { tag: "linear"; name: string; resume_signature?: ResumeSignature }
   | { tag: "unsupported"; feature: string; text: string };
+
+export type ProductExprEntry = {
+  label?: string;
+  value: FrontExpr;
+};
+
+export type MatchArm = {
+  pattern: Pattern;
+  guard: FrontExpr | undefined;
+  body: FrontExpr;
+};
 
 export type Param = {
   name: string;

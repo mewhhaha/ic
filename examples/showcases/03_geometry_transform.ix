@@ -1,8 +1,8 @@
-type Point = [.x = Int, .y = Int]
+type Point = (.x = Int, .y = Int)
 
-let start: Point = [.x = 10, .y = 10]
-let end: Point = [.x = 20, .y = 1]
+let start: Point = (.x = 10, .y = 10)
+let end: Point = (.x = 20, .y = 1)
 
-let moved_start = start { x: start.x + 1 }
+let moved_start = start with { x: start.x + 1 }
 
 moved_start.x + start.y + end.x + end.y

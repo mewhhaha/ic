@@ -3472,7 +3472,7 @@ Deno.test("Core.emit rebuilds static struct update expressions", () => {
   const core = Source.core(Source.parse(`
 let user = { age: 40, score: 2 }
 let next = 41
-let updated = user { age: next }
+let updated = user with { age: next }
 next = 1
 updated.age + user.age + updated.score
 `));
@@ -3487,7 +3487,7 @@ updated.age + user.age + updated.score
 
   const direct_core = Source.core(Source.parse(`
 let user = { age: 40, score: 2 }
-(user { age: 41 }).age
+(user with { age: 41 }).age
 `));
 
   assert_equals(Typed.type(Core, direct_core), "i32");
@@ -3495,7 +3495,7 @@ let user = { age: 40, score: 2 }
 
   const assignment_core = Source.core(Source.parse(`
 let user = { age: 40, score: 2 }
-user = user { age: 41 }
+user = user with { age: 41 }
 user.age
 `));
 
@@ -3509,7 +3509,7 @@ user.age
         Core,
         Source.core(Source.parse(`
 let user = { age: 40, score: 2 }
-let updated = user { missing: 1 }
+let updated = user with { missing: 1 }
 updated.age
 `)),
       ),
@@ -3522,7 +3522,7 @@ updated.age
         Core,
         Source.core(Source.parse(`
 let user = { age: 40, score: 2 }
-let updated = user { age: 41i64 }
+let updated = user with { age: 41i64 }
 updated.age
 `)),
       ),
@@ -8162,7 +8162,7 @@ if let .ok(value) = result {
 
   const direct_struct_update_core = Source.core(Source.parse(`
 let user = { age: 40, score: 2 }
-user { age: 41 }
+user with { age: 41 }
 `));
   assert_equals(
     Core.proof(direct_struct_update_core).issues[0]?.message,
@@ -8175,7 +8175,7 @@ user { age: 41 }
 
   const struct_update_projection_core = Source.core(Source.parse(`
 let user = { age: 40, score: 2 }
-(user { age: 41 }).age
+(user with { age: 41 }).age
 `));
   assert_equals(Core.proof(struct_update_projection_core).issues, []);
   assert_equals(
@@ -9077,7 +9077,8 @@ scale(10)
 
   const mutate_borrowed_text = Source.core(Source.parse(`
 (message: Text) => {
-  (&message)  message[0] = 65
+  &message
+  message[0] = 65
   1
 }
 `));
@@ -9107,7 +9108,8 @@ scale(10)
   const mutate_aliased_borrowed_text = Source.core(Source.parse(`
 (message: Text) => {
   let alias = message
-  (&alias)  message[0] = 65
+  &alias
+  message[0] = 65
   1
 }
 `));
@@ -9181,7 +9183,8 @@ const user_type = struct {
 let user: user_type = user_type { name: "A", age: 1 }
 let name = user.name
 let other = name
-(&other)user = user_type { name: "B", age: 2 }
+&other
+user = user_type { name: "B", age: 2 }
 1
 `),
   );
@@ -9223,7 +9226,8 @@ let name = {
   let inner = user.name
   inner
 }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 1
 `),
   );
@@ -9311,7 +9315,8 @@ let name = {
   }
   inner
 }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 1
 `),
   );
@@ -9364,7 +9369,8 @@ let name = {
   }
   inner
 }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 other = user_type { name: "D", age: 4 }
 1
 `),
@@ -9433,7 +9439,8 @@ let name = {
   }
   inner
 }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 1
 `),
   );
@@ -9484,7 +9491,8 @@ let name = {
   }
   inner
 }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 1
 `),
   );
@@ -9528,7 +9536,8 @@ const user_type = struct {
 
 let user: user_type = user_type { name: "A", age: 1 }
 let name = user.name
-(&name)name[0] = 65
+&name
+name[0] = 65
 1
 `),
   );
@@ -9570,7 +9579,8 @@ let name: Text = "fallback"
 if flag {
   name = user.name
 }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 1
 `));
   assert_equals(
@@ -9611,7 +9621,8 @@ let name: Text = "fallback"
 for i in 0..n {
   name = user.name
 }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 1
 `));
   assert_equals(
@@ -9653,7 +9664,8 @@ for i in 0..1 {
   break
   name = user.name
 }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 1
 `),
   );
@@ -9684,7 +9696,8 @@ if flag {
 } else {
   name = other.name
 }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 other = user_type { name: "D", age: 4 }
 1
 `),
@@ -9739,7 +9752,8 @@ let flag = 1
 let user: user_type = user_type { name: "A", age: 1 }
 let other: user_type = user_type { name: "C", age: 3 }
 let name = if flag { user.name } else { other.name }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 other = user_type { name: "D", age: 4 }
 1
 `),
@@ -9796,7 +9810,8 @@ const user_type = struct {
 let flag = 1
 let user: user_type = user_type { name: "A", age: 1 }
 let name = if flag { user.name } else { "fallback" }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 1
 `),
   );
@@ -9840,7 +9855,8 @@ const user_type = struct {
 let target: maybe_text = .some("hit")
 let user: user_type = user_type { name: "A", age: 1 }
 let name = if let .some(value) = target { user.name } else { "fallback" }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 1
 `),
   );
@@ -9885,7 +9901,8 @@ let target: maybe_text = .some("hit")
 let user: user_type = user_type { name: "A", age: 1 }
 let other: user_type = user_type { name: "C", age: 3 }
 let name = if let .some(value) = target { user.name } else { other.name }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 other = user_type { name: "D", age: 4 }
 1
 `),
@@ -10088,7 +10105,8 @@ let name: Text = "fallback"
 if let .some(value) = target {
   name = user.name
 }
-(&name)user = user_type { name: "B", age: 2 }
+&name
+user = user_type { name: "B", age: 2 }
 1
 `));
   assert_equals(
@@ -10245,7 +10263,8 @@ let user: user_type = user_type {
 }
 let result: result_type = result_type.ok(user)
 let view = if let .ok(value) = result {
-  (&value)} else {
+  &value
+} else {
   user_type {
     age: 0,
     score: 0
@@ -10321,7 +10340,8 @@ let start = 1
 let inner: inner_type = inner_type.some(start)
 let result: result_type = result_type.ok(inner)
 let view = if let .ok(value) = result {
-  (&value)} else {
+  &value
+} else {
   inner_type.none()
 }
 result = result_type.ok(inner_type.some(start + 1))
@@ -10925,7 +10945,8 @@ len(view)
   const mutate_after_loop_borrowed_text = Source.core(Source.parse(`
 (message: Text) => {
   for i in 0..1 {
-    (&message)  }
+    &message
+  }
   message[0] = 65
   1
 }
@@ -21933,4 +21954,62 @@ if let .ok(value) = result {
   assert_equals(proof.issues, []);
   assert_equals(proof.freeze_edges.length, 1);
   Core.check_proof(core);
+});
+
+Deno.test("Core checks fixed array annotation lengths and elements", () => {
+  const values = Source.core(Source.parse(`
+let values: [Int; 3] = [1, 2, 3]
+values[2]
+`));
+  assert_equals(Typed.type(Core, values), "i32");
+  assert_includes(
+    Source.wat(`
+let values: [Int; 3] = [1, 2, 3]
+values[2]
+`),
+    "i32.const 3",
+  );
+
+  const empty = Source.core(Source.parse(`
+let values: [Int; 0] = []
+0
+`));
+  assert_equals(Typed.type(Core, empty), "i32");
+
+  assert_throws(
+    () =>
+      Typed.type(
+        Core,
+        Source.core(Source.parse(`
+let values: [Int; 3] = [1, 2]
+0
+`)),
+      ),
+    "Core binding annotation expects [Int; 3] with 3 items, got 2",
+  );
+
+  assert_throws(
+    () =>
+      Typed.type(
+        Core,
+        Source.core(Source.parse(`
+let values: [Int; 2] = [1, 2i64]
+0
+`)),
+      ),
+    "Core binding annotation [Int; 2] item 1",
+  );
+
+  assert_throws(
+    () =>
+      Typed.type(
+        Core,
+        Source.core(Source.parse(`
+let width = 2
+let values: [Int; width] = [1, 2]
+0
+`)),
+      ),
+    "Fixed array length must be a non-negative integer literal",
+  );
 });

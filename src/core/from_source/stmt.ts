@@ -42,7 +42,13 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
         };
       }
 
-      let value = core_expr(stmt.value, ctx);
+      let source_value = stmt.value;
+
+      if (stmt.kind === "const" && source_value.tag === "struct_update") {
+        source_value = { ...source_value, tag: "with" };
+      }
+
+      let value = core_expr(source_value, ctx);
       const name = bind_core_name(ctx, stmt.name);
 
       if (stmt.is_linear) {

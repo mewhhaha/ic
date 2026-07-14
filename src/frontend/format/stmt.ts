@@ -1,7 +1,7 @@
 import type { FrontExpr, Stmt } from "../ast.ts";
 import { format_binding_name, is_no_demand_name } from "../names.ts";
 import { format_type_expr } from "../type_expr.ts";
-import { format_type_pattern } from "./common.ts";
+import { format_pattern, format_type_pattern } from "./common.ts";
 import { format_host_import } from "./host_import.ts";
 
 export function format_stmt_with_expr(
@@ -9,7 +9,7 @@ export function format_stmt_with_expr(
   format_expr: (expr: FrontExpr) => string,
 ): string {
   if (stmt.tag === "import") {
-    return "import " + stmt.name + " from " + Deno.inspect(stmt.path);
+    return "const " + stmt.name + " = import " + Deno.inspect(stmt.path);
   }
 
   if (stmt.tag === "host_import") {
@@ -25,6 +25,11 @@ export function format_stmt_with_expr(
 
     if (stmt.is_recursive) {
       text += "rec ";
+    }
+
+    if (stmt.pattern) {
+      return text + format_pattern(stmt.pattern) + " = " +
+        format_expr(stmt.value);
     }
 
     if (stmt.is_linear) {

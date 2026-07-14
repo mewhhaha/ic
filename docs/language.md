@@ -96,7 +96,7 @@ An import loads a file but does not instantiate it or grant it authority.
 Instantiation is a separate call with an explicit dependency record:
 
 ```txt
-import logger from "./logger.ix"
+const logger = import "./logger.ix"
 const { write } = logger({ io: !init.io })
 ```
 
@@ -451,10 +451,10 @@ over those same const type-values. Bracket products may be labeled or
 positional:
 
 ```txt
-type Vec3 = [.x = Int, .y = Int, .z = Int]
+type Vec3 = (.x = Int, .y = Int, .z = Int)
 type Pair = [Int, Int]
 
-let point: Vec3 = [.x = 40, .y = 1, .z = 1]
+let point: Vec3 = (.x = 40, .y = 1, .z = 1)
 let pair: Pair = [point.x, point.y]
 ```
 
@@ -877,7 +877,7 @@ context:
 ```txt
 module (!init: Init) where
 
-import logger from "./logger.ix"
+const logger = import "./logger.ix"
 const { write } = logger({ io: !init.io })
 result <- write("hello")
 

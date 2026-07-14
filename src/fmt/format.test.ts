@@ -66,6 +66,13 @@ Deno.test("format_text canonicalizes string escapes", () => {
   );
 });
 
+Deno.test("format_text indents multiline binding values", () => {
+  assert_equals(
+    format_text("let apply: Int -> Int =\n(value: Int) => {\nvalue\n}\n"),
+    "let apply: Int -> Int =\n  (value: Int) => {\n    value\n  }\n",
+  );
+});
+
 Deno.test("format_text is idempotent and AST-preserving on the examples", async () => {
   const roots = ["examples"];
   const files: string[] = [];

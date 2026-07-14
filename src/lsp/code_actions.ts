@@ -283,7 +283,11 @@ export function code_actions(
       const binding = source.statements.find((statement): statement is Extract<
         typeof statement,
         { tag: "bind" }
-      > => statement.tag === "bind" && statement.value.tag === "struct_value");
+      > =>
+        statement.tag === "bind" &&
+        (statement.value.tag === "struct_value" ||
+          statement.value.tag === "product")
+      );
       if (
         declaration === undefined || declaration.body.tag !== "product" ||
         binding === undefined
@@ -306,7 +310,10 @@ export function code_actions(
       }
 
       const value_span = source_span(binding.value);
-      const close = syntax.text.lastIndexOf("]", value_span.end);
+      const close = syntax.text.lastIndexOf(
+        binding.value.tag === "product" ? ")" : "]",
+        value_span.end,
+      );
 
       if (close < value_span.start) {
         continue;

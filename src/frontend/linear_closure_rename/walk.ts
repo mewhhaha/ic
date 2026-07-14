@@ -3,6 +3,7 @@ import type { Field, FrontExpr, Param, Stmt } from "../ast.ts";
 import {
   inherit_linear_source_span as inherit_source_span,
 } from "../linear_state.ts";
+import { pattern_bindings } from "../pattern.ts";
 
 export function rename_linear_closure_body(
   body: FrontExpr,
@@ -46,6 +47,13 @@ function rename_linear_closure_expr(
         type_expr: expr.type_expr,
       }, expr);
 
+    case "as":
+      return inherit_source_span({
+        tag: "as",
+        value: rename_linear_closure_expr(expr.value, renames),
+        type_expr: expr.type_expr,
+      }, expr);
+
     case "var":
       return inherit_source_span({
         tag: "var",
@@ -69,8 +77,7 @@ function rename_linear_closure_expr(
     case "lam": {
       const local = shadow_linear_closure_params(renames, expr.params);
       return inherit_source_span({
-        tag: "lam",
-        params: expr.params,
+        ...expr,
         body: rename_linear_closure_expr(expr.body, local),
       }, expr);
     }
@@ -78,18 +85,52 @@ function rename_linear_closure_expr(
     case "rec": {
       const local = shadow_linear_closure_params(renames, expr.params);
       return inherit_source_span({
-        tag: "rec",
-        params: expr.params,
+        ...expr,
         body: rename_linear_closure_expr(expr.body, local),
       }, expr);
     }
 
     case "app":
       return inherit_source_span({
-        tag: "app",
+        ...expr,
         func: rename_linear_closure_expr(expr.func, renames),
         args: expr.args.map((arg) => rename_linear_closure_expr(arg, renames)),
       }, expr);
+
+    case "product":
+      return inherit_source_span({
+        tag: "product",
+        entries: expr.entries.map((entry) => ({
+          ...entry,
+          value: rename_linear_closure_expr(entry.value, renames),
+        })),
+      }, expr);
+
+    case "array": {
+      let rest: FrontExpr | undefined;
+
+      if (expr.rest !== undefined) {
+        rest = rename_linear_closure_expr(expr.rest, renames);
+      }
+
+      return inherit_source_span({
+        tag: "array",
+        items: expr.items.map((item) =>
+          rename_linear_closure_expr(item, renames)
+        ),
+        rest,
+      }, expr);
+    }
+
+    case "array_repeat":
+      return inherit_source_span({
+        tag: "array_repeat",
+        value: rename_linear_closure_expr(expr.value, renames),
+        length: rename_linear_closure_expr(expr.length, renames),
+      }, expr);
+
+    case "import":
+      return expr;
 
     case "block":
       return inherit_source_span({
@@ -220,6 +261,31 @@ function rename_linear_closure_expr(
         implicit_else: expr.implicit_else,
       }, expr);
     }
+
+    case "match":
+      return inherit_source_span({
+        tag: "match",
+        target: rename_linear_closure_expr(expr.target, renames),
+        arms: expr.arms.map((arm) => {
+          let local = renames;
+
+          for (const binding of pattern_bindings(arm.pattern)) {
+            local = shadow_linear_closure_name(local, binding.name);
+          }
+
+          let guard: FrontExpr | undefined;
+
+          if (arm.guard !== undefined) {
+            guard = rename_linear_closure_expr(arm.guard, local);
+          }
+
+          return {
+            pattern: arm.pattern,
+            guard,
+            body: rename_linear_closure_expr(arm.body, local),
+          };
+        }),
+      }, expr);
 
     case "field":
       return inherit_source_span({

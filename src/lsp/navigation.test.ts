@@ -81,8 +81,8 @@ Deno.test("document highlights distinguish linear consumption", () => {
 });
 
 Deno.test("type definition follows nominal binding facts", () => {
-  const text = "type Pair = [.left = Int]\n" +
-    "let value: Pair = [.left = 1]\nvalue.left\n";
+  const text = "type Pair = (.left = Int)\n" +
+    "let value: Pair = (.left = 1)\nvalue.left\n";
   const { index } = indexed(text);
   assert_equals(
     type_definition_location(
@@ -103,7 +103,7 @@ Deno.test("type definition follows nominal binding facts", () => {
 });
 
 Deno.test("import definitions jump to the imported file from alias references", () => {
-  const text = 'import value from "./dep.ix"\nvalue\n';
+  const text = 'const value = import "./dep.ix"\nvalue\n';
   const { parsed, index } = indexed(text);
   assert_equals(
     import_definition_location(
@@ -111,6 +111,27 @@ Deno.test("import definitions jump to the imported file from alias references", 
       index,
       "file:///main.ix",
       text.lastIndexOf("value"),
+    ),
+    {
+      uri: "file:///dep.ix",
+      range: {
+        start: { line: 0, character: 0 },
+        end: { line: 0, character: 0 },
+      },
+    },
+  );
+});
+
+Deno.test("import definitions jump to the imported file from expressions", () => {
+  const text = 'let module = import "./dep.ix"\n';
+  const { parsed, index } = indexed(text);
+
+  assert_equals(
+    import_definition_location(
+      parsed.source,
+      index,
+      "file:///main.ix",
+      text.indexOf("dep.ix"),
     ),
     {
       uri: "file:///dep.ix",
@@ -181,9 +202,9 @@ for (
   const fixture of [
     {
       label: "field",
-      text: "type User = [.name = Text]\n" +
+      text: "type User = (.name = Text)\n" +
         "let struct { name: Text } = User\n" +
-        'let value: User = [.name = "Ada"]\nvalue.name\n',
+        'let value: User = (.name = "Ada")\nvalue.name\n',
       selected: ".name",
       replacement: "label",
       count: 4,
@@ -274,7 +295,7 @@ Deno.test("rename rejects builtins, unresolved names, and capture", () => {
 });
 
 Deno.test("workspace symbols fuzzy-match declarations and members", () => {
-  const first = "type Account = [.display_name = Text]\n";
+  const first = "type Account = (.display_name = Text)\n";
   const second = "let calculate_total = 42\n";
   const first_index = indexed(first).index;
   const second_index = indexed(second).index;

@@ -1,4 +1,5 @@
-import { Source } from "../frontend.ts";
+import { Source, type Source as SourceNode } from "../frontend.ts";
+import { source_import_expressions } from "../frontend/import_diagnostic.ts";
 import { format_syntax } from "../fmt/format.ts";
 import { analysis_diagnostics, type LspDiagnostic } from "./diagnostics.ts";
 import {
@@ -283,8 +284,8 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
         },
         hoverProvider: true,
         signatureHelpProvider: {
-          triggerCharacters: ["(", ","],
-          retriggerCharacters: [","],
+          triggerCharacters: ["(", ",", " "],
+          retriggerCharacters: [",", " "],
         },
         inlayHintProvider: { resolveProvider: true },
         codeLensProvider: { resolveProvider: false },
@@ -764,7 +765,10 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
     const resolved = resolve_code_action(action, {
       analyze: (text) =>
         Source.analyze(text, {
-          route: route_for_uri(action.data.uri),
+          route: analysis_route(
+            action.data.uri,
+            Source.parse_with_diagnostics(text).source,
+          ),
           uri: action.data.uri,
           resolve_import: (dependency_uri) =>
             resolve_document_import(state, dependency_uri),
@@ -864,10 +868,11 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
     }
 
     const parsed = parsed_document(state, uri);
+    const analyzed = semantic_document(state, uri);
     return [respond(
       message,
       inlay_hints(
-        parsed.source,
+        analyzed.source,
         parsed.syntax,
         document_binding_index(state.documents, uri),
         uri,
@@ -896,8 +901,9 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
     }
 
     const parsed = parsed_document(state, request.uri);
+    const analyzed = semantic_document(state, request.uri);
     const result = hover_at(
-      parsed.source,
+      analyzed.source,
       parsed.syntax,
       request.index,
       request.offset,
@@ -919,8 +925,9 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
     }
 
     const parsed = parsed_document(state, request.uri);
+    const analyzed = semantic_document(state, request.uri);
     const result = signature_help(
-      parsed.source,
+      analyzed.source,
       parsed.syntax,
       request.index,
       request.offset,
@@ -1351,7 +1358,15 @@ function semantic_document(
     (_text) => {
       recomputed = true;
       return Source.analyze_parsed(parsed, {
-        route: route_for_uri(uri),
+        host_interface: sibling_host_interface(
+          parsed.source,
+          uri,
+          (dependency_uri) => {
+            dependencies.add(dependency_uri);
+            return resolve_document_import(state, dependency_uri);
+          },
+        ),
+        route: analysis_route(uri, parsed.source),
         uri,
         resolve_import: (dependency_uri) => {
           dependencies.add(dependency_uri);
@@ -1389,8 +1404,14 @@ function workspace_semantic_document(
     return cached.analysis;
   }
 
-  const analysis = Source.analyze(text, {
-    route: route_for_uri(uri),
+  const parsed = Source.parse_with_diagnostics(text);
+  const analysis = Source.analyze_parsed(parsed, {
+    host_interface: sibling_host_interface(
+      parsed.source,
+      uri,
+      (dependency_uri) => resolve_document_import(state, dependency_uri),
+    ),
+    route: analysis_route(uri, parsed.source),
     uri,
     resolve_import: (dependency_uri) =>
       resolve_document_import(state, dependency_uri),
@@ -1398,6 +1419,71 @@ function workspace_semantic_document(
   });
   state.workspace_analysis_results.set(uri, { content_hash, analysis });
   return analysis;
+}
+
+function sibling_host_interface(
+  source: SourceNode,
+  uri: string,
+  resolve_source: (uri: string) => string | undefined,
+): SourceNode | undefined {
+  if (source.module === undefined || source.module.params.length === 0) {
+    return undefined;
+  }
+
+  const declarations = source.declarations || [];
+  let missing_interface = false;
+
+  for (const param of source.module.params) {
+    if (param.annotation === undefined) {
+      continue;
+    }
+
+    const declaration = declarations.find((candidate) => {
+      return candidate.name === param.annotation;
+    });
+
+    if (declaration === undefined) {
+      missing_interface = true;
+      break;
+    }
+  }
+
+  if (!missing_interface) {
+    return undefined;
+  }
+
+  const host_uri = new URL("./host.ix", uri).href;
+
+  if (host_uri === uri) {
+    return undefined;
+  }
+
+  const text = resolve_source(host_uri);
+
+  if (text === undefined) {
+    return undefined;
+  }
+
+  const parsed = Source.parse_with_diagnostics(text);
+
+  if (parsed.diagnostics.length > 0) {
+    return undefined;
+  }
+
+  return parsed.source;
+}
+
+function analysis_route(
+  uri: string,
+  source: ReturnType<typeof Source.parse>,
+): "ic" | "core" | "managed" {
+  if (
+    source.module !== undefined || source_import_expressions(source).length > 0
+  ) {
+    return "core";
+  }
+
+  return route_for_uri(uri);
 }
 
 function document_semantic_tokens(

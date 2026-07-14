@@ -5,6 +5,12 @@ import type {
   AbiType,
   AbiTypeRef,
 } from "./abi.ts";
+import {
+  abi_fixed_array_schema_name,
+  ix_abi_name,
+  ix_abi_version,
+} from "./abi.ts";
+import { align_to } from "./core/memory.ts";
 
 export type IxValue =
   | number
@@ -12,8 +18,7 @@ export type IxValue =
   | string
   | undefined
   | Uint8Array
-  | number[]
-  | string[]
+  | IxValue[]
   | { [name: string]: IxValue }
   | { tag: string; value?: IxValue };
 
@@ -532,11 +537,26 @@ function validate_effect_object(
 }
 
 function check_manifest(manifest: AbiManifest): void {
-  if (manifest.abi_version !== "ix-js-2") {
+  const untrusted_manifest = manifest as {
+    abi_name?: unknown;
+    abi_version?: unknown;
+  };
+
+  if (untrusted_manifest.abi_name !== ix_abi_name) {
+    throw new IxAbiError(
+      "manifest_mismatch",
+      "abi_name",
+      "Expected " + ix_abi_name + ", got " +
+        String(untrusted_manifest.abi_name),
+    );
+  }
+
+  if (untrusted_manifest.abi_version !== ix_abi_version) {
     throw new IxAbiError(
       "version_mismatch",
       "abi_version",
-      "Expected ix-js-2, got " + String(manifest.abi_version),
+      "Expected " + ix_abi_version + ", got " +
+        String(untrusted_manifest.abi_version),
     );
   }
 
@@ -571,6 +591,8 @@ function check_manifest(manifest: AbiManifest): void {
       "Expected BigInt i64 values, got " + String(manifest.target.i64_js),
     );
   }
+
+  check_manifest_types(manifest);
 
   for (const import_name in manifest.imports) {
     const abi_import = manifest.imports[import_name];
@@ -731,6 +753,271 @@ function check_manifest(manifest: AbiManifest): void {
       }
     }
   }
+}
+
+function check_manifest_types(manifest: AbiManifest): void {
+  const schema_ids = new Set<number>();
+
+  for (const name in manifest.types) {
+    const schema = manifest.types[name];
+
+    if (!schema) {
+      throw new IxAbiError(
+        "invalid_manifest",
+        "types." + name,
+        "Missing ABI schema",
+      );
+    }
+
+    if (schema.name !== name) {
+      throw new IxAbiError(
+        "invalid_manifest",
+        "types." + name + ".name",
+        "ABI schema name must match its type key",
+      );
+    }
+
+    if (!Number.isInteger(schema.schema_id) || schema.schema_id <= 0) {
+      throw new IxAbiError(
+        "invalid_manifest",
+        "types." + name + ".schema_id",
+        "ABI schema id must be a positive integer",
+      );
+    }
+
+    if (schema_ids.has(schema.schema_id)) {
+      throw new IxAbiError(
+        "invalid_manifest",
+        "types." + name + ".schema_id",
+        "ABI schema ids must be unique",
+      );
+    }
+
+    schema_ids.add(schema.schema_id);
+    check_manifest_schema(manifest, schema, "types." + name);
+  }
+}
+
+function check_manifest_schema(
+  manifest: AbiManifest,
+  schema: AbiType,
+  path: string,
+): void {
+  if (schema.tag === "struct") {
+    let offset = 0;
+    let max_align = 1;
+    const field_names = new Set<string>();
+
+    for (const field of schema.fields) {
+      if (field_names.has(field.name)) {
+        throw new IxAbiError(
+          "invalid_manifest",
+          path + ".fields",
+          "ABI struct field names must be unique",
+        );
+      }
+
+      field_names.add(field.name);
+      const layout = manifest_type_ref_layout(
+        manifest,
+        field.type,
+        path + ".fields." + field.name + ".type",
+      );
+      offset = align_to(offset, layout.align);
+
+      if (field.offset !== offset) {
+        throw new IxAbiError(
+          "invalid_manifest",
+          path + ".fields." + field.name + ".offset",
+          "ABI struct field offset does not match its schema",
+        );
+      }
+
+      offset += layout.size;
+
+      if (layout.align > max_align) {
+        max_align = layout.align;
+      }
+    }
+
+    check_schema_layout(
+      schema,
+      align_to(offset, max_align),
+      max_align,
+      path,
+    );
+    return;
+  }
+
+  if (schema.tag === "union") {
+    let max_payload = 0;
+    const case_names = new Set<string>();
+
+    for (let index = 0; index < schema.cases.length; index += 1) {
+      const union_case = schema.cases[index];
+
+      if (!union_case) {
+        throw new IxAbiError(
+          "invalid_manifest",
+          path + ".cases." + index.toString(),
+          "Missing ABI union case",
+        );
+      }
+
+      if (case_names.has(union_case.name)) {
+        throw new IxAbiError(
+          "invalid_manifest",
+          path + ".cases",
+          "ABI union case names must be unique",
+        );
+      }
+
+      case_names.add(union_case.name);
+
+      if (union_case.tag_value !== index) {
+        throw new IxAbiError(
+          "invalid_manifest",
+          path + ".cases." + index.toString() + ".tag_value",
+          "ABI union tag values must follow case order",
+        );
+      }
+
+      const layout = manifest_type_ref_layout(
+        manifest,
+        union_case.payload,
+        path + ".cases." + index.toString() + ".payload",
+      );
+
+      if (layout.size > max_payload) {
+        max_payload = layout.size;
+      }
+    }
+
+    check_schema_layout(schema, align_to(8 + max_payload, 8), 8, path);
+    return;
+  }
+
+  if (schema.tag === "array") {
+    const element_layout = manifest_type_ref_layout(
+      manifest,
+      schema.element,
+      path + ".element",
+    );
+
+    if (!Number.isInteger(schema.length) || schema.length < 0) {
+      throw new IxAbiError(
+        "invalid_manifest",
+        path + ".length",
+        "ABI fixed array length must be a non-negative integer",
+      );
+    }
+
+    const expected_name = abi_fixed_array_schema_name(
+      schema.element,
+      schema.length,
+    );
+
+    if (schema.name !== expected_name) {
+      throw new IxAbiError(
+        "invalid_manifest",
+        path + ".name",
+        "ABI fixed array name does not match its element schema and length",
+      );
+    }
+
+    const stride = align_to(element_layout.size, element_layout.align);
+    const size = stride * schema.length;
+
+    if (!Number.isSafeInteger(size)) {
+      throw new IxAbiError(
+        "invalid_manifest",
+        path + ".size",
+        "ABI fixed array size exceeds JavaScript's safe integer range",
+      );
+    }
+
+    if (schema.stride !== stride) {
+      throw new IxAbiError(
+        "invalid_manifest",
+        path + ".stride",
+        "ABI fixed array stride does not match its element schema",
+      );
+    }
+
+    check_schema_layout(schema, size, element_layout.align, path);
+    return;
+  }
+
+  schema satisfies never;
+  throw new IxAbiError("invalid_manifest", path, "Unknown ABI schema tag");
+}
+
+function check_schema_layout(
+  schema: AbiType,
+  expected_size: number,
+  expected_align: number,
+  path: string,
+): void {
+  if (schema.size !== expected_size) {
+    throw new IxAbiError(
+      "invalid_manifest",
+      path + ".size",
+      "ABI schema size does not match its structure",
+    );
+  }
+
+  if (schema.align !== expected_align) {
+    throw new IxAbiError(
+      "invalid_manifest",
+      path + ".align",
+      "ABI schema alignment does not match its structure",
+    );
+  }
+}
+
+function manifest_type_ref_layout(
+  manifest: AbiManifest,
+  type: AbiTypeRef,
+  path: string,
+): { size: number; align: number } {
+  if (type.tag === "i64") {
+    return { size: 8, align: 8 };
+  }
+
+  if (type.tag === "unit") {
+    return { size: 0, align: 1 };
+  }
+
+  if (type.tag === "resource") {
+    return { size: 4, align: 4 };
+  }
+
+  if (
+    type.tag === "i32" || type.tag === "text" || type.tag === "bytes" ||
+    type.tag === "i32_slice" || type.tag === "text_slice"
+  ) {
+    return { size: 4, align: 4 };
+  }
+
+  if (type.tag === "named") {
+    const schema = manifest.types[type.name];
+
+    if (!schema || schema.name !== type.name) {
+      throw new IxAbiError(
+        "invalid_manifest",
+        path,
+        "ABI type reference names an unknown schema: " + type.name,
+      );
+    }
+
+    if (schema.tag === "struct" || schema.tag === "array") {
+      return { size: schema.size, align: schema.align };
+    }
+
+    return { size: 4, align: 4 };
+  }
+
+  throw new IxAbiError("invalid_manifest", path, "Unknown ABI type reference");
 }
 
 function check_effect_requirement(
@@ -920,6 +1207,24 @@ function abi_runtime(instance: WebAssembly.Instance, manifest: AbiManifest) {
       return result;
     }
 
+    if (schema.tag === "array") {
+      check_pointer(memory, ptr, schema.size, path);
+      const result: IxValue[] = [];
+
+      for (let index = 0; index < schema.length; index += 1) {
+        result.push(
+          decode_slot(
+            schema.element,
+            ptr + index * schema.stride,
+            path + "[" + index.toString() + "]",
+            view,
+          ),
+        );
+      }
+
+      return result;
+    }
+
     check_pointer(memory, ptr, 8, path);
     const tag_value = view.getUint32(ptr, true);
     const union_case = schema.cases[tag_value];
@@ -967,7 +1272,7 @@ function abi_runtime(instance: WebAssembly.Instance, manifest: AbiManifest) {
     if (type.tag === "named") {
       const schema = manifest.types[type.name];
 
-      if (schema && schema.tag === "struct") {
+      if (schema && (schema.tag === "struct" || schema.tag === "array")) {
         return decode_named(schema, address, path, view);
       }
     }
@@ -1085,8 +1390,15 @@ function abi_runtime(instance: WebAssembly.Instance, manifest: AbiManifest) {
     }
 
     const ptr = alloc(schema.size, schema.align);
-    encode_named(schema, ptr, value, path);
-    return ptr;
+    new Uint8Array(memory.buffer, ptr, schema.size).fill(0);
+
+    try {
+      encode_named(schema, ptr, value, path);
+      return ptr;
+    } catch (error) {
+      free_raw(type, ptr);
+      throw error;
+    }
   }
 
   function encode_named(
@@ -1108,6 +1420,34 @@ function abi_runtime(instance: WebAssembly.Instance, manifest: AbiManifest) {
           ptr + field.offset,
           object[field.name],
           path + "." + field.name,
+        );
+      }
+
+      return;
+    }
+
+    if (schema.tag === "array") {
+      if (!Array.isArray(value)) {
+        throw type_error(path, "array");
+      }
+
+      if (value.length !== schema.length) {
+        throw new IxAbiError(
+          "array_length_mismatch",
+          path,
+          "Expected array length " + schema.length.toString() + ", got " +
+            value.length.toString(),
+        );
+      }
+
+      for (let index = 0; index < schema.length; index += 1) {
+        const item = value[index];
+
+        encode_slot(
+          schema.element,
+          ptr + index * schema.stride,
+          item,
+          path + "[" + index.toString() + "]",
         );
       }
 
@@ -1172,7 +1512,7 @@ function abi_runtime(instance: WebAssembly.Instance, manifest: AbiManifest) {
     if (type.tag === "named") {
       const schema = manifest.types[type.name];
 
-      if (schema && schema.tag === "struct") {
+      if (schema && (schema.tag === "struct" || schema.tag === "array")) {
         encode_named(schema, address, value, path);
         return;
       }
@@ -1209,6 +1549,14 @@ function abi_runtime(instance: WebAssembly.Instance, manifest: AbiManifest) {
       return;
     }
 
+    if (schema.tag === "array") {
+      for (let index = 0; index < schema.length; index += 1) {
+        free_slot(schema.element, ptr + index * schema.stride, view);
+      }
+
+      return;
+    }
+
     const tag_value = view.getUint32(ptr, true);
     const union_case = schema.cases[tag_value];
 
@@ -1225,7 +1573,7 @@ function abi_runtime(instance: WebAssembly.Instance, manifest: AbiManifest) {
     if (type.tag === "named") {
       const schema = manifest.types[type.name];
 
-      if (schema && schema.tag === "struct") {
+      if (schema && (schema.tag === "struct" || schema.tag === "array")) {
         free_named_children(schema, address);
         return;
       }

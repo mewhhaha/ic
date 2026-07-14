@@ -7,7 +7,8 @@ const PREC = {
   ADD: 6,
   MULTIPLY: 7,
   UNARY: 8,
-  POSTFIX: 9,
+  APPLICATION: 9,
+  POSTFIX: 10,
   EFFECT_UNION: 1,
   EFFECT_INTERSECTION: 2,
   EFFECT_DIFFERENCE: 3,
@@ -21,7 +22,12 @@ const PREC = {
 module.exports = grammar({
   name: "ix",
 
+  // Whitespace applications consume their own horizontal space with an
+  // immediate token, so they cannot cross a newline even though newlines are
+  // otherwise insignificant between statements.
   extras: ($) => [/\s/, ";", $.comment],
+
+  externals: ($) => [$._application_space, $._type_application_space],
 
   word: ($) => $.identifier,
 
@@ -40,8 +46,6 @@ module.exports = grammar({
     [$.top_type, $.wildcard],
     [$.condition_expression, $.linear_reference],
     [$._primary_expression, $.shorthand_field],
-    [$.named_type_product, $.positional_type_product],
-    [$.named_type_product, $.positional_type_product, $.tuple_expression],
   ],
 
   rules: {
@@ -68,7 +72,6 @@ module.exports = grammar({
         $.effect_statement,
         $.declare_record_statement,
         $.type_declaration_statement,
-        $.import_statement,
         $.module_binding_statement,
         $.effect_binding_statement,
         $.resume_dup_statement,
@@ -104,7 +107,14 @@ module.exports = grammar({
         optional(field("linear", "!")),
         field(
           "name",
-          choice($.identifier, $.wildcard, $.destructuring_pattern),
+          choice(
+            $.identifier,
+            $.wildcard,
+            $.destructuring_pattern,
+            $.array_pattern,
+            $.positional_product_pattern,
+            $.named_product_pattern,
+          ),
         ),
         optional(seq(":", field("type", $.type_reference))),
         "=",
@@ -283,9 +293,9 @@ module.exports = grammar({
 
     named_type_product: ($) =>
       seq(
-        "[",
-        optional(commaSep1($.named_type_field)),
-        "]",
+        "(",
+        commaSep1($.named_type_field),
+        ")",
       ),
 
     named_type_field: ($) =>
@@ -296,16 +306,7 @@ module.exports = grammar({
         field("type", $.type_reference),
       ),
 
-    positional_type_product: ($) =>
-      seq("[", optional(commaSep1($.type_reference)), "]"),
-
-    import_statement: ($) =>
-      seq(
-        "import",
-        field("name", $.identifier),
-        "from",
-        field("path", $.string),
-      ),
+    positional_type_product: ($) => seq("(", commaSep2($.type_reference), ")"),
 
     module_binding_statement: ($) =>
       seq(
@@ -413,16 +414,14 @@ module.exports = grammar({
         $.recursive_function,
         $.recursive_call_expression,
         $.if_expression,
+        $.match_expression,
         $.binary_expression,
         $.is_expression,
+        $.as_expression,
         $.unary_expression,
-        $.call_expression,
-        $.field_expression,
-        $.index_expression,
-        $.struct_expression,
-        $.extension_expression,
+        $.application_expression,
+        $.postfix_expression,
         $.effect_handler_expression,
-        $._primary_expression,
       ),
 
     try_with_expression: ($) =>
@@ -462,8 +461,8 @@ module.exports = grammar({
 
     recursive_call_expression: ($) =>
       prec.left(
-        PREC.POSTFIX,
-        seq("rec", field("arguments", $.argument_list)),
+        PREC.APPLICATION,
+        seq("rec", field("argument", $.positional_product)),
       ),
 
     parameter_list: ($) => seq("(", optional(commaSep1($.parameter)), ")"),
@@ -578,23 +577,27 @@ module.exports = grammar({
 
     condition_call_expression: ($) =>
       prec.left(
-        PREC.POSTFIX,
+        PREC.APPLICATION,
         seq(
           field("function", $.condition_expression),
-          field("arguments", $.condition_argument_list),
+          field("argument", $.positional_product),
         ),
       ),
-
-    condition_argument_list: ($) =>
-      seq("(", optional(commaSep1($._expression)), ")"),
 
     condition_field_expression: ($) =>
       prec.left(
         PREC.POSTFIX,
-        seq(
-          field("object", $.condition_expression),
-          ".",
-          field("field", $.identifier),
+        choice(
+          seq(
+            field("object", $.condition_expression),
+            ".",
+            field("field", $.identifier),
+          ),
+          seq(
+            field("object", alias($.effect_identifier, $.identifier)),
+            ".",
+            field("field", $.identifier),
+          ),
         ),
       ),
 
@@ -646,6 +649,16 @@ module.exports = grammar({
         ),
       ),
 
+    as_expression: ($) =>
+      prec.left(
+        PREC.POSTFIX + 1,
+        seq(
+          field("value", $._expression),
+          $.as_keyword,
+          field("type", $.type_reference),
+        ),
+      ),
+
     unary_expression: ($) =>
       prec.right(
         PREC.UNARY,
@@ -660,26 +673,94 @@ module.exports = grammar({
 
     scratch_expression: ($) => seq("scratch", field("body", $.block)),
 
-    loop_expression: ($) => prec(1, seq("loop", field("body", $.block))),
+    loop_expression: ($) =>
+      prec(PREC.APPLICATION + 1, seq("loop", field("body", $.block))),
 
-    call_expression: ($) =>
-      prec.left(
-        PREC.POSTFIX,
+    match_expression: ($) =>
+      prec.right(
         seq(
-          field("function", $._expression),
-          field("arguments", $.argument_list),
+          "match",
+          field("target", $.condition_expression),
+          field("cases", $.match_case_block),
         ),
       ),
 
-    argument_list: ($) => seq("(", optional(commaSep1($._expression)), ")"),
+    match_case_block: ($) =>
+      seq(
+        "{",
+        $.match_case,
+        repeat(seq(optional(","), $.match_case)),
+        optional(","),
+        "}",
+      ),
+
+    match_case: ($) =>
+      seq(
+        "|",
+        field("pattern", $._match_pattern),
+        optional(seq("if", field("guard", $.condition_expression))),
+        "=>",
+        field("body", $._expression),
+      ),
+
+    _match_pattern: ($) =>
+      choice(
+        $.union_pattern,
+        $.number,
+        $.string,
+        $.character,
+        $.boolean,
+        $.identifier,
+        $.wildcard,
+        $.array_pattern,
+        $.positional_product_pattern,
+        $.named_product_pattern,
+      ),
+
+    application_expression: ($) =>
+      prec.left(
+        PREC.APPLICATION,
+        choice(
+          seq(
+            field(
+              "function",
+              choice($.application_expression, $.postfix_expression),
+            ),
+            $._application_space,
+            field("argument", $.postfix_expression),
+          ),
+          seq(
+            field(
+              "function",
+              choice($.application_expression, $.postfix_expression),
+            ),
+            field("argument", $.parenthesized_or_product),
+          ),
+        ),
+      ),
+
+    postfix_expression: ($) =>
+      choice(
+        $.field_expression,
+        $.index_expression,
+        $.update_expression,
+        $._primary_expression,
+      ),
 
     field_expression: ($) =>
       prec.left(
         PREC.POSTFIX,
-        seq(
-          field("object", $._expression),
-          ".",
-          field("field", $.identifier),
+        choice(
+          seq(
+            field("object", $.postfix_expression),
+            ".",
+            field("field", $.identifier),
+          ),
+          seq(
+            field("object", alias($.effect_identifier, $.identifier)),
+            ".",
+            field("field", $.identifier),
+          ),
         ),
       ),
 
@@ -687,7 +768,7 @@ module.exports = grammar({
       prec.left(
         PREC.POSTFIX,
         seq(
-          field("object", $._expression),
+          field("object", $.postfix_expression),
           "[",
           field("index", $._expression),
           "]",
@@ -698,27 +779,30 @@ module.exports = grammar({
       prec.left(
         PREC.POSTFIX,
         seq(
-          field("base", $._expression),
+          field("base", $.postfix_expression),
           field("fields", $.field_block),
         ),
       ),
 
-    extension_expression: ($) =>
+    update_expression: ($) =>
       prec.left(
         PREC.POSTFIX,
         seq(
-          field("base", $._expression),
-          "with",
-          field("fields", $.field_block),
+          field("value", $.postfix_expression),
+          $.with_keyword,
+          field("updates", $.field_block),
         ),
       ),
 
     effect_handler_expression: ($) =>
-      prec(
-        PREC.POSTFIX + 1,
-        seq(
-          field("effect", $.effect_identifier),
-          field("clauses", $.handler_clause_block),
+      prec.dynamic(
+        20,
+        prec(
+          PREC.POSTFIX + 1,
+          seq(
+            field("effect", $.effect_identifier),
+            field("clauses", $.handler_clause_block),
+          ),
         ),
       ),
 
@@ -754,13 +838,16 @@ module.exports = grammar({
         alias("loop", $.identifier),
         $.identifier,
         $.atom_expression,
+        $.import_expression,
+        $.named_product,
+        $.positional_product,
         $.union_case,
         $.linear_reference,
         $.unit_pattern,
         $.struct_type,
         $.union_type,
-        $.record_expression,
-        $.tuple_expression,
+        $.array_expression,
+        $.array_repeat_expression,
         $.object_literal,
         $.scratch_expression,
         $.block,
@@ -768,10 +855,13 @@ module.exports = grammar({
       ),
 
     union_case: ($) =>
-      seq(
-        ".",
-        field("case", $.identifier),
-        optional(seq("(", optional(field("value", $._expression)), ")")),
+      prec(
+        -1,
+        seq(
+          ".",
+          field("case", $.identifier),
+          optional(seq("(", optional(field("value", $._expression)), ")")),
+        ),
       ),
 
     linear_reference: ($) => seq("!", field("name", $.identifier)),
@@ -782,16 +872,73 @@ module.exports = grammar({
         field("name", alias($.row_variable, $.identifier)),
       ),
 
+    import_expression: ($) => seq("import", field("path", $.string)),
+
     struct_type: ($) => seq("struct", field("fields", $.type_field_block)),
 
     union_type: ($) => seq("union", field("cases", $.type_field_block)),
 
-    record_expression: ($) => seq("[", commaSep1($.record_field), "]"),
+    named_product: ($) => prec(1, seq("(", commaSep1($.product_field), ")")),
 
-    record_field: ($) =>
-      seq(".", field("name", $.identifier), "=", field("value", $._expression)),
+    product_field: ($) =>
+      seq(
+        $._named_product_dot,
+        field("name", $.identifier),
+        "=",
+        field("value", $._expression),
+      ),
 
-    tuple_expression: ($) => seq("[", optional(commaSep1($._expression)), "]"),
+    positional_product: ($) => seq("(", commaSep2($._expression), ")"),
+
+    parenthesized_or_product: ($) =>
+      choice(
+        $.unit_pattern,
+        $.named_product,
+        $.positional_product,
+        $.parenthesized_expression,
+      ),
+
+    array_expression: ($) => seq("[", optional(commaSep1($._expression)), "]"),
+
+    array_repeat_expression: ($) =>
+      seq(
+        "[",
+        field("value", $._expression),
+        ";",
+        field("length", $._expression),
+        "]",
+      ),
+
+    array_pattern: ($) =>
+      seq("[", optional(commaSep1($._array_pattern_element)), "]"),
+
+    _array_pattern_element: ($) =>
+      choice(
+        $.identifier,
+        $.wildcard,
+        $.union_pattern,
+        $.array_pattern,
+        $.positional_product_pattern,
+        $.named_product_pattern,
+        $.array_rest_pattern,
+      ),
+
+    array_rest_pattern: ($) =>
+      seq("...", field("name", choice($.identifier, $.wildcard))),
+
+    positional_product_pattern: ($) =>
+      seq("(", commaSep2($._match_pattern), ")"),
+
+    named_product_pattern: ($) =>
+      seq("(", commaSep1($.named_product_pattern_field), ")"),
+
+    named_product_pattern_field: ($) =>
+      seq(
+        $._named_product_dot,
+        field("name", $.identifier),
+        "=",
+        field("pattern", $._match_pattern),
+      ),
 
     object_literal: ($) => field("fields", $.field_block),
 
@@ -898,8 +1045,9 @@ module.exports = grammar({
       prec.left(
         PREC.TYPE_APPLICATION,
         seq(
-          field("constructor", $._type_prefix),
-          repeat1(field("argument", $._type_prefix)),
+          field("constructor", choice($.type_application, $._type_prefix)),
+          $._type_application_space,
+          field("argument", $._type_prefix),
         ),
       ),
 
@@ -927,13 +1075,14 @@ module.exports = grammar({
       prec(
         -1,
         choice(
+          alias($.effect_identifier, $.identifier),
           $.identifier,
           $.top_type,
           $.never_type,
           $.unit_type,
-          $.type_tuple,
           $.type_parenthesized,
           $.type_product,
+          $.array_type,
         ),
       ),
 
@@ -941,18 +1090,31 @@ module.exports = grammar({
 
     top_type: () => "_",
 
-    never_type: () => "Never",
+    never_type: () => token(prec(2, "Never")),
 
-    type_tuple: ($) => seq("(", commaSep2($._type_expression), ")"),
+    array_type: ($) =>
+      seq(
+        "[",
+        field("element", $._type_expression),
+        ";",
+        field("length", choice($.number, $.wildcard)),
+        "]",
+      ),
 
     type_parenthesized: ($) =>
       seq("(", field("value", $._type_expression), ")"),
 
     wildcard: () => "_",
 
-    identifier: () => /[A-Za-z][A-Za-z0-9_]*/,
+    _named_product_dot: () => token(prec(1, ".")),
 
-    effect_identifier: () => /[A-Z][A-Za-z0-9]*/,
+    as_keyword: () => token(prec(1, "as")),
+
+    with_keyword: () => token(prec(1, "with")),
+
+    identifier: () => token(/[A-Za-z][A-Za-z0-9_]*/),
+
+    effect_identifier: () => token(prec(1, /[A-Z][A-Za-z0-9]*/)),
 
     row_variable: () => /[a-z_][A-Za-z0-9_]*/,
 

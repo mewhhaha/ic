@@ -8,7 +8,7 @@ import { assert_throws } from "./assert.ts";
 Deno.test("frontend visible update closure compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_source(`
 let birthday = user => {
-  user {
+  user with {
     age: user.age + 1
   }
 }
@@ -1205,7 +1205,7 @@ Deno.test("core struct update compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
 let user = { age: 40, score: 2 }
 let next = 41
-let updated = user { age: next }
+let updated = user with { age: next }
 next = 1
 updated.age + user.age + updated.score
 `);

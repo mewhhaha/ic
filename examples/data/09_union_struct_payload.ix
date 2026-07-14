@@ -1,7 +1,7 @@
-type User = [.id = Int, .score = Int]
+type User = (.id = Int, .score = Int)
 type Result = .ok = Int | .err = Text
 
-let user: User = [.id = 1, .score = 42]
+let user: User = (.id = 1, .score = 42)
 let result: Result = Result.ok(user.score)
 
 if let .ok(score) = result {

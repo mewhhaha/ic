@@ -1,5 +1,10 @@
 import { expect } from "../expect.ts";
-import type { EffectRowExpr, FrontType, TypeExpr } from "./ast.ts";
+import type {
+  ArrayLengthExpr,
+  EffectRowExpr,
+  FrontType,
+  TypeExpr,
+} from "./ast.ts";
 import { parse_type_expr } from "./type_expr.ts";
 import { tokenize } from "./tokenize.ts";
 
@@ -13,6 +18,8 @@ export type SemType =
   | { tag: "borrow"; value: SemType }
   | { tag: "apply"; func: SemType; arg: SemType }
   | { tag: "tuple"; items: SemType[] }
+  | { tag: "product"; entries: SemProductEntry[] }
+  | { tag: "array"; element: SemType; length: ArrayLengthExpr }
   | { tag: "record"; name?: string; fields: SemField[] }
   | { tag: "variant"; name: string }
   | { tag: "union"; members: SemType[] }
@@ -27,6 +34,11 @@ export type SemType =
 
 export type SemField = {
   name: string;
+  type: SemType;
+};
+
+export type SemProductEntry = {
+  label?: string;
   type: SemType;
 };
 
@@ -106,6 +118,22 @@ export function sem_type_from_expr(
       return {
         tag: "tuple",
         items: expr.items.map((item) => sem_type_from_expr(item, resolve_name)),
+      };
+
+    case "product":
+      return {
+        tag: "product",
+        entries: expr.entries.map((entry) => ({
+          label: entry.label,
+          type: sem_type_from_expr(entry.type_expr, resolve_name),
+        })),
+      };
+
+    case "array":
+      return {
+        tag: "array",
+        element: sem_type_from_expr(expr.element, resolve_name),
+        length: expr.length,
       };
 
     case "union":
@@ -627,6 +655,16 @@ export function sem_type_key(type: SemType): string {
     case "tuple":
       return "tuple(" + type.items.map(sem_type_key).join(",") + ")";
 
+    case "product":
+      return "product(" + type.entries.map((entry) => {
+        const label = entry.label === undefined ? "" : entry.label + "=";
+        return label + sem_type_key(entry.type);
+      }).join(",") + ")";
+
+    case "array":
+      return "array(" + sem_type_key(type.element) + "," +
+        array_length_key(type.length) + ")";
+
     case "record":
       return "record(" + type.fields.map((field) => {
         return field.name + ":" + sem_type_key(field.type);
@@ -650,6 +688,19 @@ export function sem_type_key(type: SemType): string {
       return "arrow(" + sem_type_key(type.param) + "," +
         sem_type_key(type.result) + ")";
   }
+}
+
+function array_length_key(length: ArrayLengthExpr): string {
+  if (length.tag === "number") {
+    return length.value.toString();
+  }
+
+  if (length.tag === "name") {
+    return length.name;
+  }
+
+  return "(" + array_length_key(length.left) + length.op +
+    array_length_key(length.right) + ")";
 }
 
 export function sem_type_finite_members(type: SemType): SemType[] | undefined {

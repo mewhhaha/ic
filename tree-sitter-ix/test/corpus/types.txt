@@ -16,29 +16,32 @@ let unit: () -> Text = () => ()
         parameter: (type_union
           (type_intersection
             (type_difference
-              (type_tuple
-                (type_union
-                  (type_intersection
-                    (type_difference
-                      (type_application
-                        constructor: (identifier)
-                        argument: (identifier)))))
-                (function_type
-                  parameter: (type_union
-                    (type_intersection
-                      (type_difference
-                        (identifier))))
-                  effects: (latent_effect_row
-                    row: (effect_row
-                      (effect_union_expression
-                        left: (effect_family_reference
-                          effect: (effect_identifier))
-                        right: (effect_row_variable
-                          name: (row_variable)))))
-                  result: (type_union
-                    (type_intersection
-                      (type_difference
-                        (identifier)))))))))
+              (type_product
+                (positional_type_product
+                  (type_reference
+                    (type_union
+                      (type_intersection
+                        (type_difference
+                          (type_application
+                            constructor: (identifier)
+                            argument: (identifier))))))
+                  (type_reference
+                    (function_type
+                      parameter: (type_union
+                        (type_intersection
+                          (type_difference
+                            (identifier))))
+                      effects: (latent_effect_row
+                        row: (effect_row
+                          (effect_union_expression
+                            left: (effect_family_reference
+                              effect: (effect_identifier))
+                            right: (effect_row_variable
+                              name: (row_variable)))))
+                      result: (type_union
+                        (type_intersection
+                          (type_difference
+                            (identifier)))))))))))
         effects: (latent_effect_row
           row: (effect_row
             (effect_row_variable
@@ -51,7 +54,8 @@ let unit: () -> Text = () => ()
                 argument: (identifier)))))))
     value: (arrow_function
       parameters: (parameter_list)
-      body: (unit_pattern)))
+      body: (postfix_expression
+        (unit_pattern))))
   (binding_statement
     name: (identifier)
     type: (type_reference
@@ -71,7 +75,8 @@ let unit: () -> Text = () => ()
                 (identifier)))))))
     value: (arrow_function
       parameters: (parameter_list)
-      body: (unit_pattern)))
+      body: (postfix_expression
+        (unit_pattern))))
   (binding_statement
     name: (identifier)
     type: (type_reference
@@ -86,7 +91,8 @@ let unit: () -> Text = () => ()
               (identifier))))))
     value: (arrow_function
       parameters: (parameter_list)
-      body: (unit_pattern))))
+      body: (postfix_expression
+        (unit_pattern)))))
 
 ==================
 Inline and multiline type sums
@@ -127,9 +133,9 @@ type Maybe2 a =
 Named and positional products
 ==================
 
-type Vec3 = [.x = Int, .y = Int, .z = Int]
-type Pair a = [a, List a]
-type Nested a = [Maybe a, List a]
+type Vec3 = (.x = Int, .y = Int, .z = Int)
+type Pair a = (a, List a)
+type Nested a = (Maybe a, List a)
 
 ---
 
@@ -200,7 +206,7 @@ type Nested a = [Maybe a, List a]
 Bracket product values
 ==================
 
-let point = [.x = 40, .y = 1]
+let point = (.x = 40, .y = 1)
 let pair = [point.x, point.y]
 let empty = []
 
@@ -209,25 +215,34 @@ let empty = []
 (source_file
   (binding_statement
     name: (identifier)
-    value: (record_expression
-      (record_field
-        name: (identifier)
-        value: (number))
-      (record_field
-        name: (identifier)
-        value: (number))))
+    value: (postfix_expression
+      (named_product
+        (product_field
+          name: (identifier)
+          value: (postfix_expression
+            (number)))
+        (product_field
+          name: (identifier)
+          value: (postfix_expression
+            (number))))))
   (binding_statement
     name: (identifier)
-    value: (tuple_expression
-      (field_expression
-        object: (identifier)
-        field: (identifier))
-      (field_expression
-        object: (identifier)
-        field: (identifier))))
+    value: (postfix_expression
+      (array_expression
+        (postfix_expression
+          (field_expression
+            object: (postfix_expression
+              (identifier))
+            field: (identifier)))
+        (postfix_expression
+          (field_expression
+            object: (postfix_expression
+              (identifier))
+            field: (identifier))))))
   (binding_statement
     name: (identifier)
-    value: (tuple_expression)))
+    value: (postfix_expression
+      (array_expression))))
 
 ==================
 Type sets, atoms, and modalities
@@ -256,7 +271,7 @@ if marker is #ready { 1 } else { 0 }
           (type_difference
             (type_difference
               (identifier))
-            (never_type))))))
+            (identifier))))))
   (type_declaration_statement
     (identifier)
     (type_reference
@@ -291,8 +306,9 @@ if marker is #ready { 1 } else { 0 }
           (type_difference
             (atom_type
               (identifier))))))
-    (atom_expression
-      (identifier)))
+    (postfix_expression
+      (atom_expression
+        (identifier))))
   (binding_statement
     (identifier)
     (type_reference
@@ -302,7 +318,8 @@ if marker is #ready { 1 } else { 0 }
             (borrow_type
               (identifier))))))
     (unary_expression
-      (identifier)))
+      (postfix_expression
+        (identifier))))
   (expression_statement
     (if_expression
       (condition_expression
@@ -317,7 +334,9 @@ if marker is #ready { 1 } else { 0 }
                     (identifier))))))))
       (block
         (expression_statement
-          (number)))
+          (postfix_expression
+            (number))))
       (block
         (expression_statement
-          (number))))))
+          (postfix_expression
+            (number)))))))

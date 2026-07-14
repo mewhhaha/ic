@@ -7,6 +7,7 @@ import type {
 } from "../frontend/binding_index.ts";
 import { name_sites } from "../frontend/name_site.ts";
 import type { Source } from "../frontend/ast.ts";
+import { has_source_span, source_span } from "../frontend/syntax.ts";
 import {
   type LspRange,
   type PositionEncoding,
@@ -124,10 +125,38 @@ export function import_definition_location(
   base_uri: string,
   offset: number,
 ): LspLocation | undefined {
+  const expression_path = import_expression_path_at(source, offset);
+
+  if (expression_path !== undefined) {
+    try {
+      return {
+        uri: new URL(expression_path, base_uri).href,
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 0 },
+        },
+      };
+    } catch (error) {
+      if (error instanceof TypeError) {
+        return undefined;
+      }
+
+      throw error;
+    }
+  }
+
   const occurrence = index.occurrence_at(offset);
 
   if (occurrence === undefined) {
     return undefined;
+  }
+
+  if (occurrence.entity !== undefined) {
+    const path = import_binding_path(source, index, occurrence.entity);
+
+    if (path !== undefined) {
+      return import_location(path, base_uri);
+    }
   }
 
   for (const statement of source.statements) {
@@ -152,24 +181,103 @@ export function import_definition_location(
       continue;
     }
 
-    try {
-      return {
-        uri: new URL(statement.path, base_uri).href,
-        range: {
-          start: { line: 0, character: 0 },
-          end: { line: 0, character: 0 },
-        },
-      };
-    } catch (error) {
-      if (error instanceof TypeError) {
-        return undefined;
-      }
+    return import_location(statement.path, base_uri);
+  }
 
-      throw error;
+  return undefined;
+}
+
+function import_binding_path(
+  source: Source,
+  index: BindingIndex,
+  entity_id: string,
+): string | undefined {
+  for (const statement of source.statements) {
+    if (statement.tag !== "bind" || statement.value.tag !== "import") {
+      continue;
+    }
+
+    const site = name_sites(statement).find((candidate) =>
+      candidate.slot === "name" && candidate.name === statement.name
+    );
+
+    if (site === undefined) {
+      continue;
+    }
+
+    if (index.occurrence_at(site.span.start)?.entity === entity_id) {
+      return statement.value.path;
     }
   }
 
   return undefined;
+}
+
+function import_location(
+  path: string,
+  base_uri: string,
+): LspLocation | undefined {
+  try {
+    return {
+      uri: new URL(path, base_uri).href,
+      range: {
+        start: { line: 0, character: 0 },
+        end: { line: 0, character: 0 },
+      },
+    };
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+function import_expression_path_at(
+  source: Source,
+  offset: number,
+): string | undefined {
+  const seen = new WeakSet<object>();
+  let result: string | undefined;
+
+  const visit = (value: object): void => {
+    if (seen.has(value) || result !== undefined) {
+      return;
+    }
+
+    seen.add(value);
+    const record = value as { tag?: string; path?: unknown };
+
+    if (
+      record.tag === "import" && typeof record.path === "string" &&
+      has_source_span(value)
+    ) {
+      const span = source_span(value);
+
+      if (span.start <= offset && offset <= span.end) {
+        result = record.path;
+        return;
+      }
+    }
+
+    for (const child of Object.values(value)) {
+      if (child !== null && typeof child === "object") {
+        if (Array.isArray(child)) {
+          for (const entry of child) {
+            if (entry !== null && typeof entry === "object") {
+              visit(entry);
+            }
+          }
+        } else {
+          visit(child);
+        }
+      }
+    }
+  };
+
+  visit(source);
+  return result;
 }
 
 export function type_definition_location(

@@ -1,6 +1,7 @@
 import type { Env, FrontExpr, Stmt } from "./ast.ts";
 import { lookup } from "./env.ts";
 import { is_builtin_type_name } from "./types.ts";
+import { pattern_bindings } from "./pattern.ts";
 
 export function is_const_builtin_name(name: string): boolean {
   return name === "fail" || name === "size_of" || name === "align_of" ||
@@ -21,8 +22,60 @@ export function validate_const_expr(
   switch (expr.tag) {
     case "bool":
     case "num":
+    case "atom":
+    case "unit":
     case "text":
     case "type_name":
+    case "set_type":
+    case "struct_type":
+    case "union_type":
+      return;
+
+    case "is":
+    case "as":
+      validate_const_expr(expr.value, env, bound, message);
+      return;
+
+    case "product":
+      for (const entry of expr.entries) {
+        validate_const_expr(entry.value, env, bound, message);
+      }
+      return;
+
+    case "array":
+      for (const item of expr.items) {
+        validate_const_expr(item, env, bound, message);
+      }
+
+      if (expr.rest !== undefined) {
+        validate_const_expr(expr.rest, env, bound, message);
+      }
+      return;
+
+    case "array_repeat":
+      validate_const_expr(expr.value, env, bound, message);
+      validate_const_expr(expr.length, env, bound, message);
+      return;
+
+    case "import":
+      return;
+
+    case "match":
+      validate_const_expr(expr.target, env, bound, message);
+
+      for (const arm of expr.arms) {
+        const local = new Set(bound);
+
+        for (const binding of pattern_bindings(arm.pattern)) {
+          local.add(binding.name);
+        }
+
+        if (arm.guard !== undefined) {
+          validate_const_expr(arm.guard, env, local, message);
+        }
+
+        validate_const_expr(arm.body, env, local, message);
+      }
       return;
 
     case "var": {
@@ -115,9 +168,6 @@ export function validate_const_expr(
 
       return;
 
-    case "struct_type":
-      return;
-
     case "struct_value":
       validate_const_expr(expr.type_expr, env, bound, message);
 
@@ -134,9 +184,6 @@ export function validate_const_expr(
         validate_const_expr(field.value, env, bound, message);
       }
 
-      return;
-
-    case "union_type":
       return;
 
     case "if":
@@ -184,6 +231,10 @@ export function validate_const_expr(
       }
 
       throw new Error(message + ": " + expr.name);
+
+    case "handler":
+    case "try_with":
+      throw new Error(message + ": " + expr.tag);
 
     case "unsupported":
       return;
