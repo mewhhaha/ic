@@ -55,7 +55,7 @@ Deno.test("frontend host import contracts compile through WAT to Wasm", async ()
   const wat = Source.wat(`
 host_import host_read from "env.read" (&Text) => I32
 
-let message: Text = append("he", "llo")
+let message: Text = @append("he", "llo")
 host_read(&message)
 `);
   const instance = await instantiate_wat(
@@ -165,11 +165,11 @@ Deno.test("frontend runtime capability table compiles through WAT to Wasm", asyn
 host_import consume from "env.consume" (Text) => I32
 let flag = 1
 let output = if flag {
-  [.marker = runtime_i32_slice(1, 7), .consume = consume]
+  [.marker = @runtime_i32_slice(1, 7), .consume = consume]
 } else {
-  [.marker = runtime_i32_slice(1, 8), .consume = consume]
+  [.marker = @runtime_i32_slice(1, 8), .consume = consume]
 }
-output.consume(append("A", "da"))
+output.consume(@append("A", "da"))
 `);
   const instance = await instantiate_wat(
     wat,
@@ -389,7 +389,7 @@ Deno.test("core bounded-borrow host import compiles through WAT to Wasm", async 
         annotation: "Text",
         value: {
           tag: "app",
-          func: { tag: "var", name: "append" },
+          func: { tag: "var", name: "@append" },
           args: [
             { tag: "text", value: "he" },
             { tag: "text", value: "llo" },
@@ -467,7 +467,7 @@ Deno.test("core scratch bounded-borrow host import compiles through WAT to Wasm"
                 annotation: "Text",
                 value: {
                   tag: "app",
-                  func: { tag: "var", name: "append" },
+                  func: { tag: "var", name: "@append" },
                   args: [
                     { tag: "text", value: "he" },
                     { tag: "text", value: "llo" },
@@ -544,7 +544,7 @@ Deno.test("core frozen-shareable host import compiles through WAT to Wasm", asyn
           tag: "freeze",
           value: {
             tag: "app",
-            func: { tag: "var", name: "append" },
+            func: { tag: "var", name: "@append" },
             args: [
               { tag: "text", value: "he" },
               { tag: "text", value: "llo" },
@@ -611,7 +611,7 @@ Deno.test("core ownership-transfer host import compiles through WAT to Wasm", as
         annotation: "Text",
         value: {
           tag: "app",
-          func: { tag: "var", name: "append" },
+          func: { tag: "var", name: "@append" },
           args: [
             { tag: "text", value: "he" },
             { tag: "text", value: "llo" },
@@ -665,7 +665,7 @@ let send = if flag {
 } else {
   (msg: Text) => host_take(msg)
 }
-let message: Text = append("he", "llo")
+let message: Text = @append("he", "llo")
 send(message)
 `);
   const instance = await instantiate_wat(
@@ -700,7 +700,7 @@ Deno.test("core temporary ownership-transfer wrapper argument compiles through W
 host_import host_take from "env.take" (Text) => I32
 
 let send = msg => host_take(msg)
-send(append("he", "llo"))
+send(@append("he", "llo"))
 `);
   const instance = await instantiate_wat(
     wat,
@@ -733,8 +733,8 @@ Deno.test("core expression temporary ownership-transfer wrapper compiles through
   const wat = wat_from_core_source(`
 host_import host_take from "env.take" (Text) => I32
 
-let send = (msg: Text) => host_take(append(msg, "!"))
-let message: Text = append("he", "llo")
+let send = (msg: Text) => host_take(@append(msg, "!"))
+let message: Text = @append("he", "llo")
 send(message)
 `);
   const instance = await instantiate_wat(
@@ -770,7 +770,7 @@ host_import host_take from "env.take" (Text) => I32
 
 let send = msg => host_take(msg)
 let flag = 0
-send(if flag { append("he", "llo") } else { append("wo", "rld") })
+send(if flag { @append("he", "llo") } else { @append("wo", "rld") })
 `);
   const instance = await instantiate_wat(
     wat,
@@ -804,7 +804,7 @@ Deno.test("core branch-local ownership-transfer wrapper compiles through WAT to 
 host_import host_take from "env.take" (Text) => I32
 
 let flag = 1
-let message: Text = append("he", "llo")
+let message: Text = @append("he", "llo")
 if flag {
   let send = msg => host_take(msg)
   send(message)
@@ -844,7 +844,7 @@ Deno.test("core rec ownership-transfer wrapper compiles through WAT to Wasm", as
 host_import host_take from "env.take" (Text) => I32
 
 let send = rec (msg: Text) => host_take(msg)
-let message: Text = append("he", "llo")
+let message: Text = @append("he", "llo")
 send(message)
 `);
   const instance = await instantiate_wat(
@@ -880,7 +880,7 @@ host_import host_take from "env.take" (Text) => I32
 
 let send = msg => host_take(msg)
 let relay = (const f, msg) => f(msg)
-let message: Text = append("he", "llo")
+let message: Text = @append("he", "llo")
 relay(send, message)
 `);
   const instance = await instantiate_wat(
@@ -915,8 +915,8 @@ Deno.test("core higher-order expression temporary ownership-transfer wrapper com
 host_import host_take from "env.take" (Text) => I32
 
 let send = (msg: Text) => host_take(msg)
-let relay = (const f, msg: Text) => f(append(msg, "!"))
-let message: Text = append("he", "llo")
+let relay = (const f, msg: Text) => f(@append(msg, "!"))
+let message: Text = @append("he", "llo")
 relay(send, message)
 `);
   const instance = await instantiate_wat(
@@ -955,7 +955,7 @@ let relay = (const f, msg) => {
   let g = f
   g(msg)
 }
-let message: Text = append("he", "llo")
+let message: Text = @append("he", "llo")
 relay(send, message)
 `);
   const instance = await instantiate_wat(
@@ -994,15 +994,15 @@ let flag = 1
 let relay = if flag {
   (const f, msg: Text) => {
     let g = f
-    g(append(msg, "!"))
+    g(@append(msg, "!"))
   }
 } else {
   (const f, msg: Text) => {
     let g = f
-    g(append(msg, "?"))
+    g(@append(msg, "?"))
   }
 }
-let message: Text = append("he", "llo")
+let message: Text = @append("he", "llo")
 relay(send, message)
 `);
   const instance = await instantiate_wat(

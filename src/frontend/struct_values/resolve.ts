@@ -240,7 +240,7 @@ function is_non_struct_const_builtin(expr: FrontExpr): boolean {
     return false;
   }
 
-  return expr.func.name === "len" || expr.func.name === "size_of" ||
-    expr.func.name === "align_of" || expr.func.name === "is_struct" ||
-    expr.func.name === "is_union" || expr.func.name === "has";
+  return expr.func.name === "@len" || expr.func.name === "@size_of" ||
+    expr.func.name === "@align_of" || expr.func.name === "@is_struct" ||
+    expr.func.name === "@is_union" || expr.func.name === "@has";
 }

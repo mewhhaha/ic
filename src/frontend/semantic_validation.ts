@@ -1051,17 +1051,17 @@ function validate_expr(
       validate_union_constructor(expr, env, diagnostics);
       validate_call_arguments(expr, env, diagnostics, check_comptime);
 
-      if (expr.func.tag === "var" && expr.func.name === "Bytes.generate") {
+      if (expr.func.tag === "var" && expr.func.name === "@Bytes.generate") {
         validate_bytes_generate_call(expr, env, diagnostics);
       }
 
       validate_runtime_buffer_builtin_call(expr, env, diagnostics);
 
-      if (expr.func.tag === "var" && expr.func.name === "append") {
+      if (expr.func.tag === "var" && expr.func.name === "@append") {
         validate_append_buffer_call(expr, env, diagnostics);
       }
 
-      if (expr.func.tag === "var" && expr.func.name === "get") {
+      if (expr.func.tag === "var" && expr.func.name === "@get") {
         const index = expr.args[1];
 
         if (index !== undefined) {
@@ -1069,7 +1069,7 @@ function validate_expr(
         }
       }
 
-      if (expr.func.tag === "var" && expr.func.name === "slice") {
+      if (expr.func.tag === "var" && expr.func.name === "@slice") {
         const start = expr.args[1];
         const end = expr.args[2];
 
@@ -1626,16 +1626,16 @@ function validate_runtime_buffer_builtin_call(
   const name = expr.func.name;
 
   if (
-    name !== "Utf8.encode" && name !== "Utf8.decode" &&
-    name !== "format_i32" && name !== "format_i64" &&
-    name !== "format_f32"
+    name !== "@Utf8.encode" && name !== "@Utf8.decode" &&
+    name !== "@format_i32" && name !== "@format_i64" &&
+    name !== "@format_f32"
   ) {
     return;
   }
 
   let expected_args = 1;
 
-  if (name === "format_f32") {
+  if (name === "@format_f32") {
     expected_args = 2;
   }
 
@@ -1654,13 +1654,13 @@ function validate_runtime_buffer_builtin_call(
   const actual = infer_type(arg, env);
   let expected: FrontType;
 
-  if (name === "Utf8.encode") {
+  if (name === "@Utf8.encode") {
     expected = { tag: "text" };
-  } else if (name === "Utf8.decode") {
+  } else if (name === "@Utf8.decode") {
     expected = { tag: "text", encoding: "bytes" };
-  } else if (name === "format_i64") {
+  } else if (name === "@format_i64") {
     expected = { tag: "int", type: "i64" };
-  } else if (name === "format_f32") {
+  } else if (name === "@format_f32") {
     expected = { tag: "int", type: "f32" };
   } else {
     expected = { tag: "int", type: "i32" };
@@ -1674,7 +1674,7 @@ function validate_runtime_buffer_builtin_call(
     ));
   }
 
-  if (name !== "format_f32") {
+  if (name !== "@format_f32") {
     return;
   }
 
@@ -2771,13 +2771,13 @@ function validate_comptime_fail(
   expr: Extract<FrontExpr, { tag: "app" }>,
   diagnostics: SourceDiagnostic[],
 ): void {
-  if (expr.func.tag !== "var" || expr.func.name !== "fail") {
+  if (expr.func.tag !== "var" || expr.func.name !== "@fail") {
     return;
   }
 
   diagnostics.push(source_diagnostic(
     "DUCK2102",
-    "fail: " + call_message(expr.args),
+    "@fail: " + call_message(expr.args),
     expr,
   ));
 }
@@ -3102,19 +3102,19 @@ function infer_type(
       return { tag: "int", type: result };
     }
 
-    if (expr.func.tag === "var" && expr.func.name === "Bytes.generate") {
+    if (expr.func.tag === "var" && expr.func.name === "@Bytes.generate") {
       return { tag: "text", encoding: "bytes" };
     }
 
-    if (expr.func.tag === "var" && expr.func.name === "Utf8.encode") {
+    if (expr.func.tag === "var" && expr.func.name === "@Utf8.encode") {
       return { tag: "text", encoding: "bytes" };
     }
 
     if (
       expr.func.tag === "var" &&
-      (expr.func.name === "Utf8.decode" ||
-        expr.func.name === "format_i32" ||
-        expr.func.name === "format_i64" || expr.func.name === "format_f32")
+      (expr.func.name === "@Utf8.decode" ||
+        expr.func.name === "@format_i32" ||
+        expr.func.name === "@format_i64" || expr.func.name === "@format_f32")
     ) {
       return { tag: "text" };
     }

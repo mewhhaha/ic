@@ -1,11 +1,12 @@
-const { struct } = comptime (import "duck:prelude")()
+const { struct } = comptime import "duck:prelude" ()
+const { length } = comptime import "duck:prelude/runtime" ()
 
 type Point = struct { .x = Int, .y = Int }
 type Pixels = [Int; 2]
 type Shape = | .point = Point | .code = Int
 
 const fold = rec (values, index, state, next) => {
-  if index == len(values) {
+  if index == length(values) {
     state
   } else {
     rec(values, index + 1, next(state, values[index]), next)
@@ -21,7 +22,7 @@ const range = rec (index, length) => {
 }
 
 const derive_equal = rec (const target) => {
-  const description = describe_type(target)
+  const description = @describe_type(target)
 
   if description.kind == #record {
     const add_field = (const equal, const field) => {
@@ -29,7 +30,7 @@ const derive_equal = rec (const target) => {
 
       const compare = (left, right) => {
         if equal(left, right) {
-          field_equal(project(left, field), project(right, field))
+          field_equal(@project(left, field), @project(right, field))
         } else {
           false
         }
@@ -38,7 +39,7 @@ const derive_equal = rec (const target) => {
       compare
     }
 
-    fold(describe_fields(target), 0, (left, right) => true, add_field)
+    fold(@describe_fields(target), 0, (left, right) => true, add_field)
   } else {
     if description.kind == #array {
       const element_equal = derive_equal(description.element)
@@ -63,9 +64,9 @@ const derive_equal = rec (const target) => {
           const payload_equal = derive_equal(case.type)
 
           const compare = (left, right) => {
-            if is_case(left, case) {
-              if is_case(right, case) {
-                payload_equal(project(left, case), project(right, case))
+            if @is_case(left, case) {
+              if @is_case(right, case) {
+                payload_equal(@project(left, case), @project(right, case))
               } else {
                 false
               }
@@ -77,7 +78,7 @@ const derive_equal = rec (const target) => {
           compare
         }
 
-        fold(describe_cases(target), 0, (left, right) => false, add_case)
+        fold(@describe_cases(target), 0, (left, right) => false, add_case)
       } else {
         (left, right) => left == right
       }

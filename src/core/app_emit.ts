@@ -142,7 +142,7 @@ export function emit_core_app<
     name = expr.func.name;
   }
 
-  if (name === "len") {
+  if (name === "@len") {
     hooks.app_type(expr, ctx);
     const collection = expr.args[0];
     expect(collection, "Missing core len collection");
@@ -165,7 +165,7 @@ export function emit_core_app<
     return hooks.emit_runtime_text_len(collection, ctx);
   }
 
-  if (name === "get") {
+  if (name === "@get") {
     hooks.app_type(expr, ctx);
     const collection = expr.args[0];
     expect(collection, "Missing core get collection");
@@ -200,7 +200,7 @@ export function emit_core_app<
     return hooks.emit_dynamic_index_expr(fields, index_expr, ctx);
   }
 
-  if (name === "slice") {
+  if (name === "@slice") {
     hooks.app_type(expr, ctx);
     const text = expr.args[0];
     const start = expr.args[1];
@@ -211,12 +211,12 @@ export function emit_core_app<
     return hooks.emit_runtime_text_slice(expr, text, start, end, ctx);
   }
 
-  if (name === "panic") {
+  if (name === "@panic") {
     hooks.app_type(expr, ctx);
     return "unreachable";
   }
 
-  if (name === "Bytes.generate") {
+  if (name === "@Bytes.generate") {
     hooks.app_type(expr, ctx);
     const length = expr.args[0];
     const generator = expr.args[1];
@@ -278,7 +278,7 @@ export function emit_core_app<
     return hooks.emit_dynamic_closure_call(expr, fn_type, ctx);
   }
 
-  if (name === "append") {
+  if (name === "@append") {
     hooks.app_type(expr, ctx);
     const left = expr.args[0];
     const right = expr.args[1];
@@ -287,7 +287,7 @@ export function emit_core_app<
     return hooks.emit_runtime_text_append(left, right, expr, ctx);
   }
 
-  if (name === "runtime_i32_slice" || name === "runtime_text_slice") {
+  if (name === "@runtime_i32_slice" || name === "@runtime_text_slice") {
     hooks.app_type(expr, ctx);
     expect(ctx.heap, "Core runtime slice needs heap emission facts");
     ctx.heap.needed = true;
@@ -297,7 +297,7 @@ export function emit_core_app<
     const slice_local = fresh_temp_local(ctx, "runtime_slice");
     set_local(ctx.locals, slice_local, "i32");
     let layout: import("./allocation.ts").CoreAllocationLayout;
-    if (name === "runtime_i32_slice") {
+    if (name === "@runtime_i32_slice") {
       layout = "runtime_slice.length_and_i32_elements";
     } else {
       layout = "runtime_slice.length_and_frozen_text_pointers";

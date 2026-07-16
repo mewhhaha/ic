@@ -23,7 +23,7 @@ export function val_type_size(value_type: ValType): number {
   }
 
   value_type satisfies never;
-  throw new Error("panic");
+  throw new Error("@panic");
 }
 
 export function val_type_align(value_type: ValType): number {

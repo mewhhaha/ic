@@ -1,7 +1,8 @@
-const { struct } = comptime (import "duck:prelude")()
+const { struct } = comptime import "duck:prelude" ()
+const { length } = comptime import "duck:prelude/runtime" ()
 
 type User = struct { .name = Text, .age = Int }
 
 let user: User = ["Ada", 36]
 
-user.age + len(user.name)
+user.age + length(user.name)

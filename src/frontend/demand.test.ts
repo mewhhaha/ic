@@ -9,7 +9,7 @@ function occurrence_count(text: string, needle: string): number {
 Deno.test("unused direct-call arguments are not evaluated", () => {
   const wat = Source.wat(`
 let ignore = value => 42
-ignore(panic("unused"))
+ignore(@panic("unused"))
 `);
 
   assert_equals(occurrence_count(wat, "unreachable"), 0);
@@ -19,7 +19,7 @@ ignore(panic("unused"))
 Deno.test("repeated direct-call demand evaluates an argument once", () => {
   const wat = Source.wat(`
 let duplicate = value => value + value
-duplicate(panic("once"))
+duplicate(@panic("once"))
 `);
 
   assert_equals(occurrence_count(wat, "unreachable"), 1);
@@ -34,7 +34,7 @@ let select = [flag, value] => if flag {
 } else {
   0
 }
-select [0, panic("not selected")]
+select [0, @panic("not selected")]
 `);
   const branch_start = wat.indexOf("if (result i32)");
   const demand = wat.indexOf("local.set $_demand#0");
@@ -62,7 +62,7 @@ let operation = if flag {
 } else {
   (value: I32) => value + value
 }
-let result: I32 = operation(panic("lazy"))
+let result: I32 = operation(@panic("lazy"))
 return { .result = result }
 `);
   const main_start = wat.indexOf("(func $main");

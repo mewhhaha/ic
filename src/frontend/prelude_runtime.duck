@@ -1,0 +1,96 @@
+module () where
+
+duck Semigroup Self {
+  .append = [Self, Self] -> Self
+}
+
+duck Bits Self {
+  .bit_and = [Self, Self] -> Self
+  .bit_or = [Self, Self] -> Self
+  .bit_xor = [Self, Self] -> Self
+  .shift_left = [Self, Self] -> Self
+  .shift_right_unsigned = [Self, Self] -> Self
+}
+
+extend Text {
+  .append = [left, right] => @append(left, right)
+}
+
+extend Bytes {
+  .append = [left, right] => @append(left, right)
+}
+
+extend I32 {
+  .bit_and = [left, right] => @bit_and(left, right)
+  .bit_or = [left, right] => @bit_or(left, right)
+  .bit_xor = [left, right] => @bit_xor(left, right)
+  .shift_left = [value, amount] => @shift_left(value, amount)
+  .shift_right_unsigned = [value, amount] => @shift_right_u(value, amount)
+}
+
+extend I64 {
+  .bit_and = [left, right] => @bit_and(left, right)
+  .bit_or = [left, right] => @bit_or(left, right)
+  .bit_xor = [left, right] => @bit_xor(left, right)
+  .shift_left = [value, amount] => @shift_left(value, amount)
+  .shift_right_unsigned = [value, amount] => @shift_right_u(value, amount)
+}
+
+const append = [left, right] => @append(left, right)
+const length = value => @len(value)
+const get = [value, index] => @get(value, index)
+const slice = [value, start, end] => @slice(value, start, end)
+
+const bit_and = [left, right] => @bit_and(left, right)
+const bit_or = [left, right] => @bit_or(left, right)
+const bit_xor = [left, right] => @bit_xor(left, right)
+const shift_left = [value, amount] => @shift_left(value, amount)
+const shift_right_unsigned = [value, amount] => @shift_right_u(value, amount)
+
+const sqrt_f32 = value => @f32_sqrt(value)
+const f32_from_i32 = value => @f32_from_i32(value)
+const i32_from_f32 = value => @i32_from_f32(value)
+const format_i32 = value => @format_i32(value)
+const format_i64 = value => @format_i64(value)
+const format_f32 = [value, fractional_digits] => @format_f32(value, fractional_digits)
+
+const generate_bytes = [length: I32, generate: I32 -> I32] => @Bytes.generate(length, generate)
+const encode_utf8 = text => @Utf8.encode(text)
+const decode_utf8 = bytes => @Utf8.decode(bytes)
+
+const panic = value => @panic(value)
+
+const f32x4 = [x, y, z, w] => @f32x4(x, y, z, w)
+const f32x4_splat = value => @f32x4_splat(value)
+const f32x4_add = [left, right] => @f32x4_add(left, right)
+const f32x4_subtract = [left, right] => @f32x4_sub(left, right)
+const f32x4_multiply = [left, right] => @f32x4_mul(left, right)
+const f32x4_divide = [left, right] => @f32x4_div(left, right)
+
+return {
+  append,
+  length,
+  get,
+  slice,
+  bit_and,
+  bit_or,
+  bit_xor,
+  shift_left,
+  shift_right_unsigned,
+  sqrt_f32,
+  f32_from_i32,
+  i32_from_f32,
+  format_i32,
+  format_i64,
+  format_f32,
+  generate_bytes,
+  encode_utf8,
+  decode_utf8,
+  panic,
+  f32x4,
+  f32x4_splat,
+  f32x4_add,
+  f32x4_subtract,
+  f32x4_multiply,
+  f32x4_divide,
+}

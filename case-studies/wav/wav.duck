@@ -8,7 +8,7 @@ const pcm_bytes = phrase_samples * 2
 const wav_bytes = header_bytes + pcm_bytes
 
 let little_endian_byte = (value: I32, byte_position: I32) => {
-  bit_and(shift_right_u(value, byte_position * 8), 0xff)
+  (value >> (byte_position * 8)) &&& 0xff
 }
 
 let header_byte = (index: I32) => {
@@ -59,9 +59,9 @@ let wav_byte = (index: I32) => {
   if index < header_bytes {
     header_byte(index)
   } else {
-    little_endian_byte(bit_and(sample_value((index - header_bytes) / 2), 0xffff), index % 2)
+    little_endian_byte(sample_value((index - header_bytes) / 2) &&& 0xffff, index % 2)
   }
 }
 
-let wav: Bytes = Bytes.generate(wav_bytes, wav_byte)
+let wav: Bytes = @Bytes.generate(wav_bytes, wav_byte)
 return { .wav = wav }

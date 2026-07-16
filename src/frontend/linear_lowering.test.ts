@@ -1729,7 +1729,7 @@ let main = flag => {
     }
 
     let label: Text = "ok"
-    total = total + len(label)
+    total = total + @len(label)
   }
 
   total
@@ -1817,7 +1817,7 @@ let main = flag => {
     } else {
       other
     }
-    total = len(value)
+    total = @len(value)
   }
 
   total
@@ -1863,7 +1863,7 @@ let main = flag => {
     let value = if let .some(message) = maybe {
       message
     }
-    total = len(value)
+    total = @len(value)
   }
 
   total
@@ -1929,7 +1929,7 @@ let main = flag => {
 
     let id = (text: Text) => text
     let value = id(input)
-    total = len(value)
+    total = @len(value)
   }
 
   total
@@ -1970,7 +1970,7 @@ let main = flag => {
       (other: Text) => other
     }
     let value = id(input)
-    total = len(value)
+    total = @len(value)
   }
 
   total
@@ -2014,7 +2014,7 @@ let main = flag => {
       (other: Text) => other
     }
     let value = id(input)
-    total = len(value)
+    total = @len(value)
   }
 
   total
@@ -2061,7 +2061,7 @@ let main = flag => {
       y => [.first = y, .label = input] as pair_type
     }
     let pair = make(i)
-    total = pair.first + len(pair.label)
+    total = pair.first + @len(pair.label)
   }
 
   total
@@ -2110,7 +2110,7 @@ let main = flag => {
       (other: Text) => other
     }
     let value = id(input)
-    total = len(value)
+    total = @len(value)
   }
 
   total
@@ -2152,7 +2152,7 @@ let main = flag => {
     }
 
     let pair = [.first = i + 1, .label = "ok"] as pair_type
-    total = total + pair.first + len(pair.label)
+    total = total + pair.first + @len(pair.label)
   }
 
   total
@@ -2227,7 +2227,7 @@ let main = flag => {
   }
 
   if let .some(value) = option {
-    len(value)
+    @len(value)
   }
 }
 
@@ -2265,7 +2265,7 @@ let main = flag => {
   }
 
   if let .some(value) = option {
-    len(value)
+    @len(value)
   }
 }
 
@@ -2305,7 +2305,7 @@ let main = flag => {
   }
 
   if let .some(value) = option {
-    len(value)
+    @len(value)
   }
 }
 
@@ -2343,7 +2343,7 @@ let main = flag => {
   }
 
   if let .some(value) = option {
-    len(value)
+    @len(value)
   }
 }
 
@@ -2929,7 +2929,7 @@ let main = flag => {
     }
 
     let label: Text = "item"
-    total = total + x + len(label)
+    total = total + x + @len(label)
   }
 
   total
@@ -2969,7 +2969,7 @@ let main = flag => {
     }
 
     let pair = [.first = x, .label = "item"] as pair_type
-    total = total + pair.first + len(pair.label)
+    total = total + pair.first + @len(pair.label)
   }
 
   total
@@ -3262,13 +3262,13 @@ Deno.test("Source lowers const-known collection len and get helpers", () => {
   const direct = compile(`
 const xs = [10, 20, 30]
 
-len(xs) + get(xs, 1)
+@len(xs) + @get(xs, 1)
 `);
 
   assert_equals(Ic.reduce(direct), { tag: "num", type: "i32", value: 23 });
 
   const closure_len = compile(`
-let size = xs => len(xs)
+let size = xs => @len(xs)
 
 size([10, 32])
 `);
@@ -3280,7 +3280,7 @@ size([10, 32])
   });
 
   const closure_get = compile(`
-let second = xs => get(xs, 1)
+let second = xs => @get(xs, 1)
 
 second([10, 32])
 `);
@@ -3293,7 +3293,7 @@ second([10, 32])
 
   const closure_dynamic_get = compile(`
 let choose = (xs, i) => {
-  get(xs, i)
+  @get(xs, i)
 }
 
 choose([10, 32], input)
@@ -3324,7 +3324,7 @@ let rename = value => {
   }
 }
 
-get(rename([.first = "Ada", .second = "Eve"])[input], 1)
+@get(rename([.first = "Ada", .second = "Eve"])[input], 1)
 `);
   const dynamic_text_get_text = Format.fmt(Ic, Ic.reduce(dynamic_text_get));
 
@@ -3360,7 +3360,7 @@ let rename = value => {
   }
 }
 
-get(rename([.first = "Ada", .second = "Eve"])[input], 1i64)
+@get(rename([.first = "Ada", .second = "Eve"])[input], 1i64)
 `),
     "Text index must be i32",
   );
@@ -3384,8 +3384,8 @@ const xs = [10, 20, 30]
 
 let sum = 0
 
-for i in 0..len(xs) {
-  sum = sum + get(xs, i)
+for i in 0..@len(xs) {
+  sum = sum + @get(xs, i)
 }
 
 sum
@@ -3396,7 +3396,7 @@ sum
   const dynamic = compile(`
 const xs = [10, 20, 30]
 
-get(xs, input)
+@get(xs, input)
 `);
   const dynamic_text = Format.fmt(Ic, Ic.reduce(dynamic));
 
@@ -3413,7 +3413,7 @@ get(xs, input)
   const dynamic_text_index = compile(`
 const messages = ["Ada", "Grace"]
 
-get(messages, input)
+@get(messages, input)
 `);
   const dynamic_text_index_text = Format.fmt(
     Ic,
@@ -3429,7 +3429,7 @@ get(messages, input)
   const dynamic_text_len = compile(`
 const messages = [.first = "Ada", .second = "Grace"]
 
-len(messages[input])
+@len(messages[input])
 `);
   const dynamic_text_len_text = Format.fmt(Ic, Ic.reduce(dynamic_text_len));
 
@@ -3440,7 +3440,7 @@ len(messages[input])
   assert_includes(dynamic_text_len_text, "else trap");
 
   assert_throws(
-    () => compile("len(xs)"),
+    () => compile("@len(xs)"),
     "len requires a compile-time collection value",
   );
 });
@@ -3478,7 +3478,7 @@ const pair_type = struct {
 }
 
 let second_plus_one = (pair: pair_type) => {
-  get(pair, 1) + 1
+  @get(pair, 1) + 1
 }
 
 let pair = [.first = 0, .second = 41] as pair_type
@@ -3546,7 +3546,7 @@ const pair_type = struct {
 }
 
 let choose = (pair: pair_type, i) => {
-  get(pair, i)
+  @get(pair, i)
 }
 
 let pair = [.first = 10, .second = 20] as pair_type
@@ -3588,7 +3588,7 @@ const pair_type = struct {
 }
 
 let count = (pair: pair_type) => {
-  len(pair)
+  @len(pair)
 }
 
 let pair = [.first = 10, .second = 20] as pair_type
@@ -3831,7 +3831,7 @@ byte_at("Ada", input)
   assert_includes(dynamic_text_argument_byte_text, "else trap");
 
   const text_argument_len = compile(`
-let byte_len = value => len(value)
+let byte_len = value => @len(value)
 
 byte_len("Ada")
 `);
@@ -3843,7 +3843,7 @@ byte_len("Ada")
   });
 
   const text_argument_get = compile(`
-let byte_at = value => get(value, 1)
+let byte_at = value => @get(value, 1)
 
 byte_at("Ada")
 `);
@@ -3864,7 +3864,7 @@ const pair_type = struct {
 let sum = (pair: pair_type) => {
   let total = 0
 
-  for i in 0..len(pair) {
+  for i in 0..@len(pair) {
     total = total + pair[i]
   }
 
@@ -3914,7 +3914,7 @@ const messages_type = struct {
 
 let messages = [.first = "Ada", .second = "Grace"] as messages_type
 
-len(messages[i])
+@len(messages[i])
 `);
   const typed_text_index_len_text = Format.fmt(
     Ic,
@@ -3935,7 +3935,7 @@ const messages_type = struct {
 }
 
 let byte_len = (messages: messages_type, i) => {
-  len(messages[i])
+  @len(messages[i])
 }
 
 let messages = [.first = first_text, .second = second_text] as messages_type
@@ -4217,7 +4217,7 @@ for i in 0..2 {
   }
 
   let label: Text = text
-  total = total + len(label)
+  total = total + @len(label)
 }
 
 total
@@ -4298,7 +4298,7 @@ for i in 0..2 {
   }
 
   let pair: pair_type = source
-  total = total + pair.first + len(pair.label)
+  total = total + pair.first + @len(pair.label)
 }
 
 total
@@ -4367,7 +4367,7 @@ for i in 0..2 {
   }
 
   let user: user_type = source
-  total = total + user.age + len(user.name.first)
+  total = total + user.age + @len(user.name.first)
 }
 
 total
@@ -4541,7 +4541,7 @@ for i in 0..2 {
   }
 
   let pair = make(i)
-  total = total + pair.first + len(pair.label)
+  total = total + pair.first + @len(pair.label)
 }
 
 total
@@ -4579,7 +4579,7 @@ for i in 0..2 {
     let made = make(i)
     made
   }
-  total = total + pair.first + len(pair.label)
+  total = total + pair.first + @len(pair.label)
 }
 
 total
@@ -4725,7 +4725,7 @@ for i in 0..1 {
     value
   }
 
-  total = total + len(text)
+  total = total + @len(text)
 }
 
 total

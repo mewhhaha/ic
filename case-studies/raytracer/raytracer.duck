@@ -1,7 +1,7 @@
 module () where
 
 // A fixed-camera scalar ray tracer. The only allocation is the final PPM byte
-// buffer; every channel is computed independently by Bytes.generate.
+// buffer; every channel is computed independently by @Bytes.generate.
 const image_width = 32
 const image_height = 20
 const header_length = 13
@@ -22,20 +22,20 @@ let trace_channel: (F32, F32, F32, I32) -> F32 =
     let discriminant = half_b * half_b - (9.0f32 - radius * radius)
 
     if discriminant > 0.0f32 {
-      let distance = 0.0f32 - half_b - f32_sqrt(discriminant)
+      let distance = 0.0f32 - half_b - @f32_sqrt(discriminant)
 
       if distance > 0.0f32 {
         let point_x = direction_x * distance
         let point_y = direction_y * distance
         let point_z = direction_z * distance + 3.0f32
-        let normal_length = f32_sqrt(point_x * point_x + point_y * point_y + point_z * point_z)
+        let normal_length = @f32_sqrt(point_x * point_x + point_y * point_y + point_z * point_z)
         let normal_x = point_x / normal_length
         let normal_y = point_y / normal_length
         let normal_z = point_z / normal_length
         let light_x = 0.0f32 - 0.6f32
         let light_y = 0.8f32
         let light_z = 0.0f32 - 0.5f32
-        let light_length = f32_sqrt(light_x * light_x + light_y * light_y + light_z * light_z)
+        let light_length = @f32_sqrt(light_x * light_x + light_y * light_y + light_z * light_z)
         let diffuse = normal_x * (light_x / light_length) + normal_y * (light_y / light_length) + normal_z * (light_z / light_length)
         let light_amount = 0.0f32
 
@@ -61,13 +61,13 @@ let trace_channel: (F32, F32, F32, I32) -> F32 =
 
 let camera_channel: (I32, I32, I32) -> F32 =
   (sample_x: I32, sample_y: I32, channel: I32) => {
-  let horizontal = f32_from_i32(sample_x) / 31.0f32 * 2.0f32 - 1.0f32
-  let vertical = f32_from_i32(sample_y) / 19.0f32 * 2.0f32 - 1.0f32
-  let raw_x = horizontal * 1.6f32
-  let raw_y = 0.75f32 - vertical * 1.2f32
-  let raw_z = 0.0f32 - 1.0f32
-  let direction_length = f32_sqrt(raw_x * raw_x + raw_y * raw_y + raw_z * raw_z)
-  trace_channel(raw_x / direction_length, raw_y / direction_length, raw_z / direction_length, channel)
+    let horizontal = @f32_from_i32(sample_x) / 31.0f32 * 2.0f32 - 1.0f32
+    let vertical = @f32_from_i32(sample_y) / 19.0f32 * 2.0f32 - 1.0f32
+    let raw_x = horizontal * 1.6f32
+    let raw_y = 0.75f32 - vertical * 1.2f32
+    let raw_z = 0.0f32 - 1.0f32
+    let direction_length = @f32_sqrt(raw_x * raw_x + raw_y * raw_y + raw_z * raw_z)
+    trace_channel(raw_x / direction_length, raw_y / direction_length, raw_z / direction_length, channel)
   }
 
 let colour_byte: F32 -> I32 = (value: F32) => {
@@ -79,7 +79,7 @@ let colour_byte: F32 -> I32 = (value: F32) => {
     clamped = 1.0f32
   }
 
-  i32_from_f32(clamped * 255.0f32)
+  @i32_from_f32(clamped * 255.0f32)
 }
 
 let header_byte: I32 -> I32 = (index: I32) => {
@@ -125,5 +125,5 @@ let render_byte: I32 -> I32 = (index: I32) => {
   }
 }
 
-let ppm = Bytes.generate(header_length + image_width * image_height * 3, render_byte)
+let ppm = @Bytes.generate(header_length + image_width * image_height * 3, render_byte)
 return { .ppm = ppm }

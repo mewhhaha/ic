@@ -82,6 +82,13 @@ Deno.test("strict tokenize retains its filtered stream and comment option", () =
   assert_throws(() => tokenize('"\\q"'), "Unsupported string escape: \\q");
 });
 
+Deno.test("scanner keeps category operators as single symbols", () => {
+  assert_equals(
+    tokenize("a &&& b ||| c ^^^ d << e >> f").map((token) => token.text),
+    ["a", "&&&", "b", "|||", "c", "^^^", "d", "<<", "e", ">>", "f", ""],
+  );
+});
+
 Deno.test("tolerant scanner reports malformed input without dropping it", () => {
   const text = "§ \"\\q\" 'ab'";
   const syntax = scan_source(text);

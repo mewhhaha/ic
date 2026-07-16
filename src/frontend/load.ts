@@ -334,7 +334,7 @@ function resolve_statement_imports_untracked(
   }
 
   stmt satisfies never;
-  throw new Error("panic");
+  throw new Error("@panic");
 }
 
 function resolve_statement_list_imports(
@@ -761,7 +761,7 @@ function resolve_expression_imports_untracked(
   }
 
   expr satisfies never;
-  throw new Error("panic");
+  throw new Error("@panic");
 }
 
 function resolve_fields(

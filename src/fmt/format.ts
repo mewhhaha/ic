@@ -45,7 +45,7 @@ const keywords = new Set([
 
 const openers = new Set(["{", "(", "["]);
 const closers = new Set(["}", ")", "]"]);
-const prefix_symbols = new Set(["!", "#"]);
+const prefix_symbols = new Set(["!", "#", "@"]);
 // `&` and `\` are prefix sigils in value position but binary operators in
 // type expressions such as `(Value \ Text) & Int`; position decides.
 const positional_symbols = new Set(["&", "\\"]);
@@ -476,6 +476,15 @@ function needs_space(
 
     // Parenthesized calls glue to the value they apply to.
     if (token.text === "(" && is_value_end(previous)) {
+      const before_previous = line[index - 2];
+
+      if (
+        previous.kind === "string" && before_previous?.kind === "name" &&
+        before_previous.text === "import"
+      ) {
+        return true;
+      }
+
       return false;
     }
 

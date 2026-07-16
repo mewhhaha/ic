@@ -10,6 +10,8 @@ import { numeric_builtin_call, prim_result_type } from "../numeric.ts";
 import type { InferExprFn, InferHooks } from "./types.ts";
 import { Callable } from "../../trait.ts";
 import { infer_f32x4_builtin_call } from "../f32x4.ts";
+import { front_type_from_type_name } from "../types.ts";
+import { compiler_builtin_args } from "../call_args.ts";
 
 export function infer_prim_result_type(
   expr: Extract<FrontExpr, { tag: "prim" }>,
@@ -46,6 +48,20 @@ export function infer_builtin_call_type(
 ): FrontType | undefined {
   if (expr.func.tag !== "var") {
     return undefined;
+  }
+
+  if (expr.func.name === "@as" && !lookup(env, expr.func.name)) {
+    const args = compiler_builtin_args(expr);
+    const target = args[1];
+
+    if (
+      args.length === 2 && target !== undefined &&
+      (target.tag === "var" || target.tag === "type_name")
+    ) {
+      return front_type_from_type_name(target.name);
+    }
+
+    return { tag: "unknown" };
   }
 
   const f32x4_call = infer_f32x4_builtin_call(expr, env);
@@ -104,30 +120,30 @@ export function infer_builtin_call_type(
     return { tag: "int", type: result };
   }
 
-  if (expr.func.name === "len" && expr.args.length === 1) {
+  if (expr.func.name === "@len" && expr.args.length === 1) {
     return { tag: "int", type: "i32" };
   }
 
-  if (expr.func.name === "Bytes.generate" && expr.args.length === 2) {
+  if (expr.func.name === "@Bytes.generate" && expr.args.length === 2) {
     return { tag: "text", encoding: "bytes" };
   }
 
-  if (expr.func.name === "Utf8.encode" && expr.args.length === 1) {
+  if (expr.func.name === "@Utf8.encode" && expr.args.length === 1) {
     return { tag: "text", encoding: "bytes" };
   }
 
   if (
-    (expr.func.name === "Utf8.decode" || expr.func.name === "format_i32" ||
-      expr.func.name === "format_i64") && expr.args.length === 1
+    (expr.func.name === "@Utf8.decode" || expr.func.name === "@format_i32" ||
+      expr.func.name === "@format_i64") && expr.args.length === 1
   ) {
     return { tag: "text" };
   }
 
-  if (expr.func.name === "format_f32" && expr.args.length === 2) {
+  if (expr.func.name === "@format_f32" && expr.args.length === 2) {
     return { tag: "text" };
   }
 
-  if (expr.func.name === "slice" && expr.args.length === 3) {
+  if (expr.func.name === "@slice" && expr.args.length === 3) {
     const value = expr.args[0];
 
     if (!value) {
@@ -144,7 +160,7 @@ export function infer_builtin_call_type(
   }
 
   if (
-    expr.func.name === "append" && expr.args.length === 2 &&
+    expr.func.name === "@append" && expr.args.length === 2 &&
     !lookup(env, expr.func.name)
   ) {
     const left = expr.args[0];

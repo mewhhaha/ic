@@ -285,7 +285,7 @@ Type
 Types are compile-time values.
 
 ```duck
-const { struct } = comptime (import "duck:prelude")()
+const { struct } = comptime import "duck:prelude" ()
 
 const user_type = struct {
   .name = Text,
@@ -319,16 +319,16 @@ to length-prefixed UTF-8 data in generated WAT.
 
 ```duck
 let greeting = "hello" + " " + "Ada"
-len(greeting)
+@len(greeting)
 ```
 
 Text builtins include:
 
 ```duck
-len(value)
-get(value, index)
-slice(value, start, end)
-append(left, right)
+@len(value)
+@get(value, index)
+@slice(value, start, end)
+@append(left, right)
 ```
 
 ## Host Effects And Modules

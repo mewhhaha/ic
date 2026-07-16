@@ -26,6 +26,8 @@ import { format_type_expr, parse_type_expr } from "./type_expr.ts";
 import { tokenize } from "./tokenize.ts";
 import { f32x4_builtin_prim, numeric_builtin_prim } from "../op.ts";
 import { diagnostic_codes, type DiagnosticCode } from "../diagnostic.ts";
+import { compiler_builtin_args } from "./call_args.ts";
+import { expect } from "../expect.ts";
 
 function array_length_is_known(
   length: ArrayLengthExpr,
@@ -256,29 +258,35 @@ export function source_inference_diagnostics(
     "F32x4",
     "Text",
     "Bytes",
-    "Utf8.decode",
-    "Utf8.encode",
+    "@Utf8.decode",
+    "@Utf8.encode",
     "Resume",
     "Type",
-    "bit_and",
-    "bit_or",
-    "bit_xor",
-    "shift_left",
-    "shift_right_u",
-    "f32_sqrt",
-    "f32_from_i32",
-    "i32_from_f32",
-    "f32x4",
-    "f32x4_splat",
-    "f32x4_add",
-    "f32x4_sub",
-    "f32x4_mul",
-    "f32x4_div",
-    "f32x4_extract_lane",
-    "f32x4_replace_lane",
-    "format_i32",
-    "format_i64",
-    "format_f32",
+    "@bit_and",
+    "@bit_or",
+    "@bit_xor",
+    "@shift_left",
+    "@shift_right_u",
+    "@f32_sqrt",
+    "@f32_from_i32",
+    "@i32_from_f32",
+    "@unsafe_i32_wrap_i64",
+    "@unsafe_i64_extend_i32_signed",
+    "@unsafe_i64_extend_i32_unsigned",
+    "@unsafe_i32_reinterpret_f32",
+    "@unsafe_f32_reinterpret_i32",
+    "@as",
+    "@f32x4",
+    "@f32x4_splat",
+    "@f32x4_add",
+    "@f32x4_sub",
+    "@f32x4_mul",
+    "@f32x4_div",
+    "@f32x4_extract_lane",
+    "@f32x4_replace_lane",
+    "@format_i32",
+    "@format_i64",
+    "@format_f32",
   ]);
 
   for (const declaration of source.declarations || []) {
@@ -504,6 +512,61 @@ function collect_unresolved_annotation_names(
   );
 }
 
+function runtime_prelude_intrinsic(name: string): string | undefined {
+  switch (name) {
+    case "append":
+      return "@append";
+    case "length":
+      return "@len";
+    case "get":
+      return "@get";
+    case "slice":
+      return "@slice";
+    case "bit_and":
+      return "@bit_and";
+    case "bit_or":
+      return "@bit_or";
+    case "bit_xor":
+      return "@bit_xor";
+    case "shift_left":
+      return "@shift_left";
+    case "shift_right_unsigned":
+      return "@shift_right_u";
+    case "sqrt_f32":
+      return "@f32_sqrt";
+    case "f32_from_i32":
+      return "@f32_from_i32";
+    case "i32_from_f32":
+      return "@i32_from_f32";
+    case "format_i32":
+      return "@format_i32";
+    case "format_i64":
+      return "@format_i64";
+    case "format_f32":
+      return "@format_f32";
+    case "generate_bytes":
+      return "@Bytes.generate";
+    case "encode_utf8":
+      return "@Utf8.encode";
+    case "decode_utf8":
+      return "@Utf8.decode";
+    case "f32x4":
+      return "@f32x4";
+    case "f32x4_splat":
+      return "@f32x4_splat";
+    case "f32x4_add":
+      return "@f32x4_add";
+    case "f32x4_subtract":
+      return "@f32x4_sub";
+    case "f32x4_multiply":
+      return "@f32x4_mul";
+    case "f32x4_divide":
+      return "@f32x4_div";
+    default:
+      return undefined;
+  }
+}
+
 class SourceFactRecorder {
   readonly facts: SourceFacts = {
     type_of: new WeakMap(),
@@ -536,6 +599,7 @@ class SourceFactRecorder {
     ClosureCallContext
   >();
   readonly closure_calls: ClosureCallContext[] = [];
+  readonly builtin_aliases = new Map<string, string>();
   replaying_closure = false;
 
   constructor(readonly source: Source) {
@@ -875,6 +939,7 @@ class SourceFactRecorder {
       this.record_definition(statement, "name", definition_type);
 
       if (statement.pattern !== undefined) {
+        this.record_runtime_prelude_aliases(statement);
         this.record_pattern_bindings(statement.pattern, scope_type, scope);
       }
 
@@ -1296,6 +1361,91 @@ class SourceFactRecorder {
         this.closure_calls.push(context);
       }
     } else if (expr.tag === "app") {
+      if (
+        expr.func.tag === "var" && expr.func.name === "@as" &&
+        !scope.has(expr.func.name)
+      ) {
+        const args = compiler_builtin_args(expr);
+        this.record_expr(expr.func, scope, undefined, break_types);
+
+        if (args.length !== 2) {
+          this.facts.inference_diagnostics.push(source_diagnostic(
+            diagnostic_codes.unresolved_call_type,
+            "@as expects 2 arguments, got " + args.length.toString(),
+            expr,
+          ));
+          type = named_type("unknown");
+        } else {
+          const value = args[0];
+          const target = args[1];
+          expect(value, "Missing @as value argument");
+          expect(target, "Missing @as target argument");
+          const value_type = this.record_expr(
+            value,
+            scope,
+            undefined,
+            break_types,
+          );
+          this.record_expr(target, scope, named_type("Type"), break_types);
+          let target_type: SourceTypeFact | undefined;
+
+          if (target.tag === "var" || target.tag === "type_name") {
+            target_type = this.type_from_name(target.name);
+          } else if (target.tag === "set_type") {
+            target_type = this.type_from_type_expr(target.type_expr);
+          }
+
+          if (
+            target_type === undefined || target_type.resolved_name === "unknown"
+          ) {
+            this.facts.inference_diagnostics.push(source_diagnostic(
+              diagnostic_codes.unresolved_call_type,
+              "@as target must be a statically known type value",
+              target,
+            ));
+            type = named_type("unknown");
+          } else if (value_type === undefined) {
+            type = target_type;
+          } else {
+            const engine = new TypeEngine();
+            const variables = new WeakMap<SourceTypeFact, Type>();
+            const value_canonical = canonical_type_from_source_fact(
+              value_type,
+              engine,
+              variables,
+              new Set(),
+            );
+            const target_canonical = canonical_type_from_source_fact(
+              target_type,
+              engine,
+              variables,
+              new Set(),
+            );
+
+            if (
+              value_canonical === undefined || target_canonical === undefined ||
+              !engine.representation_compatible(
+                value_canonical,
+                target_canonical,
+              )
+            ) {
+              this.facts.inference_diagnostics.push(source_diagnostic(
+                diagnostic_codes.unresolved_call_type,
+                "@as cannot cast " + value_type.name + " to " +
+                  target_type.name +
+                  " because their runtime representations differ",
+                expr,
+              ));
+            }
+
+            type = target_type;
+          }
+        }
+
+        this.store_expr_type(expr, type);
+        return type;
+      }
+
       let aggregate_type = this.source_aggregate_type_values.get(expr);
 
       if (aggregate_type === undefined) {
@@ -1321,7 +1471,7 @@ class SourceFactRecorder {
 
         let expected_arg: SourceTypeFact | undefined;
 
-        if (builtin === "Bytes.generate") {
+        if (builtin === "@Bytes.generate") {
           if (index === 0) {
             expected_arg = named_type("I32");
           } else if (index === 1) {
@@ -1331,15 +1481,15 @@ class SourceFactRecorder {
               named_type("I32"),
             );
           }
-        } else if (builtin === "Utf8.encode") {
+        } else if (builtin === "@Utf8.encode") {
           expected_arg = named_type("Text");
-        } else if (builtin === "Utf8.decode") {
+        } else if (builtin === "@Utf8.decode") {
           expected_arg = named_type("Bytes");
-        } else if (builtin === "format_i32") {
+        } else if (builtin === "@format_i32") {
           expected_arg = named_type("I32");
-        } else if (builtin === "format_i64") {
+        } else if (builtin === "@format_i64") {
           expected_arg = named_type("I64");
-        } else if (builtin === "format_f32") {
+        } else if (builtin === "@format_f32") {
           if (index === 0) {
             expected_arg = named_type("F32");
           } else if (index === 1) {
@@ -1531,25 +1681,59 @@ class SourceFactRecorder {
     expr: Extract<FrontExpr, { tag: "app" }>,
     scope: Scope,
   ): string | undefined {
-    if (expr.func.tag !== "var" || scope.has(expr.func.name)) {
+    if (expr.operator_syntax?.target === "Semigroup.append") {
+      return "@append";
+    }
+
+    if (expr.operator_syntax?.target === "Bits.bit_and") {
+      return "@bit_and";
+    }
+
+    if (expr.operator_syntax?.target === "Bits.bit_or") {
+      return "@bit_or";
+    }
+
+    if (expr.operator_syntax?.target === "Bits.bit_xor") {
+      return "@bit_xor";
+    }
+
+    if (expr.operator_syntax?.target === "Bits.shift_left") {
+      return "@shift_left";
+    }
+
+    if (expr.operator_syntax?.target === "Bits.shift_right_unsigned") {
+      return "@shift_right_u";
+    }
+
+    if (expr.func.tag !== "var") {
+      return undefined;
+    }
+
+    const alias = this.builtin_aliases.get(expr.func.name);
+
+    if (alias !== undefined) {
+      return alias;
+    }
+
+    if (scope.has(expr.func.name)) {
       return undefined;
     }
 
     if (
-      expr.func.name === "len" || expr.func.name === "get" ||
-      expr.func.name === "slice" || expr.func.name === "append" ||
-      expr.func.name === "Bytes.generate" ||
-      expr.func.name === "Utf8.encode" ||
-      expr.func.name === "Utf8.decode" ||
-      expr.func.name === "format_i32" || expr.func.name === "format_i64" ||
-      expr.func.name === "format_f32" ||
+      expr.func.name === "@len" || expr.func.name === "@get" ||
+      expr.func.name === "@slice" || expr.func.name === "@append" ||
+      expr.func.name === "@Bytes.generate" ||
+      expr.func.name === "@Utf8.encode" ||
+      expr.func.name === "@Utf8.decode" ||
+      expr.func.name === "@format_i32" || expr.func.name === "@format_i64" ||
+      expr.func.name === "@format_f32" ||
       expr.func.name === "@shape.entries" ||
       expr.func.name === "@type.product" ||
       expr.func.name === "@type.namespace" ||
-      expr.func.name === "describe_type" ||
-      expr.func.name === "describe_fields" ||
-      expr.func.name === "describe_cases" || expr.func.name === "construct" ||
-      expr.func.name === "project" || expr.func.name === "is_case" ||
+      expr.func.name === "@describe_type" ||
+      expr.func.name === "@describe_fields" ||
+      expr.func.name === "@describe_cases" || expr.func.name === "@construct" ||
+      expr.func.name === "@project" || expr.func.name === "@is_case" ||
       f32x4_builtin_prim(expr.func.name) !== undefined ||
       numeric_builtin_prim(expr.func.name) !== undefined
     ) {
@@ -1557,6 +1741,32 @@ class SourceFactRecorder {
     }
 
     return undefined;
+  }
+
+  record_runtime_prelude_aliases(
+    statement: Extract<Stmt, { tag: "bind" }>,
+  ): void {
+    if (
+      statement.pattern?.tag !== "product" ||
+      statement.value.tag !== "comptime" ||
+      statement.value.expr.tag !== "app" ||
+      statement.value.expr.func.tag !== "import" ||
+      statement.value.expr.func.path !== "duck:prelude/runtime"
+    ) {
+      return;
+    }
+
+    for (const entry of statement.pattern.entries) {
+      if (entry.label === undefined || entry.pattern.tag !== "binding") {
+        continue;
+      }
+
+      const intrinsic = runtime_prelude_intrinsic(entry.label);
+
+      if (intrinsic !== undefined) {
+        this.builtin_aliases.set(entry.pattern.name, intrinsic);
+      }
+    }
   }
 
   type_expr_is_known(
@@ -3636,7 +3846,7 @@ function builtin_call_result(
     return named_type("Type");
   }
 
-  if (name === "f32x4" && args.length === 4) {
+  if (name === "@f32x4" && args.length === 4) {
     if (args.every((arg) => arg?.resolved_name === "F32")) {
       return named_type("F32x4");
     }
@@ -3644,7 +3854,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "f32x4_splat" && args.length === 1) {
+  if (name === "@f32x4_splat" && args.length === 1) {
     if (args[0]?.resolved_name === "F32") {
       return named_type("F32x4");
     }
@@ -3653,8 +3863,8 @@ function builtin_call_result(
   }
 
   if (
-    (name === "f32x4_add" || name === "f32x4_sub" ||
-      name === "f32x4_mul" || name === "f32x4_div") &&
+    (name === "@f32x4_add" || name === "@f32x4_sub" ||
+      name === "@f32x4_mul" || name === "@f32x4_div") &&
     args.length === 2
   ) {
     if (
@@ -3667,7 +3877,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "f32x4_extract_lane" && args.length === 2) {
+  if (name === "@f32x4_extract_lane" && args.length === 2) {
     if (
       args[0]?.resolved_name === "F32x4" && args[1] !== undefined &&
       is_i32_family(args[1])
@@ -3678,7 +3888,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "f32x4_replace_lane" && args.length === 3) {
+  if (name === "@f32x4_replace_lane" && args.length === 3) {
     if (
       args[0]?.resolved_name === "F32x4" && args[1] !== undefined &&
       is_i32_family(args[1]) && args[2]?.resolved_name === "F32"
@@ -3690,8 +3900,8 @@ function builtin_call_result(
   }
 
   if (
-    (name === "bit_and" || name === "bit_or" || name === "bit_xor" ||
-      name === "shift_left" || name === "shift_right_u") &&
+    (name === "@bit_and" || name === "@bit_or" || name === "@bit_xor" ||
+      name === "@shift_left" || name === "@shift_right_u") &&
     args.length === 2
   ) {
     const left = args[0];
@@ -3709,7 +3919,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "f32_sqrt" && args.length === 1) {
+  if (name === "@f32_sqrt" && args.length === 1) {
     if (args[0]?.resolved_name === "F32") {
       return named_type("F32");
     }
@@ -3717,7 +3927,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "f32_from_i32" && args.length === 1) {
+  if (name === "@f32_from_i32" && args.length === 1) {
     if (args[0] !== undefined && is_i32_family(args[0])) {
       return named_type("F32");
     }
@@ -3725,7 +3935,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "i32_from_f32" && args.length === 1) {
+  if (name === "@i32_from_f32" && args.length === 1) {
     if (args[0]?.resolved_name === "F32") {
       return named_type("I32");
     }
@@ -3733,7 +3943,42 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "describe_type" && args.length === 1) {
+  if (name === "@unsafe_i32_wrap_i64" && args.length === 1) {
+    if (args[0]?.resolved_name === "I64") {
+      return named_type("I32");
+    }
+
+    return undefined;
+  }
+
+  if (
+    (name === "@unsafe_i64_extend_i32_signed" ||
+      name === "@unsafe_i64_extend_i32_unsigned") && args.length === 1
+  ) {
+    if (args[0] !== undefined && is_i32_family(args[0])) {
+      return named_type("I64");
+    }
+
+    return undefined;
+  }
+
+  if (name === "@unsafe_i32_reinterpret_f32" && args.length === 1) {
+    if (args[0]?.resolved_name === "F32") {
+      return named_type("I32");
+    }
+
+    return undefined;
+  }
+
+  if (name === "@unsafe_f32_reinterpret_i32" && args.length === 1) {
+    if (args[0] !== undefined && is_i32_family(args[0])) {
+      return named_type("F32");
+    }
+
+    return undefined;
+  }
+
+  if (name === "@describe_type" && args.length === 1) {
     const described = args[0]?.constructed;
 
     if (described === undefined) {
@@ -3743,7 +3988,7 @@ function builtin_call_result(
     return descriptor_type_fact(described);
   }
 
-  if (name === "describe_fields" && args.length === 1) {
+  if (name === "@describe_fields" && args.length === 1) {
     const described = args[0]?.constructed;
     const fields = source_fields(described);
 
@@ -3757,7 +4002,7 @@ function builtin_call_result(
     );
   }
 
-  if (name === "describe_cases" && args.length === 1) {
+  if (name === "@describe_cases" && args.length === 1) {
     const described = args[0]?.constructed;
     const cases = source_cases(described);
 
@@ -3773,19 +4018,19 @@ function builtin_call_result(
     );
   }
 
-  if (name === "construct" && args.length === 2) {
+  if (name === "@construct" && args.length === 2) {
     return args[0]?.constructed;
   }
 
-  if (name === "project" && args.length === 2) {
+  if (name === "@project" && args.length === 2) {
     return args[1]?.alias_target;
   }
 
-  if (name === "is_case" && args.length === 2) {
+  if (name === "@is_case" && args.length === 2) {
     return named_type("Bool");
   }
 
-  if (name === "len") {
+  if (name === "@len") {
     if (args.length === 1 && args[0] !== undefined) {
       return named_type("I32");
     }
@@ -3793,7 +4038,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "Bytes.generate") {
+  if (name === "@Bytes.generate") {
     if (args.length === 2) {
       return named_type("Bytes");
     }
@@ -3801,7 +4046,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "Utf8.encode") {
+  if (name === "@Utf8.encode") {
     if (args.length === 1 && args[0]?.resolved_name === "Text") {
       return named_type("Bytes");
     }
@@ -3809,7 +4054,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "Utf8.decode") {
+  if (name === "@Utf8.decode") {
     if (args.length === 1 && args[0]?.resolved_name === "Bytes") {
       return named_type("Text");
     }
@@ -3817,7 +4062,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "format_i32") {
+  if (name === "@format_i32") {
     if (args.length === 1 && args[0] !== undefined && is_i32_family(args[0])) {
       return named_type("Text");
     }
@@ -3825,7 +4070,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "format_i64") {
+  if (name === "@format_i64") {
     if (args.length === 1 && args[0]?.resolved_name === "I64") {
       return named_type("Text");
     }
@@ -3833,7 +4078,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "format_f32") {
+  if (name === "@format_f32") {
     if (
       args.length === 2 && args[0]?.resolved_name === "F32" &&
       args[1] !== undefined && is_i32_family(args[1])
@@ -3844,7 +4089,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "get") {
+  if (name === "@get") {
     if (
       args.length === 2 && is_text_family(args[0]) &&
       args[1] !== undefined && is_i32_family(args[1])
@@ -3855,7 +4100,7 @@ function builtin_call_result(
     return undefined;
   }
 
-  if (name === "slice") {
+  if (name === "@slice") {
     if (
       args.length === 3 && is_text_family(args[0]) &&
       args[1] !== undefined && is_i32_family(args[1]) &&
@@ -3868,7 +4113,7 @@ function builtin_call_result(
   }
 
   if (
-    name === "append" && args.length === 2 && is_text_family(args[0]) &&
+    name === "@append" && args.length === 2 && is_text_family(args[0]) &&
     is_text_family(args[1]) && args[0] !== undefined &&
     args[1] !== undefined && args[0].resolved_name === args[1].resolved_name
   ) {

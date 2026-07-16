@@ -67,7 +67,7 @@ export function create_core_backend_text_runtime(
     builtin: CoreRuntimeBufferBuiltin,
     ctx: CoreEmitCtx,
   ): Wat {
-    if (builtin.name === "Utf8.encode" || builtin.name === "Utf8.decode") {
+    if (builtin.name === "@Utf8.encode" || builtin.name === "@Utf8.decode") {
       return emit_runtime_utf8_conversion(
         subject,
         builtin,
@@ -76,7 +76,7 @@ export function create_core_backend_text_runtime(
       );
     }
 
-    if (builtin.name === "format_f32") {
+    if (builtin.name === "@format_f32") {
       return emit_runtime_float_format(
         subject,
         builtin,

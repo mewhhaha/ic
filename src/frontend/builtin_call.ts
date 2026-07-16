@@ -79,16 +79,16 @@ export function lower_builtin_call(
     };
   }
 
-  if (expr.func.name === "fail") {
-    throw new Error("fail: " + call_message(expr.args));
+  if (expr.func.name === "@fail") {
+    throw new Error("@fail: " + call_message(expr.args));
   }
 
-  if (expr.func.name === "panic") {
+  if (expr.func.name === "@panic") {
     call_message(expr.args);
     return { tag: "prim", prim: "i32.trap", args: [] };
   }
 
-  if (expr.func.name === "project") {
+  if (expr.func.name === "@project") {
     if (expr.args.length !== 2) {
       throw new Error(
         "project expects a value and one compile-time field descriptor",
@@ -149,7 +149,7 @@ export function lower_builtin_call(
           then_branch: { tag: "var", name: payload_name },
           else_branch: {
             tag: "app",
-            func: { tag: "var", name: "panic" },
+            func: { tag: "var", name: "@panic" },
             arg: message,
             args: [message],
           },
@@ -195,7 +195,7 @@ export function lower_builtin_call(
     );
   }
 
-  if (expr.func.name === "is_case") {
+  if (expr.func.name === "@is_case") {
     if (expr.args.length !== 2) {
       throw new Error(
         "is_case expects a union value and one compile-time case descriptor",
@@ -247,7 +247,7 @@ export function lower_builtin_call(
     );
   }
 
-  if (expr.func.name === "construct") {
+  if (expr.func.name === "@construct") {
     if (expr.args.length !== 2) {
       throw new Error(
         "construct expects a compile-time type and one aggregate value",
@@ -428,9 +428,9 @@ export function lower_builtin_call(
   }
 
   if (
-    expr.func.name === "Utf8.encode" || expr.func.name === "Utf8.decode" ||
-    expr.func.name === "format_i32" || expr.func.name === "format_i64" ||
-    expr.func.name === "format_f32"
+    expr.func.name === "@Utf8.encode" || expr.func.name === "@Utf8.decode" ||
+    expr.func.name === "@format_i32" || expr.func.name === "@format_i64" ||
+    expr.func.name === "@format_f32"
   ) {
     throw new Error(
       expr.func.name + " requires structured Core/Wasm lowering" +

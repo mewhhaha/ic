@@ -8,11 +8,11 @@ import { instantiate_wat, wat_from_core_source } from "./wasm_test_util.ts";
 
 Deno.test("UTF-8 and numeric format builtins expose explicit source types", () => {
   const source = parse_source(`
-Utf8.encode("Aλ🙂")
-Utf8.decode(Bytes.empty)
-format_i32(-2147483648)
-format_i64(9223372036854775807i64)
-format_f32(1.5f32, 2)
+@Utf8.encode("Aλ🙂")
+@Utf8.decode(Bytes.empty)
+@format_i32(-2147483648)
+@format_i64(9223372036854775807i64)
+@format_f32(1.5f32, 2)
 `);
   const facts = source_facts(source);
   const types = source.statements.map((statement) => {
@@ -47,25 +47,25 @@ text
   );
 
   const wrong_conversions = validate_frontend_semantics(parse_source(`
-Utf8.encode(Bytes.empty)
-Utf8.decode("text")
-append(Bytes.empty, "text")
-format_f32(1, 2)
-format_f32(1.0f32, 2.0f32)
+@Utf8.encode(Bytes.empty)
+@Utf8.decode("text")
+@append(Bytes.empty, "text")
+@format_f32(1, 2)
+@format_f32(1.0f32, 2.0f32)
 `));
   assert_equals(
     wrong_conversions.map((diagnostic) => diagnostic.message),
     [
-      "Utf8.encode expects Text, got Bytes",
-      "Utf8.decode expects Bytes, got Text",
+      "@Utf8.encode expects Text, got Bytes",
+      "@Utf8.decode expects Bytes, got Text",
       "append arguments must both be Text or both be Bytes",
-      "format_f32 expects F32, got I32",
+      "@format_f32 expects F32, got I32",
       "format_f32 precision expects I32, got F32",
     ],
   );
 
   const function_boundaries = validate_frontend_semantics(parse_source(`
-let consume = (bytes: Bytes) => len(bytes)
+let consume = (bytes: Bytes) => @len(bytes)
 consume("text")
 let make: () -> Bytes = () => "text"
 make()
@@ -89,7 +89,7 @@ make()
   assert_throws(
     () =>
       Source.wat(
-        'let consume = (bytes: Bytes) => len(bytes)\nconsume("text")',
+        'let consume = (bytes: Bytes) => @len(bytes)\nconsume("text")',
       ),
     "Call to consume argument 1",
   );
@@ -97,16 +97,16 @@ make()
 
 Deno.test("Utf8.encode and Utf8.decode copy valid UTF-8 buffers", async () => {
   const empty_instance = await instantiate_wat(
-    wat_from_core_source("Utf8.decode(Bytes.empty)"),
+    wat_from_core_source("@Utf8.decode(Bytes.empty)"),
     "utf8_empty",
     {},
   );
   assert_equals(read_result_text(empty_instance), "");
 
   const wat = wat_from_core_source(`
-let bytes: Bytes = Utf8.encode("Aλ🙂")
+let bytes: Bytes = @Utf8.encode("Aλ🙂")
 bytes[0] = 66
-Utf8.decode(bytes)
+@Utf8.decode(bytes)
 `);
   assert_includes(wat, "utf8_validate_loop");
   assert_includes(wat, "i32.store8");
@@ -116,10 +116,10 @@ Utf8.decode(bytes)
 
 Deno.test("Utf8.decode traps deterministically for invalid UTF-8", async () => {
   const invalid_sources = [
-    "Bytes.generate(1, index => 255)",
-    "Bytes.generate(2, index => if index == 0 { 192 } else { 128 })",
-    "Bytes.generate(3, index => if index == 0 { 237 } else { 160 })",
-    "Bytes.generate(4, index => if index == 0 { 244 } else { 144 })",
+    "@Bytes.generate(1, index => 255)",
+    "@Bytes.generate(2, index => if index == 0 { 192 } else { 128 })",
+    "@Bytes.generate(3, index => if index == 0 { 237 } else { 160 })",
+    "@Bytes.generate(4, index => if index == 0 { 244 } else { 144 })",
   ];
 
   for (let index = 0; index < invalid_sources.length; index += 1) {
@@ -130,7 +130,7 @@ Deno.test("Utf8.decode traps deterministically for invalid UTF-8", async () => {
     }
 
     const instance = await instantiate_wat(
-      wat_from_core_source("Utf8.decode(" + source + ")"),
+      wat_from_core_source("@Utf8.decode(" + source + ")"),
       "invalid_utf8_" + index.toString(),
       {},
     );
@@ -146,10 +146,10 @@ Deno.test("Utf8.decode traps deterministically for invalid UTF-8", async () => {
 
 Deno.test("format_i32 emits exact signed decimal boundaries", async () => {
   const cases = [
-    { source: "format_i32(0)", expected: "0" },
-    { source: "format_i32(-1)", expected: "-1" },
-    { source: "format_i32(2147483647)", expected: "2147483647" },
-    { source: "format_i32(-2147483648)", expected: "-2147483648" },
+    { source: "@format_i32(0)", expected: "0" },
+    { source: "@format_i32(-1)", expected: "-1" },
+    { source: "@format_i32(2147483647)", expected: "2147483647" },
+    { source: "@format_i32(-2147483648)", expected: "-2147483648" },
   ];
 
   for (let index = 0; index < cases.length; index += 1) {
@@ -160,7 +160,7 @@ Deno.test("format_i32 emits exact signed decimal boundaries", async () => {
     }
 
     const instance = await instantiate_wat(
-      wat_from_core_source("append(" + test_case.source + ', "")'),
+      wat_from_core_source("@append(" + test_case.source + ', "")'),
       "format_i32_" + index.toString(),
       {},
     );
@@ -170,13 +170,13 @@ Deno.test("format_i32 emits exact signed decimal boundaries", async () => {
 
 Deno.test("format_i64 emits exact signed decimal boundaries", async () => {
   const cases = [
-    { source: "format_i64(0i64)", expected: "0" },
+    { source: "@format_i64(0i64)", expected: "0" },
     {
-      source: "format_i64(9223372036854775807i64)",
+      source: "@format_i64(9223372036854775807i64)",
       expected: "9223372036854775807",
     },
     {
-      source: "format_i64(-9223372036854775808i64)",
+      source: "@format_i64(-9223372036854775808i64)",
       expected: "-9223372036854775808",
     },
   ];
@@ -188,7 +188,7 @@ Deno.test("format_i64 emits exact signed decimal boundaries", async () => {
       throw new Error("Missing i64 format fixture");
     }
 
-    const wat = wat_from_core_source("append(" + test_case.source + ', "")');
+    const wat = wat_from_core_source("@append(" + test_case.source + ', "")');
     assert_includes(wat, "i32.wrap_i64");
     const instance = await instantiate_wat(
       wat,
@@ -201,13 +201,13 @@ Deno.test("format_i64 emits exact signed decimal boundaries", async () => {
 
 Deno.test("format_f32 emits deterministic fixed-point decimal text", async () => {
   const cases = [
-    { source: "format_f32(0.0f32, 0)", expected: "0" },
-    { source: "format_f32(0.0f32 / -1.0f32, 2)", expected: "0.00" },
-    { source: "format_f32(-12.5f32, 3)", expected: "-12.500" },
-    { source: "format_f32(0.125f32, 3)", expected: "0.125" },
-    { source: "format_f32(1.25f32, 1)", expected: "1.3" },
-    { source: "format_f32(1.999f32, 2)", expected: "2.00" },
-    { source: "format_f32(12.5f32, 6)", expected: "12.500000" },
+    { source: "@format_f32(0.0f32, 0)", expected: "0" },
+    { source: "@format_f32(0.0f32 / -1.0f32, 2)", expected: "0.00" },
+    { source: "@format_f32(-12.5f32, 3)", expected: "-12.500" },
+    { source: "@format_f32(0.125f32, 3)", expected: "0.125" },
+    { source: "@format_f32(1.25f32, 1)", expected: "1.3" },
+    { source: "@format_f32(1.999f32, 2)", expected: "2.00" },
+    { source: "@format_f32(12.5f32, 6)", expected: "12.500000" },
   ];
 
   for (let index = 0; index < cases.length; index += 1) {
@@ -217,7 +217,7 @@ Deno.test("format_f32 emits deterministic fixed-point decimal text", async () =>
       throw new Error("Missing f32 format fixture");
     }
 
-    const wat = wat_from_core_source("append(" + test_case.source + ', "")');
+    const wat = wat_from_core_source("@append(" + test_case.source + ', "")');
     assert_includes(wat, "f32.mul");
     assert_includes(wat, "i64.trunc_f32_s");
     const instance = await instantiate_wat(
@@ -231,9 +231,9 @@ Deno.test("format_f32 emits deterministic fixed-point decimal text", async () =>
 
 Deno.test("format_f32 traps outside its precision and scaled-magnitude bounds", async () => {
   const invalid_calls = [
-    "format_f32(1.0f32, -1)",
-    "format_f32(1.0f32, 7)",
-    "format_f32(1e20f32, 0)",
+    "@format_f32(1.0f32, -1)",
+    "@format_f32(1.0f32, 7)",
+    "@format_f32(1e20f32, 0)",
   ];
 
   for (let index = 0; index < invalid_calls.length; index += 1) {
@@ -260,10 +260,10 @@ Deno.test("format_f32 traps outside its precision and scaled-magnitude bounds", 
 
 Deno.test("UTF-8 conversion and integer formatting have allocation and drop proofs", () => {
   const core = Source.core(`
-let bytes: Bytes = Utf8.encode("x")
-let text: Text = Utf8.decode(bytes)
-let number: Text = format_i64(-9223372036854775808i64)
-len(text) + len(number)
+let bytes: Bytes = @Utf8.encode("x")
+let text: Text = @Utf8.decode(bytes)
+let number: Text = @format_i64(-9223372036854775808i64)
+@len(text) + @len(number)
 `);
   const proof = Core.proof(core);
   assert_equals(proof.ok, true);

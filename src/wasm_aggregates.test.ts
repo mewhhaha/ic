@@ -105,7 +105,7 @@ let x = 40
 let user: user_type = scratch {
   [.age = x + 1, .name = "Ada"] as user_type
 }
-user.age + len(user.name)
+user.age + @len(user.name)
 `);
   const annotated_scratch_free_instance = await instantiate_wat(
     annotated_scratch_free_wat,
@@ -140,10 +140,10 @@ const user_type = struct {
   .name= Text
 }
 let user: user_type = scratch {
-  let temp: Text = freeze append("Ada", "!")
+  let temp: Text = freeze @append("Ada", "!")
   [.age = 40, .name = temp] as user_type
 }
-user.age + len(user.name)
+user.age + @len(user.name)
 `);
   const block_setup_scratch_free_instance = await instantiate_wat(
     block_setup_scratch_free_wat,
@@ -178,11 +178,11 @@ const user_type = struct {
   .name= Text
 }
 let user: user_type = scratch {
-  let name: Text = freeze append("Ada", "!")
+  let name: Text = freeze @append("Ada", "!")
   let temp: user_type = [.age = 40, .name = name] as user_type
   temp
 }
-user.age + len(user.name)
+user.age + @len(user.name)
 `);
   const block_alias_scratch_free_instance = await instantiate_wat(
     block_alias_scratch_free_wat,
@@ -244,7 +244,7 @@ Deno.test("core aggregate len and get compile through WAT to Wasm", async () => 
 let xs = [.first = 10, .second = 32]
 let i = 1
 
-len(xs) + get(xs, i) + get(xs, 0)
+@len(xs) + @get(xs, i) + @get(xs, 0)
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -290,7 +290,7 @@ for index, value in pair {
   total = total + index + value
 }
 
-len(pair) * 1000 + get(pair, i) * 100 + pair[0] * 10 + total
+@len(pair) * 1000 + @get(pair, i) * 100 + pair[0] * 10 + total
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -529,7 +529,7 @@ let names: names_type = make("Ada", "Grace")
 names[0] = "Edsger"
 let i = 1
 names[i] = names.first + " Hopper"
-len(names.first) * 100 + len(names.second)
+@len(names.first) * 100 + @len(names.second)
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -665,12 +665,12 @@ let names: names_type = make("Ada", "Grace")
 let write = if flag {
   (i: Int, suffix: Text) => {
     names[i] = names.first + suffix
-    len(names.second)
+    @len(names.second)
   }
 } else {
   (i: Int, suffix: Text) => {
     names[i] = suffix
-    len(names.second)
+    @len(names.second)
   }
 }
 
@@ -735,18 +735,18 @@ let make = if flag {
 
 let names: names_type = make("Ada", "Grace")
 let i = 1
-let picked: Text = get(names, i)
+let picked: Text = @get(names, i)
 let first: Text = names[0]
 let total = 0
 let borrowed_total = 0
 
 for index, name in names {
   let view = &name
-  borrowed_total = borrowed_total + len(view)
-  total = total + index + len(name)
+  borrowed_total = borrowed_total + @len(view)
+  total = total + index + @len(name)
 }
 
-len(names) * 1000 + len(picked) * 100 + len(first) * 10 + total + borrowed_total
+@len(names) * 1000 + @len(picked) * 100 + @len(first) * 10 + total + borrowed_total
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -843,7 +843,7 @@ let make = if flag {
 }
 let user: user_type = make("Ada")
 
-len(user.name) + user.age
+@len(user.name) + user.age
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -881,7 +881,7 @@ let make = if flag {
 let user: user_type = make("Ada")
 let frozen: user_type = freeze user
 
-len(frozen.name) + frozen.age
+@len(frozen.name) + frozen.age
 `);
   const frozen_instance = await instantiate_wat(
     frozen_wat,
@@ -911,12 +911,12 @@ const user_type = struct {
 }
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let user: user_type = scratch {
-  freeze ([.name = append(prefix, "da"), .age = 40] as user_type)
+  freeze ([.name = @append(prefix, "da"), .age = 40] as user_type)
 }
 
-len(user.name) + user.age
+@len(user.name) + user.age
 `);
   const scratch_frozen_instance = await instantiate_wat(
     scratch_frozen_wat,
@@ -948,13 +948,13 @@ const user_type = struct {
 }
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let user: user_type = scratch {
-  let temp: user_type = [.name = append(prefix, "da"), .age = 40] as user_type
+  let temp: user_type = [.name = @append(prefix, "da"), .age = 40] as user_type
   freeze temp
 }
 
-len(user.name) + user.age
+@len(user.name) + user.age
 `);
   const bound_scratch_frozen_instance = await instantiate_wat(
     bound_scratch_frozen_wat,
@@ -988,14 +988,14 @@ const user_type = struct {
 }
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
-let existing: user_type = [.name = append(prefix, "da"), .age = 40] as user_type
+let prefix: Text = @slice("Ada", start, 1)
+let existing: user_type = [.name = @append(prefix, "da"), .age = 40] as user_type
 let user: user_type = scratch {
   let temp = existing
   freeze temp
 }
 
-len(user.name) + user.age
+@len(user.name) + user.age
 `);
   const existing_alias_scratch_frozen_instance = await instantiate_wat(
     existing_alias_scratch_frozen_wat,
@@ -1032,19 +1032,19 @@ const user_type = struct {
 
 let flag = 1
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
-let existing: user_type = [.name = append(prefix, "da"), .age = 40] as user_type
+let prefix: Text = @slice("Ada", start, 1)
+let existing: user_type = [.name = @append(prefix, "da"), .age = 40] as user_type
 if flag {
-  existing = [.name = append(prefix, "!"), .age = 41] as user_type
+  existing = [.name = @append(prefix, "!"), .age = 41] as user_type
 } else {
-  existing = [.name = append(prefix, "?"), .age = 42] as user_type
+  existing = [.name = @append(prefix, "?"), .age = 42] as user_type
 }
 let user: user_type = scratch {
   let temp = existing
   freeze temp
 }
 
-len(user.name) + user.age
+@len(user.name) + user.age
 `);
   const branch_assignment_scratch_frozen_instance = await instantiate_wat(
     branch_assignment_scratch_frozen_wat,
@@ -1093,7 +1093,7 @@ let make = if flag {
 let user: user_type = make("Ada")
 let name: name_type = user.name
 
-len(name.first) + len(name.last) + user.age
+@len(name.first) + @len(name.last) + user.age
 `);
   const nested_instance = await instantiate_wat(
     nested_wat,
@@ -1483,7 +1483,7 @@ let next = "Edsger"
 
 messages[i] = next
 next = "Nope"
-len(messages[1])
+@len(messages[1])
 `);
   const text_instance = await instantiate_wat(
     text_wat,

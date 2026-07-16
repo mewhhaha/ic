@@ -71,7 +71,7 @@ let value: I32 = 41
   );
 
   const unique_text_host_call = Source.core(Source.parse(`
-let message: Text = slice("Ada", 0, 3)
+let message: Text = @slice("Ada", 0, 3)
 0
 `));
   unique_text_host_call.statements.splice(1, 0, {
@@ -708,11 +708,11 @@ Deno.test("Source.core lowers runtime capability method tables", () => {
 host_import consume from "env.consume" (Text) => I32
 let flag = 1
 let output = if flag {
-  [.marker = runtime_i32_slice(1, 7), .consume = consume]
+  [.marker = @runtime_i32_slice(1, 7), .consume = consume]
 } else {
-  [.marker = runtime_i32_slice(1, 8), .consume = consume]
+  [.marker = @runtime_i32_slice(1, 8), .consume = consume]
 }
-output.consume(append("A", "da"))
+output.consume(@append("A", "da"))
 `;
   const core = Source.core(Source.parse(source));
   const proof = Core.proof(core);
@@ -798,11 +798,11 @@ host_import consume_a from "env.consume_a" (Text) => I32
 host_import consume_b from "env.consume_b" (Text) => I32
 let flag = 1
 let output = if flag {
-  [.marker = runtime_i32_slice(1, 7), .consume = consume_a]
+  [.marker = @runtime_i32_slice(1, 7), .consume = consume_a]
 } else {
-  [.marker = runtime_i32_slice(1, 8), .consume = consume_b]
+  [.marker = @runtime_i32_slice(1, 8), .consume = consume_b]
 }
-output.consume(append("A", "da"))
+output.consume(@append("A", "da"))
 `),
     "Missing host capability method: output.consume",
   );
@@ -830,7 +830,7 @@ Deno.test("Core.proof accepts bounded-borrow host import contracts", () => {
         annotation: "Text",
         value: {
           tag: "app",
-          func: { tag: "var", name: "slice" },
+          func: { tag: "var", name: "@slice" },
           args: [
             { tag: "text", value: "Ada" },
             { tag: "num", type: "i32", value: 0 },
@@ -924,7 +924,7 @@ Deno.test("Core.proof accepts bounded-borrow host import contracts", () => {
 host_import host_read from "env.read" (&Text) => I32
 
 let read = msg => host_read(msg)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 read(&message)
 `));
   const wrapper_borrow_proof = Core.proof(wrapper_borrow_host_call);
@@ -977,7 +977,7 @@ host_import host_read from "env.read" (&Text) => I32
 let read = msg => {
   host_read(msg)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 read(&message)
 `));
   const block_wrapper_borrow_proof = Core.proof(
@@ -1001,7 +1001,7 @@ let read = (msg: Text) => {
   let view = &msg
   host_read(view)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 read(message)
 `));
   const local_borrow_wrapper_proof = Core.proof(
@@ -1022,7 +1022,7 @@ read(message)
 host_import host_read from "env.read" (&Text) => I32
 
 let read = rec (msg: Text) => host_read(msg)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 read(&message)
 `));
   const rec_wrapper_borrow_proof = Core.proof(rec_wrapper_borrow_host_call);
@@ -1046,7 +1046,7 @@ let read = if flag {
 } else {
   (msg: Text) => host_read(msg)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 read(&message)
 `));
   const branch_wrapper_borrow_proof = Core.proof(
@@ -1079,7 +1079,7 @@ host_import host_read from "env.read" (&Text) => I32
 
 let read = value => host_read(value)
 let relay = (const f, msg: Text) => f(&msg)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 relay(read, message)
 `));
   const higher_order_borrow_wrapper_proof = Core.proof(
@@ -1105,7 +1105,7 @@ let relay = (const f, msg: Text) => {
   let g = f
   g(&msg)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 relay(read, message)
 `),
   );
@@ -1132,7 +1132,7 @@ relay(read, message)
 host_import host_read from "env.read" (&Text) => I32
 
 let read = msg => host_read(msg)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 read(message)
 `));
   const wrapper_unique_proof = Core.proof(wrapper_unique_host_call);
@@ -1170,7 +1170,7 @@ let read = msg => {
   let view = msg
   host_read(view)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 read(message)
 `));
   const local_alias_wrapper_unique_proof = Core.proof(
@@ -1195,7 +1195,7 @@ read(message)
 host_import host_read from "env.read" (&Text) => I32
 
 let read = rec (msg: Text) => host_read(msg)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 read(message)
 `));
   const rec_wrapper_unique_proof = Core.proof(rec_wrapper_unique_host_call);
@@ -1227,7 +1227,7 @@ let read = if flag {
 } else {
   (msg: Text) => host_read(msg)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 read(message)
 `));
   const branch_wrapper_unique_proof = Core.proof(
@@ -1265,7 +1265,7 @@ host_import host_read from "env.read" (&Text) => I32
 
 let read = value => host_read(value)
 let relay = (const f, msg: Text) => f(msg)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 relay(read, message)
 `));
   const higher_order_unique_wrapper_proof = Core.proof(
@@ -1295,7 +1295,7 @@ let relay = (const f, msg: Text) => {
   let g = f
   g(msg)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 relay(read, message)
 `),
   );
@@ -1353,7 +1353,7 @@ Deno.test("Core.proof handles scratch-backed host import arguments", () => {
                 annotation: "Text",
                 value: {
                   tag: "app",
-                  func: { tag: "var", name: "append" },
+                  func: { tag: "var", name: "@append" },
                   args: [
                     { tag: "text", value: "he" },
                     { tag: "text", value: "llo" },
@@ -1448,7 +1448,7 @@ Deno.test("Core.proof handles scratch-backed host import arguments", () => {
                 annotation: "Text",
                 value: {
                   tag: "app",
-                  func: { tag: "var", name: "append" },
+                  func: { tag: "var", name: "@append" },
                   args: [
                     { tag: "text", value: "he" },
                     { tag: "text", value: "llo" },
@@ -1523,7 +1523,7 @@ Deno.test("Core.proof accepts frozen-shareable host import contracts", () => {
           tag: "freeze",
           value: {
             tag: "app",
-            func: { tag: "var", name: "append" },
+            func: { tag: "var", name: "@append" },
             args: [
               { tag: "text", value: "he" },
               { tag: "text", value: "llo" },
@@ -1587,7 +1587,7 @@ Deno.test("Core.proof accepts frozen-shareable host import contracts", () => {
         annotation: "Text",
         value: {
           tag: "app",
-          func: { tag: "var", name: "append" },
+          func: { tag: "var", name: "@append" },
           args: [
             { tag: "text", value: "he" },
             { tag: "text", value: "llo" },
@@ -1626,7 +1626,7 @@ Deno.test("Core.proof accepts ownership-transfer host import contracts", () => {
         annotation: "Text",
         value: {
           tag: "app",
-          func: { tag: "var", name: "slice" },
+          func: { tag: "var", name: "@slice" },
           args: [
             { tag: "text", value: "Ada" },
             { tag: "num", type: "i32", value: 0 },
@@ -1744,7 +1744,7 @@ Deno.test("Core.proof accepts ownership-transfer host import contracts", () => {
         tag: "expr",
         expr: {
           tag: "app",
-          func: { tag: "var", name: "len" },
+          func: { tag: "var", name: "@len" },
           args: [{ tag: "var", name: "message" }],
         },
       },
@@ -1784,7 +1784,7 @@ Deno.test("Core.proof accepts ownership-transfer host import contracts", () => {
 host_import host_take from "env.take" (Text) => I32
 
 let send = msg => host_take(msg)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 send(message)
 `));
   const wrapper_transfer_proof = Core.proof(wrapper_transfer_host_call);
@@ -1826,7 +1826,7 @@ send(message)
 host_import host_take from "env.take" (Text) => I32
 
 let send = msg => host_take(msg)
-send(append("a", "b"))
+send(@append("a", "b"))
 `));
   const temporary_wrapper_transfer_proof = Core.proof(
     temporary_wrapper_transfer,
@@ -1868,8 +1868,8 @@ send(append("a", "b"))
   const expression_temporary_wrapper_transfer = Source.core(Source.parse(`
 host_import host_take from "env.take" (Text) => I32
 
-let send = (msg: Text) => host_take(append(msg, "!"))
-let message: Text = append("a", "b")
+let send = (msg: Text) => host_take(@append(msg, "!"))
+let message: Text = @append("a", "b")
 send(message)
 `));
   const expression_temporary_wrapper_transfer_proof = Core.proof(
@@ -1922,7 +1922,7 @@ host_import host_take from "env.take" (Text) => I32
 
 let send = msg => host_take(msg)
 let flag = 1
-send(if flag { append("a", "b") } else { append("c", "d") })
+send(if flag { @append("a", "b") } else { @append("c", "d") })
 `));
   const branch_temporary_wrapper_transfer_proof = Core.proof(
     branch_temporary_wrapper_transfer,
@@ -2034,9 +2034,9 @@ send(value)
 host_import host_take from "env.take" (Text) => I32
 
 let send = msg => host_take(msg)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 send(message)
-len(message)
+@len(message)
 `));
   const wrapper_use_after_transfer_proof = Core.proof(
     wrapper_use_after_transfer,
@@ -2070,7 +2070,7 @@ host_import host_take from "env.take" (Text) => I32
 
 let send = msg => host_take(msg)
 let relay = (const f, msg) => f(msg)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 relay(send, message)
 `));
   const higher_order_wrapper_transfer_proof = Core.proof(
@@ -2115,8 +2115,8 @@ relay(send, message)
 host_import host_take from "env.take" (Text) => I32
 
 let send = (msg: Text) => host_take(msg)
-let relay = (const f, msg: Text) => f(append(msg, "!"))
-let message: Text = append("a", "b")
+let relay = (const f, msg: Text) => f(@append(msg, "!"))
+let message: Text = @append("a", "b")
 relay(send, message)
 `),
   );
@@ -2172,9 +2172,9 @@ host_import host_take from "env.take" (Text) => I32
 
 let send = msg => host_take(msg)
 let relay = (const f, msg) => f(msg)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 relay(send, message)
-len(message)
+@len(message)
 `));
   assert_throws(
     () => Core.check_proof(higher_order_wrapper_use_after_transfer),
@@ -2190,7 +2190,7 @@ let relay = (const f, msg) => {
   let g = f
   g(msg)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 relay(send, message)
 0
 `));
@@ -2243,15 +2243,15 @@ let flag = 1
 let relay = if flag {
   (const f, msg: Text) => {
     let g = f
-    g(append(msg, "!"))
+    g(@append(msg, "!"))
   }
 } else {
   (const f, msg: Text) => {
     let g = f
-    g(append(msg, "?"))
+    g(@append(msg, "?"))
   }
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 relay(send, message)
 `),
   );
@@ -2338,9 +2338,9 @@ let relay = (const f, msg) => {
   let g = f
   g(msg)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 relay(send, message)
-len(message)
+@len(message)
 `),
   );
   assert_throws(
@@ -2353,7 +2353,7 @@ len(message)
 host_import host_take from "env.take" (Text) => I32
 
 let send = rec (msg: Text) => host_take(msg)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 send(message)
 `));
   const rec_wrapper_transfer_proof = Core.proof(rec_wrapper_transfer);
@@ -2395,9 +2395,9 @@ send(message)
 host_import host_take from "env.take" (Text) => I32
 
 let send = rec (msg: Text) => host_take(msg)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 send(message)
-len(message)
+@len(message)
 `));
   assert_throws(
     () => Core.check_proof(rec_wrapper_use_after_transfer),
@@ -2411,7 +2411,7 @@ host_import host_take from "env.take" (Text) => I32
 let send = msg => {
   host_take(msg)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 send(message)
 `));
   const block_wrapper_transfer_proof = Core.proof(block_wrapper_transfer);
@@ -2452,9 +2452,9 @@ host_import host_take from "env.take" (Text) => I32
 let send = msg => {
   host_take(msg)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 send(message)
-len(message)
+@len(message)
 `));
   assert_throws(
     () => Core.check_proof(block_wrapper_use_after_transfer),
@@ -2469,7 +2469,7 @@ let send = msg => {
   let code = host_take(msg)
   code
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 send(message)
 `));
   const multi_stmt_wrapper_transfer_proof = Core.proof(
@@ -2513,9 +2513,9 @@ let send = msg => {
   let code = host_take(msg)
   code
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 send(message)
-len(message)
+@len(message)
 `));
   assert_throws(
     () => Core.check_proof(multi_stmt_wrapper_use_after_transfer),
@@ -2532,7 +2532,7 @@ let send = if flag {
 } else {
   (msg: Text) => host_take(msg)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 send(message)
 `));
   const branch_wrapper_transfer_proof = Core.proof(branch_wrapper_transfer);
@@ -2603,9 +2603,9 @@ let send = if flag {
 } else {
   (msg: Text) => host_take(msg)
 }
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 send(message)
-len(message)
+@len(message)
 `));
   assert_throws(
     () => Core.check_proof(branch_wrapper_use_after_transfer),
@@ -2617,7 +2617,7 @@ len(message)
 host_import host_take from "env.take" (Text) => I32
 
 let flag = 1
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 if flag {
   let send = msg => host_take(msg)
   send(message)
@@ -2686,14 +2686,14 @@ if flag {
 host_import host_take from "env.take" (Text) => I32
 
 let flag = 1
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 if flag {
   let send = msg => host_take(msg)
   send(message)
 } else {
   host_take(message)
 }
-len(message)
+@len(message)
 `));
   assert_throws(
     () => Core.check_proof(branch_local_wrapper_use_after_transfer),
@@ -2733,7 +2733,7 @@ Deno.test("Core.proof accepts host-returned owner contracts", () => {
         tag: "expr",
         expr: {
           tag: "app",
-          func: { tag: "var", name: "len" },
+          func: { tag: "var", name: "@len" },
           args: [{ tag: "var", name: "message" }],
         },
       },
@@ -2951,7 +2951,7 @@ let result: result_type = if flag {
   result_type.err("no")
 }
 if let .ok(value) = result {
-  let decorated: Text = append(value, "!")
+  let decorated: Text = @append(value, "!")
   freeze decorated
 }
 0
@@ -3039,14 +3039,14 @@ type ResultType = | .ok = user_type | .err
 const result_type = ResultType
 
 let result: result_type = if choose() {
-  let chosen: user_type = [.name = append("A", "da"), .age = seed()] as user_type
+  let chosen: user_type = [.name = @append("A", "da"), .age = seed()] as user_type
   result_type.ok(chosen)
 } else {
-  let fallback: user_type = [.name = append("Gr", "ace"), .age = seed()] as user_type
+  let fallback: user_type = [.name = @append("Gr", "ace"), .age = seed()] as user_type
   result_type.ok(fallback)
 }
 
-if let .ok(user) = result { len(user.name) + user.age } else { 0 }
+if let .ok(user) = result { @len(user.name) + user.age } else { 0 }
 `));
   const proof = Core.proof(core);
   const aggregate_allocations = proof.allocations.facts.filter((fact) => {
@@ -3081,9 +3081,9 @@ const pack = (user: user_type) => {
   result_type.ok(local)
 }
 
-let user: user_type = [.name = append("A", "da"), .age = seed()] as user_type
+let user: user_type = [.name = @append("A", "da"), .age = seed()] as user_type
 let result: result_type = pack(user)
-if let .ok(found) = result { len(found.name) + found.age } else { 0 }
+if let .ok(found) = result { @len(found.name) + found.age } else { 0 }
 `));
   const proof = Core.proof(core);
   const wat = Emit.emit(Mod, Core.mod(core));

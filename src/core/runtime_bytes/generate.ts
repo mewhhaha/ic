@@ -24,7 +24,7 @@ export function core_bytes_generate_args(
     return undefined;
   }
 
-  if (expr.func.tag !== "var" || expr.func.name !== "Bytes.generate") {
+  if (expr.func.tag !== "var" || expr.func.name !== "@Bytes.generate") {
     return undefined;
   }
 

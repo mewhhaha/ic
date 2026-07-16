@@ -21,7 +21,7 @@ export function lower_rec_struct_get_call(
   hooks: StaticRecStructHooks,
   lower_result: LowerRecResult,
 ): IcNode | undefined {
-  if (expr.func.tag !== "var" || expr.func.name !== "get") {
+  if (expr.func.tag !== "var" || expr.func.name !== "@get") {
     return undefined;
   }
 

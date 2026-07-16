@@ -36,7 +36,7 @@ export function core_stmt_definitely_exits_sequence(stmt: CoreStmt): boolean {
 
       if (
         stmt.expr.tag === "app" && stmt.expr.func.tag === "var" &&
-        stmt.expr.func.name === "panic"
+        stmt.expr.func.name === "@panic"
       ) {
         return true;
       }

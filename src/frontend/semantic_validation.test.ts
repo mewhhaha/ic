@@ -4,6 +4,7 @@ import {
   ducklang_effects_prelude_text,
   ducklang_functional_prelude_text,
   ducklang_prelude_text,
+  ducklang_runtime_prelude_text,
 } from "./prelude.ts";
 import { validate_frontend_semantics } from "./semantic_validation.ts";
 
@@ -41,7 +42,7 @@ const failures = [
       code: "DUCK2304",
       severity: "error",
       message: "Missing struct field: age",
-      span: { start: 128, end: 136 },
+      span: { start: 127, end: 135 },
     },
   },
   {
@@ -69,12 +70,12 @@ for (const failure of failures) {
 
 Deno.test("semantic validation maps fail calls to their call span", () => {
   assert_equals(
-    validate_frontend_semantics(parse_source('comptime fail("bad")')),
+    validate_frontend_semantics(parse_source('comptime @fail("bad")')),
     [{
       code: "DUCK2102",
       severity: "error",
-      message: "fail: bad",
-      span: { start: 9, end: 20 },
+      message: "@fail: bad",
+      span: { start: 9, end: 21 },
     }],
   );
 });
@@ -133,6 +134,7 @@ Deno.test("semantic validation accepts every bundled source prelude", () => {
       ducklang_prelude_text,
       ducklang_functional_prelude_text,
       ducklang_effects_prelude_text,
+      ducklang_runtime_prelude_text,
     ]
   ) {
     assert_equals(validate_frontend_semantics(parse_source(text)), []);

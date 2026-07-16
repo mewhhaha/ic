@@ -620,7 +620,7 @@ Deno.test("source managed callables strip functions from main and move Bytes sta
 module () where
 
 let step: Bytes -> Bytes = (state: Bytes) => state
-let finish: Bytes -> I32 = (state: Bytes) => len(state)
+let finish: Bytes -> I32 = (state: Bytes) => @len(state)
 return { .step = step, .finish = finish, .answer = 42 }
 `);
 
@@ -656,7 +656,7 @@ Deno.test("source managed callable trap releases a bootstrapped Bytes value", as
   const artifact = Source.artifact(`
 module () where
 
-let fail: Bytes -> Bytes = (state: Bytes) => panic("fail")
+let fail: Bytes -> Bytes = (state: Bytes) => @panic("fail")
 return { .fail = fail }
 `);
   const wasm = await wasm_from_wat(artifact.wat);
@@ -1360,7 +1360,7 @@ declare effect Host { make_user: () => user_type }
 declare Init { host: Host }
 
 user <- Host.make_user()
-let result: I32 = len(user.name) + user.age
+let result: I32 = @len(user.name) + user.age
 return { .result = result }
 `;
   const artifact = Source.artifact(source);
@@ -1388,7 +1388,7 @@ declare effect Host { make_result: () => result_type }
 declare Init { host: Host }
 
 outcome <- Host.make_result()
-let result: I32 = if let .ok(value) = outcome { len(value) } else { 0 }
+let result: I32 = if let .ok(value) = outcome { @len(value) } else { 0 }
 return { .result = result }
 `;
   const artifact = Source.artifact(source);
@@ -1560,7 +1560,7 @@ declare Init { host: Host }
 outcome <- Host.read()
 result <- if let .chunk(bytes) = outcome {
   _ <- Host.write(&bytes)
-  len(bytes) + get(bytes, 0)
+  @len(bytes) + @get(bytes, 0)
 } else {
   0
 }
@@ -1635,9 +1635,9 @@ length <- Host.count()
 for index in 0..length {
   outcome <- Host.read()
   if let .chunk(bytes) = outcome {
-    let prefix = slice(bytes, 0, 1)
-    let doubled = append(prefix, prefix)
-    let marker: Text = append("loop", "!")
+    let prefix = @slice(bytes, 0, 1)
+    let doubled = @append(prefix, prefix)
+    let marker: Text = @append("loop", "!")
     freeze marker
     _ <- Host.write(&doubled)
   }
@@ -1777,7 +1777,7 @@ declare effect Host { make_text: () => Text }
 declare Init { host: Host }
 
 text <- Host.make_text()
-let result: I32 = len(text)
+let result: I32 = @len(text)
 return { .result = result }
 `;
   const artifact = Source.artifact(source);
@@ -2042,7 +2042,7 @@ declare Init { host: Host }
 
 const has_bytes = (bytes: Bytes, limit: I32) => {
   let total = 0
-  let byte_count = len(bytes)
+  let byte_count = @len(bytes)
 
   for index in 0..limit {
     if index < byte_count {
@@ -2061,7 +2061,7 @@ if let .chunk(first_bytes) = fetched {
   let flag = 1
   loop_total <- loop {
     if flag == 1 && has_bytes(pending, 2) > 0 {
-      let line: Bytes = slice(pending, 0, 1)
+      let line: Bytes = @slice(pending, 0, 1)
       wrote <- Host.put(&line)
       hits = hits + wrote
     }

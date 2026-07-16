@@ -110,7 +110,7 @@ const failure_goldens = [
   {
     code: "DUCK2304",
     message: "Missing struct field: age",
-    span: { start: 128, end: 136 },
+    span: { start: 127, end: 135 },
   },
   {
     code: "DUCK2305",
@@ -121,24 +121,24 @@ const failure_goldens = [
     code: "DUCK2401",
     message: "Rejected borrow borrow#0 in block#0: borrow over unique_heap " +
       "text needs lexical lifetime tracking before the owner can be protected",
-    span: { start: 85, end: 100 },
+    span: { start: 79, end: 94 },
   },
   {
     code: "DUCK2402",
     message: "Cannot freeze borrowed owner message in program#0 while " +
       "borrow#0 is active",
-    span: { start: 70, end: 84 },
+    span: { start: 64, end: 78 },
   },
   {
     code: "DUCK2403",
     message: "Rejected baseline proof scratch#0 scratch_return: unique_heap " +
       "text cannot leave scratch without freeze or explicit promotion",
-    span: { start: 0, end: 30 },
+    span: { start: 0, end: 24 },
   },
   {
     code: "DUCK2404",
     message: "Cannot mutate frozen/shareable core binding: message",
-    span: { start: 46, end: 61 },
+    span: { start: 47, end: 62 },
   },
   {
     code: "DUCK2501",
@@ -246,13 +246,13 @@ Deno.test("Source.analyze keeps Core diagnostics enabled with imports", async ()
   assert_equals(analysis.diagnostics[0]?.code, "DUCK2403");
   assert_equals(
     analysis.diagnostics[0]?.span,
-    { start: 38, end: 68 },
+    { start: 38, end: 62 },
   );
 });
 
 Deno.test("Source.analyze reports every escaping scratch result", () => {
-  const text = 'scratch { append("a", "b") }\n' +
-    'scratch { append("c", "d") }';
+  const text = 'scratch { @append("a", "b") }\n' +
+    'scratch { @append("c", "d") }';
   const diagnostics = Source.analyze(text, { route: "core" }).diagnostics;
 
   assert_equals(diagnostics.length, 2);

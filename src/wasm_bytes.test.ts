@@ -7,7 +7,7 @@ import { TestSource as Source } from "./frontend/test_source.ts";
 import { instantiate_wat, wat_from_core_source } from "./wasm_test_util.ts";
 
 Deno.test("Bytes.generate is inferred as immutable Bytes", () => {
-  const source = parse_source("Bytes.generate(4, index => index + 1)");
+  const source = parse_source("@Bytes.generate(4, index => index + 1)");
   const facts = source_facts(source);
   const source_expr = source.statements[0];
 
@@ -26,24 +26,24 @@ Deno.test("Bytes.generate is inferred as immutable Bytes", () => {
 Deno.test("Bytes.generate rejects non-I32 boundaries", () => {
   assert_equals(
     validate_frontend_semantics(
-      parse_source("Bytes.generate(4i64, index => index)"),
+      parse_source("@Bytes.generate(4i64, index => index)"),
     ),
     [{
       code: "DUCK2307",
       severity: "error",
       message: "Bytes.generate length expects I32, got I64",
-      span: { start: 15, end: 19 },
+      span: { start: 16, end: 20 },
     }],
   );
   assert_equals(
     validate_frontend_semantics(
-      parse_source("Bytes.generate(4, index => true)"),
+      parse_source("@Bytes.generate(4, index => true)"),
     ),
     [{
       code: "DUCK2307",
       severity: "error",
       message: "Bytes.generate callback result expects I32, got Bool",
-      span: { start: 18, end: 31 },
+      span: { start: 19, end: 32 },
     }],
   );
 });
@@ -57,8 +57,8 @@ let generator = if flag {
 } else {
   (index: I32) => index + factor
 }
-let bytes = Bytes.generate(4, generator)
-get(bytes, 3)
+let bytes = @Bytes.generate(4, generator)
+@get(bytes, 3)
 `);
   assert_includes(wat, "call_indirect");
   assert_includes(wat, "i32.store8");
@@ -78,8 +78,8 @@ get(bytes, 3)
 
 Deno.test("Bytes.generate does not call its callback for an empty buffer", async () => {
   const wat = wat_from_core_source(`
-let bytes = Bytes.generate(0, index => panic("unexpected callback"))
-len(bytes)
+let bytes = @Bytes.generate(0, index => @panic("unexpected callback"))
+@len(bytes)
 `);
   const instance = await instantiate_wat(
     wat,
@@ -97,8 +97,8 @@ len(bytes)
 
 Deno.test("Bytes.generate traps before allocating a negative length", async () => {
   const wat = wat_from_core_source(`
-let bytes = Bytes.generate(-1, index => index)
-len(bytes)
+let bytes = @Bytes.generate(-1, index => index)
+@len(bytes)
 `);
   const instance = await instantiate_wat(
     wat,
@@ -116,8 +116,8 @@ len(bytes)
 
 Deno.test("Bytes.generate owns one byte allocation that cleanup frees", () => {
   const core = Source.core(`
-let bytes = Bytes.generate(4, index => index + 1)
-get(bytes, 3)
+let bytes = @Bytes.generate(4, index => index + 1)
+@get(bytes, 3)
 `);
   const proof = Core.proof(core);
   assert_equals(proof.ok, true);

@@ -1,5 +1,7 @@
 module (!init: Init) where
 
+const _ = comptime import "duck:prelude/runtime" ()
+
 declare effect Host {
   print: (&Text) => I32
 }
@@ -7,7 +9,7 @@ declare effect Host {
 declare Init { host: Host }
 
 let message = scratch {
-  let temporary: Text = append("hel", "lo")
+  let temporary: Text = "hel" <> "lo"
   freeze temporary
 }
 

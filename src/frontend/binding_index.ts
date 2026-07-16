@@ -1782,9 +1782,10 @@ function nominal_owner(
 }
 function is_builtin(name: string): boolean {
   return name === "true" || name === "false" ||
-    name === "construct" || name === "project" || name === "is_case" ||
-    name === "Utf8.encode" || name === "Utf8.decode" ||
-    name === "format_i32" || name === "format_i64" || name === "format_f32" ||
+    name === "@construct" || name === "@project" || name === "@is_case" ||
+    name === "@Utf8.encode" || name === "@Utf8.decode" ||
+    name === "@format_i32" || name === "@format_i64" ||
+    name === "@format_f32" ||
     is_const_builtin_name(name);
 }
 function mark_unvisited_sites(

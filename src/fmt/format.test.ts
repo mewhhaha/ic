@@ -12,8 +12,8 @@ Deno.test("format_text normalizes spacing around operators", () => {
 
 Deno.test("format_text keeps unary sigils tight", () => {
   assert_equals(
-    format_text("let  measure=( message :Text )=>{\nlen( &message )\n}\n"),
-    "let measure = (message: Text) => {\n  len(&message)\n}\n",
+    format_text("let  measure=( message :Text )=>{\n@len( &message )\n}\n"),
+    "let measure = (message: Text) => {\n  @len(&message)\n}\n",
   );
 });
 

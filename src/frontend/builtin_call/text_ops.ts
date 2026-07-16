@@ -27,7 +27,7 @@ function lower_slice_builtin(
   env: Env,
   hooks: BuiltinCallHooks,
 ): IcNode | undefined {
-  if (expr.func.tag !== "var" || expr.func.name !== "slice") {
+  if (expr.func.tag !== "var" || expr.func.name !== "@slice") {
     return undefined;
   }
 
@@ -69,7 +69,7 @@ function lower_append_builtin(
   env: Env,
   hooks: BuiltinCallHooks,
 ): IcNode | undefined {
-  if (expr.func.tag !== "var" || expr.func.name !== "append") {
+  if (expr.func.tag !== "var" || expr.func.name !== "@append") {
     return undefined;
   }
 

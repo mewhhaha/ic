@@ -111,8 +111,8 @@ export function eval_front_value_impl(
   }
 
   if (expr.tag === "app") {
-    if (expr.func.tag === "var" && expr.func.name === "fail") {
-      throw new Error("fail: " + call_message(expr.args));
+    if (expr.func.tag === "var" && expr.func.name === "@fail") {
+      throw new Error("@fail: " + call_message(expr.args));
     }
 
     const union_value = hooks.resolve_union_constructor_call(expr, env);

@@ -112,11 +112,11 @@ if input {
 
 Deno.test("typed numeric builtins execute with Wasm scalar semantics", async () => {
   const integer_wat = Source.wat(`
-let masked = bit_and(0xff, 0x0f)
-let shifted = shift_left(1, 5)
-let top_bit = shift_right_u(-1, 31)
-let toggled = bit_xor(shifted, top_bit)
-bit_or(masked, toggled)
+let masked = @bit_and(0xff, 0x0f)
+let shifted = @shift_left(1, 5)
+let top_bit = @shift_right_u(-1, 31)
+let toggled = @bit_xor(shifted, top_bit)
+@bit_or(masked, toggled)
 `);
   const integer_instance = await instantiate_wat(
     integer_wat,
@@ -136,7 +136,7 @@ bit_or(masked, toggled)
     );
   }
 
-  const wide_wat = Source.wat("shift_right_u(-1i64, 63i64)");
+  const wide_wat = Source.wat("@shift_right_u(-1i64, 63i64)");
   const wide_instance = await instantiate_wat(
     wide_wat,
     "numeric_i64_shift",
@@ -153,7 +153,7 @@ bit_or(masked, toggled)
     throw new Error("Expected unsigned i64 shift result 1, got " + wide_result);
   }
 
-  const float_wat = Source.wat("f32_sqrt(f32_from_i32(81)) + 0.5f32");
+  const float_wat = Source.wat("@f32_sqrt(@f32_from_i32(81)) + 0.5f32");
   const float_instance = await instantiate_wat(
     float_wat,
     "numeric_f32_builtins",
@@ -205,15 +205,53 @@ bit_or(masked, toggled)
   }
 });
 
+Deno.test("unsafe numeric casts expose exact Wasm conversion semantics", async () => {
+  const wrap = await instantiate_wat(
+    Source.wat("@unsafe_i32_wrap_i64(4294967297i64)"),
+    "unsafe_i32_wrap_i64",
+    {},
+  );
+  const unsigned = await instantiate_wat(
+    Source.wat("@unsafe_i64_extend_i32_unsigned(-1)"),
+    "unsafe_i64_extend_i32_unsigned",
+    {},
+  );
+  const reinterpret = await instantiate_wat(
+    Source.wat("@unsafe_f32_reinterpret_i32(1065353216)"),
+    "unsafe_f32_reinterpret_i32",
+    {},
+  );
+
+  if (
+    typeof wrap.exports.main !== "function" ||
+    typeof unsigned.exports.main !== "function" ||
+    typeof reinterpret.exports.main !== "function"
+  ) {
+    throw new Error("Missing unsafe numeric cast main export");
+  }
+
+  if (wrap.exports.main() !== 1) {
+    throw new Error("Expected i64 wrapping cast to retain the low 32 bits");
+  }
+
+  if (unsigned.exports.main() !== 4294967295n) {
+    throw new Error("Expected unsigned i32 extension to retain all 32 bits");
+  }
+
+  if (reinterpret.exports.main() !== 1) {
+    throw new Error("Expected i32 bits for 1f32 to reinterpret as 1f32");
+  }
+});
+
 Deno.test("F32x4 register operations return scalar values to JS", async () => {
   const float_wat = Source.wat(`
 let add_vectors = (left: F32x4, right: F32x4) => {
-  f32x4_add(left, right)
+  @f32x4_add(left, right)
 }
-let base = f32x4(1f32, 2f32, 3f32, 4f32)
-let added = add_vectors(base, f32x4_splat(1f32))
-let multiplied = f32x4_mul(added, f32x4_splat(2f32))
-f32x4_extract_lane(multiplied, 2)
+let base = @f32x4(1f32, 2f32, 3f32, 4f32)
+let added = add_vectors(base, @f32x4_splat(1f32))
+let multiplied = @f32x4_mul(added, @f32x4_splat(2f32))
+@f32x4_extract_lane(multiplied, 2)
 `);
   const float_instance = await instantiate_wat(
     float_wat,
@@ -232,8 +270,8 @@ f32x4_extract_lane(multiplied, 2)
   }
 
   const integer_wat = Source.wat(`
-let vector = f32x4_replace_lane(f32x4_splat(2f32), 1, 21f32)
-i32_from_f32(f32x4_extract_lane(vector, 1))
+let vector = @f32x4_replace_lane(@f32x4_splat(2f32), 1, 21f32)
+@i32_from_f32(@f32x4_extract_lane(vector, 1))
 `);
   const integer_instance = await instantiate_wat(
     integer_wat,
@@ -253,7 +291,7 @@ i32_from_f32(f32x4_extract_lane(vector, 1))
 });
 
 Deno.test("core panic traps through WAT to Wasm", async () => {
-  const wat_text = wat_from_core_source('panic("boom")');
+  const wat_text = wat_from_core_source('@panic("boom")');
   const instance = await instantiate_wat(wat_text, "core_panic", {});
 
   if (!("main" in instance.exports)) {
@@ -598,7 +636,7 @@ if flag {
 }
 
 flag = 0
-len(message)
+@len(message)
 `);
   const text_instance = await instantiate_wat(
     text_wat,
@@ -655,7 +693,7 @@ Deno.test("core binding annotations compile through WAT to Wasm", async () => {
 let x: Int = 40
 let label: Text = "ok"
 
-x + len(label)
+x + @len(label)
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -775,7 +813,7 @@ let value = if let .ok(text) = result {
   ""
 }
 
-len(value)
+@len(value)
 `);
   const dynamic_text_instance = await instantiate_wat(
     dynamic_text_wat,

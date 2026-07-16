@@ -2552,6 +2552,10 @@
           "name": "atom_expression"
         },
         {
+          "type": "SYMBOL",
+          "name": "intrinsic_identifier"
+        },
+        {
           "type": "ALIAS",
           "content": {
             "type": "STRING",
@@ -5938,6 +5942,34 @@
         "content": {
           "type": "CHOICE",
           "members": [
+            {
+              "type": "STRING",
+              "value": "<>"
+            },
+            {
+              "type": "STRING",
+              "value": "<*>"
+            },
+            {
+              "type": "STRING",
+              "value": "<$>"
+            },
+            {
+              "type": "STRING",
+              "value": ">>="
+            },
+            {
+              "type": "STRING",
+              "value": "<|>"
+            },
+            {
+              "type": "STRING",
+              "value": "|>"
+            },
+            {
+              "type": "STRING",
+              "value": "<|"
+            },
             {
               "type": "PATTERN",
               "value": "[~^?$][-!$%&*+\\/<=>?@\\\\^|~]*"

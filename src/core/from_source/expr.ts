@@ -183,6 +183,20 @@ function core_expr_untracked(
     }
 
     case "app": {
+      if (
+        expr.func.tag === "var" && expr.func.name === "@as" &&
+        !ctx.aliases.has(expr.func.name)
+      ) {
+        const args = compiler_builtin_args(expr);
+        expect(
+          args.length === 2,
+          "@as expects 2 arguments, got " + args.length.toString(),
+        );
+        const value = args[0];
+        expect(value, "Missing @as value argument");
+        return core_expr(value, ctx);
+      }
+
       const f32x4_call = f32x4_builtin_call(expr);
 
       if (f32x4_call) {
@@ -457,12 +471,12 @@ function core_expr_untracked(
 }
 
 const core_product_builtin_names = new Set([
-  "append",
-  "Bytes.generate",
-  "get",
-  "runtime_i32_slice",
-  "runtime_text_slice",
-  "slice",
+  "@append",
+  "@Bytes.generate",
+  "@get",
+  "@runtime_i32_slice",
+  "@runtime_text_slice",
+  "@slice",
 ]);
 
 function flattened_product_function(

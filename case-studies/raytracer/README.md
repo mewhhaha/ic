@@ -7,7 +7,7 @@ SIMD surface so the program remains a readable baseline for later comparison.
 Each generated pixel starts with a camera ray through a small view plane. The
 ray is tested against one sphere, shaded with an ambient-plus-diffuse light, and
 otherwise receives a vertical sky gradient. The program returns the PPM as owned
-`Bytes`; `Bytes.generate` calls the pure `render_byte` callback once per output
+`Bytes`; `@Bytes.generate` calls the pure `render_byte` callback once per output
 byte, so there is no public mutable reference or host effect in the renderer.
 
 The PPM header is `P6\n32 20\n255\n`, followed by 1,920 RGB bytes. The

@@ -131,10 +131,13 @@ export abstract class ParserPrimary extends ParserBlock {
     }
 
     if (this.match_symbol("@")) {
-      const namespace = this.expect_name("Expected intrinsic namespace");
-      this.expect_symbol(".");
-      const member = this.expect_name("Expected intrinsic member");
-      return { tag: "var", name: "@" + namespace + "." + member };
+      let name = "@" + this.expect_name("Expected intrinsic name");
+
+      while (this.match_symbol(".")) {
+        name += "." + this.expect_name("Expected intrinsic member");
+      }
+
+      return { tag: "var", name };
     }
 
     if (token.kind === "name") {

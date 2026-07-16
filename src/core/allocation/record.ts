@@ -116,21 +116,21 @@ function allocation_emission_site(
       return runtime_buffer_allocation(runtime_buffer_builtin).emission_site;
     }
 
-    if (expr.func.name === "Bytes.generate") {
+    if (expr.func.name === "@Bytes.generate") {
       return "runtime_bytes.generate";
     }
 
-    if (expr.func.name === "append") {
+    if (expr.func.name === "@append") {
       return "runtime_text.append";
     }
 
-    if (expr.func.name === "slice") {
+    if (expr.func.name === "@slice") {
       return "runtime_text.slice";
     }
 
     if (
-      expr.func.name === "runtime_i32_slice" ||
-      expr.func.name === "runtime_text_slice"
+      expr.func.name === "@runtime_i32_slice" ||
+      expr.func.name === "@runtime_text_slice"
     ) {
       return "runtime_slice.value";
     }
@@ -149,12 +149,12 @@ function allocation_layout(
 } {
   if (
     expr.tag === "app" && expr.func.tag === "var" &&
-    (expr.func.name === "runtime_i32_slice" ||
-      expr.func.name === "runtime_text_slice")
+    (expr.func.name === "@runtime_i32_slice" ||
+      expr.func.name === "@runtime_text_slice")
   ) {
     let layout: import("./types.ts").CoreAllocationLayout =
       "runtime_slice.length_and_i32_elements";
-    if (expr.func.name === "runtime_text_slice") {
+    if (expr.func.name === "@runtime_text_slice") {
       layout = "runtime_slice.length_and_frozen_text_pointers";
     }
     return {

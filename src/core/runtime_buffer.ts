@@ -7,11 +7,11 @@ import type {
 } from "./model/allocation.ts";
 
 export type CoreRuntimeBufferBuiltinName =
-  | "Utf8.encode"
-  | "Utf8.decode"
-  | "format_i32"
-  | "format_i64"
-  | "format_f32";
+  | "@Utf8.encode"
+  | "@Utf8.decode"
+  | "@format_i32"
+  | "@format_i64"
+  | "@format_f32";
 
 export type CoreRuntimeBufferBuiltin = {
   name: CoreRuntimeBufferBuiltinName;
@@ -24,12 +24,12 @@ export type CoreRuntimeBufferBuiltin = {
 export function is_core_runtime_buffer_builtin_name(
   name: string,
 ): name is CoreRuntimeBufferBuiltinName {
-  if (name === "Utf8.encode" || name === "Utf8.decode") {
+  if (name === "@Utf8.encode" || name === "@Utf8.decode") {
     return true;
   }
 
-  return name === "format_i32" || name === "format_i64" ||
-    name === "format_f32";
+  return name === "@format_i32" || name === "@format_i64" ||
+    name === "@format_f32";
 }
 
 export function core_runtime_buffer_builtin(
@@ -44,19 +44,19 @@ export function core_runtime_buffer_builtin(
   let precision: CoreExpr | undefined;
   let expected_args = 1;
 
-  if (expr.func.name === "Utf8.encode") {
+  if (expr.func.name === "@Utf8.encode") {
     arg_type = "buffer";
     result = "bytes";
-  } else if (expr.func.name === "Utf8.decode") {
+  } else if (expr.func.name === "@Utf8.decode") {
     arg_type = "buffer";
     result = "text";
-  } else if (expr.func.name === "format_i32") {
+  } else if (expr.func.name === "@format_i32") {
     arg_type = "i32";
     result = "text";
-  } else if (expr.func.name === "format_i64") {
+  } else if (expr.func.name === "@format_i64") {
     arg_type = "i64";
     result = "text";
-  } else if (expr.func.name === "format_f32") {
+  } else if (expr.func.name === "@format_f32") {
     arg_type = "f32";
     result = "text";
     precision = expr.args[1];
@@ -73,7 +73,7 @@ export function core_runtime_buffer_builtin(
   const arg = expr.args[0];
   expect(arg, "Missing Core " + expr.func.name + " argument");
 
-  if (expr.func.name === "format_f32") {
+  if (expr.func.name === "@format_f32") {
     expect(precision, "Missing Core format_f32 precision argument");
   }
 
@@ -101,7 +101,7 @@ export function runtime_buffer_allocation(
     };
   }
 
-  if (builtin.name === "Utf8.decode") {
+  if (builtin.name === "@Utf8.decode") {
     return {
       reason: "runtime_text",
       layout: "runtime_text.length_prefixed_utf8",

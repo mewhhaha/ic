@@ -207,7 +207,7 @@ function visible_slice_value(
   seen: Set<string>,
   hooks: TextLowerHooks,
 ): FrontExpr | undefined {
-  if (expr.func.tag !== "var" || expr.func.name !== "slice") {
+  if (expr.func.tag !== "var" || expr.func.name !== "@slice") {
     return undefined;
   }
 
@@ -238,7 +238,7 @@ function visible_append_value(
   seen: Set<string>,
   hooks: TextLowerHooks,
 ): FrontExpr | undefined {
-  if (expr.func.tag !== "var" || expr.func.name !== "append") {
+  if (expr.func.tag !== "var" || expr.func.name !== "@append") {
     return undefined;
   }
 

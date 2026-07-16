@@ -3599,7 +3599,7 @@ function elaborate_const_collection_call(
   args: FrontExpr[],
   scope: TypeSetScope,
 ): FrontExpr | undefined {
-  if (func.tag !== "var" || func.name !== "len") {
+  if (func.tag !== "var" || func.name !== "@len") {
     return undefined;
   }
 
@@ -3633,8 +3633,8 @@ function elaborate_comptime_descriptor_call(
 ): FrontExpr | undefined {
   if (
     func.tag !== "var" ||
-    (func.name !== "describe_type" && func.name !== "describe_fields" &&
-      func.name !== "describe_cases")
+    (func.name !== "@describe_type" && func.name !== "@describe_fields" &&
+      func.name !== "@describe_cases")
   ) {
     return undefined;
   }
@@ -3651,11 +3651,11 @@ function elaborate_comptime_descriptor_call(
     return undefined;
   }
 
-  if (func.name === "describe_type") {
+  if (func.name === "@describe_type") {
     return describe_comptime_type(type);
   }
 
-  if (func.name === "describe_fields") {
+  if (func.name === "@describe_fields") {
     return describe_comptime_fields(type);
   }
 
@@ -3707,7 +3707,7 @@ function elaborate_const_directed_call(
     return undefined;
   }
 
-  if (func.name === "is_case") {
+  if (func.name === "@is_case") {
     if (args.length !== 2) {
       throw new Error(
         "is_case expects a union value and one compile-time case descriptor",
@@ -3746,7 +3746,7 @@ function elaborate_const_directed_call(
     };
   }
 
-  if (func.name === "project") {
+  if (func.name === "@project") {
     if (args.length !== 2) {
       throw new Error(
         "project expects a value and one compile-time field descriptor",
@@ -3789,7 +3789,7 @@ function elaborate_const_directed_call(
         then_branch: { tag: "var", name: payload_name },
         else_branch: {
           tag: "app",
-          func: { tag: "var", name: "panic" },
+          func: { tag: "var", name: "@panic" },
           arg: message,
           args: [message],
         },
@@ -3825,7 +3825,7 @@ function elaborate_const_directed_call(
     };
   }
 
-  if (func.name !== "construct") {
+  if (func.name !== "@construct") {
     return undefined;
   }
 
@@ -4057,11 +4057,11 @@ function expr_requires_type_specialization(expr: FrontExpr): boolean {
   if (expr.tag === "app") {
     if (
       expr.func.tag === "var" &&
-      (expr.func.name === "describe_type" ||
-        expr.func.name === "describe_fields" ||
-        expr.func.name === "describe_cases" ||
-        expr.func.name === "construct" || expr.func.name === "project" ||
-        expr.func.name === "is_case" ||
+      (expr.func.name === "@describe_type" ||
+        expr.func.name === "@describe_fields" ||
+        expr.func.name === "@describe_cases" ||
+        expr.func.name === "@construct" || expr.func.name === "@project" ||
+        expr.func.name === "@is_case" ||
         expr.func.name.startsWith("@type.") ||
         expr.func.name.startsWith("@shape."))
     ) {

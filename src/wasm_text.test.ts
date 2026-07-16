@@ -21,7 +21,7 @@ let input = if flag {
   0
 }
 
-get(rename([.first = "Ada", .second = "Eve"])[input], 1)
+@get(rename([.first = "Ada", .second = "Eve"])[input], 1)
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -211,7 +211,7 @@ let message = if flag {
 }
 
 flag = 0
-len(message)
+@len(message)
 `);
   const instance = await instantiate_wat(wat_text, "core_text_len", {});
 
@@ -232,9 +232,9 @@ len(message)
   const first_class_wat = wat_from_core_source(`
 let flag = 1
 let byte_len = if flag {
-  (value: Text) => len(value)
+  (value: Text) => @len(value)
 } else {
-  (value: Text) => len(value) + 1
+  (value: Text) => @len(value) + 1
 }
 
 byte_len("Ada")
@@ -387,7 +387,7 @@ let i = if 1 {
   0
 }
 
-len(messages[i])
+@len(messages[i])
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -446,7 +446,7 @@ let flag = 1
 let byte_at = if flag {
   (value: Text, i: Int) => value[i]
 } else {
-  (value: Text, i: Int) => get(value, i)
+  (value: Text, i: Int) => @get(value, i)
 }
 
 byte_at("Ada", 2)
@@ -479,7 +479,7 @@ let write_byte = (message: Bytes, i: Int, value: Int) => {
   message[i]
 }
 
-write_byte(Utf8.encode("Ada"), 1, 111)
+write_byte(@Utf8.encode("Ada"), 1, 111)
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -515,7 +515,7 @@ let write_byte = if flag {
   }
 }
 
-write_byte(Utf8.encode("Ada"), 1, 111)
+write_byte(@Utf8.encode("Ada"), 1, 111)
 `);
   const first_class_instance = await instantiate_wat(
     first_class_wat,
@@ -545,7 +545,7 @@ let write_byte = (message: Bytes, i: Int, value: Int) => {
   message[i]
 }
 
-write_byte(Utf8.encode("Ada"), 3, 111)
+write_byte(@Utf8.encode("Ada"), 3, 111)
 `);
   const trap_instance = await instantiate_wat(
     trap_wat,
@@ -583,7 +583,7 @@ let i = if 1 {
   0
 }
 
-get(message, i)
+@get(message, i)
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -611,7 +611,7 @@ Deno.test("core dynamic text get traps out of bounds", async () => {
 let message = "Ada"
 let i = 3
 
-get(message, i)
+@get(message, i)
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -743,7 +743,7 @@ Deno.test("frontend text concatenation compiles through WAT to Wasm memory", asy
 Deno.test("frontend text len compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_source(`
 let message = "hello"
-len(message)
+@len(message)
 `);
   const instance = await instantiate_wat(wat_text, "text_len", {});
 
@@ -769,7 +769,7 @@ let message = if flag {
   "hello"
 }
 
-len(message)
+@len(message)
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -795,7 +795,7 @@ len(message)
 Deno.test("frontend runtime text len compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_source(`
 let byte_len = (value: Text) => {
-  len(value)
+  @len(value)
 }
 
 byte_len("hello")
@@ -820,7 +820,7 @@ byte_len("hello")
 Deno.test("frontend runtime text append compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
 let add_suffix = (value: Text) => {
-  append(value, "!")
+  @append(value, "!")
 }
 
 add_suffix("hi")
@@ -927,17 +927,17 @@ Deno.test("frontend runtime text slice compiles through WAT to Wasm", async () =
   const wat_text = wat_from_core_source(`
 let flag = 1
 let slicer = if flag {
-  (value: Text, start: Int, end: Int) => slice(value, start, end)
+  (value: Text, start: Int, end: Int) => @slice(value, start, end)
 } else {
-  (value: Text, start: Int, end: Int) => slice(value, start, end)
+  (value: Text, start: Int, end: Int) => @slice(value, start, end)
 }
 
 let part: Text = slicer("Grace", 1, 4)
-len(part) * 1000 + get(part, 0)
+@len(part) * 1000 + @get(part, 0)
 `);
   const instance = await instantiate_wat(
     wat_text,
-    "runtime_text_slice",
+    "@runtime_text_slice",
     {},
   );
 
@@ -958,8 +958,8 @@ len(part) * 1000 + get(part, 0)
 
 Deno.test("frontend runtime text slice traps out of bounds", async () => {
   const wat_text = wat_from_core_source(`
-let part: Text = slice("Ada", 1, 4)
-len(part)
+let part: Text = @slice("Ada", 1, 4)
+@len(part)
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -1154,7 +1154,7 @@ byte_at("Ada", 3)
 Deno.test("frontend runtime text get compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_source(`
 let byte_at = (value: Text, i) => {
-  get(value, i)
+  @get(value, i)
 }
 
 byte_at("Ada", 2)
@@ -1183,7 +1183,7 @@ byte_at("Ada", 2)
 Deno.test("frontend runtime text get traps out of bounds", async () => {
   const wat_text = wat_from_source(`
 let byte_at = (value: Text, i) => {
-  get(value, i)
+  @get(value, i)
 }
 
 byte_at("Ada", 3)

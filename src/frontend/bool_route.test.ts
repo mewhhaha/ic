@@ -881,7 +881,7 @@ result
 
 Deno.test("numeric source boundaries reject Bool values", () => {
   assert_source_diagnostic(
-    () => Source.wat('get("ab", true)'),
+    () => Source.wat('@get("ab", true)'),
     "DUCK2302",
     "get index expects numeric value, got Bool",
   );
@@ -891,7 +891,7 @@ Deno.test("numeric source boundaries reject Bool values", () => {
     "Range start expects numeric value, got Bool",
   );
   assert_source_diagnostic(
-    () => Source.wat('slice("ab", 0, true)'),
+    () => Source.wat('@slice("ab", 0, true)'),
     "DUCK2302",
     "slice end expects numeric value, got Bool",
   );

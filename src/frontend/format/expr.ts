@@ -104,8 +104,27 @@ function format_expr(
         return parenthesize(text, syntax.precedence, parent_precedence);
       }
 
-      const left = expr.args[0];
-      const right = expr.args[1];
+      let left = expr.args[0];
+      let right = expr.args[1];
+
+      if (syntax.operator === "$") {
+        if (expr.arg === undefined) {
+          throw new Error("Missing infix operator operand");
+        }
+
+        left = expr.func;
+        right = expr.arg;
+      } else if (syntax.operator === "|>") {
+        if (expr.arg === undefined) {
+          throw new Error("Missing infix operator operand");
+        }
+
+        left = expr.arg;
+        right = expr.func;
+      } else if (syntax.operator === "<$>") {
+        left = expr.args[1];
+        right = expr.args[0];
+      }
 
       if (left === undefined || right === undefined) {
         throw new Error("Missing infix operator operand");

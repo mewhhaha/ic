@@ -4,6 +4,7 @@ import {
   ducklang_effects_prelude_text,
   ducklang_functional_prelude_text,
   ducklang_prelude_text,
+  ducklang_runtime_prelude_text,
 } from "./prelude.ts";
 import { Source } from "./source.ts";
 
@@ -144,6 +145,79 @@ identity (combined 20)
   assert_equals(main(), 42);
 });
 
+Deno.test("prelude operators cover pipelines collections and integer bits", async () => {
+  const wat = Source.wat(`
+const { length, bit_or } = comptime import "duck:prelude/functional" ()
+const increment = value => value + 1
+const double = value => value * 2
+const decorate = value => value <> "c"
+let piped = 20 |> increment |> double
+let text_length = length (decorate "ab")
+let shifted = 1 << 4
+piped + text_length + bit_or [shifted, 2]
+`);
+  const instance = await instantiate_wat(wat, "ducklang_prelude_operators", {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing main function for prelude operators");
+  }
+
+  assert_equals(main(), 63);
+});
+
+Deno.test("prelude functor and monad operators dispatch through ducks", async () => {
+  const wat = Source.wat(`
+const { identity } = comptime import "duck:prelude/functional" ()
+type Identity value = [.value = value]
+extend Identity {
+  .map = [wrapped, transform] => [.value = transform(wrapped.value)]
+  .bind = [wrapped, transform] => transform wrapped.value
+}
+type IntIdentity = Identity I32
+let wrapped: IntIdentity = [.value = 40]
+let increment = (value: I32) => value + 1
+let wrap_increment: I32 -> IntIdentity = value => [.value = value + 1]
+let mapped: IntIdentity = increment <$> wrapped
+let bound: IntIdentity = wrapped >>= wrap_increment
+identity (mapped.value + bound.value)
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "ducklang_prelude_categories",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing main function for prelude categories");
+  }
+
+  assert_equals(main(), 82);
+});
+
+Deno.test("prelude From dispatches conversion through the source type", async () => {
+  const wat = Source.wat(`
+const { identity } = comptime import "duck:prelude/functional" ()
+type Celsius = [.value = I32]
+type Fahrenheit = [.value = I32]
+extend Fahrenheit {
+  .from = (value: Fahrenheit) => [.value = (value.value - 32) * 5 / 9]
+}
+let source: Fahrenheit = [.value = 212]
+let converted: Celsius = From.from source
+identity converted.value
+`);
+  const instance = await instantiate_wat(wat, "ducklang_prelude_from", {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing main function for prelude From conversion");
+  }
+
+  assert_equals(main(), 100);
+});
+
 Deno.test("prelude exports generic option types", async () => {
   const wat = Source.wat(`
 const { identity } = comptime (import "duck:prelude/functional")()
@@ -163,8 +237,18 @@ identity (if let .some(found) = value { found } else { 0 })
 
 Deno.test("prelude declares functional contracts and standard effects", () => {
   const functional = Source.parse(ducklang_functional_prelude_text);
+  const runtime = Source.parse(ducklang_runtime_prelude_text);
   const effects_source = Source.parse(ducklang_effects_prelude_text);
-  const ducks = (functional.declarations || []).flatMap((declaration) => {
+  const functional_ducks = (functional.declarations || []).flatMap(
+    (declaration) => {
+      if (declaration.tag === "duck") {
+        return [declaration.name];
+      }
+
+      return [];
+    },
+  );
+  const runtime_ducks = (runtime.declarations || []).flatMap((declaration) => {
     if (declaration.tag === "duck") {
       return [declaration.name];
     }
@@ -179,16 +263,25 @@ Deno.test("prelude declares functional contracts and standard effects", () => {
     return [];
   });
 
-  assert_equals(ducks, [
+  assert_equals(functional_ducks, [
     "Eq",
     "Ord",
-    "Semigroup",
     "Monoid",
     "Functor",
     "Applicative",
     "Monad",
     "Foldable",
+    "Show",
+    "From",
+    "Default",
+    "Bounded",
+    "Enum",
+    "Alternative",
+    "Bifunctor",
+    "Contravariant",
+    "Traversable",
   ]);
+  assert_equals(runtime_ducks, ["Semigroup", "Bits"]);
   assert_equals(effects, [
     "State",
     "Reader",
@@ -284,7 +377,7 @@ let writer = {
   let written = 0
   Writer {
     tell: (message, !resume) => {
-      written = written + len(message)
+      written = written + @len(message)
       !resume(())
     },
     return: value => value + written,

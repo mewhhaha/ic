@@ -1,5 +1,7 @@
+const { length } = comptime import "duck:prelude/runtime" ()
+
 let first = "Ada"
 let last = " Lovelace"
-let full = append(first, last)
+let full = first <> last
 
-len(full) + full[1]
+length(full) + full[1]

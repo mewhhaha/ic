@@ -242,7 +242,7 @@ f(1)
 
   const bound_frozen_text = Source.core(Source.parse(`
 let message = freeze "text"
-len(message)
+@len(message)
 `));
   assert_equals(Typed.type(Core, bound_frozen_text), "i32");
   assert_equals(Emit.emit(Core, bound_frozen_text).trim(), "i32.const 4");
@@ -744,7 +744,7 @@ scale(10)
   Core.check_borrows(captured_borrow);
 
   const bounded_text_borrow = Source.core(
-    Source.parse("(message: Text) => len(&message)"),
+    Source.parse("(message: Text) => @len(&message)"),
   );
   assert_equals(Core.borrows(bounded_text_borrow), {
     edges: [
@@ -1280,7 +1280,7 @@ const user_type = struct {
   .age= Int
 }
 
-let user: user_type = [.name = Utf8.encode("A"), .age = 1] as user_type
+let user: user_type = [.name = @Utf8.encode("A"), .age = 1] as user_type
 let name = user.name
 &name
 name[0] = 65
@@ -1943,7 +1943,7 @@ if let .ok(value) = result {
   view = &value
 }
 result = .ok("Grace")
-len(view)
+@len(view)
 `),
   );
   assert_equals(
@@ -2179,10 +2179,10 @@ type ResultType = | .ok = Text | .err
 const result_type = ResultType
 
 (start: Int) => {
-  let result: result_type = .ok(slice("Ada", start, 3))
+  let result: result_type = .ok(@slice("Ada", start, 3))
   let view: Text = if let .ok(value) = result { &value } else { "fallback" }
-  result = .ok(slice("Grace", start, 5))
-  len(view)
+  result = .ok(@slice("Grace", start, 5))
+  @len(view)
 }
 `),
     );
@@ -2243,7 +2243,7 @@ const result_type = ResultType
   const stored_borrowed_text = Source.core(Source.parse(`
 (message: Text) => {
   let view = &message
-  len(view)
+  @len(view)
 }
 `));
   assert_equals(Core.borrows(stored_borrowed_text), {
@@ -2287,7 +2287,7 @@ const result_type = ResultType
   const mutate_stored_borrowed_text = Source.core(Source.parse(`
 (message: Bytes) => {
   let view = &message
-  len(view)
+  @len(view)
   message[0] = 65
   1
 }
@@ -2319,7 +2319,7 @@ const result_type = ResultType
 (message: Text) => {
   let view = &message
   let frozen = freeze message
-  len(view)
+  @len(view)
 }
 `));
   assert_equals(Core.validate_borrows(freeze_stored_borrowed_text), {
@@ -2363,7 +2363,7 @@ host_import host_take from "env.take" (Text) => I32
 (message: Text) => {
   let view = &message
   host_take(message)
-  len(view)
+  @len(view)
 }
 `));
   assert_equals(Core.validate_borrows(transfer_stored_borrowed_text), {
@@ -2409,8 +2409,8 @@ const names_type = struct {
 }
 
 let start = 0
-let first: Text = slice("Ada", start, 3)
-let second: Text = slice("Grace", start, 5)
+let first: Text = @slice("Ada", start, 3)
+let second: Text = @slice("Grace", start, 5)
 let flag = 1
 let make_names = if flag {
   () => [.first = first, .second = second] as names_type
@@ -2425,7 +2425,7 @@ for index, name in names {
 }
 
 names[0] = "Edsger"
-len(view)
+@len(view)
 `));
   assert_equals(Core.validate_borrows(mutate_collection_item_borrow_owner), {
     ok: false,
@@ -2512,7 +2512,7 @@ len(view)
   const captured_stored_borrowed_text = Source.core(Source.parse(`
 (message: Text) => {
   let view = &message
-  (x: Int) => len(view)
+  (x: Int) => @len(view)
 }
 `));
   const captured_stored_borrowed_text_message =
@@ -2554,7 +2554,7 @@ len(view)
   if flag {
     view = &message
   }
-  len(view)
+  @len(view)
 }
 `));
   assert_equals(Core.validate_borrows(branch_stored_borrowed_text), {
@@ -3096,7 +3096,7 @@ for i, x in xs {
   total = total + i + x
 }
 
-total + xs[1] + len(user.name)
+total + xs[1] + @len(user.name)
 `));
   const static_aggregate_proof = Core.proof(static_aggregate);
   assert_equals({
@@ -3209,7 +3209,7 @@ let x = 40
 let user: user_type = scratch {
   [.age = x + 1, .name = "Ada"] as user_type
 }
-user.age + len(user.name)
+user.age + @len(user.name)
 `));
   const annotated_scratch_static_aggregate_proof = Core.proof(
     annotated_scratch_static_aggregate,
@@ -3262,9 +3262,9 @@ const user_type = struct {
 }
 let x = 40
 let user: user_type = scratch {
-  [.age = x + 1, .name = append("A", "da")] as user_type
+  [.age = x + 1, .name = @append("A", "da")] as user_type
 }
-user.age + len(user.name)
+user.age + @len(user.name)
 `));
   const unsafe_annotated_scratch_static_aggregate_proof = Core.proof(
     unsafe_annotated_scratch_static_aggregate,
@@ -3326,10 +3326,10 @@ const user_type = struct {
   .name= Text
 }
 let user: user_type = scratch {
-  let temp: Text = freeze append("Ada", "!")
+  let temp: Text = freeze @append("Ada", "!")
   [.age = 40, .name = temp] as user_type
 }
-user.age + len(user.name)
+user.age + @len(user.name)
 `));
   const scratch_static_aggregate_block_setup_proof = Core.proof(
     scratch_static_aggregate_block_setup,
@@ -3387,11 +3387,11 @@ const user_type = struct {
   .name= Text
 }
 let user: user_type = scratch {
-  let name: Text = freeze append("Ada", "!")
+  let name: Text = freeze @append("Ada", "!")
   let temp: user_type = [.age = 41, .name = name] as user_type
   temp
 }
-user.age + len(user.name)
+user.age + @len(user.name)
 `));
   const scratch_static_aggregate_block_alias_proof = Core.proof(
     scratch_static_aggregate_block_alias,
@@ -3456,12 +3456,12 @@ const user_type = struct {
   .name= name_type
 }
 let user: user_type = scratch {
-  let first: Text = freeze append("A", "da")
+  let first: Text = freeze @append("A", "da")
   let name: name_type = [.first = first, .last = "Lovelace"] as name_type
   let temp: user_type = [.age = 40, .name = name] as user_type
   temp
 }
-len(user.name.first) + len(user.name.last) + user.age
+@len(user.name.first) + @len(user.name.last) + user.age
 `));
   const scratch_static_nested_aggregate_block_alias_proof = Core.proof(
     scratch_static_nested_aggregate_block_alias,
@@ -3527,7 +3527,7 @@ const user_type = struct {
   .name= name_type
 }
 scratch {
-  let first: Text = append("A", "da")
+  let first: Text = @append("A", "da")
   let name: name_type = [.first = first, .last = "Lovelace"] as name_type
   let temp: user_type = [.age = 41, .name = name] as user_type
   temp
@@ -3600,10 +3600,10 @@ if let .ok(x) = value { x } else { 0 }
 type ResultType = | .ok = Text | .err = Int
 const result_type = ResultType
 let result: result_type = scratch {
-  let temp: Text = freeze append("Ada", "!")
+  let temp: Text = freeze @append("Ada", "!")
   result_type.ok(temp)
 }
-if let .ok(value) = result { len(value) } else { 0 }
+if let .ok(value) = result { @len(value) } else { 0 }
 `));
   const scratch_static_union_block_setup_proof = Core.proof(
     scratch_static_union_block_setup,
@@ -3658,11 +3658,11 @@ if let .ok(value) = result { len(value) } else { 0 }
 type ResultType = | .ok = Text | .err = Int
 const result_type = ResultType
 let result: result_type = scratch {
-  let name: Text = freeze append("Ada", "!")
+  let name: Text = freeze @append("Ada", "!")
   let temp: result_type = result_type.ok(name)
   temp
 }
-if let .ok(value) = result { len(value) } else { 0 }
+if let .ok(value) = result { @len(value) } else { 0 }
 `));
   const scratch_static_union_block_alias_proof = Core.proof(
     scratch_static_union_block_alias,
@@ -3844,8 +3844,8 @@ scratch_text("hi")
   Core.check_proof(scratch_runtime_text_temporary);
 
   const runtime_text_slice = Source.core(Source.parse(`
-let part: Text = slice("Grace", 1, 4)
-len(part)
+let part: Text = @slice("Grace", 1, 4)
+@len(part)
 `));
   const runtime_text_slice_proof = Core.proof(runtime_text_slice);
   assert_equals({
@@ -3881,9 +3881,9 @@ len(part)
   Core.check_proof(runtime_text_slice);
 
   const runtime_text_append = Source.core(Source.parse(`
-let prefix: Text = slice("Grace", 0, 3)
-let part: Text = append(prefix, "ce")
-len(part)
+let prefix: Text = @slice("Grace", 0, 3)
+let part: Text = @append(prefix, "ce")
+@len(part)
 `));
   const runtime_text_append_proof = Core.proof(runtime_text_append);
   assert_equals({
@@ -3959,9 +3959,9 @@ len(part)
   Core.check_proof(runtime_text_append);
 
   const frozen_runtime_text = Source.core(Source.parse(`
-let prefix: Text = slice("Grace", 0, 3)
-let part: Text = freeze append(prefix, "ce")
-len(part)
+let prefix: Text = @slice("Grace", 0, 3)
+let part: Text = freeze @append(prefix, "ce")
+@len(part)
 `));
   const frozen_runtime_text_proof = Core.proof(frozen_runtime_text);
   assert_equals({
@@ -4022,10 +4022,10 @@ len(part)
   Core.check_proof(frozen_runtime_text);
 
   const mutating_frozen_runtime_text = Source.core(Source.parse(`
-let prefix: Bytes = slice(Utf8.encode("Ada"), 0, 3)
-let part: Bytes = freeze append(prefix, Utf8.encode("!"))
+let prefix: Bytes = @slice(@Utf8.encode("Ada"), 0, 3)
+let part: Bytes = freeze @append(prefix, @Utf8.encode("!"))
 part[0] = 65
-len(part)
+@len(part)
 `));
   assert_throws(
     () => Emit.emit(Core, mutating_frozen_runtime_text),
@@ -4033,8 +4033,8 @@ len(part)
   );
 
   const scratch_frozen_runtime_text = Source.core(Source.parse(`
-let prefix: Text = slice("Ada", 0, 3)
-scratch { freeze append(prefix, "!") }
+let prefix: Text = @slice("Ada", 0, 3)
+scratch { freeze @append(prefix, "!") }
 `));
   const scratch_frozen_runtime_text_proof = Core.proof(
     scratch_frozen_runtime_text,
@@ -4125,9 +4125,9 @@ scratch { freeze append(prefix, "!") }
   Core.check_proof(scratch_frozen_runtime_text);
 
   const bound_scratch_frozen_runtime_text = Source.core(Source.parse(`
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 scratch {
-  let temp: Text = append(prefix, "!")
+  let temp: Text = @append(prefix, "!")
   freeze temp
 }
 `));
@@ -4223,9 +4223,9 @@ scratch {
   Core.check_proof(bound_scratch_frozen_runtime_text);
 
   const alias_scratch_frozen_runtime_text = Source.core(Source.parse(`
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 scratch {
-  let temp: Text = append(prefix, "!")
+  let temp: Text = @append(prefix, "!")
   let alias: Text = temp
   freeze alias
 }
@@ -4322,10 +4322,10 @@ scratch {
   Core.check_proof(alias_scratch_frozen_runtime_text);
 
   const block_scratch_frozen_runtime_text = Source.core(Source.parse(`
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 scratch {
   let temp: Text = {
-    let inner: Text = append(prefix, "!")
+    let inner: Text = @append(prefix, "!")
     inner
   }
   freeze temp
@@ -4425,8 +4425,8 @@ scratch {
   const static_call_scratch_frozen_runtime_text = Source.core(Source.parse(`
 let freeze_suffix = (value: Text) => {
   scratch {
-    let temp: Text = append(value, "!")
-    temp = append(temp, "?")
+    let temp: Text = @append(value, "!")
+    temp = @append(temp, "?")
     freeze temp
   }
 }
@@ -4555,21 +4555,21 @@ let flag = 1
 let freeze_suffix = if flag {
   (value: Text) => {
     scratch {
-      let temp: Text = append(value, "!")
+      let temp: Text = @append(value, "!")
       freeze temp
     }
   }
 } else {
   (value: Text) => {
     scratch {
-      let temp: Text = append(value, "?")
+      let temp: Text = @append(value, "?")
       freeze temp
     }
   }
 }
 
 let result: Text = freeze_suffix("hi")
-len(result)
+@len(result)
 `));
   const branch_closure_scratch_frozen_runtime_text_proof = Core.proof(
     branch_closure_scratch_frozen_runtime_text,
@@ -4655,12 +4655,12 @@ const user_type = struct {
 }
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let user: user_type = scratch {
-  freeze ([.name = append(prefix, "da"), .age = 40] as user_type)
+  freeze ([.name = @append(prefix, "da"), .age = 40] as user_type)
 }
 
-len(user.name) + user.age
+@len(user.name) + user.age
 `));
   const direct_scratch_frozen_runtime_aggregate_proof = Core.proof(
     direct_scratch_frozen_runtime_aggregate,
@@ -4759,13 +4759,13 @@ type ResultType = | .ok = Text | .err
 const result_type = ResultType
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let result: result_type = scratch {
-  freeze result_type.ok(append(prefix, "da"))
+  freeze result_type.ok(@append(prefix, "da"))
 }
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -4867,10 +4867,10 @@ type ResultType = | .ok = Text | .err
 const result_type = ResultType
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 
 scratch {
-  let temp = result_type.ok(append(prefix, "da"))
+  let temp = result_type.ok(@append(prefix, "da"))
   freeze temp
 }
 `));
@@ -5002,10 +5002,10 @@ type ResultType = | .ok = user_type | .err
 const result_type = ResultType
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 
 scratch {
-  let temp = result_type.ok([.name = append(prefix, "da"), .age = 40] as user_type)
+  let temp = result_type.ok([.name = @append(prefix, "da"), .age = 40] as user_type)
   freeze temp
 }
 `),
@@ -5161,10 +5161,10 @@ type OuterType = | .ok = inner_type | .err
 const outer_type = OuterType
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 
 scratch {
-  let temp = outer_type.ok(inner_type.some(append(prefix, "da")))
+  let temp = outer_type.ok(inner_type.some(@append(prefix, "da")))
   freeze temp
 }
 `),
@@ -5326,10 +5326,10 @@ const box_type = struct {
 }
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 
 scratch {
-  let temp = [.result = result_type.ok(append(prefix, "da")), .age = 40] as box_type
+  let temp = [.result = result_type.ok(@append(prefix, "da")), .age = 40] as box_type
   freeze temp
 }
 `),
@@ -5475,10 +5475,10 @@ const user_type = struct {
 }
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 
 scratch {
-  let temp: user_type = [.name = append(prefix, "da"), .age = 40] as user_type
+  let temp: user_type = [.name = @append(prefix, "da"), .age = 40] as user_type
   freeze temp
 }
 `));
@@ -5596,8 +5596,8 @@ const user_type = struct {
 }
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
-let existing: user_type = [.name = append(prefix, "da"), .age = 40] as user_type
+let prefix: Text = @slice("Ada", start, 1)
+let existing: user_type = [.name = @append(prefix, "da"), .age = 40] as user_type
 
 scratch {
   let temp = existing
@@ -5731,15 +5731,15 @@ const user_type = struct {
 }
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
-let existing: user_type = [.name = append(prefix, "da"), .age = 40] as user_type
+let prefix: Text = @slice("Ada", start, 1)
+let existing: user_type = [.name = @append(prefix, "da"), .age = 40] as user_type
 let user: user_type = scratch {
   let first = existing
   let second = first
   freeze second
 }
 
-len(user.name) + user.age
+@len(user.name) + user.age
 `),
   );
   const chained_alias_proof = Core.proof(
@@ -5774,15 +5774,15 @@ const user_type = struct {
 }
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
-let existing: user_type = [.name = append(prefix, "da"), .age = 40] as user_type
+let prefix: Text = @slice("Ada", start, 1)
+let existing: user_type = [.name = @append(prefix, "da"), .age = 40] as user_type
 let user: user_type = scratch {
   let first = existing
   let second = first
   second
 }
 
-len(user.name) + user.age
+@len(user.name) + user.age
 `));
   const chained_alias_unfrozen_proof = Core.proof(
     chained_alias_unfrozen_runtime_aggregate,
@@ -5810,19 +5810,19 @@ const user_type = struct {
 
 let flag = 1
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
-let existing: user_type = [.name = append(prefix, "da"), .age = 40] as user_type
+let prefix: Text = @slice("Ada", start, 1)
+let existing: user_type = [.name = @append(prefix, "da"), .age = 40] as user_type
 if flag {
-  existing = [.name = append(prefix, "!"), .age = 41] as user_type
+  existing = [.name = @append(prefix, "!"), .age = 41] as user_type
 } else {
-  existing = [.name = append(prefix, "?"), .age = 42] as user_type
+  existing = [.name = @append(prefix, "?"), .age = 42] as user_type
 }
 let user: user_type = scratch {
   let temp = existing
   freeze temp
 }
 
-len(user.name) + user.age
+@len(user.name) + user.age
 `),
   );
   const branch_assignment_scratch_frozen_runtime_aggregate_proof = Core.proof(
@@ -5920,9 +5920,9 @@ const result_type = ResultType
 
 let flag = 1
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let existing: result_type = if flag {
-  result_type.ok(append(prefix, "da"))
+  result_type.ok(@append(prefix, "da"))
 } else {
   result_type.err(5)
 }
@@ -5932,7 +5932,7 @@ let result: result_type = scratch {
 }
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -6066,11 +6066,11 @@ const result_type = ResultType
 
 let flag = 1
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let existing: result_type = result_type.err(5)
 
 if flag {
-  existing = result_type.ok(append(prefix, "da"))
+  existing = result_type.ok(@append(prefix, "da"))
 } else {
   existing = result_type.err(7)
 }
@@ -6081,7 +6081,7 @@ let result: result_type = scratch {
 }
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -6223,7 +6223,7 @@ if let .ok(value) = result {
   );
 
   const helper_scratch_frozen_runtime_text = Source.core(Source.parse(`
-let add_bang = (value: Text) => { append(value, "!") }
+let add_bang = (value: Text) => { @append(value, "!") }
 
 scratch {
   let temp: Text = add_bang("hi")
@@ -6314,12 +6314,12 @@ scratch {
 
   const branch_scratch_frozen_runtime_text = Source.core(Source.parse(`
 let flag = 1
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 scratch {
   if flag {
-    freeze append(prefix, "!")
+    freeze @append(prefix, "!")
   } else {
-    freeze append(prefix, "?")
+    freeze @append(prefix, "?")
   }
 }
 `));
@@ -6453,12 +6453,12 @@ scratch {
 
   const branch_result_scratch_frozen_runtime_text = Source.core(Source.parse(`
 let flag = 1
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 scratch {
   let temp: Text = if flag {
-    append(prefix, "!")
+    @append(prefix, "!")
   } else {
-    append(prefix, "?")
+    @append(prefix, "?")
   }
   freeze temp
 }
@@ -6570,13 +6570,13 @@ scratch {
   const branch_assignment_scratch_frozen_runtime_text = Source.core(
     Source.parse(`
 let flag = 1
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 scratch {
-  let temp: Text = append(prefix, ".")
+  let temp: Text = @append(prefix, ".")
   if flag {
-    temp = append(prefix, "!")
+    temp = @append(prefix, "!")
   } else {
-    temp = append(prefix, "?")
+    temp = @append(prefix, "?")
   }
   freeze temp
 }
@@ -6748,11 +6748,11 @@ scratch {
   Core.check_proof(branch_assignment_scratch_frozen_runtime_text);
 
   const loop_assignment_scratch_frozen_runtime_text = Source.core(Source.parse(`
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 scratch {
-  let temp: Text = append(prefix, ".")
+  let temp: Text = @append(prefix, ".")
   for i in 0..1 {
-    temp = append(prefix, "!")
+    temp = @append(prefix, "!")
   }
   freeze temp
 }
@@ -6902,12 +6902,12 @@ const xs_type = struct {
   .first= Int,
   .second= Int
 }
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 let xs: xs_type = [.first = 1, .second = 2] as xs_type
 scratch {
-  let temp: Text = append(prefix, ".")
+  let temp: Text = @append(prefix, ".")
   for x in xs {
-    temp = append(prefix, "!")
+    temp = @append(prefix, "!")
   }
   freeze temp
 }
@@ -7080,12 +7080,12 @@ let result: result_type = if flag {
   result_type.err("no")
 }
 scratch {
-  let temp: Text = append("no", ".")
+  let temp: Text = @append("no", ".")
   if let .ok(value) = result {
-    temp = append(value, "!")
+    temp = @append(value, "!")
   }
   if let .err(value) = result {
-    temp = append(value, "?")
+    temp = @append(value, "?")
   }
   freeze temp
 }
@@ -7275,9 +7275,9 @@ let result: result_type = if flag {
 }
 scratch {
   if let .ok(value) = result {
-    freeze append(value, "!")
+    freeze @append(value, "!")
   } else {
-    freeze append("no", "?")
+    freeze @append("no", "?")
   }
 }
 `));
@@ -7430,9 +7430,9 @@ let result: result_type = if flag {
 }
 scratch {
   if let .ok(value) = result {
-    append(value, "!")
+    @append(value, "!")
   } else {
-    append("no", "?")
+    @append("no", "?")
   }
 }
 `));
@@ -7699,7 +7699,7 @@ let sum_text = if flag {
     total
   }
 } else {
-  (value: Text) => len(value)
+  (value: Text) => @len(value)
 }
 
 sum_text("Ada")
@@ -8179,9 +8179,9 @@ f(40)
 
   const frozen_capture_core = Source.core(Source.parse(`
 let flag = 1
-let message: Text = freeze append("he", "llo")
+let message: Text = freeze @append("he", "llo")
 let f = if flag {
-  (x: Int) => len(message) + x
+  (x: Int) => @len(message) + x
 } else {
   (x: Int) => x
 }
@@ -8268,10 +8268,10 @@ const user_type = struct {
 
 let flag = 1
 let user: user_type = freeze (
-  [.name = append("Ad", "a"), .age = 41] as user_type
+  [.name = @append("Ad", "a"), .age = 41] as user_type
 )
 let read_user = if flag {
-  (x: Int) => len(user.name) + x
+  (x: Int) => @len(user.name) + x
 } else {
   (x: Int) => x
 }
@@ -8333,9 +8333,9 @@ read_user(1)
 
   const unique_capture_core = Source.core(Source.parse(`
 let flag = 1
-let message: Text = append("he", "llo")
+let message: Text = @append("he", "llo")
 let f = if flag {
-  (x: Int) => len(message) + x
+  (x: Int) => @len(message) + x
 } else {
   (x: Int) => x
 }
@@ -8378,9 +8378,9 @@ f(1)
   );
 
   const borrow_capture_core = Source.core(Source.parse(`
-let message: Text = append("he", "llo")
+let message: Text = @append("he", "llo")
 let view = &message
-let f = (x: Int) => len(view) + x
+let f = (x: Int) => @len(view) + x
 
 f(1)
 `));
@@ -8427,8 +8427,8 @@ f(1)
 
   const direct_scratch_capture_core = Source.core(Source.parse(`
 scratch {
-  let message: Text = append("he", "llo")
-  ((x: Int) => len(message) + x)(1)
+  let message: Text = @append("he", "llo")
+  ((x: Int) => @len(message) + x)(1)
 }
 `));
   const direct_scratch_plan = Core.closure_ownership(
@@ -8470,8 +8470,8 @@ scratch {
 
   const scratch_capture_core = Source.core(Source.parse(`
 scratch {
-  let message: Text = append("he", "llo")
-  freeze ((x: Int) => len(message) + x)
+  let message: Text = @append("he", "llo")
+  freeze ((x: Int) => @len(message) + x)
 }
 `));
   const scratch_plan = Core.closure_ownership(scratch_capture_core);
@@ -9136,7 +9136,7 @@ f = (x: Int) => x + 1
 
   const discarded_runtime_text_temporary = Source.core(Source.parse(`
 (value: Text) => {
-  append(value, "!")
+  @append(value, "!")
   1
 }
 `));
@@ -9200,7 +9200,7 @@ f = (x: Int) => x + 1
 
   const discarded_runtime_text_slice_temporary = Source.core(Source.parse(`
 (value: Text) => {
-  slice(value, 0, 1)
+  @slice(value, 0, 1)
   1
 }
 `));
@@ -9507,7 +9507,7 @@ user
 
   const bound_runtime_text_temporary = Source.core(Source.parse(`
 (value: Text) => {
-  let message: Text = append(value, "!")
+  let message: Text = @append(value, "!")
   1
 }
 `));
@@ -9568,7 +9568,7 @@ user
 
   const bound_runtime_text_slice_temporary = Source.core(Source.parse(`
 (value: Text) => {
-  let part: Text = slice(value, 0, 1)
+  let part: Text = @slice(value, 0, 1)
   1
 }
 `));

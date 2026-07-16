@@ -412,21 +412,21 @@ function infer_result_type(
       return import_result;
     }
 
-    if (expr.func.name === "len" || expr.func.name === "get") {
+    if (expr.func.name === "@len" || expr.func.name === "@get") {
       return "I32";
     }
 
-    if (expr.func.name === "Bytes.generate") {
+    if (expr.func.name === "@Bytes.generate") {
       return "Bytes";
     }
 
-    if (expr.func.name === "Utf8.encode") {
+    if (expr.func.name === "@Utf8.encode") {
       return "Bytes";
     }
 
     if (
-      expr.func.name === "Utf8.decode" || expr.func.name === "format_i32" ||
-      expr.func.name === "format_i64" || expr.func.name === "format_f32"
+      expr.func.name === "@Utf8.decode" || expr.func.name === "@format_i32" ||
+      expr.func.name === "@format_i64" || expr.func.name === "@format_f32"
     ) {
       return "Text";
     }

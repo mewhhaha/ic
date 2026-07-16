@@ -25,10 +25,6 @@ duck Ord Self {
   .compare = [Self, Self] -> Ordering
 }
 
-duck Semigroup Self {
-  .append = [Self, Self] -> Self
-}
-
 duck Monoid Self {
   .empty = [] -> Self
   .append = [Self, Self] -> Self
@@ -52,11 +48,50 @@ duck Foldable F A State {
   .fold = [F A, State, [State, A] -> State] -> State
 }
 
+duck Show Self {
+  .show = Self -> Text
+}
+
+duck From Source Target {
+  .from = Source -> Target
+}
+
+duck Default Self {
+  .default = [] -> Self
+}
+
+duck Bounded Self {
+  .minimum = [] -> Self
+  .maximum = [] -> Self
+}
+
+duck Enum Self {
+  .successor = Self -> Self
+  .predecessor = Self -> Self
+}
+
+duck Alternative F A {
+  .empty = [] -> F A
+  .or_else = [F A, F A] -> F A
+}
+
+duck Bifunctor F A B C D {
+  .bimap = [F A B, A -> C, B -> D] -> F C D
+}
+
+duck Contravariant F A B {
+  .contramap = [F A, B -> A] -> F B
+}
+
+duck Traversable T F A B {
+  .traverse = [T A, A -> F B] -> F (T B)
+}
+
 const identity = value => value
 
 const constant = value => _ => value
 
-const compose = [outer, inner] => value => outer (inner value)
+const compose = [outer, inner] => value => outer(inner value)
 
 const pipe = [value, transform] => transform value
 
@@ -66,6 +101,8 @@ const curry = call => left => right => call [left, right]
 
 const uncurry = call => [left, right] => call left right
 
+const { append, length, get, slice, bit_and, bit_or, bit_xor, shift_left, shift_right_unsigned, sqrt_f32, f32_from_i32, i32_from_f32, format_i32, format_i64, format_f32, generate_bytes, encode_utf8, decode_utf8, panic, f32x4, f32x4_splat, f32x4_add, f32x4_subtract, f32x4_multiply, f32x4_divide } = comptime import "duck:prelude/runtime" ()
+
 return {
   identity,
   constant,
@@ -74,4 +111,29 @@ return {
   flip,
   curry,
   uncurry,
+  append,
+  length,
+  get,
+  slice,
+  bit_and,
+  bit_or,
+  bit_xor,
+  shift_left,
+  shift_right_unsigned,
+  sqrt_f32,
+  f32_from_i32,
+  i32_from_f32,
+  format_i32,
+  format_i64,
+  format_f32,
+  generate_bytes,
+  encode_utf8,
+  decode_utf8,
+  panic,
+  f32x4,
+  f32x4_splat,
+  f32x4_add,
+  f32x4_subtract,
+  f32x4_multiply,
+  f32x4_divide,
 }

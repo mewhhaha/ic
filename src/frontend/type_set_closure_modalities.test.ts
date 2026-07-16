@@ -18,11 +18,11 @@ identity(#hello)
 
 Deno.test("ownership-qualified closure parameters reject until facts persist", () => {
   assert_throws(
-    () => Source.wat("let length = (value: #Text) => len(value)\n0"),
+    () => Source.wat("let length = (value: #Text) => @len(value)\n0"),
     "First-class closure ownership-qualified parameter annotations are not supported yet",
   );
   assert_throws(
-    () => Source.wat("let length = (value: &Text) => len(value)\n0"),
+    () => Source.wat("let length = (value: &Text) => @len(value)\n0"),
     "First-class closure ownership-qualified parameter annotations are not supported yet",
   );
 });

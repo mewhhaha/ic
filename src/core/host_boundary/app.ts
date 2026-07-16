@@ -167,27 +167,27 @@ function core_app_is_known<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
 }
 
 function core_builtin_app_name(name: string): boolean {
-  if (name === "len") {
+  if (name === "@len") {
     return true;
   }
 
-  if (name === "get") {
+  if (name === "@get") {
     return true;
   }
 
-  if (name === "slice") {
+  if (name === "@slice") {
     return true;
   }
 
-  if (name === "panic") {
+  if (name === "@panic") {
     return true;
   }
 
-  if (name === "append") {
+  if (name === "@append") {
     return true;
   }
 
-  if (name === "Bytes.generate") {
+  if (name === "@Bytes.generate") {
     return true;
   }
 
@@ -195,7 +195,7 @@ function core_builtin_app_name(name: string): boolean {
     return true;
   }
 
-  if (name === "runtime_i32_slice" || name === "runtime_text_slice") {
+  if (name === "@runtime_i32_slice" || name === "@runtime_text_slice") {
     return true;
   }
 

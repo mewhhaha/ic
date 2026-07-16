@@ -127,7 +127,7 @@ let selected = if flag {
   [.name = [.first = other, .last = message] as name_type, .age = 2] as user_type
 }
 
-len(selected.name.first) + selected.age
+@len(selected.name.first) + selected.age
 `);
   const nested_text = Format.fmt(Ic, Ic.reduce(nested));
 
@@ -175,7 +175,7 @@ let choose = flag => if flag {
   [.name = other] as user_type
 }
 
-len(choose(flag).name)
+@len(choose(flag).name)
 `)),
     ),
     "load(if flag then input else other)",
@@ -195,7 +195,7 @@ let choose = flag => if flag {
   [.name = other] as user_type
 }
 
-get(choose(flag).name, index)
+@get(choose(flag).name, index)
 `)),
   );
   assert_includes(call_only_struct_text_get, "load8_u");
@@ -223,7 +223,7 @@ let choose = flag => if flag {
   [.name = [.first = other] as name_type] as user_type
 }
 
-len(choose(flag).name.first)
+@len(choose(flag).name.first)
 `)),
   );
   assert_equals(
@@ -245,7 +245,7 @@ let choose = flag => if flag {
   other
 }
 
-len(choose(flag).name)
+@len(choose(flag).name)
 `),
     "Cannot lower dynamic if with struct branches to Ic frontend",
   );
@@ -303,7 +303,7 @@ let choose = flag => if flag {
   option_type.none()
 }
 
-len((if let .some(user) = choose(flag) {
+@len((if let .some(user) = choose(flag) {
   user
 } else {
   [.name = other] as user_type
@@ -333,7 +333,7 @@ let choose = flag => if flag {
   option_type.none()
 }
 
-get((if let .some(user) = choose(flag) {
+@get((if let .some(user) = choose(flag) {
   user
 } else {
   [.name = other] as user_type
@@ -389,7 +389,7 @@ let choose = flag => if flag {
   option_type.none()
 }
 
-len((if let .some(user) = choose(flag) {
+@len((if let .some(user) = choose(flag) {
   1
 } else {
   [.name = other] as user_type
@@ -422,7 +422,7 @@ let selected = if let .ok(payload) = result {
   [.name = [.first = other, .last = message] as name_type, .age = 2] as user_type
 }
 
-len(selected.name.first) + selected.age
+@len(selected.name.first) + selected.age
 `);
   const nested_if_let_text = Format.fmt(Ic, Ic.reduce(nested_if_let));
 
@@ -529,7 +529,7 @@ let user = if input {
   [.name = "Grace", .age = 32]
 }
 
-user.age + len(user.name)
+user.age + @len(user.name)
 `);
   const dynamic_object_text = Format.fmt(Ic, Ic.reduce(dynamic_object));
 
@@ -576,7 +576,7 @@ const make_user = flag => {
 
 let user = make_user(input)
 
-user.age + len(user.name)
+user.age + @len(user.name)
 `);
   const const_call_dynamic_object_text = Format.fmt(
     Ic,
@@ -743,7 +743,7 @@ let rename = user => {
   }
 }
 
-len(rename([.name = "Ada", .age = 41]).name)
+@len(rename([.name = "Ada", .age = 41]).name)
 `);
 
   assert_equals(Ic.reduce(closure_text_update), {
@@ -1170,7 +1170,7 @@ const int_result = result_type(Text)(Int)
 let result = int_result.ok(41)
 
 if let .ok(value) = result {
-  value + size_of(int_result)
+  value + @size_of(int_result)
 } else {
   0
 }
@@ -1189,7 +1189,7 @@ const user_pair_type = pair_type(Text)(Int)
 
 let pair: user_pair_type = ["Ada", 30]
 
-pair.second + size_of(user_pair_type)
+pair.second + @size_of(user_pair_type)
 `);
 
   assert_equals(Ic.reduce(struct_ic), { tag: "num", type: "i32", value: 42 });
@@ -1251,7 +1251,7 @@ const user_type = struct {
 type OptionType = | .some = alias | .none
 const option_type = OptionType
 
-size_of(user_type) + size_of(option_type)
+@size_of(user_type) + @size_of(option_type)
 `);
 
   assert_equals(Ic.reduce(captured_type_alias), {
@@ -1477,7 +1477,7 @@ let text = if let .ok(inner) = outer {
   }
 }
 
-len(text)
+@len(text)
 `);
   const nested_text_if_let_text = Format.fmt(
     Ic,
@@ -2101,7 +2101,7 @@ let result = if input {
 }
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -2795,7 +2795,7 @@ let value: Text = if let .ok(found) = result {
   other_text
 }
 
-len(value)
+@len(value)
 `);
 
   assert_equals(
@@ -2810,7 +2810,7 @@ let result = if flag {
   .err(other)
 }
 
-len(if let .ok(found) = result {
+@len(if let .ok(found) = result {
   message
 } else {
   other_text
@@ -2829,7 +2829,7 @@ let result = if flag {
   .err(other)
 }
 
-len(if let .ok(found) = result {
+@len(if let .ok(found) = result {
   message
 })
 `);
@@ -2846,7 +2846,7 @@ let result = if flag {
   .err(other)
 }
 
-get(if let .ok(found) = result {
+@get(if let .ok(found) = result {
   message
 } else {
   other_text
@@ -2880,7 +2880,7 @@ let result = if flag {
   .err(other)
 }
 
-get(if let .ok(found) = result {
+@get(if let .ok(found) = result {
   message
 }, 0)
 `);

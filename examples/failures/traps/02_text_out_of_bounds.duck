@@ -1,5 +1,7 @@
 module (!init: Init) where
 
+const { get } = comptime import "duck:prelude/runtime" ()
+
 declare effect Input {
   index: () => I32
 }
@@ -7,5 +9,5 @@ declare effect Input {
 declare Init { input: Input }
 
 index <- Input.index()
-let result = get("a", index)
+let result: I32 = get("a", index)
 return { .result = result }

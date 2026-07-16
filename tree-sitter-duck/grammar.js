@@ -576,6 +576,7 @@ module.exports = grammar({
         $.character,
         $.boolean,
         $.atom_expression,
+        $.intrinsic_identifier,
         alias("loop", $.identifier),
         $.identifier,
         $._aggregate_constructor_identifier,
@@ -1286,6 +1287,13 @@ module.exports = grammar({
         prec(
           2,
           choice(
+            "<>",
+            "<*>",
+            "<$>",
+            ">>=",
+            "<|>",
+            "|>",
+            "<|",
             /[~^?$][-!$%&*+\/<=>?@\\^|~]*/,
             /@[-!$%&*+\/<=>?@\\^|~]+/,
             /[-!%&*+\/<=>\\|][~^?$@][-!$%&*+\/<=>?@\\^|~]*/,

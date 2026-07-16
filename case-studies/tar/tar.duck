@@ -32,24 +32,24 @@ let error_total_out_of_range = 7
 
 let field_length: (Bytes, I32, I32) -> I32 =
   (archive: Bytes, start: I32, width: I32) => {
-  let end = start + width
-  let length = width
+    let end = start + width
+    let length = width
 
-  for index in start..end {
-    if get(archive, index) == 0 {
-      length = index - start
-      break
+    for index in start..end {
+      if @get(archive, index) == 0 {
+        length = index - start
+        break
+      }
     }
-  }
 
-  length
+    length
   }
 
 let zero_block: (Bytes, I32) -> Bool = (archive: Bytes, start: I32) => {
   let zero = true
 
   for index in start..start + block_size {
-    if get(archive, index) != 0 {
+    if @get(archive, index) != 0 {
       zero = false
       break
     }
@@ -60,36 +60,36 @@ let zero_block: (Bytes, I32) -> Bool = (archive: Bytes, start: I32) => {
 
 let parse_octal: (Bytes, I32, I32) -> OctalResult =
   (archive: Bytes, start: I32, width: I32) => {
-  let value = 0
-  let ended = false
-  let invalid = false
-  let range = false
+    let value = 0
+    let ended = false
+    let invalid = false
+    let range = false
 
-  for index in start..start + width {
-    let byte = get(archive, index)
+    for index in start..start + width {
+      let byte = @get(archive, index)
 
-    if byte >= 48 && byte <= 55 {
-      if ended {
-        invalid = true
-      } else if value > 268435455 {
-        range = true
+      if byte >= 48 && byte <= 55 {
+        if ended {
+          invalid = true
+        } else if value > 268435455 {
+          range = true
+        } else {
+          value = value * 8 + byte - 48
+        }
+      } else if byte == 0 || byte == 32 {
+        ended = true
       } else {
-        value = value * 8 + byte - 48
+        invalid = true
       }
-    } else if byte == 0 || byte == 32 {
-      ended = true
-    } else {
-      invalid = true
     }
-  }
 
-  if invalid {
-    OctalResult.invalid()
-  } else if range {
-    OctalResult.range()
-  } else {
-    OctalResult.ok(value)
-  }
+    if invalid {
+      OctalResult.invalid()
+    } else if range {
+      OctalResult.range()
+    } else {
+      OctalResult.ok(value)
+    }
   }
 
 let inspect: Bytes -> InspectResult = (archive: Bytes) => {
@@ -99,8 +99,8 @@ let inspect: Bytes -> InspectResult = (archive: Bytes) => {
   let directory_count = 0
   let other_count = 0
   let total_size = 0
-  let names: Bytes = Bytes.generate(0, index => index)
-  let archive_length = len(archive)
+  let names: Bytes = @Bytes.generate(0, index => index)
+  let archive_length = @len(archive)
   let error_code = 0
   let error_offset = 0
   let valid = false
@@ -143,7 +143,7 @@ let inspect: Bytes -> InspectResult = (archive: Bytes) => {
       if index >= cursor + checksum_start && index < cursor + checksum_start + checksum_width {
         computed_checksum = computed_checksum + 32
       } else {
-        computed_checksum = computed_checksum + get(archive, index)
+        computed_checksum = computed_checksum + @get(archive, index)
       }
     }
 
@@ -204,27 +204,27 @@ let inspect: Bytes -> InspectResult = (archive: Bytes) => {
 
     let name_length = field_length(archive, cursor, name_width)
     let prefix_length = field_length(archive, cursor + prefix_start, prefix_width)
-    let name: Bytes = slice(archive, cursor, cursor + name_length)
+    let name: Bytes = @slice(archive, cursor, cursor + name_length)
 
     if prefix_length > 0 {
-      let prefix: Bytes = slice(archive, cursor + prefix_start, cursor + prefix_start + prefix_length)
+      let prefix: Bytes = @slice(archive, cursor + prefix_start, cursor + prefix_start + prefix_length)
 
       if name_length > 0 {
-        let slash: Bytes = Bytes.generate(1, index => 47)
-        let prefixed: Bytes = append(prefix, slash)
-        name = append(prefixed, name)
+        let slash: Bytes = @Bytes.generate(1, index => 47)
+        let prefixed: Bytes = @append(prefix, slash)
+        name = @append(prefixed, name)
       } else {
         name = prefix
       }
     }
 
-    let separator: Bytes = Bytes.generate(1, index => 0)
-    let terminated_name: Bytes = append(name, separator)
-    names = append(names, terminated_name)
+    let separator: Bytes = @Bytes.generate(1, index => 0)
+    let terminated_name: Bytes = @append(name, separator)
+    names = @append(names, terminated_name)
     entry_count = entry_count + 1
     total_size = total_size + size
 
-    let type_flag = get(archive, cursor + type_start)
+    let type_flag = @get(archive, cursor + type_start)
 
     if type_flag == 0 || type_flag == 48 {
       file_count = file_count + 1
@@ -250,7 +250,7 @@ archive_result <- Archive.read()
 let archive: Bytes = if let .bytes(bytes) = archive_result {
   bytes
 } else {
-  panic("Archive.read returned an unsupported result")
+  @panic("Archive.read returned an unsupported result")
 }
 let result: InspectResult = inspect(archive)
 return { .result = result }

@@ -133,7 +133,7 @@ Deno.test("is narrows tagged type sets in both branches", () => {
   const then_wat = Source.wat(`
 type Scalar = Int | Text
 let value: Scalar = "hello"
-if value is Text { len(value) } else { 0 }
+if value is Text { @len(value) } else { 0 }
 `);
   const else_wat = Source.wat(`
 type Scalar = Int | Text
@@ -219,13 +219,13 @@ Deno.test("frozen, borrowed, top, and bottom aliases stay compile-time", () => {
 type FrozenText = #Text
 type Alias = FrozenText
 let value: Alias = "hello"
-len(value)
+@len(value)
 `);
   const borrowed = Source.wat(`
 type BorrowedText = &Text
 let value = "hello"
 let view: BorrowedText = &value
-len(view)
+@len(view)
 `);
   const top = Source.wat("type Any = _\nlet value: Any = 42\nvalue");
 
@@ -263,7 +263,7 @@ let value: Three = 9i64
 if value is Int {
   0
 } else if value is Text {
-  len(value)
+  @len(value)
 } else {
   value + 0i64
 }
@@ -319,7 +319,7 @@ flag <- Input.flag()
 let operation = if flag {
   (value: Choice) => if value is Int { value } else { 0 }
 } else {
-  (value: Choice) => if value is Text { len(value) } else { 0 }
+  (value: Choice) => if value is Text { @len(value) } else { 0 }
 }
 let result: I32 = operation(42)
 return { .result = result }
@@ -383,7 +383,7 @@ declare effect Input { read: () => Read }
 type Init = [.input = Input]
 
 value <- Input.read()
-let result: I32 = if value is Int { value } else { len(value) }
+let result: I32 = if value is Int { value } else { @len(value) }
 return { .result = result }
 `);
   const read = artifact.abi.types.Read;

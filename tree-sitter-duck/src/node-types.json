@@ -1542,6 +1542,10 @@
           "named": true
         },
         {
+          "type": "intrinsic_identifier",
+          "named": true
+        },
+        {
           "type": "linear_reference",
           "named": true
         },

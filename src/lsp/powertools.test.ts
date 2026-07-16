@@ -45,11 +45,11 @@ Deno.test("powertools expands comptime closures with captures", () => {
 Deno.test("powertools reports frontend evaluation failures and invalid positions", () => {
   assert_equals(
     expand_comptime(
-      'comptime fail("bad")\n',
+      'comptime @fail("bad")\n',
       { line: 0, character: 5 },
       "utf-16",
     ),
-    { ok: false, code: "evaluation_failed", message: "fail: bad" },
+    { ok: false, code: "evaluation_failed", message: "@fail: bad" },
   );
   assert_equals(
     expand_comptime(adder, { line: 99, character: 0 }, "utf-16"),
@@ -63,7 +63,7 @@ Deno.test("powertools reports frontend evaluation failures and invalid positions
 
 Deno.test("powertools trace records successful frontend fact checks", () => {
   const text = "const nonzero = value => {\n" +
-    '  if value == 0 { fail("zero") } else { value }\n' +
+    '  if value == 0 { @fail("zero") } else { value }\n' +
     "}\n" +
     "let checked = (const value: nonzero) => value\n" +
     "comptime checked(3)\n";

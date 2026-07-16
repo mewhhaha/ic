@@ -294,7 +294,7 @@ function indexed_collection_source(expr: CoreExpr): CoreExpr | undefined {
   if (
     expr.tag === "app" &&
     expr.func.tag === "var" &&
-    expr.func.name === "get"
+    expr.func.name === "@get"
   ) {
     return expr.args[0];
   }

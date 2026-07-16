@@ -25,8 +25,8 @@ let choose = if 1 {
   (lanes: F32x4) => [.prefix = 8, .lanes = lanes] as packet_type
 }
 
-let packet: packet_type = choose(f32x4(1f32, 2f32, 3f32, 4f32))
-f32x4_extract_lane(packet.lanes, 2) + f32_from_i32(packet.prefix)
+let packet: packet_type = choose(@f32x4(1f32, 2f32, 3f32, 4f32))
+@f32x4_extract_lane(packet.lanes, 2) + @f32_from_i32(packet.prefix)
 `);
 
   assert_includes(wat, "i32.const 32\n    i32.const 16\n    call $__alloc");
@@ -55,12 +55,12 @@ f32x4_extract_lane(packet.lanes, 2) + f32_from_i32(packet.prefix)
 
 Deno.test("closure environments preserve captured F32x4 values", async () => {
   const wat = wat_from_core_source(`
-let vector: F32x4 = f32x4(1f32, 2f32, 3f32, 4f32)
+let vector: F32x4 = @f32x4(1f32, 2f32, 3f32, 4f32)
 let flag = 1
 let lane = if flag {
-  (add: F32) => f32x4_extract_lane(vector, 2) + add
+  (add: F32) => @f32x4_extract_lane(vector, 2) + add
 } else {
-  (add: F32) => f32x4_extract_lane(vector, 3) + add
+  (add: F32) => @f32x4_extract_lane(vector, 3) + add
 }
 
 lane(39f32)
@@ -81,13 +81,13 @@ const result_type = ResultType
 
 let flag = 1
 let result: result_type = if flag {
-  result_type.ok(f32x4(1f32, 2f32, 3f32, 4f32))
+  result_type.ok(@f32x4(1f32, 2f32, 3f32, 4f32))
 } else {
-  result_type.err(f32x4_splat(0f32))
+  result_type.err(@f32x4_splat(0f32))
 }
 
 if let .ok(vector) = result {
-  f32x4_extract_lane(vector, 3)
+  @f32x4_extract_lane(vector, 3)
 } else {
   0f32
 }
@@ -105,13 +105,13 @@ Deno.test("named recursion accepts F32x4 parameters", async () => {
   const wat = wat_from_core_source(`
 let rec lane_sum = (vector: F32x4, n: Int) => {
   if n == 0 {
-    i32_from_f32(f32x4_extract_lane(vector, 2))
+    @i32_from_f32(@f32x4_extract_lane(vector, 2))
   } else {
-    i32_from_f32(f32x4_extract_lane(vector, 0)) + lane_sum(vector, n - 1)
+    @i32_from_f32(@f32x4_extract_lane(vector, 0)) + lane_sum(vector, n - 1)
   }
 }
 
-lane_sum(f32x4(1f32, 2f32, 3f32, 4f32), 2)
+lane_sum(@f32x4(1f32, 2f32, 3f32, 4f32), 2)
 `);
 
   assert_includes(wat, "(func $lane_sum (param $vector v128)");

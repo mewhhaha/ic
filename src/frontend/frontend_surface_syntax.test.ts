@@ -53,6 +53,17 @@ let separate = x
   assert_equals(parse_source(formatted), source);
 });
 
+Deno.test("prelude operators retain their source operand order", () => {
+  const text = "let applied = transform $ value\n" +
+    "let piped = value |> transform\n" +
+    "let mapped = transform <$> wrapped\n" +
+    "let combined = left <> right\n" +
+    "let bound = wrapped >>= next\n" +
+    "let shifted = bits << amount";
+
+  assert_equals(format_source(parse_source(text)), text);
+});
+
 Deno.test("bindings and unary functions share recursive patterns", () => {
   const source = parse_source(`
 const { add, .subtract = subtract_numbers } = import "./math.duck"
@@ -177,6 +188,45 @@ let changed = value with { .count = 1 }
   assert_throws(
     () => parse_source("let changed = value { count: 1 }\n"),
     "Runtime products use contextual `[...]` values",
+  );
+});
+
+Deno.test("import invocation formats without redundant parentheses", () => {
+  const source = parse_source(
+    'let dependency = (import "./dependency.duck")()\n',
+  );
+
+  assert_equals(
+    format_source(source),
+    'let dependency = import "./dependency.duck" ()',
+  );
+  assert_equals(parse_source(format_source(source)), source);
+});
+
+Deno.test("compiler functions retain their intrinsic prefix", () => {
+  const source = parse_source(
+    "let append = [left, right] => left\n" +
+      'let compiler_value = @append("a", "b")\n' +
+      'let user_value = append("a", "b")\n',
+  );
+  const compiler_value = binding_value(source.statements[1]);
+  const user_value = binding_value(source.statements[2]);
+
+  if (compiler_value.tag !== "app" || compiler_value.func.tag !== "var") {
+    throw new Error("Expected compiler function application");
+  }
+
+  if (user_value.tag !== "app" || user_value.func.tag !== "var") {
+    throw new Error("Expected user function application");
+  }
+
+  assert_equals(compiler_value.func.name, "@append");
+  assert_equals(user_value.func.name, "append");
+  assert_equals(
+    format_source(source),
+    "let append = [left, right] => left\n" +
+      'let compiler_value = @append ["a", "b"]\n' +
+      'let user_value = append ["a", "b"]',
   );
 });
 

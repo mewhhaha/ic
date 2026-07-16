@@ -8,8 +8,8 @@ invocation or I/O failure. An empty pattern matches every existing line.
 
 The matcher keeps only the unfinished tail between reads. Completed lines are
 dropped from the rolling `Bytes` buffer, so retained input is bounded by one
-chunk plus the longest unfinished line rather than the complete file. `append`
-and `slice` currently allocate and copy, and matching is a naive byte search;
+chunk plus the longest unfinished line rather than the complete file. `@append`
+and `@slice` currently allocate and copy, and matching is a naive byte search;
 this is a correctness slice, not a performance claim.
 
 The outer read loop is an unbounded, value-producing `loop`: each terminal path

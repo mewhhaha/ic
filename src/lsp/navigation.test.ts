@@ -260,7 +260,7 @@ for (
 }
 
 Deno.test("rename rejects builtins, unresolved names, and capture", () => {
-  const text = "let left = 1\nlet right = left\nunknown + len(right)\n";
+  const text = "let left = 1\nlet right = left\nunknown + @len(right)\n";
   const { index } = indexed(text);
   assert_equals(
     prepare_rename(index, text, text.indexOf("len"), "utf-16"),

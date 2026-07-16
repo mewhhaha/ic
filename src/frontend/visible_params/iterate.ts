@@ -390,5 +390,5 @@ function stmt_iterates_collection_from_names(
   }
 
   stmt satisfies never;
-  throw new Error("panic");
+  throw new Error("@panic");
 }

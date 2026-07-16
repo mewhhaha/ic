@@ -1,3 +1,5 @@
+const { length } = comptime import "duck:prelude/runtime" ()
+
 type Value = Int | Text | I64
 type Answer = (Value \ Text) & Int
 type Marker = #answer
@@ -9,7 +11,7 @@ let view: &Text = &greeting
 let value: Value = 37
 
 let answer: Answer = if value is Int {
-  value + len(view)
+  value + length(view)
 } else {
   0
 }

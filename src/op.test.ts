@@ -134,13 +134,29 @@ Deno.test("Prim exposes f32 arithmetic and explicit conversions", () => {
 });
 
 Deno.test("Prim maps public integer and f32 builtins", () => {
-  assert_equals(numeric_builtin_prim("bit_and"), "i32.and");
-  assert_equals(numeric_builtin_prim("shift_right_u"), "i32.shr_u");
-  assert_equals(numeric_builtin_prim("f32_sqrt"), "f32.sqrt");
-  assert_equals(numeric_builtin_prim("f32_from_i32"), "f32.convert_i32_s");
-  assert_equals(numeric_builtin_prim("i32_from_f32"), "i32.trunc_f32_s");
-  assert_equals(numeric_builtin_name("i64.xor"), "bit_xor");
-  assert_equals(numeric_builtin_name("i64.shl"), "shift_left");
+  assert_equals(numeric_builtin_prim("@bit_and"), "i32.and");
+  assert_equals(numeric_builtin_prim("@shift_right_u"), "i32.shr_u");
+  assert_equals(numeric_builtin_prim("@f32_sqrt"), "f32.sqrt");
+  assert_equals(numeric_builtin_prim("@f32_from_i32"), "f32.convert_i32_s");
+  assert_equals(numeric_builtin_prim("@i32_from_f32"), "i32.trunc_f32_s");
+  assert_equals(
+    numeric_builtin_prim("@unsafe_i32_wrap_i64"),
+    "i32.wrap_i64",
+  );
+  assert_equals(
+    numeric_builtin_prim("@unsafe_i64_extend_i32_unsigned"),
+    "i64.extend_i32_u",
+  );
+  assert_equals(
+    numeric_builtin_prim("@unsafe_i32_reinterpret_f32"),
+    "i32.reinterpret_f32",
+  );
+  assert_equals(
+    numeric_builtin_name("f32.reinterpret_i32"),
+    "@unsafe_f32_reinterpret_i32",
+  );
+  assert_equals(numeric_builtin_name("i64.xor"), "@bit_xor");
+  assert_equals(numeric_builtin_name("i64.shl"), "@shift_left");
 
   assert_equals(
     specialize_prim_for_operands("i32.and", "i64", "i64"),
@@ -152,16 +168,16 @@ Deno.test("Prim maps public integer and f32 builtins", () => {
   );
   assert_throws(
     () => specialize_prim_for_operands("i32.and", "f32", "f32"),
-    "Operator bit_and does not support f32 operands",
+    "Operator @bit_and does not support f32 operands",
   );
 });
 
 Deno.test("Prim exposes typed F32x4 operations and public builtins", () => {
-  assert_equals(f32x4_builtin_prim("f32x4"), "f32x4.make");
-  assert_equals(f32x4_builtin_prim("f32x4_mul"), "f32x4.mul");
+  assert_equals(f32x4_builtin_prim("@f32x4"), "f32x4.make");
+  assert_equals(f32x4_builtin_prim("@f32x4_mul"), "f32x4.mul");
   assert_equals(
     f32x4_builtin_name("f32x4.extract_lane"),
-    "f32x4_extract_lane",
+    "@f32x4_extract_lane",
   );
   assert_equals(Callable.type(Prim, "f32x4.make"), {
     args: ["f32", "f32", "f32", "f32"],

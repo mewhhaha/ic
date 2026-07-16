@@ -74,18 +74,18 @@ Deno.test("Core links loop replacement drops across alternative exits", () => {
   const core = Source.core(Source.parse(`
 host_import bound from "env.bound" () => I32
 let end = bound()
-let pending: Text = slice("Ada", 0, end)
+let pending: Text = @slice("Ada", 0, end)
 
 for i in 0..end {
-  pending = append(pending, "!")
-  pending = slice(pending, 0, len(pending))
+  pending = @append(pending, "!")
+  pending = @slice(pending, 0, @len(pending))
 
   if end {
     break
   }
 }
 
-len(pending)
+@len(pending)
 `));
   const proof = Core.proof(core);
 
@@ -172,18 +172,18 @@ host_import read from "env.read" () => result_type
 
 let result: result_type = read()
 if let .chunk(first_bytes) = result {
-  let pending: Bytes = slice(first_bytes, 0, len(first_bytes))
+  let pending: Bytes = @slice(first_bytes, 0, @len(first_bytes))
 
   loop {
     for index, byte in pending {
-      for offset in 0..len(pending) {
+      for offset in 0..@len(pending) {
         ()
       }
     }
 
-    let appended: Bytes = append(pending, first_bytes)
-    pending = slice(appended, 0, len(appended))
-    break len(pending)
+    let appended: Bytes = @append(pending, first_bytes)
+    pending = @slice(appended, 0, @len(appended))
+    break @len(pending)
   }
 } else {
   0
@@ -299,14 +299,14 @@ type ReadResultType = | .chunk = Bytes | .eof | .err = I32
 const read_result_type = ReadResultType
 host_import read from "env.read" () => read_result_type
 host_import write from "env.write" (&Bytes) => I32
-let prefix: Bytes = Utf8.encode("prefix")
+let prefix: Bytes = @Utf8.encode("prefix")
 let value = loop {
   let read_result: read_result_type = read()
   match read_result {
     | .chunk(bytes) => {
-      let pending: Bytes = append(prefix, bytes)
+      let pending: Bytes = @append(prefix, bytes)
       write(&pending)
-      len(pending)
+      @len(pending)
     }
     | .eof => { break 0 }
     | .err(code) => { break code }
@@ -461,9 +461,9 @@ result = take_once()
 Deno.test("Core proves promoted scratch Text closure capture slots", () => {
   const promoted = Source.core(Source.parse(`
 let f = scratch {
-  let message: Text = append("he", "llo")
+  let message: Text = @append("he", "llo")
   let persistent: Text = freeze message
-  freeze ((x: Int) => len(persistent) + x)
+  freeze ((x: Int) => @len(persistent) + x)
 }
 f(1)
 `));
@@ -496,8 +496,8 @@ f(1)
 
   const raw = Source.core(Source.parse(`
 scratch {
-  let message: Text = append("he", "llo")
-  freeze ((x: Int) => len(message) + x)
+  let message: Text = @append("he", "llo")
+  freeze ((x: Int) => @len(message) + x)
 }
 `));
   const raw_proof = Core.proof(raw);
@@ -518,9 +518,9 @@ scratch {
 Deno.test("Core promotes helper-returned frozen scratch Text", () => {
   const frozen = Source.core(Source.parse(`
 let freeze_suffix = (value: Text) => {
-  freeze append(value, "!")
+  freeze @append(value, "!")
 }
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 scratch { freeze_suffix(prefix) }
 `));
   const proof = Core.proof(frozen);
@@ -556,9 +556,9 @@ scratch { freeze_suffix(prefix) }
 
   const raw = Source.core(Source.parse(`
 let suffix = (value: Text) => {
-  append(value, "!")
+  @append(value, "!")
 }
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 scratch { suffix(prefix) }
 `));
   const raw_proof = Core.proof(raw);
@@ -582,13 +582,13 @@ const { struct } = comptime (import "duck:prelude")()
 const outer_type = struct { .inner= inner_type, .age= Int }
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let frozen = scratch {
-  let temp = [.inner = [.result = result_type.ok(append(prefix, "da"))] as inner_type, .age = 2] as outer_type
+  let temp = [.inner = [.result = result_type.ok(@append(prefix, "da"))] as inner_type, .age = 2] as outer_type
   freeze temp
 }
 
-if let .ok(text) = frozen.inner.result { len(text) } else { 0 }
+if let .ok(text) = frozen.inner.result { @len(text) } else { 0 }
 `;
   const core = Source.core(Source.parse(source));
   const proof = Core.proof(core);
@@ -659,12 +659,12 @@ const { struct } = comptime (import "duck:prelude")()
 const user_type = struct { .name= Text, .age= Int }
 let flag = 1
 let make = if flag {
-  (suffix: Text) => [.name = append("A", suffix), .age = 40] as user_type
+  (suffix: Text) => [.name = @append("A", suffix), .age = 40] as user_type
 } else {
-  (suffix: Text) => [.name = append("B", suffix), .age = 5] as user_type
+  (suffix: Text) => [.name = @append("B", suffix), .age = 5] as user_type
 }
 let user: user_type = make("da")
-len(user.name) + user.age
+@len(user.name) + user.age
 `;
   const core = Source.core(Source.parse(source));
   const proof = Core.proof(core);
@@ -759,7 +759,7 @@ Deno.test("Core emits dynamic runtime i32 slice loops with proof facts", () => {
 let length = 2
 let sum = 0
 
-for index, value in runtime_i32_slice(length, 10, 20, 30) {
+for index, value in @runtime_i32_slice(length, 10, 20, 30) {
   sum = sum + index + value
 }
 
@@ -780,7 +780,7 @@ sum
   const wat = Source.wat(`
 let length = 2
 let sum = 0
-for index, value in runtime_i32_slice(length, 10, 20, 30) {
+for index, value in @runtime_i32_slice(length, 10, 20, 30) {
   sum = sum + index + value
 }
 sum
@@ -794,7 +794,7 @@ sum
       Source.wat(`
 let length = 1
 let sum = 0
-for value in runtime_i32_slice(length) {
+for value in @runtime_i32_slice(length) {
   sum = sum + value
 }
 sum
@@ -807,8 +807,8 @@ Deno.test("Core emits runtime frozen Text slice loops with ownership facts", () 
   const source = `
 let length = 2
 let sum = 0
-for value in runtime_text_slice(length, "Ada", "B") {
-  sum = sum + len(value)
+for value in @runtime_text_slice(length, "Ada", "B") {
+  sum = sum + @len(value)
 }
 sum
 `;
@@ -861,9 +861,9 @@ sum
   assert_throws(
     () =>
       Source.wat(`
-let dynamic: Text = append("A", "da")
-for value in runtime_text_slice(1, dynamic) {
-  len(value)
+let dynamic: Text = @append("A", "da")
+for value in @runtime_text_slice(1, dynamic) {
+  @len(value)
 }
 0
 `),
@@ -877,7 +877,7 @@ const { struct } = comptime (import "duck:prelude")()
 const user_type = struct { .name= Text, .age= Int }
 type ResultType = | .ok = Int | .err = Int
 const result_type = ResultType
-let text: Text = append("A", "da")
+let text: Text = @append("A", "da")
 let user: user_type = [.name = text, .age = 40] as user_type
 let flag = 1
 let make = if flag {
@@ -887,7 +887,7 @@ let make = if flag {
 }
 let result: result_type = make(user.age)
 let sum = 0
-for value in runtime_i32_slice(2, 10, 20) {
+for value in @runtime_i32_slice(2, 10, 20) {
   sum = sum + value
 }
 sum
@@ -959,7 +959,7 @@ sum
 
 Deno.test("Core elaborates linked cleanup rows onto WAT anchors", () => {
   const scope_core = Source.core(Source.parse(`
-let text: Text = append("A", "da")
+let text: Text = @append("A", "da")
 1
 `));
   const scope_wat = Emit.emit(Mod, Core.mod(scope_core));
@@ -971,9 +971,9 @@ let text: Text = append("A", "da")
   ]);
 
   const replace_core = Source.core(Source.parse(`
-let text: Text = append("A", "da")
-text = append("G", "race")
-len(text)
+let text: Text = @append("A", "da")
+text = @append("G", "race")
+@len(text)
 `));
   const replace_wat = Emit.emit(Mod, Core.mod(replace_core));
   const free_index = replace_wat.indexOf("call $__free");
@@ -988,7 +988,7 @@ len(text)
   );
 
   const returned_core = Source.core(Source.parse(`
-let text: Text = append("A", "da")
+let text: Text = @append("A", "da")
 text
 `));
   const returned_wat = Emit.emit(Mod, Core.mod(returned_core));
@@ -996,7 +996,7 @@ text
   assert_includes(returned_wat, "call $__alloc");
 
   const frozen_wat = Source.wat(`
-let text: Text = append("A", "da")
+let text: Text = @append("A", "da")
 freeze text
 `);
   assert_includes(frozen_wat, "call $__alloc");
@@ -1159,8 +1159,8 @@ Deno.test("Core captures ownerless discarded pointers for cleanup", () => {
       reason: "text",
       source: `
 let flag = 1
-append(if flag { "A" } else { "B" }, "!")
-append(if flag { "C" } else { "D" }, "?")
+@append(if flag { "A" } else { "B" }, "!")
+@append(if flag { "C" } else { "D" }, "?")
 `,
     },
     {
@@ -1222,10 +1222,10 @@ let flag = 1
 
 Deno.test("Core cleanup emission keeps repeated assignment anchors isolated", () => {
   const core = Source.core(Source.parse(`
-let text: Text = append("a", "b")
-text = append("c", "d")
-text = append("e", "f")
-len(text)
+let text: Text = @append("a", "b")
+text = @append("c", "d")
+text = @append("e", "f")
+@len(text)
 `));
   const first_wat = Emit.emit(Mod, Core.mod(core));
   const first_rows = core.cleanup_emission?.map((row) => {
@@ -1273,9 +1273,9 @@ len(text)
   assert_equals(core.cleanup_emission?.length, 3);
 
   const frozen = Source.core(Source.parse(`
-let text: Text = append("a", "b")
+let text: Text = @append("a", "b")
 let shared: Text = freeze text
-len(shared)
+@len(shared)
 `));
   const frozen_wat = Emit.emit(Mod, Core.mod(frozen));
   assert_equals(
@@ -1291,12 +1291,12 @@ len(shared)
 Deno.test("Core cleanup emission respects nested loop targets and alternatives", () => {
   const nested_source = `
 for i in 0..1 {
-  let outer: Text = append("a", "b")
+  let outer: Text = @append("a", "b")
   for j in 0..1 {
-    let inner: Text = append("c", "d")
+    let inner: Text = @append("c", "d")
     break
   }
-  len(outer)
+  @len(outer)
 }
 0
 `;
@@ -1337,9 +1337,9 @@ for i in 0..1 {
   const alternatives = Source.core(Source.parse(`
 let flag = 1
 let text: Text = if flag {
-  append("a", "b")
+  @append("a", "b")
 } else {
-  append("c", "d")
+  @append("c", "d")
 }
 1
 `));

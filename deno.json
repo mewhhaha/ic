@@ -2,6 +2,9 @@
   "tasks": {
     "duck": "deno run --allow-read --allow-write --allow-run=wat2wasm duck.ts",
     "compiler:perf": "deno run --allow-read scripts/compiler-performance.ts",
+    "compiler:gpufuck": "deno run --unstable-webgpu --allow-read --allow-write experiments/gpufuck/compile.ts",
+    "compiler:gpufuck:bench": "deno run --unstable-webgpu --allow-read experiments/gpufuck/benchmark.ts",
+    "compiler:gpufuck:test": "deno test --unstable-webgpu --allow-read experiments/gpufuck/compiler.test.ts",
     "lsp:perf": "deno run --allow-read scripts/lsp-performance.ts"
   },
   "imports": {

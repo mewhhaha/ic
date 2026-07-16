@@ -1,5 +1,7 @@
 module (!init: Init) where
 
+const { length } = comptime import "duck:prelude/runtime" ()
+
 declare effect Input {
   flag: () => I32
 }
@@ -13,5 +15,5 @@ let word = if flag {
   "six"
 }
 
-let result = len(word)
+let result: I32 = length(word)
 return { .result = result }

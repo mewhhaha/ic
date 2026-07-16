@@ -111,7 +111,7 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
     name = expr.func.name;
   }
 
-  if (name === "len") {
+  if (name === "@len") {
     expect(expr.args.length === 1, "Core len expects 1 argument");
     const collection = expr.args[0];
     expect(collection, "Missing core len collection");
@@ -134,7 +134,7 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
     throw new Error("Cannot type core len over unknown collection or text");
   }
 
-  if (name === "get") {
+  if (name === "@get") {
     expect(expr.args.length === 2, "Core get expects 2 arguments");
     const collection = expr.args[0];
     expect(collection, "Missing core get collection");
@@ -177,7 +177,7 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
     return item_type;
   }
 
-  if (name === "slice") {
+  if (name === "@slice") {
     expect(expr.args.length === 3, "Core slice expects 3 arguments");
     const text = expr.args[0];
     const start = expr.args[1];
@@ -193,7 +193,7 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
     return "i32";
   }
 
-  if (name === "panic") {
+  if (name === "@panic") {
     expect(expr.args.length === 1, "Core panic expects 1 argument");
     const message = expr.args[0];
     expect(message, "Missing core panic message");
@@ -201,7 +201,7 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
     return "i32";
   }
 
-  if (name === "Bytes.generate") {
+  if (name === "@Bytes.generate") {
     const args = core_bytes_generate_args(expr);
     expect(args, "Missing Core Bytes.generate arguments");
     const length = args[0];
@@ -239,7 +239,7 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
       );
     }
 
-    if (runtime_buffer_builtin.name === "format_f32") {
+    if (runtime_buffer_builtin.name === "@format_f32") {
       expect(
         runtime_buffer_builtin.precision !== undefined,
         "Core format_f32 precision must be present",
@@ -284,7 +284,7 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
     return fn_type.result;
   }
 
-  if (name === "append") {
+  if (name === "@append") {
     expect(expr.args.length === 2, "Core append expects 2 arguments");
     const left = expr.args[0];
     const right = expr.args[1];
@@ -298,7 +298,7 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
     return "i32";
   }
 
-  if (name === "runtime_i32_slice") {
+  if (name === "@runtime_i32_slice") {
     expect(
       expr.args.length >= 2,
       "Core runtime_i32_slice needs length and at least one element",
@@ -312,7 +312,7 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
     return "i32";
   }
 
-  if (name === "runtime_text_slice") {
+  if (name === "@runtime_text_slice") {
     expect(
       expr.args.length >= 2,
       "Core runtime_text_slice needs length and at least one element",

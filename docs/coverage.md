@@ -89,25 +89,25 @@ requires byte comparison lowers through structured Core/Wasm.
 
 Text-valued `if let` expressions over statically known union cases and dynamic
 union-if targets with visible branch payloads preserve visible text facts
-through bindings, so later `len`, indexing, equality, and slice-style operations
-stay on the pure Ic path. Inlineable unannotated helper calls that return
-visible text preserve those facts as well: helper-returned `append`, `slice`,
-text-producing `if`, and visible text `if let` results can still feed later
-equality, `len`, indexing, and nested visible text operations on the pure Ic
-path.
+through bindings, so later `@len`, indexing, equality, and slice-style
+operations stay on the pure Ic path. Inlineable unannotated helper calls that
+return visible text preserve those facts as well: helper-returned `@append`,
+`@slice`, text-producing `if`, and visible text `if let` results can still feed
+later equality, `@len`, indexing, and nested visible text operations on the pure
+Ic path.
 
-`slice(value, start, end)` over frontend-visible text folds when `start` and
+`@slice(value, start, end)` over frontend-visible text folds when `start` and
 `end` are compile-time `i32` values. If `value` is a dynamic visible text
 branch, the slice is applied to each branch payload and the branch shape is
-preserved. A bound visible slice result remains visible to later `len`,
+preserved. A bound visible slice result remains visible to later `@len`,
 indexing, equality, and nested visible operations. Runtime `Text` slices with
-dynamic storage or offsets belong to structured Core/Wasm. `append(left,
-right)`
-follows the same visible-text subset as `+`; runtime `Text` append belongs to
-structured Core/Wasm.
+dynamic storage or offsets belong to structured Core/Wasm.
+`@append(left,
+right)` follows the same visible-text subset as `+`; runtime
+`Text` append belongs to structured Core/Wasm.
 
 Text values are represented as `i32` pointers to length-prefixed UTF-8 data in
-the current Ic/Expr/WAT path. `len(value)` over a runtime value known to have
+the current Ic/Expr/WAT path. `@len(value)` over a runtime value known to have
 type `Text` lowers to an `i32.load` from that pointer. Static indexes over
 frontend-visible text values lower to `i32` UTF-8 bytes. Static indexes over
 dynamic visible text branches lower branch-local out-of-range cases to
@@ -115,7 +115,7 @@ dynamic visible text branches lower branch-local out-of-range cases to
 Core, dynamic indexes over visible text values lower to Wasm control flow that
 returns the selected UTF-8 byte and traps on out-of-range indexes. Runtime
 values known to have type `Text` can also be byte-indexed in the Ic path with
-either `value[index]` or `get(value, index)`; this lowers to an `i32.load8_u`
+either `value[index]` or `@get(value, index)`; this lowers to an `i32.load8_u`
 from `pointer + 4 + index`, where `pointer` addresses the length-prefixed text
 object. The generated WAT guards the load with signed negative-index and length
 checks, trapping on out-of-range indexes. Collection loops over frontend-visible
@@ -192,7 +192,7 @@ when immediately consumed by an `if let` whose branches produce numeric or
 text-pointer results, including when the dynamic union expression is produced by
 a const-call result or an inlineable runtime closure call and consumed later by
 a bound `if let`. Text payloads selected by these dynamic union branches retain
-their text facts for operations such as `len(value)`, and explicitly named
+their text facts for operations such as `@len(value)`, and explicitly named
 struct payloads such as `user_type { ... }` or shorthand object payloads under
 declared union-case context preserve their struct fields for annotated dynamic
 union branches. Branches that produce typed or locally inferred union values
@@ -249,13 +249,13 @@ Runtime indexes over const-known aggregates and typed runtime structs lower to
 Ic `select` chains with a trap fallback for out-of-range values. Declared typed
 struct fields select as `i32`, `i64`, or homogeneous `Text` data pointers even
 when the field payloads are runtime values. Homogeneous visible `Text` fields
-also select as `i32` data pointers, and `len` over such dynamic text indexes
+also select as `i32` data pointers, and `@len` over such dynamic text indexes
 selects the corresponding UTF-8 byte length. Static field and index access over
 typed runtime structs lower through the same handler encoding used for typed
 struct values. The structured Core emitter can scalarize field access,
-static/dynamic index access, `len`, and `get` through statically bound
+static/dynamic index access, `@len`, and `@get` through statically bound
 object/struct shapes before broader aggregate memory representation exists. It
-can also emit static and dynamic byte indexes and `get(text, index)` over
+can also emit static and dynamic byte indexes and `@get(text, index)` over
 visible text values with out-of-range traps.
 
 Index assignment over frontend-known aggregates and typed runtime structs
@@ -284,14 +284,14 @@ The current frontend statically unrolls compile-time reducible recursive calls,
 including bodies with static loops, frontend-known aggregate index assignment,
 compile-time-known const parameters, and explicit runtime type context for
 annotated `Text`, struct, and union rec parameters or rec-local bindings.
-Static-rec result lowering preserves that text context for `len`, byte indexing,
-and `get`, and preserves struct context for field projection, indexing, `get`,
-dynamic struct `if` result/projection/index lowering, and dynamic
-index-assignment rebuilds. It also preserves scalar and text context for dynamic
-`if` results, statement-level dynamic `if`/`if let` fallthrough, and union
-context for dynamic union `if` targets consumed by `if let`. The structured Core
-emitter can lower scalar dynamic tail-recursive calls to Wasm `block`/`loop`
-control flow by carrying recursive parameters as locals.
+Static-rec result lowering preserves that text context for `@len`, byte
+indexing, and `@get`, and preserves struct context for field projection,
+indexing, `@get`, dynamic struct `if` result/projection/index lowering, and
+dynamic index-assignment rebuilds. It also preserves scalar and text context for
+dynamic `if` results, statement-level dynamic `if`/`if let` fallthrough, and
+union context for dynamic union `if` targets consumed by `if let`. The
+structured Core emitter can lower scalar dynamic tail-recursive calls to Wasm
+`block`/`loop` control flow by carrying recursive parameters as locals.
 
 Range loops with compile-time-known bounds lower to Ic by static expansion.
 Simple dynamic `if` or `if let` statements whose body is exactly `break` or
@@ -309,7 +309,7 @@ assignments, and visible text assignments also lower to structured Wasm
 
 Collection loops are supported over const-known aggregate values and typed
 runtime structs. Frontend-visible text values are also iterable as UTF-8 bytes.
-When a closure field-selects, indexes, updates, calls `len`/`get`, or iterates
+When a closure field-selects, indexes, updates, calls `@len`/`@get`, or iterates
 one of its parameters, visible aggregate or concrete visible `Text` arguments
 can specialize the call before Ic expansion. The structured Core emitter can
 unroll collection loops whose collection is a literal object/struct value, a
@@ -342,7 +342,7 @@ and pure closure values. Those wrapper expressions preserve their frontend-known
 type for `=` shadowing checks, so accidental type changes still reject. Unknown
 owners, runtime text, and ownership-bearing heap values require structured Core
 so borrow, freeze, scratch escape, and cleanup facts are available before WAT
-emission. Immediate scalar text reads are the narrow exception: `len`, `get`,
+emission. Immediate scalar text reads are the narrow exception: `@len`, `@get`,
 and byte indexing may recursively erase `&`, `freeze`, or `scratch` around an
 annotated runtime `Text` value because the wrapped value does not escape the
 read.
@@ -386,8 +386,8 @@ import descriptors during effect elaboration; source programs do not name raw
 Wasm modules or fields. Effect resources remain explicit module dependencies
 rather than ambient Wasm authority.
 
-Runtime `Bytes` values support `len`, `get`, byte iteration, `slice`, and
-`append` in structured Core, and bounded borrows can cross effect calls. Slices
+Runtime `Bytes` values support `@len`, `@get`, byte iteration, `@slice`, and
+`@append` in structured Core, and bounded borrows can cross effect calls. Slices
 and appends currently allocate and copy.
 
 ## Supported Ic-Lowerable Scalar Features
@@ -446,26 +446,26 @@ text literals as length-prefixed UTF-8 data pointers
 visible text concatenation
 static visible text byte indexing
 visible aggregate and concrete visible `Text` arguments specialized into
-closures that field-select, index, update, call `len`/`get`, or iterate their
+closures that field-select, index, update, call `@len`/`@get`, or iterate their
 parameters
 Core text literals as length-prefixed UTF-8 data pointers
 Core visible text concatenation as length-prefixed UTF-8 data pointers
 Core runtime `Text` concatenation as heap-allocated length-prefixed UTF-8 text
 Core static and dynamic visible text byte indexing
-Core visible text `get` as UTF-8 byte indexing
+Core visible text `@get` as UTF-8 byte indexing
 frontend-visible text collection loops as UTF-8 byte expansion
 Core visible text collection loops as length-prefixed UTF-8 byte loops
-Core runtime `Text` length, byte indexing, `get`, and collection loops
+Core runtime `Text` length, byte indexing, `@get`, and collection loops
 dynamic indexing over visible text fields as data-pointer selects
 typed runtime struct index assignment over runtime scalar/text payloads
 Core dynamic indexed visible text concatenation as data-pointer selects
-dynamic indexed visible text `len` as byte-length selects
-Core dynamic indexed visible text `len` as byte-length selects
-runtime `Text` `len` as length-prefix load
-dynamic union `Text` payload `len` through Ic text-pointer selection
+dynamic indexed visible text `@len` as byte-length selects
+Core dynamic indexed visible text `@len` as byte-length selects
+runtime `Text` `@len` as length-prefix load
+dynamic union `Text` payload `@len` through Ic text-pointer selection
 dynamic union named-struct payload field access through Ic handler selection
 Core dynamic union named-struct payload field access through branch-local static facts
-runtime `Text` byte indexing and `get` as bounds-checked length-prefix content loads
+runtime `Text` byte indexing and `@get` as bounds-checked length-prefix content loads
 Core dynamic same-shape collection-loop unrolling
 Core static-call block-local collection-loop unrolling
 Core inline closure-local parameter assignment and caller-safe local shadowing
@@ -488,8 +488,8 @@ tag/payload loads
 frontend direct non-escaping local/aliased/simple-block/static-branch linear
 closure captures
 dynamic text `if` by data-pointer selection
-`len` over frontend-visible text values and dynamic text branches
-frontend visible text byte indexing and `get` over dynamic visible text indexes
+`@len` over frontend-visible text values and dynamic text branches
+frontend visible text byte indexing and `@get` over dynamic visible text indexes
 ```
 
 ## Reserved
@@ -510,7 +510,7 @@ scalar/Text/union-pointer/inline nested fields
 general first-class linear closure captures
 aggregate memory/codegen on the pure Ic route
 unknown runtime text/string operations outside the supported visible
-literal/concat/data-pointer cases and runtime `Text` length, byte-load, `get`,
+literal/concat/data-pointer cases and runtime `Text` length, byte-load, `@get`,
 byte assignment, collection-loop, and Core runtime concat subset
 asynchronous host effects without an explicit portable task/poll protocol
 general memory-backed collection index mutation

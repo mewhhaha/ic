@@ -20,7 +20,7 @@ export function core_runtime_i32_slice(
     return undefined;
   }
 
-  if (expr.func.name !== "runtime_i32_slice") {
+  if (expr.func.name !== "@runtime_i32_slice") {
     return undefined;
   }
 
@@ -36,10 +36,10 @@ export function core_runtime_slice_fact(
 
   let element_type: CoreRuntimeSliceFact["element_type"];
   let element_ownership: CoreRuntimeSliceFact["element_ownership"];
-  if (expr.func.name === "runtime_i32_slice") {
+  if (expr.func.name === "@runtime_i32_slice") {
     element_type = "i32";
     element_ownership = "scalar_local";
-  } else if (expr.func.name === "runtime_text_slice") {
+  } else if (expr.func.name === "@runtime_text_slice") {
     element_type = "Text";
     element_ownership = "frozen_shareable";
   } else {

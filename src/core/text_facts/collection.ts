@@ -20,7 +20,7 @@ export function core_get_app_text_fact<ctx extends CoreTextFactCtx>(
     return false;
   }
 
-  if (value.func.tag !== "var" || value.func.name !== "get") {
+  if (value.func.tag !== "var" || value.func.name !== "@get") {
     return false;
   }
 

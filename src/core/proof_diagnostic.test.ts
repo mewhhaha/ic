@@ -10,33 +10,33 @@ Deno.test("Core proof maps ownership fixtures to ranged diagnostics", () => {
   &message
 }
 
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 escape(message)`,
       code: "DUCK2401",
-      span: { start: 85, end: 100 },
+      span: { start: 86, end: 101 },
     },
     {
-      text: `let message: Text = append("a", "b")
+      text: `let message: Text = @append("a", "b")
 let view = &message
 let frozen = freeze message
 
-len(view) + len(frozen)`,
+@len(view) + @len(frozen)`,
       code: "DUCK2402",
-      span: { start: 70, end: 84 },
+      span: { start: 71, end: 85 },
     },
     {
       text: `scratch {
-  append("a", "b")
+  @append("a", "b")
 }`,
       code: "DUCK2403",
-      span: { start: 0, end: 30 },
+      span: { start: 0, end: 31 },
     },
     {
-      text: `let message: Bytes = freeze Utf8.encode("ab")
+      text: `let message: Bytes = freeze @Utf8.encode("ab")
 message[0] = 65
-len(message)`,
+@len(message)`,
       code: "DUCK2404",
-      span: { start: 46, end: 61 },
+      span: { start: 47, end: 62 },
     },
   ];
 
@@ -75,15 +75,15 @@ Deno.test("Core source origins do not change structural Core values", () => {
 
 Deno.test("Core proof rows keep diagnostic subjects out of public shapes", () => {
   const borrowed = Core.proof(
-    Core.from_source(Source.parse(`let message: Text = append("a", "b")
+    Core.from_source(Source.parse(`let message: Text = @append("a", "b")
 &message`)),
   );
   const frozen = Core.proof(
-    Core.from_source(Source.parse(`let message: Text = append("a", "b")
+    Core.from_source(Source.parse(`let message: Text = @append("a", "b")
 freeze message`)),
   );
   const scratch = Core.proof(Core.from_source(Source.parse(`scratch {
-  append("a", "b")
+  @append("a", "b")
 }`)));
 
   const borrow = borrowed.borrow_view_rows[0];

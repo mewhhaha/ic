@@ -3,14 +3,46 @@ import { lookup } from "./env.ts";
 import { is_builtin_type_name } from "./types.ts";
 import { pattern_bindings } from "./pattern.ts";
 
+const stable_compiler_callable_names = new Set([
+  "@append",
+  "@slice",
+  "@bit_and",
+  "@bit_or",
+  "@bit_xor",
+  "@shift_left",
+  "@shift_right_u",
+  "@f32_sqrt",
+  "@f32_from_i32",
+  "@i32_from_f32",
+  "@unsafe_i32_wrap_i64",
+  "@unsafe_i64_extend_i32_signed",
+  "@unsafe_i64_extend_i32_unsigned",
+  "@unsafe_i32_reinterpret_f32",
+  "@unsafe_f32_reinterpret_i32",
+  "@as",
+  "@format_i32",
+  "@format_i64",
+  "@format_f32",
+  "@Bytes.generate",
+  "@Utf8.encode",
+  "@Utf8.decode",
+  "@panic",
+  "@f32x4",
+  "@f32x4_splat",
+  "@f32x4_add",
+  "@f32x4_sub",
+  "@f32x4_mul",
+  "@f32x4_div",
+]);
+
 export function is_const_builtin_name(name: string): boolean {
-  return name === "fail" || name === "size_of" || name === "align_of" ||
-    name === "layout" || name === "is_struct" || name === "is_union" ||
-    name === "has" || name === "fields_of" || name === "cases_of" ||
-    name === "describe_type" || name === "describe_fields" ||
-    name === "describe_cases" ||
-    name === "construct" || name === "project" || name === "is_case" ||
-    name === "len" || name === "get" ||
+  return name === "@fail" || name === "@size_of" || name === "@align_of" ||
+    name === "@layout" || name === "@is_struct" || name === "@is_union" ||
+    name === "@has" || name === "@fields_of" || name === "@cases_of" ||
+    name === "@describe_type" || name === "@describe_fields" ||
+    name === "@describe_cases" ||
+    name === "@construct" || name === "@project" || name === "@is_case" ||
+    name === "@len" || name === "@get" ||
     name === "@shape.entries" || name === "@type.product" ||
     name === "@type.namespace" ||
     is_builtin_type_name(name) ||
@@ -89,7 +121,10 @@ export function validate_const_expr(
         return;
       }
 
-      if (is_const_builtin_name(expr.name)) {
+      if (
+        is_const_builtin_name(expr.name) ||
+        stable_compiler_callable_names.has(expr.name)
+      ) {
         return;
       }
 

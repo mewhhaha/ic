@@ -48,24 +48,24 @@ export function eval_const_builtin(
   }
 
   if (
-    expr.func.name !== "size_of" &&
-    expr.func.name !== "align_of" &&
-    expr.func.name !== "layout" &&
-    expr.func.name !== "is_struct" &&
-    expr.func.name !== "is_union" &&
-    expr.func.name !== "has" &&
-    expr.func.name !== "fields_of" &&
-    expr.func.name !== "cases_of" &&
-    expr.func.name !== "describe_type" &&
-    expr.func.name !== "describe_fields" &&
-    expr.func.name !== "describe_cases" &&
-    expr.func.name !== "len" &&
-    expr.func.name !== "get"
+    expr.func.name !== "@size_of" &&
+    expr.func.name !== "@align_of" &&
+    expr.func.name !== "@layout" &&
+    expr.func.name !== "@is_struct" &&
+    expr.func.name !== "@is_union" &&
+    expr.func.name !== "@has" &&
+    expr.func.name !== "@fields_of" &&
+    expr.func.name !== "@cases_of" &&
+    expr.func.name !== "@describe_type" &&
+    expr.func.name !== "@describe_fields" &&
+    expr.func.name !== "@describe_cases" &&
+    expr.func.name !== "@len" &&
+    expr.func.name !== "@get"
   ) {
     return undefined;
   }
 
-  if (expr.func.name === "len") {
+  if (expr.func.name === "@len") {
     expect(expr.args.length === 1, "len expects 1 argument");
     const collection = expr.args[0];
     expect(collection, "Missing len argument");
@@ -87,7 +87,7 @@ export function eval_const_builtin(
     return i32_expr(target.expr.fields.length);
   }
 
-  if (expr.func.name === "get") {
+  if (expr.func.name === "@get") {
     expect(expr.args.length === 2, "get expects 2 arguments");
     const collection = expr.args[0];
     const index = expr.args[1];
@@ -109,27 +109,27 @@ export function eval_const_builtin(
   expect(arg, "Missing " + expr.func.name + " argument");
 
   if (
-    expr.func.name === "describe_type" ||
-    expr.func.name === "describe_fields" ||
-    expr.func.name === "describe_cases"
+    expr.func.name === "@describe_type" ||
+    expr.func.name === "@describe_fields" ||
+    expr.func.name === "@describe_cases"
   ) {
     const type = resolve_comptime_type(arg, env, {
       resolve_const_expr_with_env: hooks.resolve_const_expr_with_env,
     });
     expect(type, expr.func.name + " requires a compile-time type value");
 
-    if (expr.func.name === "describe_type") {
+    if (expr.func.name === "@describe_type") {
       return describe_comptime_type(type);
     }
 
-    if (expr.func.name === "describe_fields") {
+    if (expr.func.name === "@describe_fields") {
       return describe_comptime_fields(type);
     }
 
     return describe_comptime_cases(type);
   }
 
-  if (expr.func.name === "has") {
+  if (expr.func.name === "@has") {
     if (has_const_fact(arg, env, hooks)) {
       return i32_expr(1);
     }
@@ -141,7 +141,7 @@ export function eval_const_builtin(
   expect(value, expr.func.name + " requires a compile-time type value");
   const type_value = hooks.resolve_extended_type_value(value, env);
 
-  if (expr.func.name === "is_struct") {
+  if (expr.func.name === "@is_struct") {
     if (type_value.tag === "struct_type") {
       return i32_expr(1);
     }
@@ -149,7 +149,7 @@ export function eval_const_builtin(
     return i32_expr(0);
   }
 
-  if (expr.func.name === "is_union") {
+  if (expr.func.name === "@is_union") {
     if (type_value.tag === "union_type") {
       return i32_expr(1);
     }
@@ -157,7 +157,7 @@ export function eval_const_builtin(
     return i32_expr(0);
   }
 
-  if (expr.func.name === "fields_of") {
+  if (expr.func.name === "@fields_of") {
     if (type_value.tag !== "struct_type") {
       throw new Error("fields_of expects struct type value");
     }
@@ -165,7 +165,7 @@ export function eval_const_builtin(
     return type_fields_expr(type_value.fields);
   }
 
-  if (expr.func.name === "cases_of") {
+  if (expr.func.name === "@cases_of") {
     if (type_value.tag !== "union_type") {
       throw new Error("cases_of expects union type value");
     }
@@ -175,11 +175,11 @@ export function eval_const_builtin(
 
   const layout = layout_type(type_value);
 
-  if (expr.func.name === "size_of") {
+  if (expr.func.name === "@size_of") {
     return i32_expr(layout.size);
   }
 
-  if (expr.func.name === "align_of") {
+  if (expr.func.name === "@align_of") {
     return i32_expr(layout.align);
   }
 

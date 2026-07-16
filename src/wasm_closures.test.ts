@@ -307,7 +307,7 @@ let message: Text = if flag {
 }
 let make = (value: Text) => {
   if flag {
-    (x: Int) => len(value) + x
+    (x: Int) => @len(value) + x
   } else {
     (x: Int) => x
   }
@@ -353,7 +353,7 @@ let run = (text: Bytes, flag: Int) => {
   f(90)
 }
 
-run(Utf8.encode("Ada"), 1)
+run(@Utf8.encode("Ada"), 1)
 `);
   const captured_text_assign_instance = await instantiate_wat(
     captured_text_assign_wat,

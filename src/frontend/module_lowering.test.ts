@@ -124,7 +124,7 @@ let make = rec (n: Int) => {
   }
 }
 
-get(make(0), 0)
+@get(make(0), 0)
 `);
 
   assert_equals(
@@ -174,7 +174,7 @@ add_step(2, 38, 2)
   const text_param_annotation = compile(`
 let loop = rec (value: Text, n) => {
   if n == 0 {
-    len(value)
+    @len(value)
   } else {
     rec(value, n - 1)
   }
@@ -225,7 +225,7 @@ loop(freeze input, 2)
   const scratch_rec_arg = compile(`
 let loop = rec (value: Text, n: Int) => {
   if n == 0 {
-    len(value)
+    @len(value)
   } else {
     rec(value, n - 1)
   }
@@ -420,7 +420,7 @@ let loop = rec (n) => {
   value = other
 
   if n == 0 {
-    len(value)
+    @len(value)
   } else {
     rec(n - 1)
   }
@@ -459,7 +459,7 @@ let loop = rec (n: Int) => {
   value = scratch { input }
 
   if n == 0 {
-    len(value)
+    @len(value)
   } else {
     rec(n - 1)
   }
@@ -482,7 +482,7 @@ let loop = rec (n: Int) => {
   }
 
   if n == 0 {
-    len(value)
+    @len(value)
   } else {
     rec(n - 1)
   }
@@ -558,7 +558,7 @@ let loop = rec (n, acc) => {
     } else {
       other
     }
-    rec(n - 1, acc + len(value))
+    rec(n - 1, acc + @len(value))
   }
 }
 
@@ -597,7 +597,7 @@ loop(message, 0)
   const text_param_get = compile(`
 let loop = rec (value: Text, n) => {
   if n == 0 {
-    get(value, 0)
+    @get(value, 0)
   } else {
     rec(value, n - 1)
   }
@@ -638,7 +638,7 @@ let loop = rec (n) => {
   value = other
 
   if n == 0 {
-    get(value, 1)
+    @get(value, 1)
   } else {
     rec(n - 1)
   }
@@ -706,7 +706,7 @@ let make = rec (n: Int) => {
   }
 }
 
-len(make(1))
+@len(make(1))
 `);
 
   assert_equals(
@@ -727,7 +727,7 @@ let make = rec (n: Int) => {
   }
 }
 
-get(make(1), 0)
+@get(make(1), 0)
 `);
 
   const direct_static_rec_text_get_text = Format.fmt(
@@ -778,7 +778,7 @@ let make = rec (n: Int) => {
 }
 
 let text: Text = make(0)
-len(text)
+@len(text)
 `);
 
   assert_equals(
@@ -800,7 +800,7 @@ let make = rec (n: Int) => {
 }
 
 let use = (text: Text) => {
-  len(text)
+  @len(text)
 }
 
 use(make(0))
@@ -1123,7 +1123,7 @@ const pair_type = struct {
 
 let loop = rec (pair: pair_type, n) => {
   if n == 0 {
-    get(pair, 1) + 1
+    @get(pair, 1) + 1
   } else {
     rec(pair, n - 1)
   }
@@ -1196,7 +1196,7 @@ let loop = rec (user: user_type, n) => {
 }
 
 let selected = loop(input, 0)
-len(selected.name.first) + selected.age
+@len(selected.name.first) + selected.age
 `);
 
   const nested_struct_dynamic_if_result_text = Format.fmt(
@@ -1351,7 +1351,7 @@ let loop = rec (n, i) => {
   pair = other
 
   if n == 0 {
-    get(pair, i) + 1
+    @get(pair, i) + 1
   } else {
     rec(n - 1, i)
   }
@@ -1441,7 +1441,7 @@ const messages_type = struct {
 let loop = rec (messages: messages_type, n, i) => {
   if n == 0 {
     messages[i] = "Edsger"
-    len(messages[i])
+    @len(messages[i])
   } else {
     rec(messages, n - 1, i)
   }
@@ -1693,7 +1693,7 @@ const result_type = ResultType
 let loop = rec (result: result_type, n) => {
   if n == 0 {
     if let .ok(user) = result {
-      len(user.name) + user.age
+      @len(user.name) + user.age
     } else {
       0
     }
@@ -1995,7 +1995,7 @@ host_import host_frozen from "env.frozen" (#Text) => I32
 host_import host_make from "env.make" () => Text
 host_import host_count from "env.count" (I32, I64) => I32
 
-let message: Text = append ("he", "llo")
+let message: Text = @append ("he", "llo")
 host_read (&message)
 `);
 
@@ -2006,7 +2006,7 @@ host_read (&message)
       'host_import host_frozen from "env.frozen" (#Text) => I32\n' +
       'host_import host_make from "env.make" () => Text\n' +
       'host_import host_count from "env.count" (I32, I64) => I32\n' +
-      'let message: Text = append ["he", "llo"]\n' +
+      'let message: Text = @append ["he", "llo"]\n' +
       "host_read &message",
   );
 
@@ -2630,7 +2630,7 @@ const user_type = user_type with {
   .default_age = 41
 }
 
-is_struct(user_type) + size_of(user_type) + user_type.default_age
+@is_struct(user_type) + @size_of(user_type) + user_type.default_age
 `);
 
   assert_equals(Ic.reduce(ic), { tag: "num", type: "i32", value: 46 });
@@ -2643,7 +2643,7 @@ const option_type = option_type with {
   .default_value = 41
 }
 
-is_union(option_type) + layout(option_type).payload_offset + option_type.default_value
+@is_union(option_type) + @layout(option_type).payload_offset + option_type.default_value
 `);
 
   assert_equals(Ic.reduce(union_ic), { tag: "num", type: "i32", value: 46 });
@@ -2662,7 +2662,7 @@ const user_type: has_name = struct {
   .age= Int
 }
 
-size_of(user_type) + 34
+@size_of(user_type) + 34
 `);
 
   assert_equals(Ic.reduce(annotated_const), {
@@ -2684,7 +2684,7 @@ const user_type = struct {
 }
 
 let add_size = (const t: has_name, value) => {
-  value + size_of(t)
+  value + @size_of(t)
 }
 
 add_size(user_type, 10)
@@ -2708,7 +2708,7 @@ const user_type = struct {
 }
 
 let add_size = (const t: has_age, value) => {
-  value + size_of(t)
+  value + @size_of(t)
 }
 
 add_size(user_type, 38)
@@ -3300,7 +3300,7 @@ const age_only_type = struct {
 }
 
 let add_size = (const t: has_name, value) => {
-  value + size_of(t)
+  value + @size_of(t)
 }
 
 add_size(age_only_type, 10)
@@ -3356,7 +3356,7 @@ use_read(scalar_ops, 41)
 host_import host_read from "env.read" (&Text) => I32
 
 let read = message => host_read(&message)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 read(message)
 `));
   const bounded_borrow_proof = Core.proof(bounded_borrow);
@@ -3374,7 +3374,7 @@ read(message)
 host_import host_take from "env.take" (Text) => I32
 
 let send = message => host_take(message)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 send(message)
 `));
   const unique_transfer_proof = Core.proof(unique_transfer);
@@ -3420,7 +3420,7 @@ const text_ops = text_ops with {
 }
 
 let use_read = (const ops: readable, message: Text) => ops.read(message)
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 use_read(text_ops, message)
 `));
   assert_throws(
@@ -3439,7 +3439,7 @@ let maybe_send = (flag: Int, message: Text) => {
   }
 }
 
-let message: Text = append("a", "b")
+let message: Text = @append("a", "b")
 maybe_send(1, message)
 `));
   const missing_cleanup_proof = Core.proof(missing_cleanup);
@@ -3454,7 +3454,7 @@ maybe_send(1, message)
   );
 
   const scratch_escape = Source.core(
-    Source.parse('scratch { append("a", "b") }'),
+    Source.parse('scratch { @append("a", "b") }'),
   );
   const scratch_escape_proof = Core.proof(scratch_escape);
   assert_equals(scratch_escape_proof.ok, false);
@@ -3704,7 +3704,7 @@ const messages_type = struct {
 
 let set_index = (messages: messages_type, i) => {
   messages[i] = "Edsger"
-  len(messages[i])
+  @len(messages[i])
 }
 
 let messages = [.first = first_text, .second = second_text] as messages_type
@@ -3939,7 +3939,7 @@ inc(freeze input)
     Format.fmt(
       Ic,
       Ic.reduce(compile(`
-let size = (message: Text) => len(message)
+let size = (message: Text) => @len(message)
 size(scratch { input })
 `)),
     ),
@@ -3988,7 +3988,7 @@ value + 1i64
       Ic,
       Ic.reduce(compile(`
 let value: Text = scratch { input }
-len(value)
+@len(value)
 `)),
     ),
     "load(input)",
@@ -4004,7 +4004,7 @@ let value: Text = if flag {
   other
 }
 
-len(value)
+@len(value)
 `)),
     ),
     "load(if flag then input else other)",
@@ -4022,7 +4022,7 @@ let value: Text = {
   }
 }
 
-len(value)
+@len(value)
 `)),
     ),
     "load(if flag then input else other)",
@@ -4041,7 +4041,7 @@ let value: Text = {
   selected
 }
 
-len(value)
+@len(value)
 `)),
     ),
     "load(if flag then input else other)",
@@ -4060,7 +4060,7 @@ let value: Text = {
   selected
 }
 
-len(value)
+@len(value)
 `)),
     ),
     "load(if flag then input else other)",
@@ -4078,7 +4078,7 @@ let value: Text = {
   }
 }
 
-len(value)
+@len(value)
 `)),
     ),
     "load(if flag then input else other)",
@@ -4096,7 +4096,7 @@ let value: Text = {
   return selected
 }
 
-len(value)
+@len(value)
 `)),
     ),
     "load(if flag then input else other)",
@@ -4106,7 +4106,7 @@ len(value)
     Format.fmt(
       Ic,
       Ic.reduce(compile(`
-len({
+@len({
   let selected: Text = if flag {
     input
   } else {
@@ -4123,7 +4123,7 @@ len({
     Format.fmt(
       Ic,
       Ic.reduce(compile(`
-len({
+@len({
   let selected: Text = if flag {
     input
   } else {
@@ -4148,7 +4148,7 @@ let value: Text = {
   selected
 }
 
-len(value)
+@len(value)
 `),
     "Binding annotation expects Text, got I32",
   );
@@ -4213,7 +4213,7 @@ value + 1i64
     Format.fmt(
       Ic,
       Ic.reduce(compile(`
-let size = (message: Text) => len(message)
+let size = (message: Text) => @len(message)
 size({
   if flag {
     input
@@ -4230,7 +4230,7 @@ size({
     Format.fmt(
       Ic,
       Ic.reduce(compile(`
-let size = (message: Text) => len(message)
+let size = (message: Text) => @len(message)
 size({
   return if flag {
     input
@@ -4247,7 +4247,7 @@ size({
     Format.fmt(
       Ic,
       Ic.reduce(compile(`
-let size = (message: Text) => len(message)
+let size = (message: Text) => @len(message)
 size({
   let selected: Text = if flag {
     (&input)  } else {
@@ -4615,7 +4615,7 @@ let value: Text = {
   return selected
 }
 
-len(value)
+@len(value)
 `)),
     ),
     "load(((source)(λpayload_some#0. input))(λpayload_none#0. other))",
@@ -4712,7 +4712,7 @@ value + 1
       Ic.reduce(compile(`
 let value: Text = ""
 value = scratch { input }
-len(value)
+@len(value)
 `)),
     ),
     "load(input)",
@@ -4808,7 +4808,7 @@ inc(&value)
 
   assert_equals(
     Ic.reduce(compile(`
-let size = (message: Text) => len(&message)
+let size = (message: Text) => @len(&message)
 size(input)
 `)),
     {
@@ -4821,7 +4821,7 @@ size(input)
   assert_equals(
     Ic.reduce(compile(`
 let identity = value => value
-len(identity(input))
+@len(identity(input))
 `)),
     {
       tag: "prim",
@@ -4834,7 +4834,7 @@ len(identity(input))
     Ic,
     Ic.reduce(compile(`
 let identity = value => value
-get(identity(input), index)
+@get(identity(input), index)
 `)),
   );
   assert_includes(unannotated_identity_get, "load8_u");
@@ -4859,7 +4859,7 @@ let identity = {
   id
 }
 
-len(identity(input))
+@len(identity(input))
 `)),
     {
       tag: "prim",
@@ -4876,7 +4876,7 @@ let identity = {
   id
 }
 
-get(identity(input), index)
+@get(identity(input), index)
 `)),
   );
   assert_includes(block_alias_identity_get, "load8_u");
@@ -4893,7 +4893,7 @@ let choose = flag => if flag {
   other
 }
 
-len(choose(flag))
+@len(choose(flag))
 `)),
     ),
     "load(if flag then input else other)",
@@ -4908,7 +4908,7 @@ let choose = flag => if flag {
   other
 }
 
-get(choose(flag), index)
+@get(choose(flag), index)
 `)),
   );
   assert_includes(unannotated_dynamic_if_get, "load8_u");
@@ -4949,7 +4949,7 @@ let choose = flag => {
   selected
 }
 
-len(choose(flag))
+@len(choose(flag))
 `)),
     ),
     "load(if flag then input else other)",
@@ -4963,7 +4963,7 @@ let choose = flag => if flag {
   input
 }
 
-len(choose(flag))
+@len(choose(flag))
 `)),
     ),
     'load(if flag then input else "")',
@@ -4976,7 +4976,7 @@ let choose = flag => if flag {
   input
 }
 
-get(choose(flag), 0)
+@get(choose(flag), 0)
 `)),
   );
   assert_includes(unannotated_no_else_get, "load8_u");
@@ -5005,7 +5005,7 @@ choose(flag)[index]
     () =>
       compile(`
 let shifted = value => value + 1
-len(shifted(input))
+@len(shifted(input))
 `),
     "len requires a compile-time collection value",
   );
@@ -5017,7 +5017,7 @@ let choose = flag => if flag {
   input + 1
 }
 
-len(choose(flag))
+@len(choose(flag))
 `),
     "len requires a compile-time collection value",
   );
@@ -5031,7 +5031,7 @@ let choose = flag => if flag {
   other
 }
 
-len(choose(flag))
+@len(choose(flag))
 `),
     "len requires a compile-time collection value",
   );
@@ -5080,7 +5080,7 @@ identity(input)
 let identity = (message: Text) => {
   (&message)}
 
-len(identity(input))
+@len(identity(input))
 `)),
     {
       tag: "prim",
@@ -5122,7 +5122,7 @@ let identity = (message: Text) => {
   freeze message
 }
 
-len(identity(input))
+@len(identity(input))
 `)),
     {
       tag: "prim",
@@ -5138,7 +5138,7 @@ let identity = (message: Text) => {
   freeze message
 }
 
-get(identity(input), index)
+@get(identity(input), index)
 `)),
   );
   assert_includes(frozen_identity_get, "load8_u");
@@ -5165,7 +5165,7 @@ let identity = (message: Text) => {
   scratch { message }
 }
 
-len(identity(input))
+@len(identity(input))
 `)),
     {
       tag: "prim",
@@ -5181,7 +5181,7 @@ let identity = (message: Text) => {
   scratch { message }
 }
 
-get(identity(input), index)
+@get(identity(input), index)
 `)),
   );
   assert_includes(scratch_identity_get, "load8_u");
@@ -5190,7 +5190,7 @@ get(identity(input), index)
 
   assert_equals(
     Ic.reduce(compile(`
-let size = (message: Text) => len(&(scratch { freeze message }))
+let size = (message: Text) => @len(&(scratch { freeze message }))
 size(input)
 `)),
     {
@@ -5203,7 +5203,7 @@ size(input)
   const borrowed_get = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let byte_at = (message: Text, index: Int) => get(freeze message, index)
+let byte_at = (message: Text, index: Int) => @get(freeze message, index)
 byte_at(input, index)
 `)),
   );
@@ -5214,7 +5214,7 @@ byte_at(input, index)
   const nested_get = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let byte_at = (message: Text, index: Int) => get(scratch { &message }, index)
+let byte_at = (message: Text, index: Int) => @get(scratch { &message }, index)
 byte_at(input, index)
 `)),
   );
@@ -5345,7 +5345,7 @@ inc(41)
 
   assert_equals(
     Ic.reduce(compile(`
-let size = freeze ((text: Text) => len(text))
+let size = freeze ((text: Text) => @len(text))
 size(message)
 `)),
     {
@@ -5405,7 +5405,7 @@ scratch { message }
   assert_equals(
     Ic.reduce(compile(`
 let message = scratch { "hello" }
-len(message)
+@len(message)
 `)),
     {
       tag: "num",

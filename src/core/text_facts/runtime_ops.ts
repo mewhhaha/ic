@@ -26,7 +26,7 @@ export function core_append_app_args_with_check<
     return undefined;
   }
 
-  if (value.func.tag !== "var" || value.func.name !== "append") {
+  if (value.func.tag !== "var" || value.func.name !== "@append") {
     return undefined;
   }
 
@@ -140,7 +140,7 @@ export function core_runtime_text_slice_args_with_check<
     return undefined;
   }
 
-  if (value.func.tag !== "var" || value.func.name !== "slice") {
+  if (value.func.tag !== "var" || value.func.name !== "@slice") {
     return undefined;
   }
 

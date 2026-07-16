@@ -11,8 +11,8 @@ if true {
 }
 
 let result = loop {
-  let text: Text = append("a", "b")
-  break len(text)
+  let text: Text = @append("a", "b")
+  break @len(text)
 }
 result
 `));
@@ -357,7 +357,7 @@ let sum_text = if flag {
     total
   }
 } else {
-  (value: Text) => len(value)
+  (value: Text) => @len(value)
 }
 
 sum_text("Ada")
@@ -543,7 +543,7 @@ let message: Text = if flag {
   "Grace"
 }
 let f = if flag {
-  (x: Int) => len(message) + x
+  (x: Int) => @len(message) + x
 } else {
   (x: Int) => x
 }
@@ -576,7 +576,7 @@ let message: Text = if flag {
 }
 let make = (value: Text) => {
   if flag {
-    (x: Int) => len(value) + x
+    (x: Int) => @len(value) + x
   } else {
     (x: Int) => x
   }
@@ -791,7 +791,7 @@ let run = (text: Bytes, flag: Int) => {
   f(90)
 }
 
-run(Utf8.encode("Ada"), 1)
+run(@Utf8.encode("Ada"), 1)
 `));
   const captured_text_assign_wat = Emit.emit(
     Mod,
@@ -867,9 +867,9 @@ f(40)
   const one_sided_text_core = Source.core(Source.parse(`
 let flag = 1
 let f = if flag {
-  (value: Text) => len(value)
+  (value: Text) => @len(value)
 } else {
-  value => len(value) + 1
+  value => @len(value) + 1
 }
 
 f("Ada")
@@ -1006,7 +1006,7 @@ let flag = 1
 let f = if flag {
   (value: Int) => value + 1
 } else {
-  (value: Text) => len(value)
+  (value: Text) => @len(value)
 }
 
 f("Ada")
@@ -1076,7 +1076,7 @@ Deno.test("Core.emit lowers static aggregate len and get calls", () => {
 let xs = [.first = 10, .second = 32]
 let i = 1
 
-len(xs) + get(xs, i) + get(xs, 0)
+@len(xs) + @get(xs, i) + @get(xs, 0)
 `));
   const wat = Emit.emit(Core, core);
 
@@ -1095,7 +1095,7 @@ len(xs) + get(xs, i) + get(xs, 0)
         Source.core(Source.parse(`
 let xs = 1
 let i = 0
-get(xs, i)
+@get(xs, i)
 `)),
       ),
     "Cannot type core get over unknown collection",
@@ -1109,7 +1109,7 @@ get(xs, i)
 let xs = [.first = 10, .second = 20i64]
 let i = 0
 
-get(xs, i)
+@get(xs, i)
 `)),
       ),
     "Core collection item type mismatch: i32, got i64",
@@ -1139,7 +1139,7 @@ for index, value in pair {
   total = total + index + value
 }
 
-len(pair) * 1000 + get(pair, i) * 100 + pair[0] * 10 + total
+@len(pair) * 1000 + @get(pair, i) * 100 + pair[0] * 10 + total
 `));
   const wat = Emit.emit(Mod, Core.mod(core));
 
@@ -1264,7 +1264,7 @@ let make = if flag {
 
 let choices: choices_type = make(result_type.ok(40), result_type.err(2))
 let index = flag
-let picked: result_type = get(choices, index)
+let picked: result_type = @get(choices, index)
 if let .ok(value) = picked {
   value + 2
 } else {
@@ -1310,7 +1310,7 @@ const mixed_type = struct {
 
 let flag = 1
 let mixed: mixed_type = [.first = first_type.ok(1), .second = second_type.some(2)] as mixed_type
-let picked: first_type = get(mixed, flag)
+let picked: first_type = @get(mixed, flag)
 picked
 `)),
       ),
@@ -1324,7 +1324,7 @@ picked
         Source.core(Source.parse(`
 let items = 1
 let index = 0
-get(items, index)
+@get(items, index)
 `)),
       ),
     "Cannot type core get over unknown collection",
@@ -1438,7 +1438,7 @@ let names: names_type = make("Ada", "Grace")
 names[0] = "Edsger"
 let i = 1
 names[i] = names.first + " Hopper"
-len(names.first) * 100 + len(names.second)
+@len(names.first) * 100 + @len(names.second)
 `));
   const wat = Emit.emit(Mod, Core.mod(core));
 
@@ -1792,7 +1792,7 @@ let make = if flag {
 let names: names_type = make("Ada", "Grace")
 let write = (i: Int, suffix: Text) => {
   names[i] = names.first + suffix
-  len(names.second)
+  @len(names.second)
 }
 
 write(1, " Hopper")
@@ -1879,7 +1879,7 @@ let make = if flag {
 
 let names: names_type = make("Ada", "Grace")
 let i = 1
-let picked: Text = get(names, i)
+let picked: Text = @get(names, i)
 let first: Text = names[0]
 let view: Text = ""
 let total = 0
@@ -1887,10 +1887,10 @@ let total = 0
 for index, name in names {
   let item_alias = name
   view = &item_alias
-  total = total + index + len(name)
+  total = total + index + @len(name)
 }
 
-len(names) * 1000 + len(picked) * 100 + len(first) * 10 + total + len(view)
+@len(names) * 1000 + @len(picked) * 100 + @len(first) * 10 + total + @len(view)
 `;
   const core = Source.core(Source.parse(source));
 
@@ -1947,18 +1947,18 @@ let make = if flag {
 
 let names: names_type = make("Ada", "Grace")
 let i = 1
-let picked: Text = get(names, i)
+let picked: Text = @get(names, i)
 let first: Text = names[0]
 let total = 0
 let borrowed_total = 0
 
 for index, name in names {
   let view = &name
-  borrowed_total = borrowed_total + len(view)
-  total = total + index + len(name)
+  borrowed_total = borrowed_total + @len(view)
+  total = total + index + @len(name)
 }
 
-len(names) * 1000 + len(picked) * 100 + len(first) * 10 + total + borrowed_total
+@len(names) * 1000 + @len(picked) * 100 + @len(first) * 10 + total + borrowed_total
 `));
   const wat = Emit.emit(Mod, Core.mod(core));
 
@@ -1999,7 +1999,7 @@ let i = if flag {
   1
 }
 
-len(get(mixed, i))
+@len(@get(mixed, i))
 `)),
       ),
     "Core collection item text fact mismatch",
@@ -2320,7 +2320,7 @@ if flag {
 }
 
 flag = 0
-len(message)
+@len(message)
 `));
   const text_wat = Emit.emit(Core, text_core);
 
@@ -2382,7 +2382,7 @@ let next = "Edsger"
 
 messages[i] = next
 next = "Nope"
-len(messages[1])
+@len(messages[1])
 `));
   const dynamic_text_wat = Emit.emit(Core, dynamic_text_core);
 
@@ -2400,7 +2400,7 @@ let write_byte = (message: Bytes, i: Int, value: Int) => {
   message[i]
 }
 
-write_byte(Utf8.encode("Ada"), 1, 111)
+write_byte(@Utf8.encode("Ada"), 1, 111)
 `));
   const runtime_text_wat = Emit.emit(Core, runtime_text_core);
 
@@ -2449,7 +2449,7 @@ let x = 40
 let user: user_type = scratch {
   [.age = x + 1, .name = "Ada"] as user_type
 }
-user.age + len(user.name)
+user.age + @len(user.name)
 `));
   const annotated_scratch_static_aggregate_wat = Emit.emit(
     Core,
@@ -2488,9 +2488,9 @@ const user_type = struct {
 }
 let x = 40
 let user: user_type = scratch {
-  [.age = x + 1, .name = append("A", "da")] as user_type
+  [.age = x + 1, .name = @append("A", "da")] as user_type
 }
-user.age + len(user.name)
+user.age + @len(user.name)
 `)),
       ),
     "Cannot type core scratch block with unsafe scratch return field name " +
@@ -2500,9 +2500,9 @@ user.age + len(user.name)
   );
 
   const frozen_text_mutation_core = Source.core(Source.parse(`
-let message: Bytes = freeze Utf8.encode("Ada")
+let message: Bytes = freeze @Utf8.encode("Ada")
 message[0] = 66
-len(message)
+@len(message)
 `));
   const frozen_text_mutation_message =
     "Cannot mutate frozen/shareable core binding: message";
@@ -2525,9 +2525,9 @@ len(message)
       Typed.type(
         Core,
         Source.core(Source.parse(`
-let message: Bytes = freeze Utf8.encode("Ada")
+let message: Bytes = freeze @Utf8.encode("Ada")
 message[0] = 66
-len(message)
+@len(message)
 `)),
       ),
     "Cannot mutate frozen/shareable core binding: message",
@@ -3040,13 +3040,13 @@ Deno.test("Core.emit lowers runtime text slice to copy loop", () => {
   const core = Source.core(Source.parse(`
 let flag = 1
 let slicer = if flag {
-  (value: Text, start: Int, end: Int) => slice(value, start, end)
+  (value: Text, start: Int, end: Int) => @slice(value, start, end)
 } else {
-  (value: Text, start: Int, end: Int) => slice(value, start, end)
+  (value: Text, start: Int, end: Int) => @slice(value, start, end)
 }
 
 let part: Text = slicer("Grace", 1, 4)
-len(part) + get(part, 0)
+@len(part) + @get(part, 0)
 `));
   const wat = Emit.emit(Mod, Core.mod(core));
 
@@ -3061,14 +3061,14 @@ len(part) + get(part, 0)
 });
 
 Deno.test("Core.emit lowers visible text len", () => {
-  const literal_core = Source.core(Source.parse('len("hello")'));
+  const literal_core = Source.core(Source.parse('@len("hello")'));
 
   assert_equals(Typed.type(Core, literal_core), "i32");
   assert_equals(Emit.emit(Core, literal_core), "i32.const 5");
 
   const binding_core = Source.core(Source.parse(`
 let message = "hello"
-len(message)
+@len(message)
 `));
 
   assert_equals(Typed.type(Core, binding_core), "i32");
@@ -3083,7 +3083,7 @@ let message = if flag {
 }
 
 flag = 0
-len(message)
+@len(message)
 `));
   const dynamic_wat = Emit.emit(Core, dynamic_core);
 
@@ -3103,7 +3103,7 @@ let i = if 1 {
   0
 }
 
-len(messages[i])
+@len(messages[i])
 `));
   const dynamic_index_wat = Emit.emit(Core, dynamic_index_core);
 
@@ -3116,9 +3116,9 @@ len(messages[i])
   const runtime_core = Source.core(Source.parse(`
 let flag = 1
 let byte_len = if flag {
-  (value: Text) => len(value)
+  (value: Text) => @len(value)
 } else {
-  (value: Text) => len(value) + 1
+  (value: Text) => @len(value) + 1
 }
 
 byte_len("Ada")
@@ -3130,7 +3130,7 @@ byte_len("Ada")
   assert_includes(runtime_wat, "i32.load");
 
   assert_throws(
-    () => Typed.type(Core, Source.core(Source.parse("let x = 1\nlen(x)"))),
+    () => Typed.type(Core, Source.core(Source.parse("let x = 1\n@len(x)"))),
     "Cannot type core len over unknown collection or text",
   );
 });
@@ -3146,7 +3146,7 @@ message[1]
 
   const static_get_core = Source.core(Source.parse(`
 let message = "Ada"
-get(message, 2)
+@get(message, 2)
 `));
 
   assert_equals(Typed.type(Core, static_get_core), "i32");
@@ -3176,7 +3176,7 @@ let flag = 1
 let byte_at = if flag {
   (value: Text, i: Int) => value[i]
 } else {
-  (value: Text, i: Int) => get(value, i)
+  (value: Text, i: Int) => @get(value, i)
 }
 
 byte_at("Ada", 2)
@@ -3194,20 +3194,20 @@ byte_at("Ada", 2)
   );
 
   assert_throws(
-    () => Typed.type(Core, Source.core(Source.parse('get("Ada", 3)'))),
+    () => Typed.type(Core, Source.core(Source.parse('@get("Ada", 3)'))),
     "Core text index out of bounds: 3",
   );
 });
 
 Deno.test("Core.emit lowers panic to a runtime trap", () => {
-  const core = Source.core(Source.parse('panic("boom")'));
+  const core = Source.core(Source.parse('@panic("boom")'));
 
   assert_equals(Typed.type(Core, core), "i32");
   assert_equals(Emit.emit(Core, core), "unreachable");
 
   const branch_core = Source.core(Source.parse(`
 if 0 {
-  panic("boom")
+  @panic("boom")
 } else {
   42
 }
@@ -3217,7 +3217,7 @@ if 0 {
   assert_includes(Emit.emit(Core, branch_core), "unreachable");
 
   assert_throws(
-    () => Typed.type(Core, Source.core(Source.parse("panic(1)"))),
+    () => Typed.type(Core, Source.core(Source.parse("@panic(1)"))),
     "Core panic message must be text",
   );
 });
@@ -3233,19 +3233,19 @@ x + 1
 
   const text = Source.core(Source.parse(`
 let text: Text = "Ada"
-len(text)
+@len(text)
 `));
 
   assert_equals(Typed.type(Core, text), "i32");
   assert_includes(Emit.emit(Core, text), "i32.const 3");
 
   const scratch_text = Source.core(Source.parse(`
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 let text: Text = scratch {
-  let temp: Text = append(prefix, "!")
+  let temp: Text = @append(prefix, "!")
   freeze temp
 }
-len(text)
+@len(text)
 `));
 
   assert_equals(Typed.type(Core, scratch_text), "i32");
@@ -3308,11 +3308,11 @@ value
       Typed.type(
         Core,
         Source.core(Source.parse(`
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 let text: Text = scratch {
-  append(prefix, "!")
+  @append(prefix, "!")
 }
-len(text)
+@len(text)
 `)),
       ),
     "unique_heap text cannot leave scratch without freeze or explicit promotion",
@@ -3359,7 +3359,7 @@ keep
 
   const valid = Source.core(Source.parse(`
 const byte_len = (value: Text) => {
-  len(value)
+  @len(value)
 }
 
 byte_len("Ada")
@@ -3374,7 +3374,7 @@ byte_len("Ada")
         Core,
         Source.core(Source.parse(`
 const byte_len = (value: Text) => {
-  len(value)
+  @len(value)
 }
 
 byte_len(1)
@@ -3504,7 +3504,7 @@ let value = if let .ok(text) = result {
   ""
 }
 
-len(value)
+@len(value)
 `));
   const dynamic_union_text_wat = Emit.emit(Core, dynamic_union_text_core);
 

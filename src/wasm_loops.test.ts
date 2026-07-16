@@ -9,7 +9,7 @@ Deno.test("frontend dynamic runtime i32 slice loop compiles through WAT to Wasm"
   const wat = wat_from_core_source(`
 let length = 2
 let sum = 0
-for index, value in runtime_i32_slice(length, 10, 20, 30) {
+for index, value in @runtime_i32_slice(length, 10, 20, 30) {
   sum = sum + index + value
 }
 sum
@@ -653,7 +653,7 @@ let sum_text = if flag {
     total
   }
 } else {
-  (value: Text) => len(value)
+  (value: Text) => @len(value)
 }
 
 sum_text("Ada")

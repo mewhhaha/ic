@@ -71,7 +71,7 @@ export function core_binding_value_type_name<ctx extends CoreTypeCheckCtx>(
   }
 
   value_type satisfies never;
-  throw new Error("panic");
+  throw new Error("@panic");
 }
 
 function static_type_level_value_or_runtime_call<

@@ -158,7 +158,7 @@ function runtime_union_collection_item_type_expr<
   if (
     value.tag === "app" &&
     value.func.tag === "var" &&
-    value.func.name === "get"
+    value.func.name === "@get"
   ) {
     collection = value.args[0];
   }

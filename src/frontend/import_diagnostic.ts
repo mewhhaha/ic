@@ -332,7 +332,7 @@ function visit_statement(
   }
 
   stmt satisfies never;
-  throw new Error("panic");
+  throw new Error("@panic");
 }
 
 function visit_expression(
@@ -538,7 +538,7 @@ function visit_expression(
   }
 
   expr satisfies never;
-  throw new Error("panic");
+  throw new Error("@panic");
 }
 
 function visit_fields(

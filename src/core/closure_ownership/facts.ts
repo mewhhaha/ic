@@ -154,15 +154,15 @@ function closure_expr_allocates_in_scratch(expr: CoreExpr): boolean {
   }
 
   if (expr.tag === "app" && expr.func.tag === "var") {
-    if (expr.func.name === "Bytes.generate") {
+    if (expr.func.name === "@Bytes.generate") {
       return true;
     }
 
-    if (expr.func.name === "append") {
+    if (expr.func.name === "@append") {
       return true;
     }
 
-    if (expr.func.name === "slice") {
+    if (expr.func.name === "@slice") {
       return true;
     }
   }

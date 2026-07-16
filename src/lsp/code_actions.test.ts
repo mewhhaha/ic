@@ -211,8 +211,8 @@ Deno.test("code actions use false for a missing Bool union payload", () => {
 });
 
 Deno.test("code actions encode Text before byte mutation", () => {
-  const before = 'let message: Text = freeze append("a", "b")\n' +
-    "message[0] = 65\nlen(message)\n";
+  const before = 'let message: Text = freeze @append("a", "b")\n' +
+    "message[0] = 65\n@len(message)\n";
   const result = actions(before, 0, before.length, "core");
   const rebuild = result.actions.find((candidate) =>
     candidate.title === "Encode message before byte mutation"
@@ -220,9 +220,9 @@ Deno.test("code actions encode Text before byte mutation", () => {
   expect(rebuild !== undefined, "Expected Text encoding quick fix");
   assert_equals(
     apply(before, rebuild),
-    'let message: Text = freeze append("a", "b")\n' +
-      "let message = Utf8.encode(message)\n" +
-      "message[0] = 65\nlen(message)\n",
+    'let message: Text = freeze @append("a", "b")\n' +
+      "let message = @Utf8.encode(message)\n" +
+      "message[0] = 65\n@len(message)\n",
   );
   assert_equals(
     Source.analyze(apply(before, rebuild), { route: "core" }).diagnostics,
@@ -231,14 +231,14 @@ Deno.test("code actions encode Text before byte mutation", () => {
 });
 
 Deno.test("code actions lift an escaping scratch result to owned storage", () => {
-  const before = 'scratch {\n  append("a", "b")\n}\n';
+  const before = 'scratch {\n  @append("a", "b")\n}\n';
   const result = actions(before, 0, before.length, "core");
   const lift = result.actions.find((candidate) =>
     candidate.title === "Move scratch result to owned storage"
   );
   expect(lift !== undefined, "Expected scratch escape quick fix");
   const after = apply(before, lift);
-  assert_equals(after, 'append ["a", "b"]\n');
+  assert_equals(after, '@append ["a", "b"]\n');
   assert_equals(Source.analyze(after, { route: "core" }).diagnostics, []);
 });
 

@@ -1,4 +1,4 @@
-const { struct } = comptime (import "duck:prelude")()
+const { struct } = comptime import "duck:prelude" ()
 
 type Score = Int
 type Player = struct { .name = Text, .score = Score }

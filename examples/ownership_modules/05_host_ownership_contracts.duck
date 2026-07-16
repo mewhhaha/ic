@@ -1,5 +1,7 @@
 module (!init: Init) where
 
+const _ = comptime import "duck:prelude/runtime" ()
+
 declare effect Host {
   read: (&Text) => I32
   take: (Text) => I32
@@ -7,10 +9,10 @@ declare effect Host {
 
 declare Init { host: Host }
 
-let read_message: Text = append("a", "b")
+let read_message: Text = "a" <> "b"
 read_result <- Host.read(&read_message)
 
-let sent_message: Text = append("c", "d")
+let sent_message: Text = "c" <> "d"
 send_result <- Host.take(sent_message)
 
 let result = read_result + send_result

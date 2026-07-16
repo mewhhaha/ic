@@ -1,6 +1,7 @@
 module (!init: Init) where
 
-const { struct } = comptime (import "duck:prelude")()
+const { length } = comptime import "duck:prelude/runtime" ()
+const { struct } = comptime import "duck:prelude" ()
 
 declare effect Input {
   flag: () => I32
@@ -22,7 +23,7 @@ let outcome: UserResult = if flag {
 let result: I32 = if let .ok(user) = outcome {
   user.score
 } else {
-  len("missing") * 6
+  length("missing") * 6
 }
 
 return { .result = result }

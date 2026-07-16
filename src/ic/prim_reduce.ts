@@ -20,8 +20,21 @@ type BinaryPrim = Exclude<
   | "f32.sqrt"
   | "f32.convert_i32_s"
   | "i32.trunc_f32_s"
+  | "i32.wrap_i64"
+  | "i64.extend_i32_s"
+  | "i64.extend_i32_u"
+  | "i32.reinterpret_f32"
+  | "f32.reinterpret_i32"
 >;
-type UnaryPrim = "f32.sqrt" | "f32.convert_i32_s" | "i32.trunc_f32_s";
+type UnaryPrim =
+  | "f32.sqrt"
+  | "f32.convert_i32_s"
+  | "i32.trunc_f32_s"
+  | "i32.wrap_i64"
+  | "i64.extend_i32_s"
+  | "i64.extend_i32_u"
+  | "i32.reinterpret_f32"
+  | "f32.reinterpret_i32";
 type I32Prim = Extract<BinaryPrim, `i32.${string}`>;
 type I64Prim = Extract<BinaryPrim, `i64.${string}`>;
 type F32Prim = Extract<BinaryPrim, `f32.${string}`>;
@@ -46,10 +59,47 @@ export function is_binary_prim(prim: Prim): prim is BinaryPrim {
 
 export function is_unary_prim(prim: Prim): prim is UnaryPrim {
   return prim === "f32.sqrt" || prim === "f32.convert_i32_s" ||
-    prim === "i32.trunc_f32_s";
+    prim === "i32.trunc_f32_s" || prim === "i32.wrap_i64" ||
+    prim === "i64.extend_i32_s" || prim === "i64.extend_i32_u" ||
+    prim === "i32.reinterpret_f32" || prim === "f32.reinterpret_i32";
 }
 
 export function fold_unary_prim(prim: UnaryPrim, value: Num): Ic {
+  if (prim === "i32.wrap_i64") {
+    expect(value.type === "i64", prim + " expects an i64 operand");
+    expect(typeof value.value === "bigint", "Expected i64 bigint");
+    return i32(Number(BigInt.asIntN(32, value.value)));
+  }
+
+  if (prim === "i64.extend_i32_s" || prim === "i64.extend_i32_u") {
+    expect(value.type === "i32", prim + " expects an i32 operand");
+    expect(typeof value.value === "number", "Expected i32 number");
+
+    if (prim === "i64.extend_i32_s") {
+      return i64(BigInt(value.value | 0));
+    }
+
+    return i64(BigInt(value.value >>> 0));
+  }
+
+  if (prim === "f32.reinterpret_i32") {
+    expect(value.type === "i32", prim + " expects an i32 operand");
+    expect(typeof value.value === "number", "Expected i32 number");
+    const bytes = new ArrayBuffer(4);
+    const view = new DataView(bytes);
+    view.setInt32(0, value.value, true);
+    return f32(view.getFloat32(0, true));
+  }
+
+  if (prim === "i32.reinterpret_f32") {
+    expect(value.type === "f32", prim + " expects an f32 operand");
+    expect(typeof value.value === "number", "Expected f32 number");
+    const bytes = new ArrayBuffer(4);
+    const view = new DataView(bytes);
+    view.setFloat32(0, value.value, true);
+    return i32(view.getInt32(0, true));
+  }
+
   if (prim === "f32.convert_i32_s") {
     expect(value.type === "i32", "f32_from_i32 expects an i32 operand");
     expect(typeof value.value === "number", "Expected i32 number");

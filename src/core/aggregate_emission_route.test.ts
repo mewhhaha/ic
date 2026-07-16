@@ -1461,7 +1461,7 @@ let make = if flag {
 }
 let user: user_type = make("Ada")
 
-len(user.name) + user.age
+@len(user.name) + user.age
 `));
   const runtime_field_wat = Emit.emit(Mod, Core.mod(runtime_field_core));
 
@@ -1519,7 +1519,7 @@ let make = if flag {
 let user: user_type = make("Ada")
 let frozen: user_type = freeze user
 
-len(frozen.name) + frozen.age
+@len(frozen.name) + frozen.age
 `));
   const frozen_runtime_pointer_wat = Emit.emit(
     Mod,
@@ -1626,7 +1626,7 @@ let make = if flag {
 let user: user_type = make("Ada")
 let name: name_type = user.name
 
-len(name.first) + len(name.last) + user.age
+@len(name.first) + @len(name.last) + user.age
 `));
   const nested_field_wat = Emit.emit(Mod, Core.mod(nested_field_core));
 
@@ -1781,7 +1781,7 @@ let result: result_type = .ok("Ada")
 result = .ok("Grace")
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -1848,7 +1848,7 @@ let make = if flag {
 let result: result_type = make("Ada")
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -1879,7 +1879,7 @@ let make = if flag {
 let result: result_type = make("Ada")
 
 if let .ok(user) = result {
-  len(user.name) + user.age
+  @len(user.name) + user.age
 } else {
   0
 }
@@ -1916,7 +1916,7 @@ let make = if flag {
 let result: result_type = make("Ada")
 
 if let .ok(user) = result {
-  len(user.name.first) + len(user.name.last) + user.age
+  @len(user.name.first) + @len(user.name.last) + user.age
 } else {
   0
 }
@@ -2461,7 +2461,7 @@ xs[i]
 
   const unsupported_builtin_collection_calls = [
     {
-      source: "let x = 1\nlen(x)",
+      source: "let x = 1\n@len(x)",
       type_message: "Cannot type core len over unknown collection or text",
       feature: "len_unknown_collection_or_text",
       missing_edge: "missing_collection_or_text_fact",
@@ -2469,7 +2469,7 @@ xs[i]
         "Unsupported Core len: operand has no collection or Text fact",
     },
     {
-      source: "let x = 1\nget(x, 0)",
+      source: "let x = 1\n@get(x, 0)",
       type_message: "Cannot type core get over unknown collection",
       feature: "get_unknown_collection",
       missing_edge: "missing_collection_fact",
@@ -2991,12 +2991,12 @@ type ResultType = | .ok = Text | .err = Int
 const result_type = ResultType
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
-let n = len(prefix) - 1
+let prefix: Text = @slice("Ada", start, 1)
+let n = @len(prefix) - 1
 let existing: result_type = result_type.err(5)
 
 for i in 0..n {
-  existing = result_type.ok(append(prefix, "da"))
+  existing = result_type.ok(@append(prefix, "da"))
 }
 
 let result: result_type = scratch {
@@ -3005,7 +3005,7 @@ let result: result_type = scratch {
 }
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -3029,7 +3029,7 @@ type ResultType = | .ok = Text | .err = Int
 const result_type = ResultType
 
 let start = 0
-let bytes: Text = slice("Ada", start, 1)
+let bytes: Text = @slice("Ada", start, 1)
 let existing: result_type = result_type.err(5)
 
 for byte in bytes {
@@ -3042,7 +3042,7 @@ let result: result_type = scratch {
 }
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -3066,9 +3066,9 @@ type ResultType = | .ok = Text | .err = Int
 const result_type = ResultType
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
-let n = len(prefix) - 1
-let selected: result_type = result_type.ok(append(prefix, "da"))
+let prefix: Text = @slice("Ada", start, 1)
+let n = @len(prefix) - 1
+let selected: result_type = result_type.ok(@append(prefix, "da"))
 let existing: result_type = result_type.err(5)
 
 for i in 0..n {
@@ -3081,7 +3081,7 @@ let result: result_type = scratch {
 }
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }

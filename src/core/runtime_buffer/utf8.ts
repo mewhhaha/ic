@@ -23,7 +23,7 @@ export function emit_runtime_utf8_conversion<
   hooks: Pick<RuntimeTextHooks<ctx>, "emit_expr">,
 ): Wat {
   expect(
-    builtin.name === "Utf8.encode" || builtin.name === "Utf8.decode",
+    builtin.name === "@Utf8.encode" || builtin.name === "@Utf8.decode",
     "Runtime UTF-8 conversion requires Utf8.encode or Utf8.decode",
   );
   const locals = runtime_utf8_plan(ctx);
@@ -36,7 +36,7 @@ export function emit_runtime_utf8_conversion<
     "local.set $" + locals.length,
   ];
 
-  if (builtin.name === "Utf8.decode") {
+  if (builtin.name === "@Utf8.decode") {
     lines.push(emit_utf8_validation(locals));
   }
 

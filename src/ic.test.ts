@@ -360,6 +360,30 @@ Deno.test("Ic.reduce folds f32 arithmetic and conversions", () => {
     }),
     i32(-17),
   );
+  assert_equals(
+    Ic.reduce({
+      tag: "prim",
+      prim: "i32.wrap_i64",
+      args: [i64(0x1_0000_0001n)],
+    }),
+    i32(1),
+  );
+  assert_equals(
+    Ic.reduce({
+      tag: "prim",
+      prim: "i64.extend_i32_u",
+      args: [i32(-1)],
+    }),
+    i64(0xffff_ffffn),
+  );
+  assert_equals(
+    Ic.reduce({
+      tag: "prim",
+      prim: "f32.reinterpret_i32",
+      args: [i32(0x3f80_0000)],
+    }),
+    f32(1),
+  );
   assert_throws(
     () =>
       Ic.reduce({

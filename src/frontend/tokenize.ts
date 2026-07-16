@@ -271,7 +271,20 @@ export function scan_source(text: string): SourceSyntax {
       );
     } else {
       const two = text.slice(index, index + 2);
-      if (is_two_symbol(two)) {
+      const standard_operator = standard_operator_at(text, index);
+
+      if (standard_operator !== undefined) {
+        for (let offset = 0; offset < standard_operator.length; offset += 1) {
+          advance();
+        }
+        add_token(
+          "symbol",
+          standard_operator,
+          start,
+          start_line,
+          start_column,
+        );
+      } else if (is_two_symbol(two)) {
         advance();
         advance();
         add_token("symbol", two, start, start_line, start_column);
@@ -332,6 +345,31 @@ export function scan_source(text: string): SourceSyntax {
     },
   });
   return make_source_syntax(text, pieces, diagnostics);
+}
+
+function standard_operator_at(text: string, index: number): string | undefined {
+  for (
+    const operator of [
+      "&&&",
+      "|||",
+      "^^^",
+      "<*>",
+      "<$>",
+      ">>=",
+      "<|>",
+      "<<",
+      ">>",
+      "<>",
+      "|>",
+      "<|",
+    ]
+  ) {
+    if (text.startsWith(operator, index)) {
+      return operator;
+    }
+  }
+
+  return undefined;
 }
 
 function is_two_symbol(value: string): boolean {

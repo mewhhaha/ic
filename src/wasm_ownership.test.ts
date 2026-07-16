@@ -156,7 +156,7 @@ first.age
 
 Deno.test("frontend linked scope cleanup placeholder compiles through WAT to Wasm", async () => {
   const wat = wat_from_core_source(`
-let text: Text = append("A", "da")
+let text: Text = @append("A", "da")
 1
 `);
   const instance = await instantiate_wat(
@@ -191,9 +191,9 @@ if 1 {
     {
       name: "frontend_cleanup_return_stack_preservation",
       source: `
-let text: Text = append("A", "da")
+let text: Text = @append("A", "da")
 if 1 {
-  return len(text)
+  return @len(text)
 }
 0
 `,
@@ -246,7 +246,7 @@ result
 
 Deno.test("frontend persistent allocator reuses freed layout blocks", async () => {
   let wat = wat_from_core_source(`
-let text: Text = append("A", "da")
+let text: Text = @append("A", "da")
 1
 `);
   const module_end = wat.lastIndexOf("\n)");
@@ -288,8 +288,8 @@ let text: Text = append("A", "da")
   async function scoped_text_heap(iterations: number): Promise<number> {
     let scoped_wat = wat_from_core_source(`
 for i in 0..${iterations.toString()} {
-  let text: Text = append("A", "da")
-  len(text)
+  let text: Text = @append("A", "da")
+  @len(text)
 }
 0
 `);
@@ -328,13 +328,13 @@ const { struct } = comptime (import "duck:prelude")()
 const user_type = struct { .name= Text, .age= Int }
 let flag = 1
 let make = if flag {
-  (suffix: Text) => [.name = append("A", suffix), .age = 40] as user_type
+  (suffix: Text) => [.name = @append("A", suffix), .age = 40] as user_type
 } else {
-  (suffix: Text) => [.name = append("B", suffix), .age = 5] as user_type
+  (suffix: Text) => [.name = @append("B", suffix), .age = 5] as user_type
 }
 for i in 0..${iterations.toString()} {
   let user: user_type = make("da")
-  len(user.name) + user.age
+  @len(user.name) + user.age
 }
 0
 `);
@@ -376,13 +376,13 @@ Deno.test("discarded compiler temporaries reuse allocator blocks", async () => {
       name: "text",
       discarded: `
 let flag = 1
-append(if flag { "A" } else { "B" }, "!")
-append(if flag { "C" } else { "D" }, "?")
+@append(if flag { "A" } else { "B" }, "!")
+@append(if flag { "C" } else { "D" }, "?")
 `,
       retained: `
 let flag = 1
-let held: Text = append(if flag { "A" } else { "B" }, "!")
-let result: Text = append(if flag { "C" } else { "D" }, "?")
+let held: Text = @append(if flag { "A" } else { "B" }, "!")
+let result: Text = @append(if flag { "C" } else { "D" }, "?")
 if flag { result } else { held }
 `,
     },
@@ -1031,7 +1031,7 @@ io
 Deno.test("frontend runtime text freeze compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
 let freeze_suffix = (value: Text) => {
-  freeze append(value, "!")
+  freeze @append(value, "!")
 }
 
 freeze_suffix("hi")
@@ -1095,7 +1095,7 @@ freeze_suffix("hi")
 Deno.test("frontend scratch runtime text freeze compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
 let freeze_suffix = (value: Text) => {
-  scratch { freeze append(value, "!") }
+  scratch { freeze @append(value, "!") }
 }
 
 freeze_suffix("hi")
@@ -1160,7 +1160,7 @@ Deno.test("frontend bound scratch runtime text freeze compiles through WAT to Wa
   const wat_text = wat_from_core_source(`
 let freeze_suffix = (value: Text) => {
   scratch {
-    let temp: Text = append(value, "!")
+    let temp: Text = @append(value, "!")
     freeze temp
   }
 }
@@ -1227,7 +1227,7 @@ Deno.test("frontend alias scratch runtime text freeze compiles through WAT to Wa
   const wat_text = wat_from_core_source(`
 let freeze_suffix = (value: Text) => {
   scratch {
-    let temp: Text = append(value, "!")
+    let temp: Text = @append(value, "!")
     let alias: Text = temp
     freeze alias
   }
@@ -1296,10 +1296,10 @@ Deno.test("frontend annotated scratch runtime text freeze compiles through WAT t
   const wat_text = wat_from_core_source(`
 let freeze_suffix = (value: Text) => {
   let result: Text = scratch {
-    let temp: Text = append(value, "!")
+    let temp: Text = @append(value, "!")
     freeze temp
   }
-  len(result)
+  @len(result)
 }
 
 freeze_suffix("hi")
@@ -1330,7 +1330,7 @@ Deno.test("frontend block scratch runtime text freeze compiles through WAT to Wa
 let freeze_suffix = (value: Text) => {
   scratch {
     let temp: Text = {
-      let inner: Text = append(value, "!")
+      let inner: Text = @append(value, "!")
       inner
     }
     freeze temp
@@ -1399,7 +1399,7 @@ freeze_suffix("hi")
 Deno.test("frontend helper scratch runtime text freeze compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
 let add_bang = (value: Text) => {
-  append(value, "!")
+  @append(value, "!")
 }
 
 let freeze_suffix = (value: Text) => {
@@ -1471,9 +1471,9 @@ freeze_suffix("hi")
 Deno.test("frontend helper-returned scratch Text freeze persists through reset", async () => {
   const wat_text = wat_from_core_source(`
 let freeze_suffix = (value: Text) => {
-  freeze append(value, "!")
+  freeze @append(value, "!")
 }
-let prefix: Text = slice("Ada", 0, 3)
+let prefix: Text = @slice("Ada", 0, 3)
 scratch { freeze_suffix(prefix) }
 `);
   const instance = await instantiate_wat(
@@ -1509,9 +1509,9 @@ scratch { freeze_suffix(prefix) }
 Deno.test("promoted scratch Text survives in a stored closure environment", async () => {
   const wat_text = wat_from_core_source(`
 let f = scratch {
-  let message: Text = append("he", "llo")
+  let message: Text = @append("he", "llo")
   let persistent: Text = freeze message
-  freeze ((x: Int) => len(persistent) + x)
+  freeze ((x: Int) => @len(persistent) + x)
 }
 f(1)
 `);
@@ -1544,9 +1544,9 @@ Deno.test("frontend branch scratch runtime text freeze compiles through WAT to W
 let freeze_suffix = (flag: Int, value: Text) => {
   scratch {
     if flag {
-      freeze append(value, "!")
+      freeze @append(value, "!")
     } else {
-      freeze append(value, "?")
+      freeze @append(value, "?")
     }
   }
 }
@@ -1639,15 +1639,15 @@ const user_type = struct {
 let read_user = flag => {
   let user: user_type = scratch {
     let temp: user_type = if flag {
-      [.name = append("A", "da"), .age = 1] as user_type
+      [.name = @append("A", "da"), .age = 1] as user_type
     } else {
-      [.name = append("Gr", "ace"), .age = 2] as user_type
+      [.name = @append("Gr", "ace"), .age = 2] as user_type
     }
 
     freeze temp
   }
 
-  len(user.name) + user.age
+  @len(user.name) + user.age
 }
 
 read_user(${flag})
@@ -1697,15 +1697,15 @@ const user_type = struct {
 }
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
-let existing: user_type = [.name = append(prefix, "da"), .age = 40] as user_type
+let prefix: Text = @slice("Ada", start, 1)
+let existing: user_type = [.name = @append(prefix, "da"), .age = 40] as user_type
 let user: user_type = scratch {
   let first = existing
   let second = first
   freeze second
 }
 
-len(user.name) + user.age
+@len(user.name) + user.age
 `);
   const instance = await instantiate_wat(
     wat_text,
@@ -1746,18 +1746,18 @@ const user_type = struct {
 
 let read_user = flag => {
   let user: user_type = scratch {
-    let temp: user_type = [.name = append("n", "o"), .age = 0] as user_type
+    let temp: user_type = [.name = @append("n", "o"), .age = 0] as user_type
 
     if flag {
-      temp = [.name = append("A", "da"), .age = 1] as user_type
+      temp = [.name = @append("A", "da"), .age = 1] as user_type
     } else {
-      temp = [.name = append("Gr", "ace"), .age = 2] as user_type
+      temp = [.name = @append("Gr", "ace"), .age = 2] as user_type
     }
 
     freeze temp
   }
 
-  len(user.name) + user.age
+  @len(user.name) + user.age
 }
 
 read_user(${flag})
@@ -1810,19 +1810,19 @@ const result_type = ResultType
 
 let read_result = flag => {
   let result: result_type = scratch {
-    let temp: result_type = result_type.err(append("n", "o"))
+    let temp: result_type = result_type.err(@append("n", "o"))
 
     if flag {
-      temp = result_type.ok(append("A", "da"))
+      temp = result_type.ok(@append("A", "da"))
     } else {
-      temp = result_type.err(append("Gr", "ace"))
+      temp = result_type.err(@append("Gr", "ace"))
     }
 
     freeze temp
   }
 
   if let .ok(value) = result {
-    len(value)
+    @len(value)
   } else {
     0
   }
@@ -1875,11 +1875,11 @@ Deno.test("frontend branch-assigned scratch runtime text freeze compiles through
     const wat_text = wat_from_core_source(`
 let freeze_suffix = (flag: Int, value: Text) => {
   scratch {
-    let temp: Text = append(value, ".")
+    let temp: Text = @append(value, ".")
     if flag {
-      temp = append(value, "!")
+      temp = @append(value, "!")
     } else {
-      temp = append(value, "?")
+      temp = @append(value, "?")
     }
     freeze temp
   }
@@ -1971,9 +1971,9 @@ Deno.test("frontend optional branch scratch runtime text freeze compiles through
     const wat_text = wat_from_core_source(`
 let freeze_suffix = flag => {
   scratch {
-    let temp: Text = append("n", "o")
+    let temp: Text = @append("n", "o")
     if flag {
-      temp = append("h", "i")
+      temp = @append("h", "i")
     }
     freeze temp
   }
@@ -2057,9 +2057,9 @@ Deno.test("frontend loop-assigned scratch runtime text freeze compiles through W
     const wat_text = wat_from_core_source(`
 let freeze_suffix = (count: Int, value: Text) => {
   scratch {
-    let temp: Text = append(value, ".")
+    let temp: Text = @append(value, ".")
     for i in 0..count {
-      temp = append(value, "!")
+      temp = @append(value, "!")
     }
     freeze temp
   }
@@ -2150,9 +2150,9 @@ const xs_type = struct {
 let freeze_suffix = (value: Text) => {
   let xs: xs_type = [.first = 1, .second = 2] as xs_type
   scratch {
-    let temp: Text = append(value, ".")
+    let temp: Text = @append(value, ".")
     for x in xs {
-      temp = append(value, "!")
+      temp = @append(value, "!")
     }
     freeze temp
   }
@@ -2243,9 +2243,9 @@ let freeze_result = (flag: Int) => {
 
   scratch {
     if let .ok(value) = result {
-      freeze append(value, "!")
+      freeze @append(value, "!")
     } else {
-      freeze append("no", "?")
+      freeze @append("no", "?")
     }
   }
 }
@@ -2348,12 +2348,12 @@ let freeze_result = (flag: Int) => {
   }
 
   scratch {
-    let temp: Text = append("no", ".")
+    let temp: Text = @append("no", ".")
     if let .ok(value) = result {
-      temp = append(value, "!")
+      temp = @append(value, "!")
     }
     if let .err(value) = result {
-      temp = append(value, "?")
+      temp = @append(value, "?")
     }
     freeze temp
   }
@@ -2458,15 +2458,15 @@ let read_result = (flag: Int) => {
   }
 
   let result: result_type = scratch {
-    let temp: result_type = result_type.err(append("n", "o"))
+    let temp: result_type = result_type.err(@append("n", "o"))
     if let .some(name) = maybe {
-      temp = result_type.ok(append(name, "!"))
+      temp = result_type.ok(@append(name, "!"))
     }
     freeze temp
   }
 
   if let .ok(value) = result {
-    len(value)
+    @len(value)
   } else {
     0
   }
@@ -2526,16 +2526,16 @@ const user_type = struct {
 let read_user = flag => {
   let user: user_type = scratch {
     let branch: user_type = if flag {
-      let selected: user_type = [.name = append("A", "da"), .age = 1] as user_type
+      let selected: user_type = [.name = @append("A", "da"), .age = 1] as user_type
       selected
     } else {
-      let fallback: user_type = [.name = append("Gr", "ace"), .age = 2] as user_type
+      let fallback: user_type = [.name = @append("Gr", "ace"), .age = 2] as user_type
       fallback
     }
     freeze branch
   }
 
-  len(user.name) + user.age
+  @len(user.name) + user.age
 }
 
 read_user(${flag})

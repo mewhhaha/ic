@@ -108,7 +108,7 @@ export function runtime_float_format_plan(
 ): RuntimeFloatFormatPlan {
   const id = ctx.next_loop;
   ctx.next_loop += 1;
-  const prefix = "format_f32";
+  const prefix = "@format_f32";
   return {
     id,
     value: fresh_temp_local(ctx, prefix + "_value"),

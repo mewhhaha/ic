@@ -45,6 +45,21 @@ const builtin_fixities: Fixity[] = [
   prefix(80, "-", "Neg.neg"),
 ];
 
+const prelude_fixities: Fixity[] = [
+  infix("infixr", 10, "$", "Function.apply"),
+  infix("infixl", 10, "|>", "Function.pipe"),
+  infix("infixr", 50, "<>", "Semigroup.append"),
+  infix("infixl", 55, "<$>", "Functor.map"),
+  infix("infixl", 55, "<*>", "Applicative.apply"),
+  infix("infixl", 50, ">>=", "Monad.bind"),
+  infix("infixl", 45, "<|>", "Alternative.or_else"),
+  infix("infixl", 45, "|||", "Bits.bit_or"),
+  infix("infixl", 50, "^^^", "Bits.bit_xor"),
+  infix("infixl", 55, "&&&", "Bits.bit_and"),
+  infix("infixl", 60, "<<", "Bits.shift_left"),
+  infix("infixl", 60, ">>", "Bits.shift_right_unsigned"),
+];
+
 export function collect_source_fixities(tokens: Token[]): FixityTable {
   const table = create_fixity_table();
   let braces = 0;
@@ -94,6 +109,10 @@ export function create_fixity_table(): FixityTable {
 
   for (const fixity of builtin_fixities) {
     register_fixity(table, { ...fixity, builtin: true });
+  }
+
+  for (const fixity of prelude_fixities) {
+    register_fixity(table, fixity);
   }
 
   return table;

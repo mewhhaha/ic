@@ -26,7 +26,9 @@ type IntegerPrimOp =
   | "load8_u"
   | "trap";
 
-type I32PrimOp = IntegerPrimOp | "trunc_f32_s";
+type I32PrimOp = IntegerPrimOp | "trunc_f32_s" | "wrap_i64" | "reinterpret_f32";
+
+type I64PrimOp = IntegerPrimOp | "extend_i32_s" | "extend_i32_u";
 
 type FloatPrimOp =
   | "add"
@@ -43,7 +45,8 @@ type FloatPrimOp =
   | "load"
   | "trap"
   | "sqrt"
-  | "convert_i32_s";
+  | "convert_i32_s"
+  | "reinterpret_i32";
 
 type NumericOp =
   | "add"
@@ -65,7 +68,7 @@ type NumericOp =
 
 export type Prim =
   | `i32.${I32PrimOp}`
-  | `i64.${IntegerPrimOp}`
+  | `i64.${I64PrimOp}`
   | `f32.${FloatPrimOp}`
   | "f32x4.make"
   | "f32x4.splat"
@@ -77,24 +80,29 @@ export type Prim =
   | "f32x4.replace_lane";
 
 export type NumericBuiltinName =
-  | "bit_and"
-  | "bit_or"
-  | "bit_xor"
-  | "shift_left"
-  | "shift_right_u"
-  | "f32_sqrt"
-  | "f32_from_i32"
-  | "i32_from_f32";
+  | "@bit_and"
+  | "@bit_or"
+  | "@bit_xor"
+  | "@shift_left"
+  | "@shift_right_u"
+  | "@f32_sqrt"
+  | "@f32_from_i32"
+  | "@i32_from_f32"
+  | "@unsafe_i32_wrap_i64"
+  | "@unsafe_i64_extend_i32_signed"
+  | "@unsafe_i64_extend_i32_unsigned"
+  | "@unsafe_i32_reinterpret_f32"
+  | "@unsafe_f32_reinterpret_i32";
 
 export type F32x4BuiltinName =
-  | "f32x4"
-  | "f32x4_splat"
-  | "f32x4_add"
-  | "f32x4_sub"
-  | "f32x4_mul"
-  | "f32x4_div"
-  | "f32x4_extract_lane"
-  | "f32x4_replace_lane";
+  | "@f32x4"
+  | "@f32x4_splat"
+  | "@f32x4_add"
+  | "@f32x4_sub"
+  | "@f32x4_mul"
+  | "@f32x4_div"
+  | "@f32x4_extract_lane"
+  | "@f32x4_replace_lane";
 
 export type PrimOperandEmission = {
   wat: string;
@@ -105,22 +113,32 @@ export function Prim() {}
 
 export function numeric_builtin_prim(name: string): Prim | undefined {
   switch (name) {
-    case "bit_and":
+    case "@bit_and":
       return "i32.and";
-    case "bit_or":
+    case "@bit_or":
       return "i32.or";
-    case "bit_xor":
+    case "@bit_xor":
       return "i32.xor";
-    case "shift_left":
+    case "@shift_left":
       return "i32.shl";
-    case "shift_right_u":
+    case "@shift_right_u":
       return "i32.shr_u";
-    case "f32_sqrt":
+    case "@f32_sqrt":
       return "f32.sqrt";
-    case "f32_from_i32":
+    case "@f32_from_i32":
       return "f32.convert_i32_s";
-    case "i32_from_f32":
+    case "@i32_from_f32":
       return "i32.trunc_f32_s";
+    case "@unsafe_i32_wrap_i64":
+      return "i32.wrap_i64";
+    case "@unsafe_i64_extend_i32_signed":
+      return "i64.extend_i32_s";
+    case "@unsafe_i64_extend_i32_unsigned":
+      return "i64.extend_i32_u";
+    case "@unsafe_i32_reinterpret_f32":
+      return "i32.reinterpret_f32";
+    case "@unsafe_f32_reinterpret_i32":
+      return "f32.reinterpret_i32";
     default:
       return undefined;
   }
@@ -185,21 +203,21 @@ export function wasm_intrinsic_prim(name: string): Prim | undefined {
 
 export function f32x4_builtin_prim(name: string): Prim | undefined {
   switch (name) {
-    case "f32x4":
+    case "@f32x4":
       return "f32x4.make";
-    case "f32x4_splat":
+    case "@f32x4_splat":
       return "f32x4.splat";
-    case "f32x4_add":
+    case "@f32x4_add":
       return "f32x4.add";
-    case "f32x4_sub":
+    case "@f32x4_sub":
       return "f32x4.sub";
-    case "f32x4_mul":
+    case "@f32x4_mul":
       return "f32x4.mul";
-    case "f32x4_div":
+    case "@f32x4_div":
       return "f32x4.div";
-    case "f32x4_extract_lane":
+    case "@f32x4_extract_lane":
       return "f32x4.extract_lane";
-    case "f32x4_replace_lane":
+    case "@f32x4_replace_lane":
       return "f32x4.replace_lane";
     default:
       return undefined;
@@ -211,21 +229,21 @@ export function f32x4_builtin_name(
 ): F32x4BuiltinName | undefined {
   switch (prim) {
     case "f32x4.make":
-      return "f32x4";
+      return "@f32x4";
     case "f32x4.splat":
-      return "f32x4_splat";
+      return "@f32x4_splat";
     case "f32x4.add":
-      return "f32x4_add";
+      return "@f32x4_add";
     case "f32x4.sub":
-      return "f32x4_sub";
+      return "@f32x4_sub";
     case "f32x4.mul":
-      return "f32x4_mul";
+      return "@f32x4_mul";
     case "f32x4.div":
-      return "f32x4_div";
+      return "@f32x4_div";
     case "f32x4.extract_lane":
-      return "f32x4_extract_lane";
+      return "@f32x4_extract_lane";
     case "f32x4.replace_lane":
-      return "f32x4_replace_lane";
+      return "@f32x4_replace_lane";
     default:
       return undefined;
   }
@@ -237,25 +255,35 @@ export function numeric_builtin_name(
   switch (prim) {
     case "i32.and":
     case "i64.and":
-      return "bit_and";
+      return "@bit_and";
     case "i32.or":
     case "i64.or":
-      return "bit_or";
+      return "@bit_or";
     case "i32.xor":
     case "i64.xor":
-      return "bit_xor";
+      return "@bit_xor";
     case "i32.shl":
     case "i64.shl":
-      return "shift_left";
+      return "@shift_left";
     case "i32.shr_u":
     case "i64.shr_u":
-      return "shift_right_u";
+      return "@shift_right_u";
     case "f32.sqrt":
-      return "f32_sqrt";
+      return "@f32_sqrt";
     case "f32.convert_i32_s":
-      return "f32_from_i32";
+      return "@f32_from_i32";
     case "i32.trunc_f32_s":
-      return "i32_from_f32";
+      return "@i32_from_f32";
+    case "i32.wrap_i64":
+      return "@unsafe_i32_wrap_i64";
+    case "i64.extend_i32_s":
+      return "@unsafe_i64_extend_i32_signed";
+    case "i64.extend_i32_u":
+      return "@unsafe_i64_extend_i32_unsigned";
+    case "i32.reinterpret_f32":
+      return "@unsafe_i32_reinterpret_f32";
+    case "f32.reinterpret_i32":
+      return "@unsafe_f32_reinterpret_i32";
     default:
       return undefined;
   }
@@ -388,6 +416,11 @@ function binary_numeric_op(prim: Prim): NumericOp | undefined {
     case "f32.sqrt":
     case "f32.convert_i32_s":
     case "i32.trunc_f32_s":
+    case "i32.wrap_i64":
+    case "i64.extend_i32_s":
+    case "i64.extend_i32_u":
+    case "i32.reinterpret_f32":
+    case "f32.reinterpret_i32":
     case "f32x4.make":
     case "f32x4.splat":
     case "f32x4.add":
@@ -425,15 +458,15 @@ function numeric_op_text(op: NumericOp): string {
     case "ge":
       return ">=";
     case "and":
-      return "bit_and";
+      return "@bit_and";
     case "or":
-      return "bit_or";
+      return "@bit_or";
     case "xor":
-      return "bit_xor";
+      return "@bit_xor";
     case "shl":
-      return "shift_left";
+      return "@shift_left";
     case "shr_u":
-      return "shift_right_u";
+      return "@shift_right_u";
   }
 }
 
@@ -548,6 +581,11 @@ Prim.fmt = function fmt(prim: Prim): string {
     case "f32.sqrt":
     case "f32.convert_i32_s":
     case "i32.trunc_f32_s":
+    case "i32.wrap_i64":
+    case "i64.extend_i32_s":
+    case "i64.extend_i32_u":
+    case "i32.reinterpret_f32":
+    case "f32.reinterpret_i32":
       throw new Error("Missing named primitive format: " + prim);
 
     case "f32x4.make":
@@ -593,6 +631,10 @@ Prim.type = function type(prim: Prim): CallableType<ValType> {
       return { args: [], result: "i32" };
     case "i32.trunc_f32_s":
       return { args: ["f32"], result: "i32" };
+    case "i32.wrap_i64":
+      return { args: ["i64"], result: "i32" };
+    case "i32.reinterpret_f32":
+      return { args: ["f32"], result: "i32" };
 
     case "i64.add":
     case "i64.sub":
@@ -619,6 +661,9 @@ Prim.type = function type(prim: Prim): CallableType<ValType> {
       return { args: ["i32"], result: "i64" };
     case "i64.trap":
       return { args: [], result: "i64" };
+    case "i64.extend_i32_s":
+    case "i64.extend_i32_u":
+      return { args: ["i32"], result: "i64" };
 
     case "f32.add":
     case "f32.sub":
@@ -641,6 +686,8 @@ Prim.type = function type(prim: Prim): CallableType<ValType> {
     case "f32.sqrt":
       return { args: ["f32"], result: "f32" };
     case "f32.convert_i32_s":
+      return { args: ["i32"], result: "f32" };
+    case "f32.reinterpret_i32":
       return { args: ["i32"], result: "f32" };
 
     case "f32x4.make":

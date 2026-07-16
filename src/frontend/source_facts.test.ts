@@ -3,6 +3,7 @@ import type { FrontExpr, Stmt } from "./ast.ts";
 import { parse_source } from "./parser.ts";
 import {
   source_facts,
+  source_inference_diagnostics,
   type SourceFacts,
   type SourceTypeFact,
 } from "./source_facts.ts";
@@ -41,6 +42,34 @@ Deno.test("source facts expose canonical types as semantic evidence", () => {
   const fact = facts.definition_type_of.get(source.statements[0]!)?.get("name");
 
   assert_equals(fact?.canonical_type(), { tag: "scalar", name: "Bool" });
+});
+
+Deno.test("@as accepts only representation-identical target types", () => {
+  const valid = parse_source(`
+type UserId = I32
+let value: UserId = 41
+@as(value, I32)
+`);
+  const valid_facts = source_facts(valid);
+  const valid_call = valid_facts.expressions.find((expression) =>
+    expression.tag === "app"
+  );
+
+  if (valid_call === undefined) {
+    throw new Error("Missing checked cast call");
+  }
+
+  assert_equals(recorded_type(valid_facts, valid_call)?.name, "I32");
+  assert_equals(source_inference_diagnostics(valid, valid_facts), []);
+
+  const invalid = parse_source("@as(1, I64)");
+  const invalid_facts = source_facts(invalid);
+  assert_equals(
+    source_inference_diagnostics(invalid, invalid_facts).map((diagnostic) =>
+      diagnostic.message
+    ),
+    ["@as cannot cast I32 to I64 because their runtime representations differ"],
+  );
 });
 
 Deno.test("source facts specialize generic product aliases recursively", () => {
@@ -141,9 +170,9 @@ Deno.test("source facts infer each untyped call independently", () => {
 Deno.test("source facts apply consistent call types inside untyped functions", () => {
   const source = parse_source(`
 let suffix = (bytes, pattern) => {
-  let tail = slice(bytes, 0, len(bytes))
-  let width = len(pattern)
-  slice(tail, 0, width)
+  let tail = @slice(bytes, 0, @len(bytes))
+  let width = @len(pattern)
+  @slice(tail, 0, width)
 }
 let bytes: Bytes = Bytes.empty
 suffix(bytes, "")
@@ -282,7 +311,7 @@ Deno.test("source facts require known indexes and valid loop binders", () => {
 Deno.test("source facts validate text builtins and runtime type tests", () => {
   assert_equals(
     expression_type_names(
-      'len("abc")\nget("abc", 0)\nslice("abc", 0, 1)\nappend("a", "b")',
+      '@len("abc")\n@get("abc", 0)\n@slice("abc", 0, 1)\n@append("a", "b")',
       "app",
     ),
     ["I32", "I32", "Text", "Text"],

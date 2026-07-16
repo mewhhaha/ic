@@ -428,16 +428,16 @@ function runtime_capability_field_type_name(
       return "Text";
     }
 
-    if (value.func.name === "Bytes.generate") {
+    if (value.func.name === "@Bytes.generate") {
       return "Bytes";
     }
 
-    if (value.func.name === "append" || value.func.name === "slice") {
+    if (value.func.name === "@append" || value.func.name === "@slice") {
       return "Text";
     }
     if (
-      value.func.name === "runtime_i32_slice" ||
-      value.func.name === "runtime_text_slice"
+      value.func.name === "@runtime_i32_slice" ||
+      value.func.name === "@runtime_text_slice"
     ) {
       return "I32";
     }

@@ -5,10 +5,10 @@ writes its result as a standard RIFF/WAVE file. It produces one second of mono,
 8 kHz, 16-bit little-endian PCM: a repeating four-note phrase made from two
 square-wave voices (melody and pulse).
 
-The Duck program owns byte construction. `Bytes.generate` calls `wav_byte` once
+The Duck program owns byte construction. `@Bytes.generate` calls `wav_byte` once
 per output position; that function chooses between the pure RIFF header and PCM
 sample functions. `little_endian_byte` builds every multi-byte header and sample
-field with `bit_and` and `shift_right_u`, including the signed sample's
+field with `@bit_and` and `@shift_right_u`, including the signed sample's
 two's-complement representation. The waveform is a pure function of the sample
 index, so no mutable audio buffer or reference mutation is needed.
 

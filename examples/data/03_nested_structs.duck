@@ -1,4 +1,4 @@
-const { struct } = comptime (import "duck:prelude")()
+const { struct } = comptime import "duck:prelude" ()
 
 type Point = struct { .x = Int, .y = Int }
 type Line = struct { .start = Point, .end = Point }

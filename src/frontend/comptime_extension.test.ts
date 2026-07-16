@@ -56,7 +56,7 @@ classify(Player) + 2
 Deno.test("type descriptors expose record sum product and array layout", () => {
   const record = Source.wat(`
 type Player = [.name = Text, .score = Int]
-describe_type(Player).size + describe_fields(Player)[1].offset
+@describe_type(Player).size + @describe_fields(Player)[1].offset
 `);
   assert_includes(record, "i32.const 12");
   assert_includes(record, "i32.const 8");
@@ -64,19 +64,19 @@ describe_type(Player).size + describe_fields(Player)[1].offset
   const sum = Source.wat(`
 type Result = | .ok = Int | .err = Text
 
-describe_cases(Result)[1].tag
+@describe_cases(Result)[1].tag
 `);
   assert_includes(sum, "i32.const 1");
 
   const product = Source.wat(`
 type Pair = [Int, I64]
-describe_type(Pair).size
+@describe_type(Pair).size
 `);
   assert_includes(product, "i32.const 16");
 
   const array = Source.wat(`
 type Buffer = [Int; 3]
-describe_type(Buffer).length + describe_type(Buffer).stride
+@describe_type(Buffer).length + @describe_type(Buffer).stride
 `);
   assert_includes(array, "i32.const 3");
   assert_includes(array, "i32.const 4");
@@ -87,7 +87,7 @@ Deno.test("type descriptors receive normalized const array lengths", () => {
 type Buffer = [Int; width + 1]
 const width = 2
 
-describe_type(Buffer).length
+@describe_type(Buffer).length
 `);
 
   assert_includes(wat, "i32.const 3");
@@ -97,11 +97,11 @@ Deno.test("const-directed construction and projection erase to fixed access", ()
   const wat = Source.wat(`
 type Player = [.name = Int, .score = Int]
 
-const player_fields = describe_fields(Player)
+const player_fields = @describe_fields(Player)
 const score_field = player_fields[1]
-let player = construct(Player, [.name = 20, .score = 40])
+let player = @construct(Player, [.name = 20, .score = 40])
 
-project(player, score_field) + 2
+@project(player, score_field) + 2
 `);
 
   assert_includes(wat, "i32.const 40");
@@ -113,12 +113,12 @@ Deno.test("case descriptors construct inspect and project union cases", () => {
   const wat = Source.wat(`
 type Result = | .ok = Int | .err = Int
 
-const cases = describe_cases(Result)
+const cases = @describe_cases(Result)
 const ok_case = cases[0]
-let result: Result = construct(ok_case, 42)
+let result: Result = @construct(ok_case, 42)
 
-if is_case(result, ok_case) {
-  project(result, ok_case)
+if @is_case(result, ok_case) {
+  @project(result, ok_case)
 } else {
   0
 }
@@ -216,7 +216,7 @@ comptime factorial(5)
 Deno.test("const fold reduces a fixed array at the comptime boundary", () => {
   const wat = Source.wat(`
 const fold = rec (values, index, state, next) => {
-  if index == len(values) {
+  if index == @len(values) {
     state
   } else {
     rec(values, index + 1, next(state, values[index]), next)
@@ -234,7 +234,7 @@ Deno.test("const fold derives a runtime record function from field descriptors",
 type Player = [.left = Int, .right = Int]
 
 const fold = rec (values, index, state, next) => {
-  if index == len(values) {
+  if index == @len(values) {
     state
   } else {
     rec(values, index + 1, next(state, values[index]), next)
@@ -242,11 +242,11 @@ const fold = rec (values, index, state, next) => {
 }
 
 const add_field = (sum, field) => {
-  value => sum(value) + project(value, field)
+  value => sum(value) + @project(value, field)
 }
 
 const derive_sum = (const target) => {
-  const fields = describe_fields(target)
+  const fields = @describe_fields(target)
 
   fold(fields, 0, value => 0, add_field)
 }

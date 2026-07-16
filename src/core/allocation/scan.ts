@@ -2105,7 +2105,7 @@ function scan_allocation_expr<ctx>(
       set_closure_call_result_allocations(expr, state);
       if (
         expr.func.tag === "var" &&
-        (expr.func.name === "len" || expr.func.name === "get") &&
+        (expr.func.name === "@len" || expr.func.name === "@get") &&
         expr.args.length > 0
       ) {
         const collection = expr.args[0];
@@ -2131,8 +2131,8 @@ function scan_allocation_expr<ctx>(
 
       if (
         expr.func.tag === "var" &&
-        (expr.func.name === "runtime_i32_slice" ||
-          expr.func.name === "runtime_text_slice")
+        (expr.func.name === "@runtime_i32_slice" ||
+          expr.func.name === "@runtime_text_slice")
       ) {
         for (const arg of expr.args) {
           scan_allocation_expr(arg, scope, ctx, hooks, state);
@@ -2378,7 +2378,7 @@ function scan_allocation_expr<ctx>(
         }
       }
 
-      if (expr.func.tag === "var" && expr.func.name === "slice") {
+      if (expr.func.tag === "var" && expr.func.name === "@slice") {
         record_allocation(
           expr,
           "runtime_text",
@@ -2389,7 +2389,7 @@ function scan_allocation_expr<ctx>(
       }
 
       if (
-        expr.func.tag === "var" && expr.func.name === "append" &&
+        expr.func.tag === "var" && expr.func.name === "@append" &&
         !hooks.closure_fn_type(expr.func, ctx)
       ) {
         record_allocation(

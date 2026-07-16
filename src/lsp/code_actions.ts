@@ -249,7 +249,7 @@ export function code_actions(
         "quickfix",
         span.start,
         span.end,
-        "let " + statement.name + " = append(" + statement.name + ", " +
+        "let " + statement.name + " = @append(" + statement.name + ", " +
           empty_value + ")\n" + mutation,
         diagnostics,
       );
@@ -285,7 +285,7 @@ export function code_actions(
         "quickfix",
         span.start,
         span.end,
-        "let " + statement.name + " = Utf8.encode(" + statement.name +
+        "let " + statement.name + " = @Utf8.encode(" + statement.name +
           ")\n" + mutation,
         diagnostics,
       );

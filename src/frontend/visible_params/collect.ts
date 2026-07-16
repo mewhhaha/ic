@@ -28,7 +28,7 @@ export function expr_collects_from_names(
     case "app":
       if (
         expr.func.tag === "var" &&
-        (expr.func.name === "append" || expr.func.name === "slice")
+        (expr.func.name === "@append" || expr.func.name === "@slice")
       ) {
         for (const arg of expr.args) {
           if (arg && expr_root_is_named(arg, names)) {
@@ -39,7 +39,7 @@ export function expr_collects_from_names(
 
       if (
         expr.func.tag === "var" &&
-        (expr.func.name === "len" || expr.func.name === "get")
+        (expr.func.name === "@len" || expr.func.name === "@get")
       ) {
         const collection = expr.args[0];
 
@@ -414,5 +414,5 @@ function stmt_collects_from_names(stmt: Stmt, names: Set<string>): boolean {
   }
 
   stmt satisfies never;
-  throw new Error("panic");
+  throw new Error("@panic");
 }

@@ -24,7 +24,7 @@ function lower_len_builtin(
   env: Env,
   hooks: BuiltinCallHooks,
 ): IcNode | undefined {
-  if (expr.func.tag !== "var" || expr.func.name !== "len") {
+  if (expr.func.tag !== "var" || expr.func.name !== "@len") {
     return undefined;
   }
 
@@ -122,7 +122,7 @@ function lower_get_builtin(
   env: Env,
   hooks: BuiltinCallHooks,
 ): IcNode | undefined {
-  if (expr.func.tag !== "var" || expr.func.name !== "get") {
+  if (expr.func.tag !== "var" || expr.func.name !== "@get") {
     return undefined;
   }
 

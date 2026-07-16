@@ -195,17 +195,17 @@ function host_boundary_expr_allocates_in_scratch<
       return false;
     }
 
-    if (expr.func.tag === "var" && expr.func.name === "append") {
+    if (expr.func.tag === "var" && expr.func.name === "@append") {
       if (!hooks.closure_fn_type(expr.func, ctx)) {
         return true;
       }
     }
 
-    if (expr.func.tag === "var" && expr.func.name === "Bytes.generate") {
+    if (expr.func.tag === "var" && expr.func.name === "@Bytes.generate") {
       return true;
     }
 
-    if (expr.func.tag === "var" && expr.func.name === "slice") {
+    if (expr.func.tag === "var" && expr.func.name === "@slice") {
       return true;
     }
 

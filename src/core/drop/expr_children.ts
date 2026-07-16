@@ -490,7 +490,7 @@ function drop_temporary_app_args<ctx>(
       throw new Error("Missing temporary app argument " + index.toString());
     }
     if (
-      expr.func.tag === "var" && expr.func.name === "Bytes.generate" &&
+      expr.func.tag === "var" && expr.func.name === "@Bytes.generate" &&
       index === 1
     ) {
       continue;

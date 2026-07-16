@@ -25,11 +25,11 @@ export function emit_runtime_integer_format<
 ): Wat {
   let type: "i32" | "i64";
 
-  if (builtin.name === "format_i32") {
+  if (builtin.name === "@format_i32") {
     type = "i32";
   } else {
     expect(
-      builtin.name === "format_i64",
+      builtin.name === "@format_i64",
       "Runtime integer formatting requires format_i32 or format_i64",
     );
     type = "i64";
@@ -152,7 +152,7 @@ export function emit_runtime_float_format<
   hooks: Pick<RuntimeTextHooks<ctx>, "emit_expr">,
 ): Wat {
   expect(
-    builtin.name === "format_f32",
+    builtin.name === "@format_f32",
     "Runtime float formatting requires format_f32",
   );
   expect(builtin.precision, "Runtime format_f32 precision is missing");

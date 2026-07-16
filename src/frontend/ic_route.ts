@@ -109,7 +109,7 @@ function validate_ic_route_stmt(
   }
 
   stmt satisfies never;
-  throw new Error("panic");
+  throw new Error("@panic");
 }
 
 function validate_ic_route_expr(
@@ -294,7 +294,7 @@ function validate_ic_route_expr(
   }
 
   expr satisfies never;
-  throw new Error("panic");
+  throw new Error("@panic");
 }
 
 function reject_ic_route(

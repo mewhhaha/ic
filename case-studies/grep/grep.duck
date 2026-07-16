@@ -1,6 +1,8 @@
 module (!init: Init) where
 
-const { struct } = comptime import "duck:prelude"()
+const { append, get, length, slice } = comptime import "duck:prelude/runtime" ()
+
+const { struct } = comptime import "duck:prelude" ()
 
 type IoError = struct { .code = I32, .path = Text, .message = Text }
 
@@ -23,7 +25,7 @@ let scan = (first_bytes, pattern) => {
   loop {
     let step = -1
 
-    for index in line_start..len(pending) {
+    for index in line_start..length(pending) {
       if let '\n' = pending[index] {
         step = index + 1
         break
@@ -34,7 +36,7 @@ let scan = (first_bytes, pattern) => {
       read_result <- FileReader.read(65536)
 
       if let .chunk(bytes) = read_result {
-        let tail = slice(pending, line_start, len(pending))
+        let tail = slice(pending, line_start, length(pending))
         pending = append(tail, bytes)
         line_start = 0
         continue
@@ -44,16 +46,16 @@ let scan = (first_bytes, pattern) => {
         break 2
       }
 
-      if line_start == len(pending) {
+      if line_start == length(pending) {
         break code
       }
 
-      step = len(pending)
+      step = length(pending)
     }
 
     let line_end = step
     let line_matches = false
-    let pattern_length = len(pattern)
+    let pattern_length = length(pattern)
     let search_end = line_end - pattern_length + 1
 
     for start in line_start..search_end {

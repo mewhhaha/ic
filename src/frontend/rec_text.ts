@@ -21,7 +21,7 @@ export function lower_rec_len_call(
   hooks: StaticRecTextHooks,
   lower_result: LowerRecResult,
 ): IcNode | undefined {
-  if (expr.func.tag !== "var" || expr.func.name !== "len") {
+  if (expr.func.tag !== "var" || expr.func.name !== "@len") {
     return undefined;
   }
 
@@ -56,7 +56,7 @@ export function lower_rec_get_call(
   hooks: StaticRecTextHooks,
   lower_result: LowerRecResult,
 ): IcNode | undefined {
-  if (expr.func.tag !== "var" || expr.func.name !== "get") {
+  if (expr.func.tag !== "var" || expr.func.name !== "@get") {
     return undefined;
   }
 

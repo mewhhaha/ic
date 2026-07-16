@@ -131,7 +131,7 @@ inc(input)
 
   const unknown_text = compile(`
 let byte_len = (value: Text) => {
-  len(value)
+  @len(value)
 }
 
 byte_len(message)
@@ -144,7 +144,7 @@ byte_len(message)
 
   const helper_text = compile(`
 const byte_len = value => {
-  len(value)
+  @len(value)
 }
 
 let byte_len_text = (value: Text) => {
@@ -352,9 +352,9 @@ choose(freeze input)
 
   const bound_wrapped_text_arg = compile(`
 let choose = if flag {
-  (x: Text) => len(x)
+  (x: Text) => @len(x)
 } else {
-  (x: Text) => get(x, 0)
+  (x: Text) => @get(x, 0)
 }
 
 choose(scratch { input })
@@ -377,7 +377,7 @@ const user_type = struct {
 let choose = if flag {
   (user: user_type) => user.age
 } else {
-  (user: user_type) => len(user.name)
+  (user: user_type) => @len(user.name)
 }
 
 choose(&input)
@@ -432,9 +432,9 @@ choose(if pick {
 
   const text_branch_wrapped_arg = compile(`
 let choose = if flag {
-  (x: Text) => len(x)
+  (x: Text) => @len(x)
 } else {
-  (x: Text) => get(x, 0)
+  (x: Text) => @get(x, 0)
 }
 
 choose(if pick {
@@ -463,7 +463,7 @@ const user_type = struct {
 let choose = if flag {
   (user: user_type) => user.age
 } else {
-  (user: user_type) => len(user.name)
+  (user: user_type) => @len(user.name)
 }
 
 choose(if pick {
@@ -757,9 +757,9 @@ choose(41)
 
   const annotated_text_param = compile(`
 let choose = if input {
-  (value: Text) => len(value)
+  (value: Text) => @len(value)
 } else {
-  (value: Text) => len(value) + 1
+  (value: Text) => @len(value) + 1
 }
 
 choose(message)
@@ -781,7 +781,7 @@ const user_type = struct {
 let choose = if input {
   (user: user_type) => user.age + 1
 } else {
-  (user: user_type) => len(user.name)
+  (user: user_type) => @len(user.name)
 }
 
 choose(person)
@@ -802,9 +802,9 @@ choose(person)
 
   const one_sided_text_param = compile(`
 let choose = if input {
-  (value: Text) => len(value)
+  (value: Text) => @len(value)
 } else {
-  value => len(value) + 1
+  value => @len(value) + 1
 }
 
 choose(message)
@@ -826,7 +826,7 @@ const user_type = struct {
 let choose = if input {
   (user: user_type) => user.age + 1
 } else {
-  user => len(user.name)
+  user => @len(user.name)
 }
 
 choose(person)
@@ -887,7 +887,7 @@ choose("Ada")
 let choose = if input {
   (value: Int) => value + 1
 } else {
-  (value: Text) => len(value)
+  (value: Text) => @len(value)
 }
 
 choose(message)
@@ -980,9 +980,9 @@ let result = if flag {
 }
 
 let choose = if let .ok(value) = result {
-  (x: Text) => len(x) + value
+  (x: Text) => @len(x) + value
 } else {
-  (x: Text) => len(x) + 1
+  (x: Text) => @len(x) + 1
 }
 
 choose(message)
@@ -1006,7 +1006,7 @@ let result = if flag {
 let choose = if let .ok(value) = result {
   (x: Int) => x + value
 } else {
-  (x: Text) => len(x) + 1
+  (x: Text) => @len(x) + 1
 }
 
 choose(message)
@@ -1026,7 +1026,7 @@ let result = if flag {
 let choose = if let .ok(value) = result {
   (x: Int) => x + value
 } else {
-  (x: Text) => len(x) + 1
+  (x: Text) => @len(x) + 1
 }
 
 choose(message)
@@ -1063,13 +1063,13 @@ Deno.test("Source distinguishes fail, panic, and recoverable result_type values"
   assert_throws(
     () =>
       compile(`
-let value = comptime fail("expected value with len")
+let value = comptime @fail("expected value with len")
 value
 `),
     "fail: expected value with len",
   );
 
-  const panic = compile('panic("index out of bounds")');
+  const panic = compile('@panic("index out of bounds")');
 
   assert_equals(Ic.reduce(panic), {
     tag: "prim",
@@ -1099,9 +1099,9 @@ const user_type = struct {
   .big= I64
 }
 
-const user_layout = layout(user_type)
+const user_layout = @layout(user_type)
 
-size_of(user_type) + align_of(user_type) + user_layout.fields.big
+@size_of(user_type) + @align_of(user_type) + user_layout.fields.big
 `);
 
   assert_equals(Ic.reduce(ic), { tag: "num", type: "i32", value: 32 });
@@ -1112,9 +1112,9 @@ Deno.test("Source lowers compile-time union layout facts", () => {
 type ResultType = | .ok = Int | .err = I64
 const result_type = ResultType
 
-const result_layout = layout(result_type)
+const result_layout = @layout(result_type)
 
-size_of(result_type) + align_of(result_type) + result_layout.tag_offset + result_layout.payload_offset
+@size_of(result_type) + @align_of(result_type) + result_layout.tag_offset + result_layout.payload_offset
 `);
 
   assert_equals(Ic.reduce(ic), { tag: "num", type: "i32", value: 28 });
@@ -1131,7 +1131,7 @@ const user_type = struct {
 type ResultType = | .ok = Int | .err = Text
 const result_type = ResultType
 
-size_of(Int) + align_of(Text) + has(user_type.name) + has(user_type.missing) + size_of(fields_of(user_type).age) + align_of(fields_of(user_type).name) + size_of(cases_of(result_type).ok) + align_of(cases_of(result_type).err)
+@size_of(Int) + @align_of(Text) + @has(user_type.name) + @has(user_type.missing) + @size_of(@fields_of(user_type).age) + @align_of(@fields_of(user_type).name) + @size_of(@cases_of(result_type).ok) + @align_of(@cases_of(result_type).err)
 `);
 
   assert_equals(Ic.reduce(ic), { tag: "num", type: "i32", value: 25 });
@@ -1140,8 +1140,8 @@ size_of(Int) + align_of(Text) + has(user_type.name) + has(user_type.missing) + s
 Deno.test("Source runs fail from structural fact checkers", () => {
   const ic = compile(`
 const has_name = t => {
-  if !has(t.name) {
-    return fail("expected name")
+  if !@has(t.name) {
+    return @fail("expected name")
   }
 
   t
@@ -1153,7 +1153,7 @@ const user_type = struct {
 }
 
 let keep = (const t: has_name, value) => {
-  value + size_of(t)
+  value + @size_of(t)
 }
 
 keep(user_type, 34)
@@ -1165,8 +1165,8 @@ keep(user_type, 34)
     () =>
       compile(`
 const has_name = t => {
-  if !has(t.name) {
-    return fail("expected name")
+  if !@has(t.name) {
+    return @fail("expected name")
   }
 
   t
@@ -1208,8 +1208,8 @@ sum_to(6)
 const field_bytes = t => {
   let total = 0
 
-  for index, field_type in fields_of(t) {
-    total = total + size_of(field_type)
+  for index, field_type in @fields_of(t) {
+    total = total + @size_of(field_type)
   }
 
   total
@@ -1237,7 +1237,7 @@ const bad_type = struct {
   .nested= missing_type
 }
 
-size_of(bad_type)
+@size_of(bad_type)
 `),
     "Missing layout for type: missing_type",
   );
@@ -1250,7 +1250,7 @@ const user_type = struct {
   .age= Int
 }
 
-const user_layout = layout(user_type)
+const user_layout = @layout(user_type)
 
 user_layout.size
 `);
@@ -1528,7 +1528,7 @@ Deno.test("Source parses every Task 11 MVP grammar include", () => {
       feature: "modules as functions",
       text: "module app = caps => { { .main = 1 } }",
     },
-    { feature: "compile-time layout helpers", text: "layout(user_type)" },
+    { feature: "compile-time layout helpers", text: "@layout(user_type)" },
     {
       feature: "monomorphization",
       text: "let id = (const t, x: t) => x\nid(Int, 1)",

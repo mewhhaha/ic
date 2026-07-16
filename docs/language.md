@@ -31,10 +31,10 @@ variables. Effect operations are always qualified by their declared effect.
 ```txt
 let read_number = input
 const make_adder = n => x => x + n
-const layout_of = t => layout(t)
+const layout_of = t => @layout(t)
 const align_to = (offset, alignment) => offset
 const greet_user = user => user.name
-const user_layout = layout(user_type)
+const user_layout = @layout(user_type)
 ```
 
 Built-in type-value names such as `Int`, `I64`, `Text`, `Unit`, and `Type` keep
@@ -42,13 +42,17 @@ their builtin spelling. User-defined names and type references in annotations,
 field access, struct fields, union cases, `if let` payload binders, and
 destructuring patterns use `snake_case`. Compiler-internal source marker names
 use `snake_case`, such as `object_type`, `layout_type`, and
-`field_offsets_type`. Excluded language-family keywords such as `class`,
-`trait`, `macro`, `instance`, `extends`, and `inherits` are reserved so they
-produce explicit unsupported-feature diagnostics instead of becoming ordinary
-names.
+`field_offsets_type`.
+
+Compiler-provided callable names use the reserved `@` prefix, such as `@append`,
+`@Bytes.generate`, and `@size_of`. The prefix remains part of the name through
+parsing and lowering, so an ordinary user function named `append` is distinct
+from `@append`. Excluded language-family keywords such as `class`, `trait`,
+`macro`, `instance`, `extends`, and `inherits` are reserved so they produce
+explicit unsupported-feature diagnostics instead of becoming ordinary names.
 
 ```txt
-const { struct } = comptime (import "duck:prelude")()
+const { struct } = comptime import "duck:prelude" ()
 
 const user_type = struct {
   .name = Text,
@@ -171,7 +175,7 @@ call boundary.
 let x: Int = 41
 let wide: I64 = 41i64
 
-const { struct } = comptime (import "duck:prelude")()
+const { struct } = comptime import "duck:prelude" ()
 const user_type: has_name = struct {
   .name = Int,
   .age = Int
@@ -194,12 +198,30 @@ let mask = 0xff
 let ratio = 1.5f32
 ```
 
-Integer bitwise operations are named functions: `bit_and`, `bit_or`, `bit_xor`,
-`shift_left`, and `shift_right_u`. Each accepts two matching `I32` or two
-matching `I64` values. Shift counts use Wasm's masked-count semantics. The
-scalar conversion functions are explicit: `f32_from_i32` converts signed `I32`
-to `F32`, and `i32_from_f32` truncates toward zero and traps for NaN, infinity,
-or an out-of-range result. `f32_sqrt` computes an `F32` square root.
+Integer bitwise operations are named functions: `@bit_and`, `@bit_or`,
+`@bit_xor`, `@shift_left`, and `@shift_right_u`. Each accepts two matching `I32`
+or two matching `I64` values. Shift counts use Wasm's masked-count semantics.
+The scalar conversion functions are explicit: `@f32_from_i32` converts signed
+`I32` to `F32`, and `@i32_from_f32` truncates toward zero and traps for NaN,
+infinity, or an out-of-range result. `@f32_sqrt` computes an `F32` square root.
+
+`@as(value, Target)` is an erased checked cast. `Target` must be a statically
+known type value, and the canonical source and target types must have identical
+runtime representations. This permits casts through exact aliases such as
+`UserId` and `I32`, but rejects width changes and semantic mismatches such as
+`I32` to `I64` or `Bool` to `I32`.
+
+Numeric casts that deliberately change width or reinterpret bits use explicit
+unsafe compiler names:
+
+- `@unsafe_i32_wrap_i64` retains the low 32 bits of an `I64`;
+- `@unsafe_i64_extend_i32_signed` sign-extends an `I32`;
+- `@unsafe_i64_extend_i32_unsigned` zero-extends the same 32 bits;
+- `@unsafe_i32_reinterpret_f32` and `@unsafe_f32_reinterpret_i32` preserve the
+  bits while changing their numeric interpretation.
+
+These intrinsics expose the corresponding Wasm operation exactly; they do not
+perform range validation or semantic conversion.
 
 Double-quoted string literals produce UTF-8 `Text`.
 
@@ -247,22 +269,22 @@ Union patterns remain structural and can bind their payload, as in
 `if let .ok(value) = result { ... }`.
 
 `Bytes` is the raw, non-UTF-8 buffer type used by managed host effects. Runtime
-`Bytes` values support `len`, `get`, byte iteration, `slice`, and `append`, and
-bounded borrows can cross effect calls. `Bytes.empty` is the canonical static
-empty buffer. Arbitrary raw byte literals and borrowed slice views are not
-supported yet.
+`Bytes` values support `@len`, `@get`, byte iteration, `@slice`, and `@append`,
+and bounded borrows can cross effect calls. `Bytes.empty` is the canonical
+static empty buffer. Arbitrary raw byte literals and borrowed slice views are
+not supported yet.
 
 `Text` and `Bytes` are distinct source types even though both use the same
 runtime layout: an `i32` byte length followed by the bytes. They are never
-converted implicitly. Use `Utf8.encode(text)` to allocate and copy a `Text`
-value into a `Bytes` value, and `Utf8.decode(bytes)` to validate, allocate, and
+converted implicitly. Use `@Utf8.encode(text)` to allocate and copy a `Text`
+value into a `Bytes` value, and `@Utf8.decode(bytes)` to validate, allocate, and
 copy bytes into `Text`. Decoding traps for malformed, overlong, surrogate, or
 out-of-range UTF-8. Byte index assignment is supported only for `Bytes`; text
 must be encoded before its bytes can be changed.
 
-`format_i32(value)` and `format_i64(value)` allocate `Text` containing exact
+`@format_i32(value)` and `@format_i64(value)` allocate `Text` containing exact
 signed decimal notation, including the minimum integer values.
-`format_f32(value, precision)` allocates fixed-point `Text` with exactly
+`@format_f32(value, precision)` allocates fixed-point `Text` with exactly
 `precision` digits after the decimal point. Precision is an `I32` from `0`
 through `6`; a value outside that range traps. It rounds the binary32 magnitude
 by computing `trunc(abs(value) * 10^precision + 0.5)` in Wasm before writing the
@@ -273,20 +295,20 @@ signed 64 bits trap. This is deliberately fixed-point formatting, not
 shortest-round-trip conversion.
 
 ```duck
-format_f32(-12.5f32, 3) // "-12.500"
-format_f32(1.999f32, 2) // "2.00"
+@format_f32(-12.5f32, 3) // "-12.500"
+@format_f32(1.999f32, 2) // "2.00"
 ```
 
 ### Text Operations
 
 Text values are UTF-8. The contract for text operations:
 
-- `+` concatenates text values. `append(left, right)` accepts two `Text` values
+- `+` concatenates text values. `@append(left, right)` accepts two `Text` values
   or two `Bytes` values, but never mixes them.
-- `len(value)` is the UTF-8 byte length.
-- `value[index]` and `get(value, index)` return the UTF-8 byte at `index` as
+- `@len(value)` is the UTF-8 byte length.
+- `value[index]` and `@get(value, index)` return the UTF-8 byte at `index` as
   `i32`, trapping on out-of-range indexes.
-- `slice(value, start, end)` selects a byte range. Statically known `Text`
+- `@slice(value, start, end)` selects a byte range. Statically known `Text`
   slices that split a UTF-8 sequence are rejected.
 - `==` and `!=` compare text by bytes and produce `Bool`, represented as `i32`
   after frontend lowering.
@@ -338,7 +360,7 @@ contains them is specialized before Core lowering:
 ```txt
 const derive_name = (const target) => match target {
   | struct { .name = Text, .. } => value => value.name
-  | _ => fail("derive_name requires a Text name field")
+  | _ => @fail("derive_name requires a Text name field")
 }
 
 const player_name = comptime derive_name(Player)
@@ -351,12 +373,12 @@ the unused arms do not reach generated Wasm.
 Structural descriptors expose the normalized kind and layout of a type:
 
 ```txt
-describe_type(Player)
-describe_fields(Player)
-describe_cases(Result)
+@describe_type(Player)
+@describe_fields(Player)
+@describe_cases(Result)
 ```
 
-`describe_type` contains `kind`, `name`, `size`, `align`, `stride`, `length`,
+`@describe_type` contains `kind`, `name`, `size`, `align`, `stride`, `length`,
 `element`, `fields`, and `cases`. Field descriptors contain `name`, `index`,
 `offset`, and `type`; case descriptors additionally contain their numeric `tag`
 and retain the owning union type. Product entries use an empty name when
@@ -366,23 +388,23 @@ Descriptors can direct fixed runtime operations without introducing runtime
 reflection:
 
 ```txt
-const score_field = describe_fields(Player)[1]
-let player = construct [Player, { .name = 20, .score = 40 }]
-let score = project(player, score_field)
+const score_field = @describe_fields(Player)[1]
+let player = @construct [Player, { .name = 20, .score = 40 }]
+let score = @project(player, score_field)
 ```
 
-`project` becomes a fixed field or index projection. `construct` supports
+`@project` becomes a fixed field or index projection. `@construct` supports
 records, ordered products, and fixed arrays and validates their shape during
 compilation.
 
 Case descriptors use the same operations for unions:
 
 ```txt
-const ok_case = describe_cases(Result)[0]
-let result = construct(ok_case, 42)
+const ok_case = @describe_cases(Result)[0]
+let result = @construct(ok_case, 42)
 
-if is_case(result, ok_case) {
-  project(result, ok_case)
+if @is_case(result, ok_case) {
+  @project(result, ok_case)
 } else {
   0
 }
@@ -400,7 +422,7 @@ API. Define an ordinary const fold and force the derived result at the
 
 ```txt
 const fold = rec (values, index, state, next) => {
-  if index == len(values) {
+  if index == @len(values) {
     state
   } else {
     rec(values, index + 1, next(state, values[index]), next)
@@ -408,11 +430,11 @@ const fold = rec (values, index, state, next) => {
 }
 
 const add_field = (sum, field) => {
-  value => sum(value) + project(value, field)
+  value => sum(value) + @project(value, field)
 }
 
 const derive_sum = (const target) => {
-  const fields = describe_fields(target)
+  const fields = @describe_fields(target)
   fold(fields, 0, value => 0, add_field)
 }
 
@@ -633,7 +655,7 @@ The bundled source prelude is an ordinary module and is imported explicitly when
 `struct` is used:
 
 ```txt
-const { struct } = comptime (import "duck:prelude")()
+const { struct } = comptime import "duck:prelude" ()
 ```
 
 Bare destructuring fields bind the same local name. Use the dotted form when
@@ -683,26 +705,77 @@ blocks:
 
 ```txt
 const { identity, compose, curry } =
-  comptime (import "duck:prelude/functional")()
+  comptime import "duck:prelude/functional" ()
 
 const add_two = value => value + 2
 const double = value => value * 2
 const combined = comptime compose [add_two, double]
 ```
 
-The exported const functions are `identity`, `constant`, `compose`, `pipe`,
-`flip`, `curry`, and `uncurry`. Higher-order combinations that produce a new
-closure are specialized at `comptime`, preserving a direct runtime call.
-
-Importing `duck:prelude/functional` also brings the generic `Option`, `Result`,
-and `Either` sum types, the `Ordering` type, and the structural `Eq`, `Ord`,
-`Semigroup`, `Monoid`, `Functor`, `Applicative`, `Monad`, and `Foldable` ducks
-into lexical scope. Higher-kinded roles are written directly in duck signatures,
-for example `F A`, `A -> B`, and `F B`. Instances remain ordinary lexical
-`extend` declarations and can be checked explicitly with `comptime`.
+The lightweight runtime prelude is the batteries-included bridge to common
+compiler operations:
 
 ```txt
-const { struct } = comptime (import "duck:prelude")()
+const { length, slice } = comptime import "duck:prelude/runtime" ()
+let joined = left <> right
+```
+
+It exports:
+
+- function combinators: `identity`, `constant`, `compose`, `pipe`, `flip`,
+  `curry`, and `uncurry`;
+- collection operations: `append`, `length`, `get`, and `slice`;
+- integer bits: `bit_and`, `bit_or`, `bit_xor`, `shift_left`, and
+  `shift_right_unsigned`;
+- scalar conversion and formatting: `sqrt_f32`, `f32_from_i32`, `i32_from_f32`,
+  `format_i32`, `format_i64`, and `format_f32`;
+- managed buffers: `generate_bytes`, `encode_utf8`, and `decode_utf8`;
+- the explicit runtime failure boundary `panic`;
+- SIMD construction and arithmetic under the `f32x4_` prefix.
+
+These are ordinary source-defined names over the reserved compiler functions, so
+application code can use `length` while compiler internals remain visibly
+prefixed as `@len`. The runtime prelude also supplies `Semigroup` instances for
+`Text` and `Bytes`, and `Bits` instances for `I32` and `I64`.
+
+Importing `duck:prelude/functional` re-exports the runtime functions and also
+brings the generic `Option`, `Result`, and `Either` sum types, the `Ordering`
+type, the function combinators, and the structural `Eq`, `Ord`, `Semigroup`,
+`Monoid`, `Functor`, `Applicative`, `Monad`, `Foldable`, `Show`, `Default`,
+`Bounded`, `Enum`, `Alternative`, `Bifunctor`, `Contravariant`, `Traversable`,
+`From`, and `Bits` ducks into lexical scope. `From Source Target` defines
+`.from = Source -> Target`; its implementation is an extension on `Source`, and
+the target is inferred from the result context. Higher-kinded roles are written
+directly in duck signatures, for example `F A`, `A -> B`, and `F B`. Instances
+remain ordinary lexical `extend` declarations and can be checked explicitly with
+`comptime`. Higher-order combinations that produce a new closure are specialized
+at `comptime`, preserving a direct runtime call.
+
+The standard functional and bit operators are available wherever their target
+prelude name or duck is in scope:
+
+```txt
+value |> transform
+transform $ value
+left <> right
+transform <$> functor
+wrapped_transform <*> wrapped_value
+monad >>= next
+left <|> right
+bits &&& mask
+bits ||| mask
+bits ^^^ mask
+bits << amount
+bits >> amount
+```
+
+`|>` and `$` are direct function application. `<$>`, `<*>`, `>>=`, and `<|>`
+dispatch through their corresponding ducks. `<>` and the bit operators lower to
+their matching compiler intrinsics. Other instances are ordinary `extend`
+declarations.
+
+```txt
+const { struct } = comptime import "duck:prelude" ()
 
 const user_type = struct {
   .name = Text,
@@ -869,7 +942,7 @@ const has_name = t => {
 }
 
 let greet = (const t: has_name, value) => {
-  size_of(t) + value
+  @size_of(t) + value
 }
 ```
 
@@ -924,14 +997,14 @@ unwrap(result)
 The frontend supports structural builtins:
 
 ```txt
-has(user_type.name)
-fields_of(user_type)
-cases_of(result_type)
-is_struct(user_type)
-is_union(result_type)
-size_of(user_type)
-align_of(user_type)
-layout(user_type)
+@has(user_type.name)
+@fields_of(user_type)
+@cases_of(result_type)
+@is_struct(user_type)
+@is_union(result_type)
+@size_of(user_type)
+@align_of(user_type)
+@layout(user_type)
 ```
 
 ## Extensions And Protocols
@@ -1160,7 +1233,7 @@ compilation; incompatible uses are rejected at the effect boundary. Host effects
 remain concrete because their declarations define the ABI contract.
 
 ```txt
-const _ = comptime (import "duck:prelude/effects")()
+const _ = comptime import "duck:prelude/effects" ()
 
 let state = {
   let current = 0
@@ -1304,7 +1377,7 @@ the scratch lifetime: fallthrough, `return`, `break`, and `continue`.
 ```txt
 let total = scratch {
   let message = "temporary"
-  len(message)
+  @len(message)
 }
 ```
 
@@ -1448,7 +1521,7 @@ const xs = {
 
 xs[0]
 xs[i]
-get(xs, i)
+@get(xs, i)
 ```
 
 Runtime indexes trap on out-of-range values. Runtime indexing requires every
@@ -1456,7 +1529,7 @@ selectable slot to have a compatible value type (the homogeneous runtime-index
 rule).
 
 ```txt
-const { struct } = comptime (import "duck:prelude")()
+const { struct } = comptime import "duck:prelude" ()
 
 const pair_type = struct {
   .first = Int,
@@ -1464,7 +1537,7 @@ const pair_type = struct {
 }
 
 let choose = (pair: pair_type, i) => {
-  get(pair, i)
+  @get(pair, i)
 }
 ```
 
@@ -1486,23 +1559,24 @@ them rejects with a frozen/shareable binding diagnostic.
 
 ## Errors
 
-`fail` is a compile-time error when executed during `comptime` or fact checking.
+`@fail` is a compile-time error when executed during `comptime` or fact
+checking.
 
 ```txt
 const has_len = t => {
-  if !has(t.len) {
-    fail("expected value with len")
+  if !@has(t.len) {
+    @fail("expected value with len")
   }
 
   t
 }
 ```
 
-`panic` is a runtime trap. It lowers to an Ic trap primitive in the scalar
+`@panic` is a runtime trap. It lowers to an Ic trap primitive in the scalar
 backend and to WAT `unreachable` in the structured Core backend.
 
 ```txt
-panic("index out of bounds")
+@panic("index out of bounds")
 ```
 
 Recoverable runtime errors use explicit unions.

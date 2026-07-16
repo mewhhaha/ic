@@ -684,7 +684,7 @@ f(1, 41)
   assert_throws(
     () =>
       compile(`
-let f = (x: Text) => len(x)
+let f = (x: Text) => @len(x)
 f = x => x + 1
 f(message)
 `),
@@ -695,7 +695,7 @@ f(message)
     () =>
       compile(`
 let f = (x: Int) => x + 1
-f = (y: Text) => len(y)
+f = (y: Text) => @len(y)
 f(1)
 `),
     "Assignment changes type for f",
@@ -705,7 +705,7 @@ f(1)
     () =>
       compile(`
 let f = (x: Unit) => 0
-f = (y: Text) => len(y)
+f = (y: Text) => @len(y)
 f(message)
 `),
     "Assignment changes type for f",
@@ -959,13 +959,13 @@ message + "!"
     'if flag then "hi!" else "hello!"',
   );
 
-  assert_equals(Ic.reduce(compile('len("hello")')), {
+  assert_equals(Ic.reduce(compile('@len("hello")')), {
     tag: "num",
     type: "i32",
     value: 5,
   });
 
-  assert_equals(Ic.reduce(compile('len("hé" + "!")')), {
+  assert_equals(Ic.reduce(compile('@len("hé" + "!")')), {
     tag: "num",
     type: "i32",
     value: 4,
@@ -973,7 +973,7 @@ message + "!"
 
   assert_equals(
     Ic.reduce(compile(`
-len({
+@len({
   let message = "Ada"
   message
 })
@@ -1013,7 +1013,7 @@ len({
 
   assert_equals(
     Ic.reduce(compile(`
-get({
+@get({
   let message = "Ada"
   message
 }, 2)
@@ -1096,7 +1096,7 @@ message[1]
 
   const named_len = compile(`
 let message = "hello"
-len(message)
+@len(message)
 `);
 
   assert_equals(Ic.reduce(named_len), {
@@ -1112,7 +1112,7 @@ let message = if flag {
   "hello"
 }
 
-len(message)
+@len(message)
 `);
 
   assert_equals(
@@ -1122,7 +1122,7 @@ len(message)
 
   const runtime_len = compile(`
 let byte_len = (value: Text) => {
-  len(value)
+  @len(value)
 }
 
 byte_len("hello")
@@ -1158,7 +1158,7 @@ byte_at("Ada", 2)
 
   const runtime_get_byte = compile(`
 let byte_at = (value: Text, i) => {
-  get(value, i)
+  @get(value, i)
 }
 
 byte_at("Ada", 2)
@@ -1169,7 +1169,7 @@ byte_at("Ada", 2)
     'if 2:i32 < load("Ada") then load8_u("Ada" + 4:i32 + 2:i32) else trap',
   );
 
-  const visible_get_byte = compile('get("Ada", 1)');
+  const visible_get_byte = compile('@get("Ada", 1)');
 
   assert_equals(Ic.reduce(visible_get_byte), {
     tag: "num",
@@ -1231,7 +1231,7 @@ append("Ada")
     value: 0,
   });
 
-  assert_equals(Ic.reduce(compile('slice("Grace", 1, 4)')), {
+  assert_equals(Ic.reduce(compile('@slice("Grace", 1, 4)')), {
     tag: "text",
     value: "rac",
   });
@@ -1245,7 +1245,7 @@ let name = if input {
   "Ada"
 }
 
-slice(name, 1, 3)
+@slice(name, 1, 3)
 `)),
   );
   assert_equals(
@@ -1256,7 +1256,7 @@ slice(name, 1, 3)
   const bound_dynamic_slice_equality = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let part = slice(if input {
+let part = @slice(if input {
   "Grace"
 } else {
   "Ada"
@@ -1273,13 +1273,13 @@ part == "ra"
   const bound_dynamic_slice_len = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let part = slice(if input {
+let part = @slice(if input {
   "Grace"
 } else {
   "Ada"
 }, 1, 3)
 
-len(part)
+@len(part)
 `)),
   );
   assert_equals(
@@ -1290,7 +1290,7 @@ len(part)
   const bound_dynamic_slice_index = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let part = slice(if input {
+let part = @slice(if input {
   "Grace"
 } else {
   "Ada"
@@ -1304,7 +1304,7 @@ part[0]
     "if input then 114:i32 else 100:i32",
   );
 
-  assert_equals(Ic.reduce(compile('append("Ada", "!")')), {
+  assert_equals(Ic.reduce(compile('@append("Ada", "!")')), {
     tag: "text",
     value: "Ada!",
   });
@@ -1318,7 +1318,7 @@ let name = if input {
   "Grace"
 }
 
-append(name, "!")
+@append(name, "!")
 `)),
   );
   assert_equals(
@@ -1340,7 +1340,7 @@ let right = if input {
   "?"
 }
 
-append(left, right)
+@append(left, right)
 `)),
   );
   assert_includes(nested_dynamic_visible_append, 'then "Ada!" else "Ada?"');
@@ -1349,7 +1349,7 @@ append(left, right)
   const bound_dynamic_append_equality = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let message = append(if input {
+let message = @append(if input {
   "Ada"
 } else {
   "Grace"
@@ -1366,13 +1366,13 @@ message == "Ada!"
   const bound_dynamic_append_len = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let message = append(if input {
+let message = @append(if input {
   "a"
 } else {
   "bb"
 }, "!")
 
-len(message)
+@len(message)
 `)),
   );
   assert_equals(
@@ -1383,7 +1383,7 @@ len(message)
   const bound_dynamic_append_index = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let message = append(if input {
+let message = @append(if input {
   "a"
 } else {
   "bb"
@@ -1460,7 +1460,7 @@ let message = if let .ok(value) = .ok("Ada") {
   "Grace"
 }
 
-len(message)
+@len(message)
 `)),
     {
       tag: "num",
@@ -1520,7 +1520,7 @@ let message = if let .ok(value) = if input {
   "Grace"
 }
 
-len(message)
+@len(message)
 `)),
   );
   assert_equals(
@@ -1552,7 +1552,7 @@ message[1]
   const helper_append_text_equality = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let suffix = value => append(value, "!")
+let suffix = value => @append(value, "!")
 let message = suffix(if input {
   "Ada"
 } else {
@@ -1570,7 +1570,7 @@ message == "Ada!"
   const helper_slice_text_equality = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let take = value => slice(value, 1, 3)
+let take = value => @slice(value, 1, 3)
 let part = take(if input {
   "Grace"
 } else {
@@ -1757,7 +1757,7 @@ same(input)
     () =>
       compile(`
 let suffix = (value: Text) => {
-  append(value, "!")
+  @append(value, "!")
 }
 
 suffix(input) == suffix(input)
@@ -1768,7 +1768,7 @@ suffix(input) == suffix(input)
   assert_equals(
     Ic.reduce(compile(`
 let take = (value: Text, start) => {
-  slice(value, start, 4)
+  @slice(value, start, 4)
 }
 
 take("Grace", 1)
@@ -1780,7 +1780,7 @@ take("Grace", 1)
     () =>
       compile(`
 let add_suffix = (value: Text) => {
-  append(value, "!")
+  @append(value, "!")
 }
 
 let message: Text = input
@@ -1952,7 +1952,7 @@ x + 1
 
   const unknown_text = compile(`
 let value: Text = message
-len(value)
+@len(value)
 `);
 
   assert_equals(
@@ -1963,7 +1963,7 @@ len(value)
   const reassigned_text = compile(`
 let value: Text = message
 value = other
-len(value)
+@len(value)
 `);
 
   assert_equals(
@@ -1972,7 +1972,7 @@ len(value)
   );
 
   const block_reassigned_text = compile(`
-len({
+@len({
   let value: Text = message
   value = other
   value
@@ -2564,11 +2564,11 @@ Deno.test("Source lowers logical operators through boolean if expressions", () =
 
   assert_equals(Ic.reduce(neither), { tag: "num", type: "i32", value: 0 });
 
-  const and_short = compile('0 && fail("right branch")');
+  const and_short = compile('0 && @fail("right branch")');
 
   assert_equals(Ic.reduce(and_short), { tag: "num", type: "i32", value: 0 });
 
-  const or_short = compile('1 || fail("right branch")');
+  const or_short = compile('1 || @fail("right branch")');
 
   assert_equals(Ic.reduce(or_short), { tag: "num", type: "i32", value: 1 });
 
@@ -2577,10 +2577,10 @@ const xs = [10, 20]
 
 const i = 0
 
-if i < 0 || i >= len(xs) {
-  panic("index out of bounds")
+if i < 0 || i >= @len(xs) {
+  @panic("index out of bounds")
 } else {
-  get(xs, i)
+  @get(xs, i)
 }
 `);
 

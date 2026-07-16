@@ -402,10 +402,10 @@ export function build_text_layout(
         if (value.tag === "app") {
           if (
             value.func.tag === "var" &&
-            (value.func.name === "len" || value.func.name === "get" ||
-              value.func.name === "panic" ||
-              value.func.name === "runtime_i32_slice" ||
-              value.func.name === "runtime_text_slice")
+            (value.func.name === "@len" || value.func.name === "@get" ||
+              value.func.name === "@panic" ||
+              value.func.name === "@runtime_i32_slice" ||
+              value.func.name === "@runtime_text_slice")
           ) {
             set_local(ctx.locals, name, hooks.expr_type(value, ctx));
           } else {
@@ -481,11 +481,11 @@ export function build_text_layout(
         return true;
       }
 
-      if (value.func.name === "Bytes.generate") {
+      if (value.func.name === "@Bytes.generate") {
         return true;
       }
 
-      if (value.func.name === "append") {
+      if (value.func.name === "@append") {
         const left = value.args[0];
         const right = value.args[1];
 
@@ -497,7 +497,7 @@ export function build_text_layout(
           layout_value_has_text_fact(right, undefined);
       }
 
-      if (value.func.name === "slice") {
+      if (value.func.name === "@slice") {
         const source = value.args[0];
 
         if (!source) {

@@ -1202,9 +1202,9 @@ Deno.test("signature help follows nested calls and effect operations", () => {
 
 Deno.test("hover follows compile-time descriptors through construction", () => {
   const text = "type Player = [.name = Int, .score = Int]\n" +
-    "const score_field = describe_fields(Player)[1]\n" +
-    "let player = construct(Player, { name: 20, score: 40 })\n" +
-    "let score = project(player, score_field)\n";
+    "const score_field = @describe_fields(Player)[1]\n" +
+    "let player = @construct(Player, { name: 20, score: 40 })\n" +
+    "let score = @project(player, score_field)\n";
   const analysis = analyzed(text);
 
   assert_hover_type(
@@ -1229,10 +1229,10 @@ Deno.test("hover follows compile-time descriptors through construction", () => {
 
 Deno.test("hover follows case descriptors through union operations", () => {
   const text = "type Result = | .ok = Int | .err = Text\n" +
-    "const ok_case = describe_cases(Result)[0]\n" +
-    "let result = construct(ok_case, 42)\n" +
-    "let matches = is_case(result, ok_case)\n" +
-    "let value = project(result, ok_case)\n";
+    "const ok_case = @describe_cases(Result)[0]\n" +
+    "let result = @construct(ok_case, 42)\n" +
+    "let matches = @is_case(result, ok_case)\n" +
+    "let value = @project(result, ok_case)\n";
   const analysis = analyzed(text);
 
   assert_hover_type(

@@ -169,6 +169,7 @@ export abstract class ParserExpr extends ParserPrimary {
       this.reject_mixed_associativity(equal_parent, fixity);
       this.reject_mixed_associativity(previous_fixity, fixity);
       const op = this.advance().text;
+      const compiler_intrinsic = compiler_operator_intrinsic(op);
       let right_precedence = precedence + 1;
 
       if (fixity.associativity === "right") {
@@ -177,7 +178,52 @@ export abstract class ParserExpr extends ParserPrimary {
 
       const right = this.parse_binary(right_precedence, fixity);
 
-      if (fixity.builtin && op === "&&") {
+      if (op === "$") {
+        left = {
+          tag: "app",
+          func: left,
+          arg: right,
+          args: [right],
+          operator_syntax: {
+            kind: "infix",
+            operator: op,
+            precedence,
+            associativity: fixity.associativity,
+            target: fixity.target,
+          },
+        };
+      } else if (op === "|>") {
+        left = {
+          tag: "app",
+          func: right,
+          arg: left,
+          args: [left],
+          operator_syntax: {
+            kind: "infix",
+            operator: op,
+            precedence,
+            associativity: fixity.associativity,
+            target: fixity.target,
+          },
+        };
+      } else if (compiler_intrinsic !== undefined) {
+        left = {
+          tag: "app",
+          func: { tag: "var", name: compiler_intrinsic },
+          arg: {
+            tag: "product",
+            entries: [{ value: left }, { value: right }],
+          },
+          args: [left, right],
+          operator_syntax: {
+            kind: "infix",
+            operator: op,
+            precedence,
+            associativity: fixity.associativity,
+            target: compiler_intrinsic,
+          },
+        };
+      } else if (fixity.builtin && op === "&&") {
         left = {
           tag: "if",
           cond: left,
@@ -200,14 +246,22 @@ export abstract class ParserExpr extends ParserPrimary {
           left = { tag: "unsupported", feature: "operator " + op, text: op };
         }
       } else {
+        let first = left;
+        let second = right;
+
+        if (op === "<$>") {
+          first = right;
+          second = left;
+        }
+
         left = {
           tag: "app",
           func: qualified_target(fixity.target),
           arg: {
             tag: "product",
-            entries: [{ value: left }, { value: right }],
+            entries: [{ value: first }, { value: second }],
           },
-          args: [left, right],
+          args: [first, second],
           operator_syntax: {
             kind: "infix",
             operator: op,
@@ -521,7 +575,7 @@ export abstract class ParserExpr extends ParserPrimary {
           if (name === "empty") {
             expr = { tag: "text", value: "", encoding: "bytes" };
           } else if (name === "generate") {
-            expr = { tag: "var", name: "Bytes.generate" };
+            expr = { tag: "var", name: "@Bytes.generate" };
           } else {
             const field = { tag: "field" as const, object: expr, name };
             record_name_site(field, "name", name, token.span);
@@ -613,6 +667,25 @@ export abstract class ParserExpr extends ParserPrimary {
     }
 
     return previous.span.end < this.peek().span.start;
+  }
+}
+
+function compiler_operator_intrinsic(operator: string): string | undefined {
+  switch (operator) {
+    case "<>":
+      return "@append";
+    case "&&&":
+      return "@bit_and";
+    case "|||":
+      return "@bit_or";
+    case "^^^":
+      return "@bit_xor";
+    case "<<":
+      return "@shift_left";
+    case ">>":
+      return "@shift_right_u";
+    default:
+      return undefined;
   }
 }
 

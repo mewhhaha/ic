@@ -164,18 +164,18 @@ export function collect_core_expr_locals(
 
       if (runtime_buffer_builtin) {
         if (
-          runtime_buffer_builtin.name === "Utf8.encode" ||
-          runtime_buffer_builtin.name === "Utf8.decode"
+          runtime_buffer_builtin.name === "@Utf8.encode" ||
+          runtime_buffer_builtin.name === "@Utf8.decode"
         ) {
           const locals = runtime_utf8_plan(ctx);
           declare_runtime_utf8_locals(locals, ctx);
-        } else if (runtime_buffer_builtin.name === "format_f32") {
+        } else if (runtime_buffer_builtin.name === "@format_f32") {
           const locals = runtime_float_format_plan(ctx);
           declare_runtime_float_format_locals(locals, ctx);
         } else {
           let type: "i32" | "i64" = "i32";
 
-          if (runtime_buffer_builtin.name === "format_i64") {
+          if (runtime_buffer_builtin.name === "@format_i64") {
             type = "i64";
           }
 
@@ -232,8 +232,8 @@ export function collect_core_expr_locals(
 
       if (
         expr.func.tag === "var" &&
-        (expr.func.name === "runtime_i32_slice" ||
-          expr.func.name === "runtime_text_slice")
+        (expr.func.name === "@runtime_i32_slice" ||
+          expr.func.name === "@runtime_text_slice")
       ) {
         const name = fresh_temp_local(ctx, "runtime_slice");
         set_local(ctx.locals, name, "i32");
@@ -245,7 +245,7 @@ export function collect_core_expr_locals(
         api.collect_expr_locals(arg, ctx, hooks);
       }
 
-      if (expr.func.tag === "var" && expr.func.name === "slice") {
+      if (expr.func.tag === "var" && expr.func.name === "@slice") {
         const locals = runtime_text_slice_plan(ctx);
         declare_runtime_text_slice_locals(locals, ctx);
       }
@@ -261,7 +261,7 @@ export function collect_core_expr_locals(
       }
 
       if (
-        expr.func.tag === "var" && expr.func.name === "append" &&
+        expr.func.tag === "var" && expr.func.name === "@append" &&
         !local_collect_closure_fn_type(expr.func, ctx, hooks)
       ) {
         const locals = runtime_text_concat_plan(ctx);

@@ -4,6 +4,8 @@ import { structured_core_route } from "./diagnostic.ts";
 import type { ExprLowerHooks, LowerExprFn } from "./expr_lower_types.ts";
 import { format_expr } from "./format.ts";
 import { lower_expr_as_front_type } from "./typed_lower.ts";
+import { compiler_builtin_args } from "./call_args.ts";
+import { expect } from "../expect.ts";
 
 export function lower_app_expr(
   expr: Extract<FrontExpr, { tag: "app" }>,
@@ -11,6 +13,17 @@ export function lower_app_expr(
   hooks: ExprLowerHooks,
   lower_expr: LowerExprFn,
 ): IcNode {
+  if (expr.func.tag === "var" && expr.func.name === "@as") {
+    const args = compiler_builtin_args(expr);
+    expect(
+      args.length === 2,
+      "@as expects 2 arguments, got " + args.length.toString(),
+    );
+    const value = args[0];
+    expect(value, "Missing @as value argument");
+    return lower_expr(value, env, hooks);
+  }
+
   const const_value = hooks.try_eval_all_const_call(expr, env);
 
   if (const_value) {

@@ -171,7 +171,7 @@ Const recursive fold with unary condition call
 ==================
 
 const fold = rec (values, index) => {
-  if index == len(values) {
+  if index == @len(values) {
     index
   } else {
     rec(values, index + 1)
@@ -200,7 +200,7 @@ const fold = rec (values, index) => {
                   (condition_expression
                     (condition_call_expression
                       (condition_expression
-                        (identifier))
+                        (intrinsic_identifier))
                       (parenthesized_or_product
                         (parenthesized_expression
                           (postfix_expression

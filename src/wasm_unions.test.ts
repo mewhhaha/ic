@@ -61,7 +61,7 @@ let make = if flag {
 
 let choices: choices_type = make(result_type.ok(40), result_type.err(2))
 let index = flag
-let picked: result_type = get(choices, index)
+let picked: result_type = @get(choices, index)
 if let .ok(value) = picked {
   value + 2
 } else {
@@ -287,13 +287,13 @@ type ResultType = | .ok = Text | .err
 const result_type = ResultType
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let result: result_type = scratch {
-  freeze result_type.ok(append(prefix, "da"))
+  freeze result_type.ok(@append(prefix, "da"))
 }
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -325,14 +325,14 @@ type ResultType = | .ok = Text | .err
 const result_type = ResultType
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let result: result_type = scratch {
-  let temp = result_type.ok(append(prefix, "da"))
+  let temp = result_type.ok(@append(prefix, "da"))
   freeze temp
 }
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -367,9 +367,9 @@ const result_type = ResultType
 
 let flag = 1
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let existing: result_type = if flag {
-  result_type.ok(append(prefix, "da"))
+  result_type.ok(@append(prefix, "da"))
 } else {
   result_type.err(5)
 }
@@ -379,7 +379,7 @@ let result: result_type = scratch {
 }
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -416,11 +416,11 @@ const result_type = ResultType
 
 let flag = 1
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let existing: result_type = result_type.err(5)
 
 if flag {
-  existing = result_type.ok(append(prefix, "da"))
+  existing = result_type.ok(@append(prefix, "da"))
 } else {
   existing = result_type.err(7)
 }
@@ -431,7 +431,7 @@ let result: result_type = scratch {
 }
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -472,14 +472,14 @@ type ResultType = | .ok = user_type | .err
 const result_type = ResultType
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let result: result_type = scratch {
-  let temp = result_type.ok([.name = append(prefix, "da"), .age = 40] as user_type)
+  let temp = result_type.ok([.name = @append(prefix, "da"), .age = 40] as user_type)
   freeze temp
 }
 
 if let .ok(user) = result {
-  len(user.name) + user.age
+  @len(user.name) + user.age
 } else {
   0
 }
@@ -517,15 +517,15 @@ type OuterType = | .ok = inner_type | .err
 const outer_type = OuterType
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let result: outer_type = scratch {
-  let temp = outer_type.ok(inner_type.some(append(prefix, "da")))
+  let temp = outer_type.ok(inner_type.some(@append(prefix, "da")))
   freeze temp
 }
 
 if let .ok(inner) = result {
   if let .some(value) = inner {
-    len(value)
+    @len(value)
   } else {
     0
   }
@@ -570,14 +570,14 @@ const box_type = struct {
 }
 
 let start = 0
-let prefix: Text = slice("Ada", start, 1)
+let prefix: Text = @slice("Ada", start, 1)
 let box: box_type = scratch {
-  let temp = [.result = result_type.ok(append(prefix, "da")), .age = 40] as box_type
+  let temp = [.result = result_type.ok(@append(prefix, "da")), .age = 40] as box_type
   freeze temp
 }
 
 if let .ok(value) = box.result {
-  len(value) + box.age
+  @len(value) + box.age
 } else {
   0
 }
@@ -950,7 +950,7 @@ let make = if flag {
 let result: result_type = make("Ada")
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -993,7 +993,7 @@ let make = if flag {
 let result: result_type = make("Ada")
 
 if let .ok(user) = result {
-  len(user.name) + user.age
+  @len(user.name) + user.age
 } else {
   0
 }
@@ -1041,7 +1041,7 @@ let make = if flag {
 let result: result_type = make("Ada")
 
 if let .ok(user) = result {
-  len(user.name.first) + len(user.name.last) + user.age
+  @len(user.name.first) + @len(user.name.last) + user.age
 } else {
   0
 }
@@ -1281,10 +1281,10 @@ if let .ok(x) = value { x + 1 } else { 0 }
 type ResultType = | .ok = Text | .err = Int
 const result_type = ResultType
 let result: result_type = scratch {
-  let temp: Text = freeze append("Ada", "!")
+  let temp: Text = freeze @append("Ada", "!")
   result_type.ok(temp)
 }
-if let .ok(value) = result { len(value) } else { 0 }
+if let .ok(value) = result { @len(value) } else { 0 }
 `);
   const scratch_union_block_setup_instance = await instantiate_wat(
     scratch_union_block_setup_wat,
@@ -1314,11 +1314,11 @@ if let .ok(value) = result { len(value) } else { 0 }
 type ResultType = | .ok = Text | .err = Int
 const result_type = ResultType
 let result: result_type = scratch {
-  let name: Text = freeze append("Ada", "!")
+  let name: Text = freeze @append("Ada", "!")
   let temp: result_type = result_type.ok(name)
   temp
 }
-if let .ok(value) = result { len(value) } else { 0 }
+if let .ok(value) = result { @len(value) } else { 0 }
 `);
   const scratch_union_block_alias_instance = await instantiate_wat(
     scratch_union_block_alias_wat,
@@ -1455,7 +1455,7 @@ let selected: Text = if flag {
   "Ada"
 }
 
-len(selected)
+@len(selected)
 `);
   const text_if_fallback = await instantiate_wat(
     text_if_fallback_wat,
@@ -1488,7 +1488,7 @@ let selected: Text = if let .ok(value) = result {
   value
 }
 
-len(selected)
+@len(selected)
 `);
   const text_if_let_fallback = await instantiate_wat(
     text_if_let_fallback_wat,
@@ -1716,7 +1716,7 @@ let selected: Text = if let .ok(value) = result {
   value
 }
 
-len(selected)
+@len(selected)
 `);
   const typed_text = await instantiate_wat(
     typed_text_wat,
@@ -1907,7 +1907,7 @@ let result = if flag {
 }
 
 if let .ok(value) = result {
-  len(value)
+  @len(value)
 } else {
   0
 }
@@ -2003,7 +2003,7 @@ let result: result_type = if flag {
 }
 
 if let .ok(user) = result {
-  len(user.name.first) + len(user.name.last) + user.age
+  @len(user.name.first) + @len(user.name.last) + user.age
 } else {
   0
 }

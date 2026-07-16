@@ -4,7 +4,7 @@ const pair = () => {
 
 let _ = 1
 const _ = 2
-const [_, value] = pair ()
+const [_, value] = pair()
 let add_two = (_, number) => number + 2
 
 type Option = | .some = I32 | .none
