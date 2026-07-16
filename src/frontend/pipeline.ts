@@ -1,4 +1,8 @@
-import { CompilerDiagnosticError } from "../diagnostic.ts";
+import {
+  compiler_diagnostic,
+  CompilerDiagnosticError,
+  diagnostic_codes,
+} from "../diagnostic.ts";
 import type { Source } from "./ast.ts";
 import { validate_atom_identities } from "./atom.ts";
 import {
@@ -93,12 +97,11 @@ export function source_effects(source: Source): FrontEffectAnalysis {
 
 function syntax_diagnostics(parsed: ParseSourceResult): SourceDiagnostic[] {
   return parsed.diagnostics.map((diagnostic) => {
-    return {
-      code: "DUCK1001",
-      severity: "error",
-      message: diagnostic.message,
-      span: diagnostic.span,
-    };
+    return compiler_diagnostic(
+      diagnostic_codes.syntax_error,
+      diagnostic.message,
+      diagnostic.span,
+    );
   });
 }
 
@@ -149,7 +152,7 @@ function require_rank_n_types(source: Source): void {
   for (const diagnostic of diagnostics) {
     if (
       diagnostic.severity === "error" &&
-      diagnostic.code === "DUCK2312"
+      diagnostic.code === diagnostic_codes.rank_n_type_mismatch
     ) {
       throw new SourceDiagnosticError(diagnostic);
     }

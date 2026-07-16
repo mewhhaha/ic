@@ -3,14 +3,11 @@ import type {
   BindingIndex,
   EntityId,
 } from "../frontend/binding_index.ts";
-import type {
-  FrontEffectAnalysis,
-  FrontExpr,
-  Param,
-  Source,
-  Stmt,
-} from "../frontend.ts";
-import { analyze_front_effects } from "../frontend/effect_analysis.ts";
+import type { FrontExpr, Param, Source, Stmt } from "../frontend/ast.ts";
+import {
+  analyze_front_effects,
+  type FrontEffectAnalysis,
+} from "../frontend/effect_analysis.ts";
 import { format_expr, format_source } from "../frontend/format.ts";
 import { name_sites } from "../frontend/name_site.ts";
 import { source_facts, type SourceFacts } from "../frontend/source_facts.ts";

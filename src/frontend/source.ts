@@ -5,6 +5,7 @@ import {
   core_proof_diagnostic,
   type CoreProofIssue,
 } from "../core.ts";
+import { diagnostic_codes, diagnostic_sequence } from "../diagnostic.ts";
 import { Ic } from "../ic.ts";
 import type { IcOpenOptions } from "../ic/open_term.ts";
 import { Mod, type Mod as ModNode } from "../mod.ts";
@@ -45,7 +46,6 @@ import {
   SourceDiagnosticError,
 } from "./semantic_diagnostic.ts";
 import type { SyntaxDiagnostic } from "./syntax.ts";
-import type { SourceFacts } from "./source_facts.ts";
 import {
   analyze_frontend,
   source_effects,
@@ -81,7 +81,6 @@ export type SourceAnalyzeOptions = {
 
 export type SourceAnalysis = {
   source: SourceNode;
-  facts: SourceFacts;
   syntax: ReturnType<typeof parse_source_with_diagnostics>["syntax"];
   syntax_diagnostics: SyntaxDiagnostic[];
   diagnostics: SourceDiagnostic[];
@@ -127,16 +126,13 @@ Source.analyze_parsed = function analyze_parsed(
     }
   }
 
-  if (options.uri !== undefined) {
-    attach_diagnostic_uri(diagnostics, options.uri);
-  }
+  const ordered_diagnostics = diagnostic_sequence(diagnostics, options.uri);
 
   return {
     source,
-    facts: analysis.facts,
     syntax: parsed.syntax,
     syntax_diagnostics: parsed.diagnostics,
-    diagnostics,
+    diagnostics: ordered_diagnostics,
   };
 };
 
@@ -469,27 +465,6 @@ function reject_public_host_imports(source: SourceNode): void {
   }
 }
 
-function attach_diagnostic_uri(
-  diagnostics: SourceDiagnostic[],
-  uri: string,
-): void {
-  for (const diagnostic of diagnostics) {
-    if (diagnostic.uri === undefined) {
-      diagnostic.uri = uri;
-    }
-
-    if (diagnostic.related === undefined) {
-      continue;
-    }
-
-    for (const related of diagnostic.related) {
-      if (related.uri === undefined) {
-        related.uri = uri;
-      }
-    }
-  }
-}
-
 function has_error_diagnostic(diagnostics: SourceDiagnostic[]): boolean {
   for (const diagnostic of diagnostics) {
     if (diagnostic.severity === "error") {
@@ -578,8 +553,7 @@ function core_route_rejection_diagnostic(
           stmt.annotation.startsWith(declaration.name + " ")
         ) {
           return source_diagnostic(
-            "DUCK2306",
-            "error",
+            diagnostic_codes.annotation_type_mismatch,
             error.message,
             stmt.value,
           );
@@ -620,8 +594,7 @@ function core_route_rejection_diagnostic(
         for (const param of stmt.value.params) {
           if (param.annotation === annotation) {
             return source_diagnostic(
-              "DUCK2307",
-              "error",
+              diagnostic_codes.call_type_mismatch,
               error.message,
               param,
             );
@@ -647,8 +620,7 @@ function core_route_rejection_diagnostic(
       declaration.body.type_name === name
     ) {
       return source_diagnostic(
-        "DUCK2290",
-        "error",
+        diagnostic_codes.affine_form_unsupported,
         "Type alias " + declaration.name + " references unknown type " + name,
         declaration,
       );

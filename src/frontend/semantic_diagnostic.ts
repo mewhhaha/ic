@@ -1,7 +1,9 @@
 import {
+  compiler_diagnostic,
   type CompilerDiagnostic,
   CompilerDiagnosticError,
   type CompilerDiagnosticRelated,
+  type DiagnosticCode,
   type DiagnosticSeverity,
 } from "../diagnostic.ts";
 import { source_span } from "./syntax.ts";
@@ -18,24 +20,12 @@ export class SourceDiagnosticError extends CompilerDiagnosticError {
 }
 
 export function source_diagnostic(
-  code: string,
-  severity: SourceDiagnosticSeverity,
+  code: DiagnosticCode,
   message: string,
   subject: object,
   related?: SourceDiagnosticRelated[],
 ): SourceDiagnostic {
-  const diagnostic: SourceDiagnostic = {
-    code,
-    severity,
-    message,
-    span: source_span(subject),
-  };
-
-  if (related !== undefined) {
-    diagnostic.related = related;
-  }
-
-  return diagnostic;
+  return compiler_diagnostic(code, message, source_span(subject), related);
 }
 
 export function related_source_diagnostic(
@@ -46,12 +36,12 @@ export function related_source_diagnostic(
 }
 
 export function throw_source_diagnostic(
-  code: string,
+  code: DiagnosticCode,
   message: string,
   subject: object,
   related?: SourceDiagnosticRelated[],
 ): never {
   throw new SourceDiagnosticError(
-    source_diagnostic(code, "error", message, subject, related),
+    source_diagnostic(code, message, subject, related),
   );
 }

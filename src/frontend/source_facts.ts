@@ -25,6 +25,7 @@ import { is_builtin_type_name } from "./types.ts";
 import { format_type_expr, parse_type_expr } from "./type_expr.ts";
 import { tokenize } from "./tokenize.ts";
 import { f32x4_builtin_prim, numeric_builtin_prim } from "../op.ts";
+import { diagnostic_codes, type DiagnosticCode } from "../diagnostic.ts";
 
 function array_length_is_known(
   length: ArrayLengthExpr,
@@ -377,7 +378,6 @@ function append_unresolved_annotation_diagnostic(
     if (error instanceof Error) {
       diagnostics.push(source_diagnostic(
         "DUCK2311",
-        "error",
         error.message,
         subject,
       ));
@@ -854,7 +854,6 @@ class SourceFactRecorder {
         ) {
           this.facts.inference_diagnostics.push(source_diagnostic(
             "DUCK2312",
-            "error",
             "Binding " + statement.name +
               " does not satisfy polymorphic annotation " + declared.name,
             statement.value,
@@ -1512,14 +1511,13 @@ class SourceFactRecorder {
     const exact_error = exact_call_constraint_error(func, args);
 
     if (exact_error !== undefined) {
-      let code = "DUCK2310";
+      let code: DiagnosticCode = diagnostic_codes.unresolved_call_type;
       if (exact_error.rank_n) {
-        code = "DUCK2312";
+        code = diagnostic_codes.rank_n_type_mismatch;
       }
 
       this.facts.inference_diagnostics.push(source_diagnostic(
         code,
-        "error",
         exact_error.message,
         subject,
       ));

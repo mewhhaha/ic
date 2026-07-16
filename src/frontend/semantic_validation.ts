@@ -6,6 +6,7 @@ import {
 } from "../op.ts";
 import { Callable } from "../trait.ts";
 import { expect } from "../expect.ts";
+import type { DiagnosticCode } from "../diagnostic.ts";
 import type {
   ArrayLengthExpr,
   Binding,
@@ -144,28 +145,28 @@ export function validate_frontend_semantics(
 }
 
 function bool_route_diagnostic(
-  code: string,
+  code: DiagnosticCode,
   message: string,
   subject: object,
 ): SourceDiagnostic {
-  const diagnostic = source_diagnostic(code, "error", message, subject);
+  const diagnostic = source_diagnostic(code, message, subject);
   bool_route_diagnostics.add(diagnostic);
   core_route_diagnostics.add(diagnostic);
   return diagnostic;
 }
 
 function core_route_diagnostic(
-  code: string,
+  code: DiagnosticCode,
   message: string,
   subject: object,
 ): SourceDiagnostic {
-  const diagnostic = source_diagnostic(code, "error", message, subject);
+  const diagnostic = source_diagnostic(code, message, subject);
   core_route_diagnostics.add(diagnostic);
   return diagnostic;
 }
 
 function value_representation_diagnostic(
-  code: string,
+  code: DiagnosticCode,
   message: string,
   subject: object,
   expected: FrontType,
@@ -296,7 +297,7 @@ function validate_statement(
       } catch (error) {
         if (error instanceof Error) {
           diagnostics.push(
-            source_diagnostic("DUCK2101", "error", error.message, stmt.value),
+            source_diagnostic("DUCK2101", error.message, stmt.value),
           );
         } else {
           throw error;
@@ -444,7 +445,6 @@ function validate_statement(
       } else {
         diagnostics.push(source_diagnostic(
           "DUCK2301",
-          "error",
           message,
           stmt,
         ));
@@ -526,7 +526,6 @@ function validate_statement(
           } else {
             diagnostics.push(source_diagnostic(
               "DUCK2304",
-              "error",
               error.message,
               stmt.collection,
             ));
@@ -638,7 +637,6 @@ function validate_statement(
         } else {
           diagnostics.push(source_diagnostic(
             "DUCK2304",
-            "error",
             error.message,
             stmt,
           ));
@@ -678,7 +676,6 @@ function validate_statement(
     ) {
       diagnostics.push(source_diagnostic(
         "DUCK2307",
-        "error",
         "Effect bind must call a declared effect operation",
         stmt.value,
       ));
@@ -691,7 +688,6 @@ function validate_statement(
     if (effect === undefined) {
       diagnostics.push(source_diagnostic(
         "DUCK2307",
-        "error",
         "Unknown effect: " + effect_name,
         stmt.value.func.object,
       ));
@@ -706,7 +702,6 @@ function validate_statement(
     if (operation === undefined) {
       diagnostics.push(source_diagnostic(
         "DUCK2307",
-        "error",
         "Unknown effect operation: " + effect_name + "." + operation_name,
         stmt.value.func,
       ));
@@ -854,7 +849,6 @@ function validate_expr(
     if (left_type.tag === "f32x4" || right_type.tag === "f32x4") {
       diagnostics.push(source_diagnostic(
         "DUCK2302",
-        "error",
         "F32x4 values require explicit f32x4_* builtins",
         expr,
       ));
@@ -894,7 +888,7 @@ function validate_expr(
     } catch (error) {
       if (error instanceof Error) {
         diagnostics.push(
-          source_diagnostic("DUCK2302", "error", error.message, expr),
+          source_diagnostic("DUCK2302", error.message, expr),
         );
         return;
       }
@@ -919,7 +913,6 @@ function validate_expr(
       ) {
         diagnostics.push(source_diagnostic(
           "DUCK2303",
-          "error",
           "If condition expects Bool or I32, got " + type_name(condition),
           expr.cond,
         ));
@@ -996,7 +989,7 @@ function validate_expr(
       } catch (error) {
         if (error instanceof Error) {
           diagnostics.push(
-            source_diagnostic("DUCK2304", "error", error.message, expr),
+            source_diagnostic("DUCK2304", error.message, expr),
           );
           return;
         }
@@ -1123,7 +1116,7 @@ function validate_expr(
       } catch (error) {
         if (error instanceof Error) {
           diagnostics.push(
-            source_diagnostic("DUCK2101", "error", error.message, expr),
+            source_diagnostic("DUCK2101", error.message, expr),
           );
         } else {
           throw error;
@@ -1438,7 +1431,6 @@ function validate_expr(
         } else {
           diagnostics.push(source_diagnostic(
             "DUCK2304",
-            "error",
             error.message,
             expr,
           ));
@@ -1513,7 +1505,7 @@ function validate_expr(
           diagnostics.push(representation_diagnostic);
         } else {
           diagnostics.push(
-            source_diagnostic("DUCK2305", "error", error.message, expr),
+            source_diagnostic("DUCK2305", error.message, expr),
           );
         }
 
@@ -1550,7 +1542,6 @@ function validate_bytes_generate_call(
   if (expr.args.length !== 2) {
     diagnostics.push(source_diagnostic(
       "DUCK2307",
-      "error",
       "Bytes.generate expects 2 arguments, got " + expr.args.length.toString(),
       expr,
     ));
@@ -1569,7 +1560,6 @@ function validate_bytes_generate_call(
   ) {
     diagnostics.push(source_diagnostic(
       "DUCK2307",
-      "error",
       "Bytes.generate length expects I32, got " + type_name(length_type),
       length,
     ));
@@ -1580,7 +1570,6 @@ function validate_bytes_generate_call(
   if (callable === undefined) {
     diagnostics.push(source_diagnostic(
       "DUCK2307",
-      "error",
       "Bytes.generate callback must be a function",
       generator,
     ));
@@ -1590,7 +1579,6 @@ function validate_bytes_generate_call(
   if (callable_parameter_count(callable) !== 1) {
     diagnostics.push(source_diagnostic(
       "DUCK2307",
-      "error",
       "Bytes.generate callback expects 1 I32 parameter",
       generator,
     ));
@@ -1605,7 +1593,6 @@ function validate_bytes_generate_call(
   ) {
     diagnostics.push(source_diagnostic(
       "DUCK2307",
-      "error",
       "Bytes.generate callback parameter expects I32, got " +
         type_name(parameter_type),
       generator,
@@ -1620,7 +1607,6 @@ function validate_bytes_generate_call(
   ) {
     diagnostics.push(source_diagnostic(
       "DUCK2307",
-      "error",
       "Bytes.generate callback result expects I32, got " +
         type_name(result_type),
       generator,
@@ -1798,7 +1784,7 @@ function validate_union_constructor(
         diagnostics.push(representation_diagnostic);
       } else {
         diagnostics.push(
-          source_diagnostic("DUCK2305", "error", error.message, expr),
+          source_diagnostic("DUCK2305", error.message, expr),
         );
       }
 
@@ -2145,7 +2131,6 @@ function validate_callable_argument(
     } else {
       diagnostics.push(source_diagnostic(
         "DUCK2307",
-        "error",
         message,
         arg,
       ));
@@ -2418,7 +2403,6 @@ function validate_branch_types(
     if (parameter_count !== callable_parameter_count(else_callable)) {
       diagnostics.push(source_diagnostic(
         "DUCK2306",
-        "error",
         "Conditional function branches have incompatible parameter counts " +
           parameter_count.toString() + " and " +
           callable_parameter_count(else_callable).toString(),
@@ -2793,7 +2777,6 @@ function validate_comptime_fail(
 
   diagnostics.push(source_diagnostic(
     "DUCK2102",
-    "error",
     "fail: " + call_message(expr.args),
     expr,
   ));
@@ -2811,7 +2794,6 @@ function validate_numeric_builtin_call(
     expect(expr.func.tag === "var", "Numeric builtin requires a name");
     diagnostics.push(source_diagnostic(
       "DUCK2302",
-      "error",
       expr.func.name + " expects " + expected + " arguments, got " +
         call.args.length,
       expr,
@@ -2854,7 +2836,6 @@ function validate_numeric_builtin_call(
     if (error instanceof Error) {
       diagnostics.push(source_diagnostic(
         "DUCK2302",
-        "error",
         error.message,
         expr,
       ));
@@ -2877,7 +2858,6 @@ function validate_f32x4_builtin_call(
     expect(expr.func.tag === "var", "F32x4 builtin requires a name");
     diagnostics.push(source_diagnostic(
       "DUCK2302",
-      "error",
       expr.func.name + " expects " + signature.args.length +
         " arguments, got " + call.args.length,
       expr,
@@ -2924,7 +2904,6 @@ function validate_f32x4_builtin_call(
     if (error instanceof Error) {
       diagnostics.push(source_diagnostic(
         "DUCK2302",
-        "error",
         error.message,
         expr,
       ));
@@ -5035,7 +5014,6 @@ function append_unused_binding_warnings(
 
     diagnostics.push(source_diagnostic(
       "DUCK2003",
-      "warning",
       "Unused " + label + " binding " + declaration.name,
       declaration,
     ));
@@ -5287,7 +5265,6 @@ function validate_basic_annotation(
 
   diagnostics.push(source_diagnostic(
     "DUCK2306",
-    "error",
     message,
     stmt.value,
   ));
@@ -5315,7 +5292,6 @@ function validate_fixed_array_annotation(
     if (error instanceof Error) {
       diagnostics.push(source_diagnostic(
         "DUCK2306",
-        "error",
         error.message,
         stmt,
       ));
@@ -5338,7 +5314,6 @@ function validate_fixed_array_annotation(
   if (stmt.value.tag === "array" && stmt.value.rest !== undefined) {
     diagnostics.push(source_diagnostic(
       "DUCK2306",
-      "error",
       "Fixed array annotation " + format_type_expr(annotation) +
         " cannot use an array spread",
       stmt.value,
@@ -5349,7 +5324,6 @@ function validate_fixed_array_annotation(
   if (items.length !== length) {
     diagnostics.push(source_diagnostic(
       "DUCK2306",
-      "error",
       "Binding annotation expects " + format_type_expr(annotation) + " with " +
         length.toString() + " items, got " + items.length.toString(),
       stmt.value,
@@ -5374,7 +5348,6 @@ function validate_fixed_array_annotation(
 
     diagnostics.push(source_diagnostic(
       "DUCK2306",
-      "error",
       "Binding annotation " + format_type_expr(annotation) + " item " +
         index.toString() + " expects " + type_name(expected) + ", got " +
         type_name(actual),

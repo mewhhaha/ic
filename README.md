@@ -559,6 +559,9 @@ examples/             runnable .duck source programs and expected failures
 tree-sitter-duck/      Tree-sitter grammar and Helix queries for .duck files
 ```
 
+The supported TypeScript exports and diagnostic categories are documented in
+[TypeScript API and Diagnostic Migration](docs/typescript-api-migration.md).
+
 ## Development
 
 ```sh

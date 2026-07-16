@@ -1,4 +1,5 @@
-import { Source, type Source as SourceNode } from "../frontend.ts";
+import type { Source as SourceNode } from "../frontend/ast.ts";
+import { Source } from "../frontend/source.ts";
 import { source_import_expressions } from "../frontend/import_diagnostic.ts";
 import { format_syntax } from "../fmt/format.ts";
 import { analysis_diagnostics, type LspDiagnostic } from "./diagnostics.ts";

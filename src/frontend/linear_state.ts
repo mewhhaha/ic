@@ -1,4 +1,5 @@
 import type { FrontExpr, Stmt } from "./ast.ts";
+import type { DiagnosticCode } from "../diagnostic.ts";
 import {
   related_source_diagnostic,
   SourceDiagnosticError,
@@ -151,7 +152,7 @@ export function linear_binding_related(
 }
 
 export function throw_linear_diagnostic(
-  code: string,
+  code: DiagnosticCode,
   message: string,
   subject: object,
   related_subjects: LinearRelatedSubject[] = [],

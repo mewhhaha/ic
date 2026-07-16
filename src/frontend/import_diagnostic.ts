@@ -118,7 +118,6 @@ function validate_module_exports(
 
       diagnostics.push(source_diagnostic(
         "DUCK2501",
-        "error",
         "Import " + module.imported.path + " does not export " + field.name,
         field.subject,
       ));
@@ -150,7 +149,6 @@ export function validate_source_import_context(
 
   return [source_diagnostic(
     "DUCK2500",
-    "error",
     "Cannot resolve import without a source URI and import resolver",
     imported,
   )];
@@ -174,7 +172,6 @@ function validate_source_import(
 
     return source_diagnostic(
       "DUCK2505",
-      "error",
       "Invalid import URI: " + imported.path,
       root_subject,
     );
@@ -183,7 +180,6 @@ function validate_source_import(
   if (stack.includes(dependency_uri)) {
     return source_diagnostic(
       "DUCK2504",
-      "error",
       "Circular import: " + [...stack, dependency_uri].join(" -> "),
       root_subject,
     );
@@ -201,7 +197,6 @@ function validate_source_import(
     if (text === undefined) {
       return source_diagnostic(
         "DUCK2502",
-        "error",
         "Import dependency does not exist: " + imported.path,
         root_subject,
       );
@@ -214,7 +209,6 @@ function validate_source_import(
   if (dependency.diagnostics.length > 0) {
     return source_diagnostic(
       "DUCK2503",
-      "error",
       "Imported source contains syntax errors: " + imported.path,
       root_subject,
     );
@@ -223,7 +217,6 @@ function validate_source_import(
   if (dependency.source.module === undefined) {
     return source_diagnostic(
       "DUCK2501",
-      "error",
       "Import file must be a module: " + imported.path,
       root_subject,
     );

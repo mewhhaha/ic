@@ -311,7 +311,6 @@ function reject_ic_route(
 
   diagnostics.push(source_diagnostic(
     "DUCK2901",
-    "error",
     message,
     subject,
   ));

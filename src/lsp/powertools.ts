@@ -1,10 +1,6 @@
 import { Expr } from "../expr.ts";
-import {
-  type FrontExpr,
-  Source,
-  type Source as SourceNode,
-  type Stmt,
-} from "../frontend.ts";
+import type { FrontExpr, Source as SourceNode, Stmt } from "../frontend/ast.ts";
+import { Source } from "../frontend/source.ts";
 import { source_span } from "../frontend/syntax.ts";
 import { evaluate_frontend_expression } from "../frontend/lower_graph.ts";
 import { Ic } from "../ic.ts";

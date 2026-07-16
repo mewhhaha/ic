@@ -20,9 +20,19 @@ Source -> parse/analyze ----+                               +-> Mod -> WAT -> Wa
 
 ## Shared frontend
 
-The frontend owns source syntax, diagnostics, binding and type facts, linearity,
-compile-time evaluation, effect specialization, and import resolution. Backend
-route checks run after the shared language contract succeeds.
+The frontend owns source syntax, diagnostics, binding and canonical type facts,
+linearity, compile-time evaluation, effect specialization, and import
+resolution. Its implemented stages are explicit:
+
+```txt
+syntax -> names/scopes -> canonical types/facts
+       -> const/affine/effect validation -> elaboration
+       -> route validation -> lowering
+```
+
+`src/frontend/pipeline.ts` owns those backend-free stages. `source.ts` is the
+route facade: it selects IC, Core, or managed lowering after the shared language
+contract succeeds. Shared frontend modules do not import Core or WAT emitters.
 
 `duck check` intentionally runs this shared analysis without forcing every
 program through one backend. `duck build` selects a concrete route and reports

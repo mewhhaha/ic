@@ -1,6 +1,5 @@
 import { assert_equals } from "../assert.ts";
 import { Source } from "../frontend.ts";
-import { source_facts } from "../frontend/source_facts.ts";
 import { analysis_diagnostics, parse_diagnostics } from "./diagnostics.ts";
 
 Deno.test("parse diagnostics use scanner offsets instead of error text positions", () => {
@@ -37,7 +36,6 @@ Deno.test("semantic warnings retain code and map to LSP warning severity", () =>
   const diagnostics = analysis_diagnostics(
     {
       source: parsed.source,
-      facts: source_facts(parsed.source),
       syntax: parsed.syntax,
       syntax_diagnostics: [],
       diagnostics: [{
@@ -100,4 +98,37 @@ Deno.test("semantic diagnostics carry same-document related information", () => 
     },
     message: "Linear value declared here",
   }]);
+});
+
+Deno.test("LSP preserves the compiler diagnostic sequence and identities", () => {
+  const text = "let unused = 1\nlet !token = 2\n!token + !token\n";
+  const analysis = Source.analyze(text, { warnings: true });
+  const diagnostics = analysis_diagnostics(
+    analysis,
+    "file:///sequence.duck",
+    "utf-16",
+  );
+
+  assert_equals(
+    diagnostics.map((diagnostic) => {
+      let severity = "error";
+
+      if (diagnostic.severity === 2) {
+        severity = "warning";
+      }
+
+      return {
+        code: diagnostic.code,
+        severity,
+        message: diagnostic.message,
+      };
+    }),
+    analysis.diagnostics.map((diagnostic) => {
+      return {
+        code: diagnostic.code,
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+      };
+    }),
+  );
 });

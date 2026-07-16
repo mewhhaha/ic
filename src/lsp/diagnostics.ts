@@ -1,9 +1,6 @@
-import {
-  type ParseSourceResult,
-  Source,
-  type SourceAnalysis,
-  type SourceDiagnostic,
-} from "../frontend.ts";
+import type { ParseSourceResult } from "../frontend/parser.ts";
+import { Source, type SourceAnalysis } from "../frontend/source.ts";
+import type { SourceDiagnostic } from "../frontend/semantic_diagnostic.ts";
 import { type LspRange, PositionIndex } from "./position.ts";
 
 export type { LspPosition, LspRange } from "./position.ts";

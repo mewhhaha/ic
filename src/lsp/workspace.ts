@@ -1,6 +1,10 @@
-import { build_binding_index, Source } from "../frontend.ts";
-import type { BindingEntity, BindingIndex } from "../frontend/binding_index.ts";
+import {
+  type BindingEntity,
+  type BindingIndex,
+  build_binding_index,
+} from "../frontend/binding_index.ts";
 import type { Source as FrontSource } from "../frontend/ast.ts";
+import { Source } from "../frontend/source.ts";
 import { document_content_hash, type TextDocument } from "./documents.ts";
 import {
   definition_location,

@@ -1,4 +1,5 @@
 import { is_const_expr_known } from "../frontend/const_known.ts";
+import { diagnostic_codes } from "../diagnostic.ts";
 import type { BindingIndex } from "../frontend/binding_index.ts";
 import type { ParseSourceResult } from "../frontend/parser.ts";
 import { Source } from "../frontend/source.ts";
@@ -68,15 +69,15 @@ export function code_actions(
   const positions = new PositionIndex(syntax.text, encoding);
   const offsets = positions.offsets_from_range(range);
   const actions: LspCodeAction[] = [];
-  const diagnostic_codes = new Set<string>();
+  const active_diagnostic_codes = new Set<string>();
 
   for (const diagnostic of diagnostics) {
     if (diagnostic.code !== undefined) {
-      diagnostic_codes.add(diagnostic.code);
+      active_diagnostic_codes.add(diagnostic.code);
     }
   }
 
-  if (diagnostic_codes.has("DUCK2202")) {
+  if (active_diagnostic_codes.has(diagnostic_codes.linear_value_unused)) {
     const removable: Array<Extract<Stmt, { tag: "bind" }>> = [];
 
     for (const statement of source.statements) {
@@ -149,9 +150,9 @@ export function code_actions(
     }
   }
 
-  if (diagnostic_codes.has("DUCK2302")) {
+  if (active_diagnostic_codes.has(diagnostic_codes.operand_type_mismatch)) {
     for (const diagnostic of diagnostics) {
-      if (diagnostic.code !== "DUCK2302") {
+      if (diagnostic.code !== diagnostic_codes.operand_type_mismatch) {
         continue;
       }
 
@@ -207,9 +208,9 @@ export function code_actions(
     }
   }
 
-  if (diagnostic_codes.has("DUCK2404")) {
+  if (active_diagnostic_codes.has(diagnostic_codes.frozen_mutation_rejected)) {
     for (const diagnostic of diagnostics) {
-      if (diagnostic.code !== "DUCK2404") {
+      if (diagnostic.code !== diagnostic_codes.frozen_mutation_rejected) {
         continue;
       }
 
@@ -257,7 +258,7 @@ export function code_actions(
 
   for (const diagnostic of diagnostics) {
     if (
-      diagnostic.code === "DUCK2306" &&
+      diagnostic.code === diagnostic_codes.annotation_type_mismatch &&
       diagnostic.message ===
         "Cannot index-assign Text; convert it with Utf8.encode first"
     ) {
@@ -290,7 +291,7 @@ export function code_actions(
       );
     }
 
-    if (diagnostic.code === "DUCK2201") {
+    if (diagnostic.code === diagnostic_codes.linear_value_reused) {
       const span = positions.offsets_from_range(diagnostic.range);
       const occurrence = [...index.occurrences.values()].find((candidate) =>
         overlaps(candidate.span, span)
@@ -344,7 +345,7 @@ export function code_actions(
       );
     }
 
-    if (diagnostic.code === "DUCK2304") {
+    if (diagnostic.code === diagnostic_codes.aggregate_field_mismatch) {
       const missing = /^Missing struct field: ([A-Za-z_][A-Za-z0-9_]*)$/.exec(
         diagnostic.message,
       );
@@ -415,7 +416,7 @@ export function code_actions(
       );
     }
 
-    if (diagnostic.code === "DUCK2305") {
+    if (diagnostic.code === diagnostic_codes.sum_payload_mismatch) {
       const mismatch =
         /^Union case [A-Za-z_][A-Za-z0-9_]* expects (Bool|Int), got /
           .exec(diagnostic.message);
@@ -470,7 +471,7 @@ export function code_actions(
       );
     }
 
-    if (diagnostic.code === "DUCK2403") {
+    if (diagnostic.code === diagnostic_codes.scratch_escape_rejected) {
       const diagnostic_span = positions.offsets_from_range(diagnostic.range);
       const scratch = source.statements.map(statement_expression).find((expr) =>
         expr !== undefined && expr.tag === "scratch" &&

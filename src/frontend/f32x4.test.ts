@@ -1,6 +1,7 @@
 import { assert_equals, assert_includes } from "../assert.ts";
 import { layout_type } from "./layout.ts";
 import { Source } from "./source.ts";
+import { source_facts } from "./source_facts.ts";
 
 Deno.test("frontend infers F32x4 builtins and records source facts", () => {
   const analysis = Source.analyze(`
@@ -9,6 +10,7 @@ let scaled = f32x4_mul(vector, f32x4_splat(2f32))
 f32x4_extract_lane(scaled, 2)
 `);
   assert_equals(analysis.diagnostics, []);
+  const facts = source_facts(analysis.source);
   const vector_stmt = analysis.source.statements[0];
   const result_stmt = analysis.source.statements[2];
 
@@ -16,10 +18,10 @@ f32x4_extract_lane(scaled, 2)
     throw new Error("Expected vector binding and scalar result");
   }
 
-  assert_equals(analysis.facts.type_of.get(vector_stmt.value), {
+  assert_equals(facts.type_of.get(vector_stmt.value), {
     tag: "f32x4",
   });
-  assert_equals(analysis.facts.type_of.get(result_stmt.expr), {
+  assert_equals(facts.type_of.get(result_stmt.expr), {
     tag: "int",
     type: "f32",
   });

@@ -70,7 +70,6 @@ export function specialize_front_effects(source: Source): Source {
 
     throw new SourceDiagnosticError(source_diagnostic(
       "DUCK2312",
-      "error",
       "Effect " + specialization.declaration.name + " parameter " + param +
         " is used as both " + previous + " and " + inferred,
       subject,
@@ -297,7 +296,6 @@ export function specialize_front_effects(source: Source): Source {
       if (!specialization.types.has(param)) {
         throw new SourceDiagnosticError(source_diagnostic(
           "DUCK2312",
-          "error",
           "Cannot infer effect " + declaration.name + " parameter " + param,
           declaration,
         ));

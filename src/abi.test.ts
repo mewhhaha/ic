@@ -1,13 +1,12 @@
 import { assert_equals, assert_includes, assert_throws } from "./assert.ts";
 import {
-  abi_fixed_array_schema_name,
   type AbiManifest,
   DuckAbiError,
   DuckHost,
   type DuckHostHandler,
   Source,
 } from "./frontend.ts";
-import { build_abi_manifest } from "./abi.ts";
+import { abi_fixed_array_schema_name, build_abi_manifest } from "./abi.ts";
 import { Core } from "./core.ts";
 import { resolve_bundled_source_imports } from "./frontend/load.ts";
 import { elaborate_front_type_sets } from "./frontend/type_set_elaborate.ts";

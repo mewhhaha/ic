@@ -1,6 +1,9 @@
 import {
+  compiler_diagnostic,
   type CompilerDiagnostic,
   CompilerDiagnosticError,
+  diagnostic_codes,
+  type DiagnosticCode,
 } from "../../diagnostic.ts";
 import {
   core_diagnostic_related_subject,
@@ -21,7 +24,7 @@ export function core_proof_diagnostic(
       }
 
       return diagnostic(
-        "DUCK2401",
+        diagnostic_codes.borrow_proof_rejected,
         issue.message,
         subject,
       );
@@ -29,10 +32,10 @@ export function core_proof_diagnostic(
 
     if (issue.issue.tag === "borrowed_owner_barrier") {
       const barrier = issue.issue.barrier;
-      let code = "DUCK2402";
+      let code: DiagnosticCode = diagnostic_codes.freeze_proof_rejected;
 
       if (barrier.action === "index_assign") {
-        code = "DUCK2404";
+        code = diagnostic_codes.frozen_mutation_rejected;
       }
 
       const subject = find_core_diagnostic_subject(barrier);
@@ -58,7 +61,7 @@ export function core_proof_diagnostic(
     }
 
     return diagnostic(
-      "DUCK2402",
+      diagnostic_codes.freeze_proof_rejected,
       issue.message,
       subject,
     );
@@ -71,7 +74,7 @@ export function core_proof_diagnostic(
     }
 
     return diagnostic(
-      "DUCK2403",
+      diagnostic_codes.scratch_escape_rejected,
       issue.message,
       subject,
     );
@@ -87,7 +90,7 @@ export function core_proof_diagnostic(
     }
 
     return diagnostic(
-      "DUCK2404",
+      diagnostic_codes.frozen_mutation_rejected,
       issue.message,
       subject,
     );
@@ -109,7 +112,7 @@ export function core_proof_diagnostic_error(
 }
 
 function diagnostic(
-  code: string,
+  code: DiagnosticCode,
   message: string,
   subject: import("../source_origin.ts").CoreSourceSubject,
   related_subject?: import("../source_origin.ts").CoreSourceSubject,
@@ -118,12 +121,11 @@ function diagnostic(
     return undefined;
   }
 
-  const result: CompilerDiagnostic = {
+  const result = compiler_diagnostic(
     code,
-    severity: "error",
     message,
-    span: core_source_origin(subject),
-  };
+    core_source_origin(subject),
+  );
 
   if (related_subject && has_core_source_origin(related_subject)) {
     result.related = [{
