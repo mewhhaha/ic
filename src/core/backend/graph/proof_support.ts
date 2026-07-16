@@ -3,7 +3,7 @@ import type { CoreCtx } from "../../local_collect.ts";
 import type { CoreUnsupportedCodegenIssue } from "../../proof.ts";
 import { runtime_aggregate_field_info } from "../../runtime_aggregate.ts";
 import { static_type_level_value } from "../../type_static.ts";
-import { find_core_field } from "../util.ts";
+import { find_core_field } from "../../analysis/field.ts";
 import type { CoreBackendGraph } from "./types.ts";
 import { core_runtime_slice_fact } from "../../runtime_slice.ts";
 import {

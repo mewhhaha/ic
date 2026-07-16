@@ -2,7 +2,7 @@ import type { DataSegment } from "../../mod.ts";
 import type { ValType } from "../../op.ts";
 import { Data, Emit, Format, Typed } from "../../trait.ts";
 import type { Wat } from "../../wat.ts";
-import type { Source as SourceNode } from "../../frontend/ast.ts";
+import type { CoreSource as SourceNode } from "../from_source.ts";
 import type {
   Core as CoreNode,
   CoreExpr,
@@ -39,7 +39,7 @@ export type {
   CoreAllocationFact,
   CoreAllocationPlan,
   CoreAllocationReason,
-} from "../allocation.ts";
+} from "../model/allocation.ts";
 export type {
   CoreBorrowEdge,
   CoreBorrowPlan,

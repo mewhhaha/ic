@@ -4,36 +4,13 @@ import type { DynamicUnionIf } from "../if_let.ts";
 import type {
   RuntimeUnionMatchInfo,
   RuntimeUnionTarget,
-} from "../runtime_union.ts";
+} from "../model/runtime_union.ts";
+import type { CoreOwnership } from "../model/ownership.ts";
 
-export type CoreOwnership =
-  | {
-    tag: "scalar_local";
-    type: ValType;
-  }
-  | {
-    tag: "unique_heap";
-    reason: CoreOwnershipPointerReason;
-  }
-  | {
-    tag: "frozen_shareable";
-    reason: CoreOwnershipPointerReason | "freeze";
-  }
-  | {
-    tag: "borrow_view";
-    source: CoreOwnership;
-  }
-  | {
-    tag: "scratch_backed";
-    source: CoreOwnership;
-  };
-
-export type CoreOwnershipPointerReason =
-  | "bytes"
-  | "text"
-  | "closure"
-  | "runtime_union"
-  | "runtime_aggregate";
+export type {
+  CoreOwnership,
+  CoreOwnershipPointerReason,
+} from "../model/ownership.ts";
 
 export type CoreOwnershipHooks<ctx> = {
   bind_core_if_let_payload_fact?: (

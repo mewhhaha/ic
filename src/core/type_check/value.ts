@@ -1,6 +1,6 @@
 import { expect } from "../../expect.ts";
 import type { CoreExpr, CoreField } from "../ast.ts";
-import { find_core_field } from "../backend/util.ts";
+import { find_core_field } from "../analysis/field.ts";
 import {
   core_val_type_from_type_name,
   resolve_core_type_name,

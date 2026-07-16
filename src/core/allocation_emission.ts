@@ -3,8 +3,8 @@ import type {
   CoreAllocationLayout,
   CoreAllocationPlan,
   CoreAllocationReason,
-} from "./allocation.ts";
-import type { CoreStorageClass } from "./escape.ts";
+} from "./model/allocation.ts";
+import type { CoreStorageClass } from "./model/storage.ts";
 import type { CoreExpr } from "./ast.ts";
 import {
   core_allocation_fact_emission_subjects,

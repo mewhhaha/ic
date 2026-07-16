@@ -1,6 +1,7 @@
 import { expect } from "../expect.ts";
 import type { CoreExpr, CoreFnType, CoreStmt } from "./ast.ts";
-import { fresh_temp_local, set_local } from "./backend/util.ts";
+import { fresh_temp_local } from "./emit/name.ts";
+import { set_local } from "./emit/local.ts";
 import { clone_core_host_imports } from "./host_import.ts";
 import type { CoreCtx, CoreLocalCollectHooks } from "./local_collect/types.ts";
 import { runtime_union_match_info } from "./runtime_union.ts";

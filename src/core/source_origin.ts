@@ -3,7 +3,7 @@ import {
   has_source_span,
   source_span,
   type SourceSpan,
-} from "../frontend/syntax.ts";
+} from "../source_span.ts";
 import type { CoreExpr, CoreStmt } from "./ast.ts";
 
 export type CoreSourceSubject = CoreExpr | CoreStmt;

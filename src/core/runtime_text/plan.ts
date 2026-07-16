@@ -1,5 +1,6 @@
 import type { ValType } from "../../op.ts";
-import { fresh_temp_local, set_local } from "../backend/util.ts";
+import { fresh_temp_local } from "../emit/name.ts";
+import { set_local } from "../emit/local.ts";
 import type { RuntimeTextLoopCtx, RuntimeTextTempCtx } from "./types.ts";
 
 export type RuntimeTextConcatPlan = {

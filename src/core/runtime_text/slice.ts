@@ -1,7 +1,7 @@
 import { expect } from "../../expect.ts";
 import type { Wat } from "../../wat.ts";
 import type { CoreExpr } from "../ast.ts";
-import { indent_lines } from "../backend/util.ts";
+import { indent_lines } from "../emit/format.ts";
 import { closure_heap_global } from "../closure_runtime.ts";
 import { emit_runtime_text_slice_copy } from "./copy.ts";
 import {

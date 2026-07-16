@@ -9,32 +9,34 @@ import type {
 } from "../mod.ts";
 import type { ValType } from "../op.ts";
 import type { Wat } from "../wat.ts";
-import type {
-  Core as CoreNode,
-  CoreExpr,
-  CoreFnType,
-  CoreStmt,
-} from "./ast.ts";
+import type { Core as CoreNode } from "./ast.ts";
 import {
   closure_heap_global,
   closure_table_name,
-  type ClosureEmitCtx,
   create_closure_emit_ctx,
 } from "./closure_emit.ts";
 import { emit_named_rec_functions } from "./named_rec_emit.ts";
-import type { CoreCtx } from "./local_collect.ts";
 import type { RuntimeTextHeap } from "./runtime_text.ts";
 import { type CoreScratchHeap, scratch_heap_global } from "./scratch.ts";
 import {
   allocator_free_head,
   runtime_allocator_funcs,
 } from "./runtime_allocator.ts";
-import type { TextLayout } from "./text_layout.ts";
 import { core_host_func_imports } from "./host_import.ts";
 import {
   check_core_allocation_permits,
   create_core_allocation_permit_state,
 } from "./allocation_emission.ts";
+import type {
+  CoreArtifactEmitCtx,
+  CoreArtifactEmitHooks,
+} from "./artifact_emit_contract.ts";
+
+export type {
+  CoreArtifactEmitCtx,
+  CoreArtifactEmitHooks,
+  CoreArtifactEmitInput,
+} from "./artifact_emit_contract.ts";
 
 export type CoreEmitArtifact = {
   body: Wat;
@@ -47,51 +49,6 @@ export type CoreEmitArtifact = {
   heap_start: number;
   needs_heap: boolean;
   needs_scratch: boolean;
-};
-
-export type CoreArtifactEmitCtx = {
-  locals: Map<string, ValType>;
-  statics: Map<string, CoreExpr>;
-  fn_types: Map<string, CoreFnType>;
-  text_locals: Set<string>;
-  struct_locals: Map<string, CoreExpr>;
-  union_locals: Map<string, CoreExpr>;
-  frozen_locals?: Set<string>;
-  mutable_bindings?: Set<string>;
-  text_layout: TextLayout;
-  closures?: ClosureEmitCtx;
-  heap: RuntimeTextHeap;
-  scratch: CoreScratchHeap;
-  next_loop: number;
-  next_temp: number;
-  break_label: string | undefined;
-  continue_label: string | undefined;
-};
-
-export type CoreArtifactEmitInput = {
-  core_ctx: CoreCtx;
-  text_layout: TextLayout;
-  closures: ClosureEmitCtx;
-  heap: RuntimeTextHeap;
-  scratch: CoreScratchHeap;
-  allocation_permits:
-    import("./allocation_emission.ts").CoreAllocationPermitState;
-};
-
-export type CoreArtifactEmitHooks<ctx extends CoreArtifactEmitCtx> = {
-  build_text_layout: (core: CoreNode, core_ctx: CoreCtx) => TextLayout;
-  collect_core_ctx: (core: CoreNode) => CoreCtx;
-  create_emit_ctx: (input: CoreArtifactEmitInput) => ctx;
-  emit_lifted_closure_funcs: (
-    text_layout: TextLayout,
-    closures: ClosureEmitCtx,
-    heap: RuntimeTextHeap,
-    scratch: CoreScratchHeap,
-    allocation_permits:
-      import("./allocation_emission.ts").CoreAllocationPermitState,
-  ) => Func[];
-  emit_stmt: (stmt: CoreStmt, ctx: ctx, is_final: boolean) => Wat;
-  stmt_result_type: (stmt: CoreStmt, ctx: CoreCtx) => ValType;
 };
 
 export function emit_core_artifact<ctx extends CoreArtifactEmitCtx>(

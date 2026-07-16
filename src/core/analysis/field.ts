@@ -1,5 +1,5 @@
-import { expect } from "../../../expect.ts";
-import type { CoreField } from "../../ast.ts";
+import { expect } from "../../expect.ts";
+import type { CoreField } from "../ast.ts";
 
 export function find_core_field(
   fields: CoreField[],

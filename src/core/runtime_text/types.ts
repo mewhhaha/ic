@@ -2,7 +2,12 @@ import type { ValType } from "../../op.ts";
 import type { Wat } from "../../wat.ts";
 import type { CoreExpr } from "../ast.ts";
 import type { CoreScratchHeap } from "../scratch.ts";
-import type { RuntimeTextEq } from "../text_facts.ts";
+
+export type RuntimeTextEq = {
+  left: CoreExpr;
+  right: CoreExpr;
+  prim: "i32.eq" | "i32.ne";
+};
 
 export type RuntimeTextHeap = {
   needed: boolean;

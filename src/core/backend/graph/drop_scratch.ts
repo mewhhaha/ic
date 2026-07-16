@@ -4,7 +4,7 @@ import {
   core_val_type_from_type_name,
   static_type_value,
 } from "../../type_static.ts";
-import { set_local } from "../util.ts";
+import { set_local } from "../../emit/local.ts";
 import type { CoreBackendGraph } from "./types.ts";
 
 export function core_unsafe_scratch_return_probe_error(

@@ -4,7 +4,7 @@ import type { CoreExpr } from "./ast.ts";
 import type {
   CoreAllocationLayout,
   CoreAllocationReason,
-} from "./allocation.ts";
+} from "./model/allocation.ts";
 
 export type CoreRuntimeBufferBuiltinName =
   | "Utf8.encode"

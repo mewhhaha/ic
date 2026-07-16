@@ -1,7 +1,7 @@
 import { expect } from "../../expect.ts";
 import type { ValType } from "../../op.ts";
 import type { CoreExpr } from "../ast.ts";
-import { set_local } from "../backend/util.ts";
+import { set_local } from "../emit/local.ts";
 import type { DynamicUnionIf } from "../if_let.ts";
 import type { CoreUnionCtx, CoreUnionHooks } from "./types.ts";
 

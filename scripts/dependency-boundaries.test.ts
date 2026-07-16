@@ -1,8 +1,16 @@
 import { assert_equals } from "../src/assert.ts";
 import {
+  analyze_dependencies,
   dependency_violations,
   strongly_connected_components,
 } from "./dependency-boundaries.ts";
+
+Deno.test("repository architecture has no import cycles or layer violations", () => {
+  assert_equals(
+    analyze_dependencies(new URL("../src/", import.meta.url)),
+    { cycles: [], violations: [] },
+  );
+});
 
 Deno.test("dependency analysis reports multi-file cycles deterministically", () => {
   const graph = new Map([

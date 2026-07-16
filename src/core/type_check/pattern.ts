@@ -1,5 +1,5 @@
 import { expect } from "../../expect.ts";
-import type { TypePattern } from "../../frontend/ast.ts";
+import type { TypePattern } from "../../type_syntax.ts";
 import type { CoreExpr, CoreTypeField } from "../ast.ts";
 import { resolve_core_type_name } from "../type_static.ts";
 import { find_core_type_field } from "../union_static.ts";

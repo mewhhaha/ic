@@ -1,6 +1,6 @@
 import { expect } from "../../expect.ts";
 import type { CoreExpr, CoreStmt } from "../ast.ts";
-import { set_local } from "../backend/util.ts";
+import { set_local } from "../emit/local.ts";
 import { core_val_type_from_type_name } from "../type_static.ts";
 import type { CoreTextFactCtx, CoreTextFactHooks } from "./types.ts";
 

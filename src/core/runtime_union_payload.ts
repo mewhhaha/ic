@@ -1,7 +1,7 @@
 import { expect } from "../expect.ts";
 import type { ValType } from "../op.ts";
 import type { CoreExpr } from "./ast.ts";
-import { find_core_field } from "./backend/util.ts";
+import { find_core_field } from "./analysis/field.ts";
 import { align_to, val_type_align, val_type_size } from "./memory.ts";
 import {
   core_val_type_from_type_name,
@@ -9,42 +9,15 @@ import {
   static_type_value,
   type TypeStaticCtx,
 } from "./type_static.ts";
+import type {
+  RuntimeUnionPayload,
+  RuntimeUnionPayloadField,
+} from "./model/runtime_union.ts";
 
-export type RuntimeUnionPayload =
-  | { tag: "none" }
-  | {
-    tag: "value";
-    type: ValType;
-    text: boolean;
-    resume: boolean;
-    union_type_expr?: CoreExpr;
-  }
-  | {
-    tag: "aggregate";
-    type_expr: CoreExpr;
-  }
-  | {
-    tag: "struct";
-    type_expr: CoreExpr;
-    fields: RuntimeUnionPayloadField[];
-  };
-
-export type RuntimeUnionPayloadField =
-  | {
-    tag: "value";
-    name: string;
-    offset: number;
-    type: ValType;
-    text: boolean;
-    resume: boolean;
-    union_type_expr?: CoreExpr;
-  }
-  | {
-    tag: "struct";
-    name: string;
-    type_expr: CoreExpr;
-    fields: RuntimeUnionPayloadField[];
-  };
+export type {
+  RuntimeUnionPayload,
+  RuntimeUnionPayloadField,
+} from "./model/runtime_union.ts";
 
 export type RuntimeUnionPayloadHooks<ctx extends TypeStaticCtx> = {
   core_expr_is_text: (expr: CoreExpr, ctx: ctx) => boolean;

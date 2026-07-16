@@ -9,17 +9,10 @@ import {
   lower_runtime_struct_projection as lower_runtime_struct_projection_impl,
 } from "./runtime_struct_projection.ts";
 import { val_type_from_type_name } from "./types.ts";
+import type { RuntimeStructHooks } from "./runtime_struct_hooks.ts";
 
 export { lower_runtime_struct_projection } from "./runtime_struct_projection.ts";
-
-export type RuntimeStructHooks = {
-  fresh: (env: Env, name: string) => string;
-  lower_expr: (expr: FrontExpr, env: Env) => IcNode;
-  resolve_runtime_struct_type: (
-    expr: FrontExpr,
-    env: Env,
-  ) => { fields: TypeField[] } | undefined;
-};
+export type { RuntimeStructHooks } from "./runtime_struct_hooks.ts";
 
 export type RuntimeStructTypeHooks = {
   infer_expr: (expr: FrontExpr, env: Env) => FrontType;

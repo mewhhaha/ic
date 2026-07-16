@@ -2,7 +2,7 @@ import { expect } from "../expect.ts";
 import type { ValType } from "../op.ts";
 import type { Wat } from "../wat.ts";
 import type { CoreExpr, CoreStmt } from "./ast.ts";
-import type { CoreAllocationOwnedChild } from "./allocation.ts";
+import type { CoreAllocationOwnedChild } from "./model/allocation.ts";
 import type { CoreLamCapturePlan } from "./closure_capture.ts";
 import { core_statement_cleanup_rows } from "./cleanup_emission.ts";
 import { emit_core_scratch_resets } from "./scratch.ts";

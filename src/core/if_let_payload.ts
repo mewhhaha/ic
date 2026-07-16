@@ -2,7 +2,7 @@ import { expect } from "../expect.ts";
 import type { ValType } from "../op.ts";
 import type { Wat } from "../wat.ts";
 import type { CoreExpr, CoreFnType } from "./ast.ts";
-import { set_local } from "./backend/util.ts";
+import { set_local } from "./emit/local.ts";
 
 export type CoreIfLetPayloadCtx = {
   locals: Map<string, ValType>;

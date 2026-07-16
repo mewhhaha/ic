@@ -1,11 +1,22 @@
 import { expect } from "../expect.ts";
-import type { Token } from "./ast.ts";
+import {
+  derive_source_span,
+  has_source_span,
+  source_span,
+  type SourceSpan,
+} from "../source_span.ts";
+import type { Token } from "./token.ts";
 
-/** A half-open range of UTF-16 offsets in a JavaScript source string. */
-export type SourceSpan = {
-  start: number;
-  end: number;
-};
+export {
+  derive_source_span,
+  has_concrete_source_span,
+  has_source_span,
+  inherit_source_span,
+  mark_source_span,
+  source_span,
+  source_span_origin,
+} from "../source_span.ts";
+export type { SourceSpan } from "../source_span.ts";
 
 export type SourcePosition = {
   line: number;
@@ -44,56 +55,7 @@ export type SourceSyntax = {
   position_at(offset: number): SourcePosition;
 };
 
-const node_spans = new WeakMap<object, SourceSpan>();
-const node_span_origins = new WeakMap<object, "concrete" | "derived">();
 const node_syntaxes = new WeakMap<object, SourceSyntax>();
-
-export function mark_source_span<node extends object>(
-  value: node,
-  span: SourceSpan,
-): node {
-  validate_span(span);
-  node_spans.set(value, span);
-  node_span_origins.set(value, "concrete");
-  return value;
-}
-
-export function inherit_source_span<node extends object>(
-  value: node,
-  source: object,
-): node {
-  return derive_source_span(value, source_span(source));
-}
-
-export function derive_source_span<node extends object>(
-  value: node,
-  span: SourceSpan,
-): node {
-  validate_span(span);
-  node_spans.set(value, span);
-  node_span_origins.set(value, "derived");
-  return value;
-}
-
-export function source_span(value: object): SourceSpan {
-  const span = node_spans.get(value);
-  expect(span !== undefined, "Missing source span");
-  return span;
-}
-
-export function has_source_span(value: object): boolean {
-  return node_spans.has(value);
-}
-
-export function source_span_origin(value: object): "concrete" | "derived" {
-  const origin = node_span_origins.get(value);
-  expect(origin !== undefined, "Missing source span origin");
-  return origin;
-}
-
-export function has_concrete_source_span(value: object): boolean {
-  return source_span_origin(value) === "concrete";
-}
 
 export function mark_source_syntax<node extends object>(
   root: node,
@@ -125,7 +87,7 @@ export function derive_missing_source_spans(
     seen.add(current);
     let current_span = parent_span;
 
-    if (node_spans.has(current)) {
+    if (has_source_span(current)) {
       current_span = source_span(current);
     } else {
       derive_source_span(current, parent_span);
@@ -178,11 +140,4 @@ export function make_source_syntax(
       return { line, column };
     },
   };
-}
-
-function validate_span(span: SourceSpan): void {
-  expect(Number.isInteger(span.start), "Source span start must be an integer");
-  expect(Number.isInteger(span.end), "Source span end must be an integer");
-  expect(span.start >= 0, "Source span start must not be negative");
-  expect(span.end >= span.start, "Source span end precedes start");
 }

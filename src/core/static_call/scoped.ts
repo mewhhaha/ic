@@ -2,12 +2,13 @@ import { expect } from "../../expect.ts";
 import type { ValType } from "../../op.ts";
 import type { Wat } from "../../wat.ts";
 import type { CoreExpr, CoreFnType } from "../ast.ts";
-import { fresh_temp_local, set_local } from "../backend/util.ts";
+import { fresh_temp_local } from "../emit/name.ts";
+import { set_local } from "../emit/local.ts";
 import { unsupported_core_captured_assignment_message } from "../closure_capture.ts";
 import { core_expr_assigns_name } from "../scope_analysis.ts";
 import { scoped_static_core_call_expr } from "../static_call_rewrite.ts";
 import { static_block_result } from "../type_static.ts";
-import type { StaticValuePlan } from "../static_values.ts";
+import type { StaticValuePlan } from "../static_values/types.ts";
 import { check_static_core_call_arity } from "./arity.ts";
 import { core_name_use_count } from "../name_use_count.ts";
 import type {

@@ -1,7 +1,7 @@
 import { expect } from "../../expect.ts";
 import type { ValType } from "../../op.ts";
 import type { CoreExpr } from "../ast.ts";
-import { set_local } from "../backend/util.ts";
+import { set_local } from "../emit/local.ts";
 import { core_val_type_from_type_name } from "../type_static.ts";
 import {
   dynamic_if_let_can_match,

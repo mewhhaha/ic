@@ -1,6 +1,6 @@
 import { expect } from "../../expect.ts";
 import type { CoreExpr, CoreFnType } from "../ast.ts";
-import { find_core_field } from "../backend/util.ts";
+import { find_core_field } from "../analysis/field.ts";
 import { same_runtime_aggregate_type_expr } from "../runtime_aggregate.ts";
 import { same_runtime_union_type_expr } from "../runtime_union.ts";
 import {

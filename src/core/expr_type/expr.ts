@@ -1,11 +1,8 @@
 import { expect } from "../../expect.ts";
 import type { ValType } from "../../op.ts";
 import type { CoreExpr, CoreField, CoreFnType, CoreStmt } from "../ast.ts";
-import {
-  find_core_field,
-  maybe_static_i32,
-  static_indexed_field,
-} from "../backend/util.ts";
+import { find_core_field, static_indexed_field } from "../analysis/field.ts";
+import { maybe_static_i32 } from "../analysis/static_i32.ts";
 import {
   core_scratch_return_ownership,
   core_scratch_return_rejection_detail,

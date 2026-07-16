@@ -1,8 +1,10 @@
 import type { CoreParam } from "../ast.ts";
-import { sem_type_from_expr } from "../../frontend/semantic_type.ts";
-import { front_type_value_for_semantic_type } from "../../frontend/type_declaration.ts";
-import { parse_type_expr } from "../../frontend/type_expr.ts";
-import { tokenize } from "../../frontend/tokenize.ts";
+import {
+  front_type_value_for_semantic_type,
+  parse_type_expr,
+  sem_type_from_expr,
+  tokenize,
+} from "../from_source/type_contract.ts";
 import type { CoreExpr } from "../ast.ts";
 import type { ClosureParamInfo } from "./types.ts";
 

@@ -4,7 +4,7 @@ import type { DynamicUnionIf } from "../if_let.ts";
 import type {
   RuntimeUnionMatchInfo,
   RuntimeUnionTarget,
-} from "../runtime_union.ts";
+} from "../model/runtime_union.ts";
 import type { StaticTextCtx, StaticTextHooks } from "../text_static.ts";
 
 export type TextLayout = {

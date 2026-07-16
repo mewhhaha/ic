@@ -2,7 +2,9 @@ import { expect } from "../../expect.ts";
 import type { ValType } from "../../op.ts";
 import type { Wat } from "../../wat.ts";
 import type { CoreExpr } from "../ast.ts";
-import { fresh_temp_local, indent_lines, set_local } from "../backend/util.ts";
+import { fresh_temp_local } from "../emit/name.ts";
+import { indent_lines } from "../emit/format.ts";
+import { set_local } from "../emit/local.ts";
 import { emit_persistent_alloc } from "../runtime_allocator.ts";
 import { load_instr, store_instr } from "../memory.ts";
 import {

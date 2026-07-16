@@ -1,6 +1,6 @@
 import { expect } from "../../expect.ts";
 import type { CoreExpr, CoreStmt } from "../ast.ts";
-import { set_local } from "../backend/util.ts";
+import { set_local } from "../emit/local.ts";
 import { core_statement_cleanup_rows } from "../cleanup_emission.ts";
 import { collect_if_else_stmt_locals } from "../local_collect_if_else.ts";
 import { collect_core_if_let_stmt_locals } from "../local_collect_if_let.ts";

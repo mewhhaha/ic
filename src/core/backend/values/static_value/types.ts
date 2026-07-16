@@ -5,8 +5,10 @@ import type { CoreEmitCtx } from "../../../emit_ctx.ts";
 import type { DynamicUnionIf } from "../../../if_let.ts";
 import type { CoreCtx, StaticCtx, TempCtx } from "../../../local_collect.ts";
 import type { StaticValuePlan } from "../../../static_values.ts";
-import type { StaticStructIfBranches } from "../../../struct_static.ts";
-import type { StaticTextIfBranches } from "../../../text_static.ts";
+import type {
+  StaticStructIfBranches,
+  StaticTextIfBranches,
+} from "../../../model/static_value.ts";
 
 export type CoreBackendStaticValueApi = {
   block_ctx: (ctx: StaticCtx) => StaticCtx;

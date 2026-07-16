@@ -1,9 +1,12 @@
-import type { TypeExpr } from "../../frontend/ast.ts";
-import { sem_type_from_expr } from "../../frontend/semantic_type.ts";
-import { fixed_array_length } from "../../frontend/fixed_array_type.ts";
-import { front_type_value_for_semantic_type } from "../../frontend/type_declaration.ts";
-import { format_type_expr, parse_type_expr } from "../../frontend/type_expr.ts";
-import { tokenize } from "../../frontend/tokenize.ts";
+import type { TypeExpr } from "../../type_syntax.ts";
+import {
+  fixed_array_length,
+  format_type_expr,
+  front_type_value_for_semantic_type,
+  parse_type_expr,
+  sem_type_from_expr,
+  tokenize,
+} from "../from_source/type_contract.ts";
 import { expect } from "../../expect.ts";
 import type { CoreExpr, CoreParam, CoreStmt, CoreTypeField } from "../ast.ts";
 import { record_core_expr_provenance } from "../subject_provenance.ts";

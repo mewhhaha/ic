@@ -1,7 +1,7 @@
 import { expect } from "../../expect.ts";
 import type { CoreExpr, CoreStmt } from "../ast.ts";
-import { find_core_field } from "../backend/util.ts";
-import { runtime_aggregate_field_info } from "../runtime_aggregate.ts";
+import { find_core_field } from "../analysis/field.ts";
+import { runtime_aggregate_field_info } from "../runtime_aggregate/type_expr.ts";
 import {
   resolve_core_type_name,
   static_block_result,

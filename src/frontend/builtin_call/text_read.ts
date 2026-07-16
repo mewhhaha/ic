@@ -3,7 +3,7 @@ import type { Ic as IcNode } from "../../ic.ts";
 import type { Env, FrontExpr } from "../ast.ts";
 import { unwrap_ownership_wrapper_expr } from "../ownership.ts";
 import { lower_expr_as_front_type } from "../typed_lower.ts";
-import type { BuiltinCallHooks } from "../builtin_call.ts";
+import type { BuiltinCallHooks } from "./hooks.ts";
 
 export function lower_text_read_builtin_call(
   expr: Extract<FrontExpr, { tag: "app" }>,

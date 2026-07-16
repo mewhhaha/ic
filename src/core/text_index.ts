@@ -1,6 +1,6 @@
 import { expect } from "../expect.ts";
 import type { CoreExpr } from "./ast.ts";
-import { maybe_static_i32 } from "./backend/util.ts";
+import { maybe_static_i32 } from "./analysis/static_i32.ts";
 import { text_content_bytes } from "./text.ts";
 
 export function text_byte_index_expr(

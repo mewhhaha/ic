@@ -2,7 +2,7 @@ import { expect } from "../expect.ts";
 import type { Func, FuncParam } from "../mod.ts";
 import type { ValType } from "../op.ts";
 import type { CoreExpr } from "./ast.ts";
-import { set_local } from "./backend/util.ts";
+import { set_local } from "./emit/local.ts";
 import {
   closure_env_param,
   type ClosureEmitCtx,

@@ -1,11 +1,14 @@
 import { expect } from "../../expect.ts";
 import type { CoreExpr, CoreField, CoreStmt } from "../ast.ts";
-import { indent_lines, set_local } from "../backend/util.ts";
+import { indent_lines } from "../emit/format.ts";
+import { set_local } from "../emit/local.ts";
 import type { DynamicUnionIf } from "../if_let.ts";
 import { core_scratch_plan, scratch_heap_global } from "../scratch.ts";
 import { record_core_expr_provenance } from "../subject_provenance.ts";
-import type { StaticStructIfBranches } from "../struct_static.ts";
-import type { StaticTextIfBranches } from "../text_static.ts";
+import type {
+  StaticStructIfBranches,
+  StaticTextIfBranches,
+} from "../model/static_value.ts";
 import { static_block_result } from "../type_static.ts";
 import {
   plan_static_capture_expr,

@@ -1,5 +1,6 @@
 import type { CoreExpr, CoreStmt } from "../ast.ts";
-import { fresh_temp_local, type TempNameCtx } from "../backend/util.ts";
+import { fresh_temp_local } from "../emit/name.ts";
+import { type TempNameCtx } from "../emit/types.ts";
 import {
   replacement_var_name,
   scoped_static_core_call_names,

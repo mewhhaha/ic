@@ -1,5 +1,5 @@
 import type { ValType } from "../../../../op.ts";
-import type { TypePattern } from "../../../../frontend/ast.ts";
+import type { TypePattern } from "../../../../type_syntax.ts";
 import type { CoreExpr, CoreParam, CoreStmt } from "../../../ast.ts";
 import type { DynamicUnionIf } from "../../../if_let.ts";
 import type { StaticCtx } from "../../../local_collect.ts";

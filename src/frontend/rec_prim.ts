@@ -3,11 +3,11 @@ import { type Prim, specialize_prim_for_operands } from "../op.ts";
 import type { NumType, ValType } from "../op.ts";
 import type { Env, FrontExpr, FrontType } from "./ast.ts";
 import type { StaticRecHooks } from "./rec_hooks.ts";
-import type { StaticRecBlockLowerer } from "./rec_result.ts";
-import {
-  lower_rec_expr_as_type,
-  type StaticRecExprLowerer,
-} from "./rec_type_lower.ts";
+import type {
+  StaticRecBlockLowerer,
+  StaticRecExprLowerer,
+} from "./rec_contract.ts";
+import { lower_rec_expr_as_type } from "./rec_type_lower.ts";
 
 export function lower_rec_prim(
   expr: Extract<FrontExpr, { tag: "prim" }>,

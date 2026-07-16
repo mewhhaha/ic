@@ -1,8 +1,4 @@
-import type {
-  ResumeSignature,
-  TypeExpr,
-  TypePattern,
-} from "../frontend/ast.ts";
+import type { ResumeSignature, TypeExpr, TypePattern } from "../type_syntax.ts";
 import type { NumType, Prim, ValType } from "../op.ts";
 
 export type Core = {
@@ -12,7 +8,7 @@ export type Core = {
   host_imports?: Record<string, CoreHostImport>;
   statements: CoreStmt[];
   recFunctions?: Record<string, CoreRecFunction>;
-  allocation_permit_plan?: import("./allocation.ts").CoreAllocationPlan;
+  allocation_permit_plan?: import("./model/allocation.ts").CoreAllocationPlan;
 };
 
 export type CoreCleanupEmission = {
@@ -34,10 +30,10 @@ export type CoreCleanupEmission = {
   replacement_old_local: string | undefined;
   statement_index: number | undefined;
   statement_path: number[] | undefined;
-  byte_size: import("./allocation.ts").CoreAllocationByteSize;
+  byte_size: import("./model/allocation.ts").CoreAllocationByteSize;
   alignment: 4 | 8 | 16;
-  layout: import("./allocation.ts").CoreAllocationLayout;
-  owned_children: import("./allocation.ts").CoreAllocationOwnedChild[];
+  layout: import("./model/allocation.ts").CoreAllocationLayout;
+  owned_children: import("./model/allocation.ts").CoreAllocationOwnedChild[];
 };
 
 export type CoreCapabilityMethodFact = {

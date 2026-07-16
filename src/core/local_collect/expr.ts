@@ -1,12 +1,9 @@
 import type { CoreExpr, CoreField, CoreStmt } from "../ast.ts";
 import type { CoreFnType } from "../ast.ts";
-import {
-  find_core_field,
-  fresh_temp_local,
-  maybe_static_i32,
-  set_local,
-  static_indexed_field,
-} from "../backend/util.ts";
+import { find_core_field, static_indexed_field } from "../analysis/field.ts";
+import { fresh_temp_local } from "../emit/name.ts";
+import { maybe_static_i32 } from "../analysis/static_i32.ts";
+import { set_local } from "../emit/local.ts";
 import { collect_block_expr_locals } from "../local_collect_block.ts";
 import {
   collect_closure_call_locals,

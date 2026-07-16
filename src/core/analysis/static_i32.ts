@@ -1,5 +1,5 @@
-import { expect } from "../../../expect.ts";
-import type { CoreExpr } from "../../ast.ts";
+import { expect } from "../../expect.ts";
+import type { CoreExpr } from "../ast.ts";
 
 export function maybe_static_i32(expr: CoreExpr): number | undefined {
   if (expr.tag !== "num") {

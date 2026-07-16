@@ -2,7 +2,7 @@ import { expect } from "../expect.ts";
 import type { ValType } from "../op.ts";
 import type { Wat } from "../wat.ts";
 import type { CoreExpr, CoreFnType, CoreStmt } from "./ast.ts";
-import { indent_lines } from "./backend/util.ts";
+import { indent_lines } from "./emit/format.ts";
 
 export type DynamicUnionIf = {
   cond: CoreExpr;

@@ -1,6 +1,6 @@
 import type { Wat } from "../wat.ts";
 import type { CoreExpr, CoreStmt } from "./ast.ts";
-import { indent_lines } from "./backend/util.ts";
+import { indent_lines } from "./emit/format.ts";
 
 export type CoreRangeLoopCtx = {
   next_loop: number;

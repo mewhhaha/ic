@@ -1,5 +1,5 @@
 import type { Ic as IcNode } from "../ic.ts";
-import type { Env, FrontExpr, FrontType, Stmt } from "./ast.ts";
+import type { Env, FrontExpr } from "./ast.ts";
 import { structured_core_route } from "./diagnostic.ts";
 import { lower_rec_bound_value_app } from "./rec_bound_app.ts";
 import type { StaticRecHooks } from "./rec_hooks.ts";
@@ -22,17 +22,9 @@ import {
   can_lower_rec_bound_value_as_type,
   lower_rec_expr_as_type,
 } from "./rec_type_lower.ts";
+import type { StaticRecBlockLowerer } from "./rec_contract.ts";
 
-export type StaticRecResult =
-  | { tag: "done"; value: IcNode }
-  | { tag: "call"; args: FrontExpr[] };
-
-export type StaticRecBlockLowerer = (
-  stmts: Stmt[],
-  env: Env,
-  hooks: StaticRecHooks,
-  expected_type?: FrontType,
-) => StaticRecResult | undefined;
+export type { StaticRecBlockLowerer, StaticRecResult } from "./rec_contract.ts";
 
 export function lower_rec_result_expr(
   expr: FrontExpr,

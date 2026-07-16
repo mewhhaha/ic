@@ -1,5 +1,8 @@
 import type { CoreCapabilityMethodFact, CoreExpr, CoreStmt } from "../ast.ts";
-import type { CoreAllocationFact, CoreAllocationPlan } from "../allocation.ts";
+import type {
+  CoreAllocationFact,
+  CoreAllocationPlan,
+} from "../model/allocation.ts";
 import type {
   CoreBorrowEdge,
   CoreBorrowPlan,

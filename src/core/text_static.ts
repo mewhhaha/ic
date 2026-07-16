@@ -1,9 +1,13 @@
 import { expect } from "../expect.ts";
 import type { ValType } from "../op.ts";
 import type { CoreExpr, CoreField, CoreFnType } from "./ast.ts";
-import { maybe_static_i32, static_indexed_field } from "./backend/util.ts";
+import { maybe_static_i32 } from "./analysis/static_i32.ts";
+import { static_indexed_field } from "./analysis/field.ts";
 import { text_byte_length } from "./text.ts";
 import { static_block_result, static_type_value } from "./type_static.ts";
+import type { StaticTextIfBranches } from "./model/static_value.ts";
+
+export type { StaticTextIfBranches } from "./model/static_value.ts";
 
 export type StaticTextCtx = {
   locals: Map<string, ValType>;
@@ -28,11 +32,6 @@ export type StaticTextHooks = {
     expr: CoreExpr,
     ctx: StaticTextCtx,
   ) => StaticTextUnionIf | undefined;
-};
-
-export type StaticTextIfBranches = {
-  then_text: CoreExpr;
-  else_text: CoreExpr;
 };
 
 type StaticTextUnionIf = {

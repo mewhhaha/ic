@@ -1,7 +1,7 @@
 import { expect } from "../../expect.ts";
 import type { Wat } from "../../wat.ts";
 import type { CoreExpr } from "../ast.ts";
-import { indent_lines } from "../backend/util.ts";
+import { indent_lines } from "../emit/format.ts";
 import type { CoreRuntimeBufferBuiltin } from "../runtime_buffer.ts";
 import type {
   RuntimeTextEmitCtx,

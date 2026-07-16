@@ -1,7 +1,7 @@
 import type { DataSegment } from "../../mod.ts";
 import { expect } from "../../expect.ts";
 import type { CoreExpr, CoreField, CoreParam, CoreStmt } from "../ast.ts";
-import { set_local } from "../backend/util.ts";
+import { set_local } from "../emit/local.ts";
 import { closure_param_info } from "../closure_type/param.ts";
 import { align_to } from "../memory.ts";
 import { static_core_call_branch_value } from "../static_call.ts";

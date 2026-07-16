@@ -2,13 +2,11 @@ import { expect } from "../expect.ts";
 import type { ValType } from "../op.ts";
 import type { Wat } from "../wat.ts";
 import type { CoreExpr, CoreField, CoreFnType } from "./ast.ts";
-import {
-  fresh_temp_local,
-  maybe_static_i32,
-  set_local,
-  static_indexed_field,
-  type TempNameCtx,
-} from "./backend/util.ts";
+import { fresh_temp_local } from "./emit/name.ts";
+import { maybe_static_i32 } from "./analysis/static_i32.ts";
+import { set_local } from "./emit/local.ts";
+import { static_indexed_field } from "./analysis/field.ts";
+import { type TempNameCtx } from "./emit/types.ts";
 import {
   type CoreHostImportCtx,
   emit_core_host_import_call,

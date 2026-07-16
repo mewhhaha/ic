@@ -2,9 +2,9 @@ import type { FuncType } from "../mod.ts";
 import type { ValType } from "../op.ts";
 import type { Wat } from "../wat.ts";
 import type { CoreExpr, CoreFnType, CoreHostImport } from "./ast.ts";
-import type { RuntimeTextHeap } from "./runtime_text.ts";
+import type { RuntimeTextHeap } from "./runtime_text/types.ts";
 import type { CoreScratchHeap } from "./scratch.ts";
-import type { TextLayout } from "./text_layout.ts";
+import type { TextLayout } from "./text_layout/types.ts";
 
 export const closure_heap_global = "__closure_heap";
 export const closure_table_name = "__closure_table";

@@ -1,6 +1,7 @@
 import type { CoreExpr, CoreStmt } from "./ast.ts";
 import { assigned_stmt_names } from "./assigned_names.ts";
-import { fresh_temp_local, set_local } from "./backend/util.ts";
+import { fresh_temp_local } from "./emit/name.ts";
+import { set_local } from "./emit/local.ts";
 import { clone_core_host_imports } from "./host_import.ts";
 import type { DynamicUnionIf } from "./if_let.ts";
 import type { CoreCtx, CoreLocalCollectHooks } from "./local_collect/types.ts";

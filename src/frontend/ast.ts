@@ -1,5 +1,21 @@
 import type { NumType, Prim, ValType } from "../op.ts";
-import type { SourceSpan } from "./syntax.ts";
+import type {
+  ResumeSignature,
+  TypeExpr,
+  TypeField,
+  TypePattern,
+} from "../type_syntax.ts";
+
+export type { Token, TokenKind } from "./token.ts";
+export type {
+  ArrayLengthExpr,
+  EffectRowExpr,
+  ResumeSignature,
+  TypeExpr,
+  TypeField,
+  TypePattern,
+  TypeProductEntry,
+} from "../type_syntax.ts";
 
 export type Source = {
   tag: "program";
@@ -101,52 +117,6 @@ export type EffectRef = {
   operation: string;
 };
 
-export type EffectRowExpr =
-  | { tag: "family"; name: string }
-  | { tag: "operation"; effect: string; operation: string }
-  | { tag: "variable"; name: string }
-  | { tag: "group"; value: EffectRowExpr }
-  | { tag: "union"; left: EffectRowExpr; right: EffectRowExpr }
-  | { tag: "intersection"; left: EffectRowExpr; right: EffectRowExpr }
-  | { tag: "difference"; left: EffectRowExpr; right: EffectRowExpr };
-
-export type TypeExpr =
-  | { tag: "name"; name: string }
-  | { tag: "forall"; params: string[]; body: TypeExpr }
-  | { tag: "atom"; name: string }
-  | { tag: "top" }
-  | { tag: "never" }
-  | { tag: "frozen"; value: TypeExpr }
-  | { tag: "borrow"; value: TypeExpr }
-  | { tag: "union"; left: TypeExpr; right: TypeExpr }
-  | { tag: "intersection"; left: TypeExpr; right: TypeExpr }
-  | { tag: "difference"; left: TypeExpr; right: TypeExpr }
-  | { tag: "apply"; func: TypeExpr; arg: TypeExpr }
-  | { tag: "tuple"; items: TypeExpr[] }
-  | { tag: "product"; entries: TypeProductEntry[] }
-  | { tag: "array"; element: TypeExpr; length: ArrayLengthExpr }
-  | {
-    tag: "arrow";
-    param: TypeExpr;
-    effects: EffectRowExpr | undefined;
-    result: TypeExpr;
-  };
-
-export type TypeProductEntry = {
-  label?: string;
-  type_expr: TypeExpr;
-};
-
-export type ArrayLengthExpr =
-  | { tag: "number"; value: number }
-  | { tag: "name"; name: string }
-  | {
-    tag: "binary";
-    op: "+" | "-" | "*" | "/" | "%";
-    left: ArrayLengthExpr;
-    right: ArrayLengthExpr;
-  };
-
 export type PatternMode = "default" | "const" | "linear";
 
 export type PatternLiteral =
@@ -202,11 +172,6 @@ export type HandlerClause = {
 export type HandlerReturnClause = {
   param: Param;
   body: FrontExpr;
-};
-
-export type ResumeSignature = {
-  input_type: string;
-  output_type: string;
 };
 
 export type Stmt =
@@ -403,12 +368,6 @@ export type ComputedTypeMember = {
   value: FrontExpr;
 };
 
-export type TypeField = {
-  name: string;
-  type_name: string;
-  set_member?: TypeExpr;
-};
-
 export type FrontHostImportArgContract =
   | { tag: "scalar" }
   | { tag: "bounded_borrow"; reason: FrontHostImportOwnerReason }
@@ -439,33 +398,6 @@ export type FrontHostImport = {
   result: ValType;
   args: FrontHostImportArgContract[];
   result_owner: FrontHostImportResultContract | undefined;
-};
-
-export type TypePattern = {
-  kind: "struct" | "union";
-  fields: TypeField[];
-  open: boolean;
-};
-
-export type TokenKind =
-  | "name"
-  | "number"
-  | "string"
-  | "character"
-  | "symbol"
-  | "newline"
-  | "comment"
-  | "eof";
-
-export type Token = {
-  kind: TokenKind;
-  text: string;
-  /** Exact source spelling, including quotes and escapes for literals. */
-  raw: string;
-  /** UTF-16 source offsets, with an exclusive end. */
-  span: SourceSpan;
-  line: number;
-  column: number;
 };
 
 export type FrontType =

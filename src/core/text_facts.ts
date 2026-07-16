@@ -1,6 +1,6 @@
 import { expect } from "../expect.ts";
 import type { CoreExpr, CoreFnType } from "./ast.ts";
-import { find_core_field } from "./backend/util.ts";
+import { find_core_field } from "./analysis/field.ts";
 import { core_host_import_result_ownership } from "./host_import.ts";
 import { runtime_aggregate_field_info } from "./runtime_aggregate.ts";
 import { core_text_block_fact } from "./text_facts/block.ts";
@@ -20,7 +20,7 @@ import type {
   CoreTextFactHooks,
   RuntimeTextEq,
 } from "./text_facts/types.ts";
-import { core_bytes_generate_args } from "./runtime_bytes.ts";
+import { core_bytes_generate_args } from "./runtime_bytes/generate.ts";
 import { core_runtime_buffer_builtin } from "./runtime_buffer.ts";
 import { core_expr_definitely_exits } from "./expr_type/control.ts";
 

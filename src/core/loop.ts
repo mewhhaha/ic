@@ -1,7 +1,7 @@
 import type { ValType } from "../op.ts";
 import type { Wat } from "../wat.ts";
 import type { CoreExpr, CoreStmt } from "./ast.ts";
-import { indent_lines } from "./backend/util.ts";
+import { indent_lines } from "./emit/format.ts";
 
 export type CoreLoopEmitCtx = {
   next_loop: number;

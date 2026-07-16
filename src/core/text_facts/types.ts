@@ -12,6 +12,7 @@ import type {
   RuntimeUnionTarget,
 } from "../runtime_union.ts";
 import type { ValType } from "../../op.ts";
+export type { RuntimeTextEq } from "../runtime_text/types.ts";
 
 export type CoreTextFactCtx = {
   locals: Map<string, ValType>;
@@ -79,9 +80,3 @@ export type CoreTextFactHooks<ctx extends CoreTextFactCtx> =
       ctx: ctx,
     ) => Extract<CoreExpr, { tag: "union_case" }> | undefined;
   };
-
-export type RuntimeTextEq = {
-  left: CoreExpr;
-  right: CoreExpr;
-  prim: "i32.eq" | "i32.ne";
-};

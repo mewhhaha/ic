@@ -1,6 +1,7 @@
 import { expect } from "../../expect.ts";
 import type { CoreExpr, CoreField } from "../ast.ts";
-import { maybe_static_i32, static_indexed_field } from "../backend/util.ts";
+import { maybe_static_i32 } from "../analysis/static_i32.ts";
+import { static_indexed_field } from "../analysis/field.ts";
 import type { CoreTextFactCtx, CoreTextFactHooks } from "./types.ts";
 
 type CoreTextChecker<ctx extends CoreTextFactCtx> = (

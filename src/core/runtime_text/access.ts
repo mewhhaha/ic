@@ -1,7 +1,7 @@
 import { expect } from "../../expect.ts";
 import type { Wat } from "../../wat.ts";
 import type { CoreExpr, CoreStmt } from "../ast.ts";
-import { indent_lines } from "../backend/util.ts";
+import { indent_lines } from "../emit/format.ts";
 import {
   declare_runtime_text_index_assign_locals,
   runtime_text_index_assign_plan,

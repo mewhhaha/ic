@@ -1,7 +1,7 @@
 import { expect } from "../expect.ts";
 import type { ValType } from "../op.ts";
 import type { CoreExpr, CoreField, CoreFnType } from "./ast.ts";
-import { find_core_field } from "./backend/util.ts";
+import { find_core_field } from "./analysis/field.ts";
 import {
   runtime_aggregate_layout_for_type,
   type RuntimeAggregateField,
@@ -9,6 +9,9 @@ import {
 import { record_core_expr_provenance } from "./subject_provenance.ts";
 import { static_core_call_branch_app } from "./static_call.ts";
 import { static_block_result } from "./type_static.ts";
+import type { StaticStructIfBranches } from "./model/static_value.ts";
+
+export type { StaticStructIfBranches } from "./model/static_value.ts";
 
 export type StaticStructCtx = {
   locals: Map<string, ValType>;
@@ -33,11 +36,6 @@ export type StaticStructHooks<ctx extends StaticStructCtx> = {
     expr: CoreExpr,
     ctx: ctx,
   ) => Extract<CoreExpr, { tag: "lam" }> | undefined;
-};
-
-export type StaticStructIfBranches = {
-  then_struct: Extract<CoreExpr, { tag: "struct_value" }>;
-  else_struct: Extract<CoreExpr, { tag: "struct_value" }>;
 };
 
 export function static_struct_value<ctx extends StaticStructCtx>(

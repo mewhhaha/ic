@@ -1,7 +1,7 @@
 import { expect } from "../../expect.ts";
 import type { ValType } from "../../op.ts";
 import type { CoreExpr, CoreFnType } from "../ast.ts";
-import { set_local } from "../backend/util.ts";
+import { set_local } from "../emit/local.ts";
 import { unsupported_core_captured_assignment_message } from "../closure_capture.ts";
 import { clone_core_host_imports } from "../host_import.ts";
 import { same_runtime_aggregate_type_expr } from "../runtime_aggregate.ts";

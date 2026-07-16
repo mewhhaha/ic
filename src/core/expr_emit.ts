@@ -2,12 +2,9 @@ import { expect } from "../expect.ts";
 import { emit_prim_call, type PrimOperandEmission } from "../op.ts";
 import { type Wat, wat_number } from "../wat.ts";
 import type { CoreExpr } from "./ast.ts";
-import {
-  find_core_field,
-  indent_lines,
-  maybe_static_i32,
-  static_indexed_field,
-} from "./backend/util.ts";
+import { find_core_field, static_indexed_field } from "./analysis/field.ts";
+import { indent_lines } from "./emit/format.ts";
+import { maybe_static_i32 } from "./analysis/static_i32.ts";
 import {
   emit_runtime_aggregate_field_load,
   emit_runtime_aggregate_field_pointer,

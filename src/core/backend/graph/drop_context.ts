@@ -11,7 +11,7 @@ import {
   static_owner_value_materializes,
 } from "../../mutable_static_owner.ts";
 import { runtime_aggregate_type_expr } from "../../runtime_aggregate.ts";
-import { set_local } from "../util.ts";
+import { set_local } from "../../emit/local.ts";
 import { create_child_core_ctx, create_empty_core_ctx } from "./context.ts";
 import {
   clear_drop_analysis_local_facts,

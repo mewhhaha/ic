@@ -1,6 +1,6 @@
 import { expect } from "../expect.ts";
 import type { CoreExpr } from "./ast.ts";
-import type { RuntimeUnionTarget } from "./runtime_union.ts";
+import type { RuntimeUnionTarget } from "./model/runtime_union.ts";
 import { static_block_result } from "./type_static.ts";
 import { core_runtime_slice_fact } from "./runtime_slice.ts";
 import { core_bytes_generate_args } from "./runtime_bytes.ts";

@@ -1,6 +1,7 @@
 import { expect } from "../expect.ts";
 import type { CoreExpr, CoreStmt } from "./ast.ts";
-import { set_local, static_i32 } from "./backend/util.ts";
+import { set_local } from "./emit/local.ts";
+import { static_i32 } from "./analysis/static_i32.ts";
 import {
   text_collection_end_local,
   text_collection_index_local,

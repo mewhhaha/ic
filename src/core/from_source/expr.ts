@@ -8,7 +8,6 @@ import {
   resolve_core_annotation,
   resolve_core_name,
 } from "./context.ts";
-import { core_stmt } from "./stmt.ts";
 import { atom_i32 } from "../../frontend/atom.ts";
 import { record_optional_core_source_origin } from "../source_origin.ts";
 import {
@@ -281,7 +280,9 @@ function core_expr_untracked(
       const block_ctx = fork_core_from_source_ctx(ctx);
       return {
         tag: "block",
-        statements: expr.statements.map((stmt) => core_stmt(stmt, block_ctx)),
+        statements: expr.statements.map((stmt) => {
+          return ctx.lower_stmt(stmt, block_ctx);
+        }),
       };
     }
 
@@ -289,7 +290,9 @@ function core_expr_untracked(
       const loop_ctx = fork_core_from_source_ctx(ctx);
       return {
         tag: "loop",
-        body: expr.body.map((stmt) => core_stmt(stmt, loop_ctx)),
+        body: expr.body.map((stmt) => {
+          return ctx.lower_stmt(stmt, loop_ctx);
+        }),
       };
     }
 

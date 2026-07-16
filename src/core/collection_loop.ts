@@ -1,7 +1,7 @@
 import { expect } from "../expect.ts";
 import type { Wat } from "../wat.ts";
 import type { CoreExpr, CoreField, CoreStmt } from "./ast.ts";
-import { indent_lines } from "./backend/util.ts";
+import { indent_lines } from "./emit/format.ts";
 import {
   core_runtime_slice_fact,
   runtime_slice_end_local,

@@ -1,6 +1,6 @@
 import type { Ic as IcNode } from "../../ic.ts";
 import type { Env, FrontExpr } from "../ast.ts";
-import type { BuiltinCallHooks } from "../builtin_call.ts";
+import type { BuiltinCallHooks } from "./hooks.ts";
 import { lower_text_operation_builtin_call } from "./text_ops.ts";
 import { lower_text_read_builtin_call } from "./text_read.ts";
 

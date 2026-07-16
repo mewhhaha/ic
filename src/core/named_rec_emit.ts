@@ -6,7 +6,7 @@ import type {
   CoreArtifactEmitCtx,
   CoreArtifactEmitHooks,
   CoreArtifactEmitInput,
-} from "./artifact_emit.ts";
+} from "./artifact_emit_contract.ts";
 import { core_val_type_from_type_name } from "./type_static.ts";
 
 type NamedRecEmitInput = Omit<CoreArtifactEmitInput, "core_ctx">;

@@ -1,4 +1,4 @@
-import type { TypeExpr, TypePattern } from "../../frontend/ast.ts";
+import type { TypeExpr, TypePattern } from "../../type_syntax.ts";
 import type {
   CoreExpr,
   CoreField,

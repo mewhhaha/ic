@@ -1,6 +1,8 @@
 import type { Wat } from "../../wat.ts";
 import type { CoreExpr, CoreStmt } from "../ast.ts";
-import { fresh_temp_local, indent_lines, set_local } from "../backend/util.ts";
+import { fresh_temp_local } from "../emit/name.ts";
+import { indent_lines } from "../emit/format.ts";
+import { set_local } from "../emit/local.ts";
 import type { RuntimeUnionTarget } from "../runtime_union.ts";
 import { emit_runtime_union_match_payload_setup } from "../runtime_union_payload_emit.ts";
 import type { RuntimeUnionIfLetCtx, RuntimeUnionIfLetHooks } from "./types.ts";

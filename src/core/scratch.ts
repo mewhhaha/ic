@@ -1,6 +1,7 @@
 import type { ValType } from "../op.ts";
 import type { Wat } from "../wat.ts";
-import { fresh_temp_local, set_local } from "./backend/util.ts";
+import { fresh_temp_local } from "./emit/name.ts";
+import { set_local } from "./emit/local.ts";
 
 export const scratch_heap_global = "__scratch_heap";
 

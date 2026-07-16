@@ -60,8 +60,26 @@ closures, handlers, allocation, ownership, borrows, freezing, scratch lifetimes,
 host boundaries, and cleanup. Its proof and emission graph produces a `Mod`
 directly.
 
-Core may depend on frontend source types and on the shared Wasm module layer.
-Frontend semantic code must not depend on concrete Core emission instructions.
+Core source adapters may depend on frontend source types, and Core emission may
+depend on the shared Wasm module layer. Frontend semantic code must not depend
+on concrete Core emission instructions.
+
+Core dependencies flow in one direction:
+
+```txt
+model -> analysis -> plan -> emit -> backend
+```
+
+`core/model/` owns immutable allocation, ownership, union, and static-value
+contracts. `core/analysis/` owns pure field and static-value queries.
+Allocation, drop, cleanup, closure, and ownership modules build plans from those
+contracts. `core/emit/` owns WAT formatting, local declarations, and generated
+names, while `core/backend/` composes the public route. Source-language type
+syntax enters Core only through `core/from_source/` adapters.
+
+The dependency check rejects reverse layer imports, shared-frontend backend
+imports, Core imports that bypass `from_source`, and every multi-file strongly
+connected component. The checked baseline is empty, so any new finding fails CI.
 
 ## Managed route
 

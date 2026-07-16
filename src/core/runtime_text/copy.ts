@@ -1,5 +1,5 @@
 import type { Wat } from "../../wat.ts";
-import { indent_lines } from "../backend/util.ts";
+import { indent_lines } from "../emit/format.ts";
 import type { RuntimeTextConcatPlan, RuntimeTextSlicePlan } from "./plan.ts";
 
 export function emit_runtime_text_slice_copy(

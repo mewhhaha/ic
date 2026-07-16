@@ -6,7 +6,7 @@ import {
   concat_visible_text_values,
   slice_visible_text_value,
 } from "../text.ts";
-import type { BuiltinCallHooks } from "../builtin_call.ts";
+import type { BuiltinCallHooks } from "./hooks.ts";
 
 export function lower_text_operation_builtin_call(
   expr: Extract<FrontExpr, { tag: "app" }>,

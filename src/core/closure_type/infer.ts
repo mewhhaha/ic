@@ -1,5 +1,5 @@
 import { expect } from "../../expect.ts";
-import type { ResumeSignature } from "../../frontend/ast.ts";
+import type { ResumeSignature } from "../../type_syntax.ts";
 import type { CoreExpr, CoreFnType, CoreStmt } from "../ast.ts";
 import { clone_core_host_imports } from "../host_import.ts";
 import { bind_core_if_let_payload_fact } from "../if_let_payload.ts";

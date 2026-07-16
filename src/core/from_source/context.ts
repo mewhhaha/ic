@@ -6,7 +6,12 @@ import type {
 } from "../../frontend/ast.ts";
 import { format_type_expr, parse_type_expr } from "../../frontend/type_expr.ts";
 import { tokenize } from "../../frontend/tokenize.ts";
-import type { CoreExpr, CoreHostImportOwnerReason, CoreParam } from "../ast.ts";
+import type {
+  CoreExpr,
+  CoreHostImportOwnerReason,
+  CoreParam,
+  CoreStmt,
+} from "../ast.ts";
 
 export type CoreNamedRecSource = {
   params: CoreParam[];
@@ -21,13 +26,16 @@ export type CoreFromSourceCtx = {
   host_import_names: Set<string>;
   host_import_type_values: Map<string, CoreHostImportOwnerReason>;
   linear_names: Set<string>;
+  lower_stmt: (stmt: Stmt, ctx: CoreFromSourceCtx) => CoreStmt;
   fresh: { next: number };
   namedRecs: Map<string, CoreNamedRecSource>;
   scalar_annotation_aliases: Map<string, string>;
   type_set_aliases: Map<string, TypeExpr>;
 };
 
-export function create_core_from_source_ctx(): CoreFromSourceCtx {
+export function create_core_from_source_ctx(
+  lower_stmt: (stmt: Stmt, ctx: CoreFromSourceCtx) => CoreStmt,
+): CoreFromSourceCtx {
   return {
     aliases: new Map(),
     capability_methods: new Map(),
@@ -36,6 +44,7 @@ export function create_core_from_source_ctx(): CoreFromSourceCtx {
     host_import_names: new Set(),
     host_import_type_values: new Map(),
     linear_names: new Set(),
+    lower_stmt,
     fresh: { next: 0 },
     namedRecs: new Map(),
     scalar_annotation_aliases: new Map(),
@@ -54,6 +63,7 @@ export function fork_core_from_source_ctx(
     host_import_names: new Set(ctx.host_import_names),
     host_import_type_values: new Map(ctx.host_import_type_values),
     linear_names: new Set(ctx.linear_names),
+    lower_stmt: ctx.lower_stmt,
     fresh: ctx.fresh,
     namedRecs: new Map(ctx.namedRecs),
     scalar_annotation_aliases: new Map(ctx.scalar_annotation_aliases),

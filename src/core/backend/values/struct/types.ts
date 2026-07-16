@@ -1,7 +1,7 @@
 import type { ValType } from "../../../../op.ts";
 import type { CoreExpr, CoreField } from "../../../ast.ts";
 import type { StaticCtx } from "../../../local_collect.ts";
-import type { StaticStructIfBranches } from "../../../struct_static.ts";
+import type { StaticStructIfBranches } from "../../../model/static_value.ts";
 
 export type CoreBackendStructApi = {
   expr_type: (expr: CoreExpr, ctx: StaticCtx) => ValType;

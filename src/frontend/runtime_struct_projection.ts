@@ -3,7 +3,7 @@ import { Ic, type Ic as IcNode } from "../ic.ts";
 import type { Prim } from "../op.ts";
 import type { Env, FrontExpr, TypeField } from "./ast.ts";
 import { lookup } from "./env.ts";
-import type { RuntimeStructHooks } from "./runtime_struct.ts";
+import type { RuntimeStructHooks } from "./runtime_struct_hooks.ts";
 import { val_type_from_type_name } from "./types.ts";
 
 export function lower_runtime_struct_projection(

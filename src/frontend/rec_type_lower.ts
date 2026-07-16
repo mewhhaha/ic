@@ -2,15 +2,13 @@ import type { Ic as IcNode } from "../ic.ts";
 import type { Env, FrontExpr, FrontType } from "./ast.ts";
 import { infer_rec_expr } from "./rec_infer.ts";
 import type { StaticRecHooks } from "./rec_hooks.ts";
-import type { StaticRecBlockLowerer } from "./rec_result.ts";
+import type {
+  StaticRecBlockLowerer,
+  StaticRecExprLowerer,
+} from "./rec_contract.ts";
 import { lower_expr_as_front_type } from "./typed_lower.ts";
 
-export type StaticRecExprLowerer = (
-  expr: FrontExpr,
-  env: Env,
-  hooks: StaticRecHooks,
-  lower_static_rec_block: StaticRecBlockLowerer,
-) => IcNode;
+export type { StaticRecExprLowerer } from "./rec_contract.ts";
 
 export function lower_rec_expr_as_type(
   expr: FrontExpr,

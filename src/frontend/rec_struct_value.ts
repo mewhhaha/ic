@@ -2,8 +2,10 @@ import type { Ic as IcNode } from "../ic.ts";
 import type { Env, FrontExpr } from "./ast.ts";
 import { lookup_field } from "./fields.ts";
 import type { StaticRecHooks } from "./rec_hooks.ts";
-import type { StaticRecBlockLowerer } from "./rec_result.ts";
-import type { StaticRecExprLowerer } from "./rec_type_lower.ts";
+import type {
+  StaticRecBlockLowerer,
+  StaticRecExprLowerer,
+} from "./rec_contract.ts";
 
 export function lower_rec_struct_value(
   expr: Extract<FrontExpr, { tag: "struct_value" }>,

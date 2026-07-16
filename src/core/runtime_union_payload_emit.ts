@@ -1,13 +1,13 @@
 import { expect } from "../expect.ts";
 import type { Wat } from "../wat.ts";
 import type { CoreExpr } from "./ast.ts";
-import { find_core_field } from "./backend/util.ts";
+import { find_core_field } from "./analysis/field.ts";
 import { load_instr, store_instr } from "./memory.ts";
 import type { RuntimeUnionMatchInfo } from "./runtime_union.ts";
 import type {
   RuntimeUnionEmitCtx,
   RuntimeUnionEmitHooks,
-} from "./runtime_union_emit.ts";
+} from "./runtime_union_emit/types.ts";
 import type { RuntimeUnionBoundPayloadField } from "./runtime_union_match.ts";
 import type { RuntimeUnionPayloadField } from "./runtime_union_payload.ts";
 

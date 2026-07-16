@@ -1,4 +1,5 @@
-import type { CoreOwnership } from "./ownership.ts";
+import type { CoreOwnership } from "./model/ownership.ts";
+import type { CoreStorageClass } from "./model/storage.ts";
 import { core_ownership_result_text } from "./ownership.ts";
 import {
   core_borrow_lifetime_decision,
@@ -13,14 +14,7 @@ export type CoreEscapeEdge =
   | "freeze"
   | "scratch_return";
 
-export type CoreStorageClass =
-  | "scalar_local"
-  | "static_data"
-  | "persistent_unique_heap"
-  | "frozen_heap"
-  | "borrow_view"
-  | "scratch_arena"
-  | "rejected";
+export type { CoreStorageClass } from "./model/storage.ts";
 
 export type CoreEscapeAnalysis = {
   edge: CoreEscapeEdge;

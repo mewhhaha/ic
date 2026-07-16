@@ -1,5 +1,5 @@
-import { expect } from "../../../expect.ts";
-import type { ValType } from "../../../op.ts";
+import { expect } from "../../expect.ts";
+import type { ValType } from "../../op.ts";
 
 export function set_local(
   locals: Map<string, ValType>,

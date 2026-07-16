@@ -1,8 +1,10 @@
 import type { Ic as IcNode } from "../ic.ts";
 import type { Env, FrontExpr } from "./ast.ts";
 import type { StaticRecHooks } from "./rec_hooks.ts";
-import type { StaticRecBlockLowerer } from "./rec_result.ts";
-import type { StaticRecExprLowerer } from "./rec_type_lower.ts";
+import type {
+  StaticRecBlockLowerer,
+  StaticRecExprLowerer,
+} from "./rec_contract.ts";
 import { lower_rec_bound_if_let_union_result_app } from "./rec_union.ts";
 
 export function lower_rec_bound_value_app(

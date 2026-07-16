@@ -6,7 +6,7 @@ import {
 import type {
   CoreAllocationLayout,
   CoreAllocationReason,
-} from "./allocation.ts";
+} from "./model/allocation.ts";
 import type { CoreExpr } from "./ast.ts";
 
 export const allocator_alloc = "__alloc";

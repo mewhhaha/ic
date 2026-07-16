@@ -3,6 +3,8 @@ import type {
   FrontHostImportResultContract,
   Source as SourceNode,
 } from "../frontend/ast.ts";
+
+export type { Source as CoreSource } from "../frontend/ast.ts";
 import type {
   Core,
   CoreExpr,
@@ -21,7 +23,7 @@ import {
 import { core_stmt } from "./from_source/stmt.ts";
 
 export function core_from_source(source: SourceNode): Core {
-  const ctx = create_core_from_source_ctx();
+  const ctx = create_core_from_source_ctx(core_stmt);
   const host_imports: Record<string, CoreHostImport> = {};
   const statements: CoreStmt[] = [];
 

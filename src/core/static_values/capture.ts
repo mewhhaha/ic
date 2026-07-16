@@ -1,5 +1,6 @@
 import type { CoreExpr } from "../ast.ts";
-import { fresh_temp_local, set_local } from "../backend/util.ts";
+import { fresh_temp_local } from "../emit/name.ts";
+import { set_local } from "../emit/local.ts";
 import { record_core_expr_provenance } from "../subject_provenance.ts";
 import { static_block_result } from "../type_static.ts";
 import type {

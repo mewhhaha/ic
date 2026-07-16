@@ -2,8 +2,10 @@ import type { ValType } from "../../op.ts";
 import type { Wat } from "../../wat.ts";
 import type { CoreExpr, CoreFnType, CoreStmt } from "../ast.ts";
 import type { DynamicUnionIf } from "../if_let.ts";
-import type { StaticStructIfBranches } from "../struct_static.ts";
-import type { StaticTextIfBranches } from "../text_static.ts";
+import type {
+  StaticStructIfBranches,
+  StaticTextIfBranches,
+} from "../model/static_value.ts";
 import type { ScratchFreeStaticValueHooks } from "./scratch_free.ts";
 
 export type StaticValueCtx = {
