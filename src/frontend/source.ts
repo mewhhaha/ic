@@ -5,7 +5,6 @@ import {
   core_proof_diagnostic,
   type CoreProofIssue,
 } from "../core.ts";
-import { CompilerDiagnosticError } from "../diagnostic.ts";
 import { Ic } from "../ic.ts";
 import type { IcOpenOptions } from "../ic/open_term.ts";
 import { Mod, type Mod as ModNode } from "../mod.ts";
@@ -22,15 +21,10 @@ import {
   analyze_front_effects,
   type FrontEffectAnalysis,
 } from "./effect_analysis.ts";
-import { elaborate_front_effects } from "./effect_elaborate.ts";
-import { diagnose_ic_route, validate_ic_route } from "./ic_route.ts";
-import { validate_source_linear } from "./linear.ts";
-import { validate_atom_identities } from "./atom.ts";
-import { elaborate_front_type_sets } from "./type_set_elaborate.ts";
+import { diagnose_ic_route } from "./ic_route.ts";
 import {
   load_source,
   load_source_fragment_file,
-  resolve_bundled_source_imports,
   resolve_source_imports,
   source_file_url,
 } from "./load.ts";
@@ -43,28 +37,21 @@ import {
 import {
   source_import_expressions,
   type SourceImportResolver,
-  validate_source_import_context,
-  validate_source_imports,
 } from "./import_diagnostic.ts";
-import { validate_frontend_semantics } from "./semantic_validation.ts";
-import { elaborate_front_ducks } from "./duck_elaborate.ts";
-import { specialize_front_effects } from "./effect_specialize.ts";
 import { analyze_core_demand } from "../core/demand.ts";
-import { erase_undemanded_front_bindings } from "./demand.ts";
 import {
   source_diagnostic,
   type SourceDiagnostic,
   SourceDiagnosticError,
 } from "./semantic_diagnostic.ts";
+import type { SyntaxDiagnostic } from "./syntax.ts";
+import type { SourceFacts } from "./source_facts.ts";
 import {
-  derive_missing_source_spans,
-  type SyntaxDiagnostic,
-} from "./syntax.ts";
-import {
-  source_facts,
-  source_inference_diagnostics,
-  type SourceFacts,
-} from "./source_facts.ts";
+  analyze_frontend,
+  source_effects,
+  source_for_core_route,
+  source_for_ic_route,
+} from "./pipeline.ts";
 
 export type Source = SourceNode;
 
@@ -122,46 +109,8 @@ Source.analyze_parsed = function analyze_parsed(
     source = merge_host_interface(source, options.host_interface);
   }
 
-  const diagnostics: SourceDiagnostic[] = [];
-
-  for (const diagnostic of parsed.diagnostics) {
-    diagnostics.push({
-      code: "DUCK1001",
-      severity: "error",
-      message: diagnostic.message,
-      span: diagnostic.span,
-    });
-  }
-
-  if (options.uri !== undefined && options.resolve_import !== undefined) {
-    diagnostics.push(...validate_source_imports(
-      parsed.source,
-      options.uri,
-      options.resolve_import,
-    ));
-  } else {
-    diagnostics.push(...validate_source_import_context(source));
-  }
-
-  diagnostics.push(...validate_frontend_semantics(source, {
-    warnings: options.warnings,
-  }));
-
-  const facts = source_facts(source);
-
-  if (!has_error_diagnostic(diagnostics)) {
-    diagnostics.push(...source_inference_diagnostics(source, facts));
-  }
-
-  try {
-    validate_source_linear(source);
-  } catch (error) {
-    if (error instanceof CompilerDiagnosticError) {
-      diagnostics.push(error.diagnostic);
-    } else {
-      throw error;
-    }
-  }
+  const analysis = analyze_frontend(parsed, source, options);
+  const diagnostics = analysis.diagnostics;
 
   if (!has_error_diagnostic(diagnostics) && options.route === "ic") {
     diagnostics.push(...diagnose_ic_route(source));
@@ -184,7 +133,7 @@ Source.analyze_parsed = function analyze_parsed(
 
   return {
     source,
-    facts,
+    facts: analysis.facts,
     syntax: parsed.syntax,
     syntax_diagnostics: parsed.diagnostics,
     diagnostics,
@@ -205,16 +154,7 @@ Source.analyze_file = function analyze_file(
 };
 
 Source.emit = function emit(source: SourceNode): IcNode {
-  source = resolve_bundled_source_imports(source);
-  source = specialize_front_effects(source);
-  check_rank_n_inference(source);
-  validate_atom_identities(source);
-  validate_ic_route(source);
-  return lower_program(
-    elaborate_front_type_sets(
-      elaborate_front_effects(elaborate_front_ducks(source)),
-    ),
-  );
+  return lower_program(source_for_ic_route(source));
 };
 
 Source.fmt = format_source;
@@ -230,8 +170,7 @@ Source.effects = function effects(
     source = input;
   }
 
-  source = resolve_bundled_source_imports(source);
-  return analyze_front_effects(specialize_front_effects(source));
+  return source_effects(source);
 };
 
 Source.compile = function compile(text: string): IcNode {
@@ -298,7 +237,7 @@ function artifact_from_source(
   }
 
   source = source_with_managed_callable_exports(source);
-  const compiled_source = prepare_core_source(source);
+  const compiled_source = source_for_core_route(source);
   const abi = build_abi_manifest(source, compiled_source);
   const core = core_from_elaborated_source(compiled_source);
   const mod = managed_abi_mod(Core.mod(core, name), abi);
@@ -512,50 +451,10 @@ function merge_host_interface(
 }
 
 function core_from_source_with_internal_imports(source: SourceNode): CoreNode {
-  return core_from_elaborated_source(prepare_core_source(source));
-}
-
-function prepare_core_source(source: SourceNode): SourceNode {
-  source = resolve_bundled_source_imports(source);
-  derive_missing_source_spans(source, { start: 0, end: 0 });
-  source = specialize_front_effects(source);
-  check_rank_n_inference(source);
-  const diagnostics = validate_frontend_semantics(source, {
-    scope: "core-representation",
-  });
-
-  for (const diagnostic of diagnostics) {
-    if (diagnostic.severity === "error") {
-      throw new SourceDiagnosticError(diagnostic);
-    }
-  }
-
-  return erase_undemanded_front_bindings(
-    elaborate_front_type_sets(
-      elaborate_front_effects(elaborate_front_ducks(source)),
-    ),
-  );
-}
-
-function check_rank_n_inference(source: SourceNode): void {
-  const diagnostics = source_inference_diagnostics(
-    source,
-    source_facts(source),
-  );
-
-  for (const diagnostic of diagnostics) {
-    if (
-      diagnostic.severity === "error" &&
-      diagnostic.code === "DUCK2312"
-    ) {
-      throw new SourceDiagnosticError(diagnostic);
-    }
-  }
+  return core_from_elaborated_source(source_for_core_route(source));
 }
 
 function core_from_elaborated_source(source: SourceNode): CoreNode {
-  validate_atom_identities(source);
-  validate_source_linear(source);
   return analyze_core_demand(Core.from_source(source));
 }
 
