@@ -1,5 +1,5 @@
 import { expect } from "../../expect.ts";
-import type { FrontExpr, Stmt } from "../ast.ts";
+import type { FrontExpr, RecursiveBinding, Stmt } from "../ast.ts";
 import { expect_snake_case } from "../names.ts";
 import { module_value } from "../parser_support.ts";
 import { pattern_bindings } from "../pattern.ts";
@@ -51,6 +51,11 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
     }
 
     const pattern = this.parse_pattern();
+
+    if (pattern.tag === "value") {
+      expect_snake_case(pattern.name, "Parameter");
+    }
+
     const bindings = pattern_bindings(pattern);
     let name: string;
     let is_linear = false;
@@ -67,6 +72,45 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
     this.expect_symbol("=");
     this.skip_newlines();
     const value = this.parse_expr();
+    const mutual: RecursiveBinding[] = [];
+    const recursive_names = new Set([name]);
+
+    if (is_recursive) {
+      let checkpoint = this.index;
+      this.skip_newlines();
+
+      while (this.match_name("and")) {
+        const member_pattern = this.parse_pattern();
+        expect(
+          member_pattern.tag === "binding",
+          "Mutually recursive bindings require a name",
+        );
+        expect(
+          !recursive_names.has(member_pattern.name),
+          "Duplicate mutually recursive binding: " + member_pattern.name,
+        );
+        recursive_names.add(member_pattern.name);
+        this.expect_symbol("=");
+        this.skip_newlines();
+        const member: RecursiveBinding = {
+          pattern: member_pattern,
+          name: member_pattern.name,
+          is_linear: member_pattern.mode === "linear",
+          annotation: member_pattern.annotation,
+          value: this.parse_expr(),
+        };
+
+        if (member_pattern.type_annotation !== undefined) {
+          member.type_annotation = member_pattern.type_annotation;
+        }
+
+        mutual.push(member);
+        checkpoint = this.index;
+        this.skip_newlines();
+      }
+
+      this.index = checkpoint;
+    }
 
     for (const binding of bindings) {
       if (binding.mode === "linear") {
@@ -89,6 +133,10 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
 
     if (pattern.tag === "binding" && pattern.type_annotation) {
       stmt.type_annotation = pattern.type_annotation;
+    }
+
+    if (mutual.length > 0) {
+      stmt.mutual = mutual;
     }
 
     if (

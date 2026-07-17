@@ -48,11 +48,11 @@ export abstract class ParserExpr extends ParserPrimary {
 
   private parse_arrow(): FrontExpr {
     const start = this.index;
-    const expr = this.parse_arrow_inner();
+    const expr = this.parse_arrow_inner(start);
     return this.concrete_node(start, expr);
   }
 
-  private parse_arrow_inner(): FrontExpr {
+  private parse_arrow_inner(source_offset: number): FrontExpr {
     if (
       this.#stop_arrow === 0 && this.peek().kind === "name" &&
       this.peek().text === "rec" && this.starts_pattern_arrow(1)
@@ -63,7 +63,7 @@ export abstract class ParserExpr extends ParserPrimary {
       return {
         tag: "rec",
         pattern,
-        params: pattern_params(pattern),
+        params: pattern_params(pattern, source_offset),
         body: this.parse_arrow_body(pattern),
       };
     }
@@ -74,7 +74,7 @@ export abstract class ParserExpr extends ParserPrimary {
       return {
         tag: "lam",
         pattern,
-        params: pattern_params(pattern),
+        params: pattern_params(pattern, source_offset),
         body: this.parse_arrow_body(pattern),
       };
     }
@@ -718,20 +718,123 @@ function normalize_boolean_expr(expr: FrontExpr): FrontExpr {
   };
 }
 
-function pattern_params(pattern: Pattern): Param[] {
-  return pattern_bindings(pattern).map((binding) => {
-    const param: Param = {
-      name: binding.name,
-      is_const: binding.mode === "const",
-      is_linear: binding.mode === "linear",
-      annotation: binding.annotation,
-    };
+function pattern_params(pattern: Pattern, source_offset: number): Param[] {
+  if (pattern.tag === "unit") {
+    return [];
+  }
 
-    if (binding.type_annotation) {
-      param.type_annotation = binding.type_annotation;
+  if (
+    pattern.tag === "binding" ||
+    (pattern.tag === "product" &&
+      (pattern.value_pack === true ||
+        product_pattern_binds_every_leaf(pattern)))
+  ) {
+    if (pattern.tag === "product") {
+      return product_pattern_params(pattern, source_offset, { next: 0 });
     }
 
-    return inherit_source_span(param, binding);
+    return pattern_bindings(pattern).map((binding) => {
+      const param: Param = {
+        name: binding.name,
+        is_const: binding.mode === "const",
+        is_linear: binding.mode === "linear",
+        annotation: binding.annotation,
+      };
+
+      if (binding.type_annotation) {
+        param.type_annotation = binding.type_annotation;
+      }
+
+      return inherit_source_span(param, binding);
+    });
+  }
+
+  if (
+    pattern.tag === "literal" || pattern.tag === "value" ||
+    pattern.tag === "wildcard" || pattern.tag === "type" ||
+    pattern.tag === "union_case" || pattern.tag === "product" ||
+    pattern.tag === "record" || pattern.tag === "array"
+  ) {
+    const param: Param = {
+      name: "_pattern#param" + source_offset.toString(),
+      is_const: pattern.tag === "value" || pattern.tag === "type",
+      is_linear: false,
+      annotation: undefined,
+    };
+    return [inherit_source_span(param, pattern)];
+  }
+
+  pattern satisfies never;
+  throw new Error("Unsupported function pattern");
+}
+
+function product_pattern_params(
+  pattern: Extract<Pattern, { tag: "product" }>,
+  source_offset: number,
+  ignored: { next: number },
+): Param[] {
+  const params: Param[] = [];
+
+  for (const entry of pattern.entries) {
+    if (entry.pattern.tag === "binding") {
+      const param: Param = {
+        name: entry.pattern.name,
+        is_const: entry.pattern.mode === "const",
+        is_linear: entry.pattern.mode === "linear",
+        annotation: entry.pattern.annotation,
+      };
+
+      if (entry.pattern.type_annotation !== undefined) {
+        param.type_annotation = entry.pattern.type_annotation;
+      }
+
+      params.push(inherit_source_span(param, entry.pattern));
+      continue;
+    }
+
+    if (entry.pattern.tag === "wildcard") {
+      const param: Param = {
+        name: "_pattern#ignored" + source_offset.toString() + "#" +
+          ignored.next.toString(),
+        is_const: entry.pattern.mode === "const",
+        is_linear: false,
+        annotation: undefined,
+      };
+      ignored.next += 1;
+      params.push(inherit_source_span(param, entry.pattern));
+      continue;
+    }
+
+    if (entry.pattern.tag === "product") {
+      params.push(
+        ...product_pattern_params(entry.pattern, source_offset, ignored),
+      );
+      continue;
+    }
+
+    throw new Error("Unsupported flattened product function pattern");
+  }
+
+  return params;
+}
+
+function product_pattern_binds_every_leaf(
+  pattern: Extract<Pattern, { tag: "product" }>,
+): boolean {
+  return pattern.entries.every((entry) => {
+    if (entry.pattern.tag === "binding") {
+      return true;
+    }
+
+    if (entry.pattern.tag === "wildcard") {
+      return true;
+    }
+
+    if (entry.pattern.tag === "product") {
+      return product_pattern_binds_every_leaf(entry.pattern);
+    }
+
+    return false;
   });
 }
 

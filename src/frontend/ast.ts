@@ -41,7 +41,13 @@ export type DuckDeclaration = {
   tag: "duck";
   name: string;
   roles: string[];
+  types: DuckTypeMember[];
   members: DuckMember[];
+};
+
+export type DuckTypeMember = {
+  name: string;
+  default_type: TypeExpr | undefined;
 };
 
 export type DuckMember = {
@@ -52,7 +58,13 @@ export type DuckMember = {
 export type ExtensionDeclaration = {
   tag: "extend";
   type_name: string;
+  types: ExtensionTypeMember[];
   fields: Field[];
+};
+
+export type ExtensionTypeMember = {
+  name: string;
+  type_expr: TypeExpr;
 };
 
 export type FixityDeclaration = {
@@ -148,9 +160,10 @@ export type Pattern =
   | { tag: "wildcard"; mode: "default" | "const" }
   | { tag: "unit" }
   | { tag: "literal"; value: PatternLiteral }
+  | { tag: "value"; name: string }
   | { tag: "type"; pattern: TypePattern }
   | { tag: "union_case"; name: string; value: Pattern | undefined }
-  | { tag: "product"; entries: ProductPatternEntry[] }
+  | { tag: "product"; entries: ProductPatternEntry[]; value_pack?: true }
   | { tag: "record"; fields: RecordPatternField[]; rest: Pattern | undefined }
   | { tag: "array"; items: Pattern[]; rest: Pattern | undefined };
 
@@ -186,6 +199,15 @@ export type HandlerReturnClause = {
   body: FrontExpr;
 };
 
+export type RecursiveBinding = {
+  pattern: Pattern;
+  name: string;
+  is_linear: boolean;
+  annotation: string | undefined;
+  type_annotation?: TypeExpr;
+  value: FrontExpr;
+};
+
 export type Stmt =
   | { tag: "import"; name: string; path: string }
   | { tag: "host_import"; value: FrontHostImport }
@@ -200,6 +222,7 @@ export type Stmt =
     annotation: string | undefined;
     type_annotation?: TypeExpr;
     effectful?: boolean;
+    mutual?: RecursiveBinding[];
     value: FrontExpr;
   }
   | {
@@ -275,7 +298,7 @@ export type FrontExpr =
     resume_payload?: boolean;
     operator_syntax?: OperatorSyntax;
   }
-  | { tag: "product"; entries: ProductExprEntry[] }
+  | { tag: "product"; entries: ProductExprEntry[]; value_pack?: true }
   | { tag: "shape"; entries: ProductExprEntry[] }
   | {
     tag: "array";

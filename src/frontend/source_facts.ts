@@ -28,6 +28,10 @@ import {
   integer_type_name,
 } from "../integer.ts";
 import { format_type_expr, parse_type_expr } from "./type_expr.ts";
+import {
+  const_i32_value,
+  expanded_type_product_entries,
+} from "./fixed_array_type.ts";
 import { tokenize } from "./tokenize.ts";
 import { f32x4_builtin_prim, numeric_builtin_prim } from "../op.ts";
 import { diagnostic_codes, type DiagnosticCode } from "../diagnostic.ts";
@@ -606,6 +610,7 @@ class SourceFactRecorder {
   >();
   readonly closure_calls: ClosureCallContext[] = [];
   readonly builtin_aliases = new Map<string, string>();
+  readonly const_values = new Map<string, FrontExpr>();
   replaying_closure = false;
 
   constructor(readonly source: Source) {
@@ -629,6 +634,7 @@ class SourceFactRecorder {
       let value: SourceAggregateTypeValue | undefined;
 
       if (statement.tag === "bind" && statement.kind === "const") {
+        this.const_values.set(statement.name, statement.value);
         value = source_aggregate_type_value(statement.value);
 
         if (value !== undefined) {
@@ -888,6 +894,38 @@ class SourceFactRecorder {
     scope: Scope,
     break_types: (SourceTypeFact | undefined)[] | undefined,
   ): SourceTypeFact | undefined {
+    if (statement.tag === "bind" && statement.mutual !== undefined) {
+      const group = [
+        { ...statement, mutual: undefined },
+        ...statement.mutual.map((member): Extract<Stmt, { tag: "bind" }> => ({
+          tag: "bind",
+          kind: "let",
+          is_recursive: true,
+          ...member,
+        })),
+      ];
+
+      for (const member of group) {
+        const declared = this.type_from_annotation(
+          member.annotation,
+          member.type_annotation,
+        );
+        if (declared !== undefined) {
+          scope.set(member.name, declared);
+        } else {
+          scope.set(member.name, named_type("unknown"));
+        }
+      }
+
+      let result: SourceTypeFact | undefined;
+
+      for (const member of group) {
+        result = this.record_statement(member, scope, break_types);
+      }
+
+      return result;
+    }
+
     if (statement.tag === "bind") {
       const declared = this.type_from_annotation(
         statement.annotation,
@@ -2262,6 +2300,14 @@ class SourceFactRecorder {
       }
     }
 
+    if (
+      expr.pattern !== undefined && expr.params.length === 1 &&
+      expr.pattern.tag !== "binding" && expr.pattern.tag !== "unit" &&
+      !(expr.pattern.tag === "product" && expr.pattern.value_pack === true)
+    ) {
+      this.record_pattern_bindings(expr.pattern, params[0], body_scope);
+    }
+
     const return_types: (SourceTypeFact | undefined)[] = [];
     this.return_type_stack.push(return_types);
     let contextual_result: SourceTypeFact | undefined;
@@ -2648,7 +2694,8 @@ class SourceFactRecorder {
 
     if (
       pattern.tag === "wildcard" || pattern.tag === "unit" ||
-      pattern.tag === "literal" || pattern.tag === "type"
+      pattern.tag === "literal" || pattern.tag === "value" ||
+      pattern.tag === "type"
     ) {
       return;
     }
@@ -3507,7 +3554,7 @@ class SourceFactRecorder {
           params.push(this.resolve_type_expr(item, substitutions, resolving));
         }
       } else if (type_expr.param.tag === "product") {
-        for (const entry of type_expr.param.entries) {
+        for (const entry of this.type_product_entries(type_expr.param)) {
           params.push(
             this.resolve_type_expr(entry.type_expr, substitutions, resolving),
           );
@@ -3594,9 +3641,10 @@ class SourceFactRecorder {
 
     if (type_expr.tag === "product") {
       const fields: SourceFieldTypeFact[] = [];
+      const type_entries = this.type_product_entries(type_expr);
 
-      for (let index = 0; index < type_expr.entries.length; index += 1) {
-        const entry = type_expr.entries[index];
+      for (let index = 0; index < type_entries.length; index += 1) {
+        const entry = type_entries[index];
 
         if (entry === undefined) {
           throw new Error(
@@ -3805,6 +3853,42 @@ class SourceFactRecorder {
 
   parameter_type(param: Param): SourceTypeFact | undefined {
     return this.type_from_annotation(param.annotation, param.type_annotation);
+  }
+
+  type_product_entries(
+    type: Extract<TypeExpr, { tag: "product" }>,
+  ): Extract<TypeExpr, { tag: "product" }>["entries"] {
+    try {
+      return expanded_type_product_entries(
+        type,
+        (name) => this.const_i32_name(name, new Set()),
+      );
+    } catch (error) {
+      if (error instanceof Error) {
+        return type.entries;
+      }
+
+      throw error;
+    }
+  }
+
+  const_i32_name(name: string, resolving: Set<string>): number | undefined {
+    if (resolving.has(name)) {
+      return undefined;
+    }
+
+    const value = this.const_values.get(name);
+
+    if (value === undefined) {
+      return undefined;
+    }
+
+    const next = new Set(resolving);
+    next.add(name);
+    return const_i32_value(
+      value,
+      (nested_name) => this.const_i32_name(nested_name, next),
+    );
   }
 
   union_payload_type(

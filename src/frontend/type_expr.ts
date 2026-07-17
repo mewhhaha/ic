@@ -236,10 +236,43 @@ class TypeExprParser {
       const first = this.parse_product_entry();
       expect(
         first.label === undefined,
-        "Product types use `[...]`",
+        "Value-pack types cannot have labels",
       );
-      this.expect_symbol(")");
-      return first.type_expr;
+
+      if (this.match_array_separator()) {
+        const repeat = this.parse_array_length(0);
+        this.expect_symbol(")");
+        return {
+          tag: "product",
+          entries: [first],
+          value_pack: true,
+          repeat,
+        };
+      }
+
+      if (this.match_symbol(")")) {
+        return first.type_expr;
+      }
+
+      this.expect_symbol(",");
+      const entries = [first];
+
+      while (true) {
+        const entry = this.parse_product_entry();
+        expect(
+          entry.label === undefined,
+          "Value-pack types cannot have labels",
+        );
+        entries.push(entry);
+
+        if (this.match_symbol(")")) {
+          break;
+        }
+
+        this.expect_symbol(",");
+      }
+
+      return { tag: "product", entries, value_pack: true };
     }
 
     const token = this.peek();
@@ -506,6 +539,18 @@ function format(type: TypeExpr, parent_precedence: number): string {
 
       return text;
     });
+    if (type.repeat !== undefined) {
+      expect(
+        entries.length === 1 && type.value_pack === true,
+        "Repeated value pack must have exactly one element type",
+      );
+      return "(" + entries[0] + "; " +
+        format_array_length(type.repeat, 0) + ")";
+    }
+    if (type.value_pack === true) {
+      return "(" + entries.join(", ") + ")";
+    }
+
     return "[" + entries.join(", ") + "]";
   }
 

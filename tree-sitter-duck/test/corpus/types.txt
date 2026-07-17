@@ -1,4 +1,89 @@
 ==================
+Function value patterns
+==================
+
+let structural = { a: I32 } => ()
+let exact = I32 => ()
+let literal = 42 => ()
+
+---
+
+(source_file
+  (binding_statement
+    name: (identifier)
+    value: (arrow_function
+      parameters: (function_shape_pattern
+        (function_shape_pattern_field
+          name: (identifier)
+          type: (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier)))))))
+      body: (postfix_expression
+        (unit_pattern))))
+  (binding_statement
+    name: (identifier)
+    value: (arrow_function
+      parameters: (identifier)
+      body: (postfix_expression
+        (unit_pattern))))
+  (binding_statement
+    name: (identifier)
+    value: (arrow_function
+      parameters: (number)
+      body: (postfix_expression
+        (unit_pattern)))))
+
+==================
+Repeated value-pack types
+==================
+
+let sum: (I32; 3) -> I32 = (a, b, c) => a + b + c
+
+---
+
+(source_file
+  (binding_statement
+    name: (identifier)
+    type: (type_reference
+      (function_type
+        parameter: (type_union
+          (type_intersection
+            (type_difference
+              (type_product
+                (positional_type_product
+                  element: (type_reference
+                    (type_union
+                      (type_intersection
+                        (type_difference
+                          (identifier)))))
+                  length: (postfix_expression
+                    (number)))))))
+        result: (type_union
+          (type_intersection
+            (type_difference
+              (identifier))))))
+    value: (arrow_function
+      parameters: (parameter_list
+        (parameter
+          name: (identifier))
+        (parameter
+          name: (identifier))
+        (parameter
+          name: (identifier)))
+      body: (binary_expression
+        left: (binary_expression
+          left: (postfix_expression
+            (identifier))
+          operator: (operator_symbol)
+          right: (postfix_expression
+            (identifier)))
+        operator: (operator_symbol)
+        right: (postfix_expression
+          (identifier))))))
+
+==================
 Rank-N function types
 ==================
 

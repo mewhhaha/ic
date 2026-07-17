@@ -30,6 +30,35 @@ Deno.test("structural duck members resolve through typed Wasm intrinsics", () =>
   assert_equals(occurrence_count(wat, "i32.add"), 1);
 });
 
+Deno.test("duck associated types are supplied by extensions", async () => {
+  const text = `
+duck Predicate Self {
+  type Output
+  .test = Self -> Output
+}
+
+extend I32 {
+  type Output = I32
+  .test = value => value + 1
+}
+
+Predicate.test 41
+`;
+  assert_equals(Source.analyze(text).diagnostics, []);
+  const instance = await instantiate_wat(
+    Source.wat(text),
+    "duck_associated_type",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing associated type main export");
+  }
+
+  assert_equals(main(), 42);
+});
+
 Deno.test("declared operators preserve associativity across duck results", () => {
   const wat = Source.wat(
     add_duck +
@@ -1035,6 +1064,22 @@ comptime Add [I32, I32, I32]
 0
 `),
     "requires role Output to be I32, got Bool",
+  );
+
+  assert_throws(
+    () =>
+      Source.emit(Source.parse(`
+duck Predicate Self {
+  type Output
+  .test = Self -> Output
+}
+extend I32 {
+  .test = value => value
+}
+comptime Predicate I32
+0
+`)),
+    "Missing associated type Predicate.Output for I32",
   );
 });
 

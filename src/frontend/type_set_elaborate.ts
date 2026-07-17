@@ -20,7 +20,11 @@ import {
 } from "./semantic_type.ts";
 import { substitute_front_expr } from "./substitute.ts";
 import { front_type_value_for_semantic_type } from "./type_declaration.ts";
-import { format_type_expr, parse_type_expr } from "./type_expr.ts";
+import {
+  format_type_expr,
+  function_type_expr,
+  parse_type_expr,
+} from "./type_expr.ts";
 import { tokenize } from "./tokenize.ts";
 import {
   constant_repeat_length,
@@ -36,6 +40,7 @@ import {
 import { resolve_comptime_type } from "./comptime_value.ts";
 import { lookup_field } from "./fields.ts";
 import { format_expr } from "./format.ts";
+import { format_pattern } from "./format/common.ts";
 import { normalize_fixed_array_type_lengths } from "./fixed_array_type.ts";
 import { is_builtin_type_name } from "./types.ts";
 
@@ -764,16 +769,23 @@ function function_pattern_requires_projection(
   pattern: Pattern | undefined,
   params: Param[],
 ): boolean {
-  if (pattern === undefined || pattern.tag === "binding") {
+  if (
+    pattern === undefined || pattern.tag === "binding" ||
+    pattern.tag === "unit" ||
+    (pattern.tag === "product" &&
+      (pattern.value_pack === true || flattenable_product_pattern(pattern)))
+  ) {
     return false;
   }
 
-  if (params.some((param) => param.is_const || param.is_linear)) {
+  if (
+    pattern.tag !== "value" && pattern.tag !== "type" &&
+    params.some((param) => param.is_const || param.is_linear)
+  ) {
     return false;
   }
 
-  return pattern.tag === "wildcard" || pattern.tag === "product" ||
-    pattern.tag === "record" || pattern.tag === "array";
+  return true;
 }
 
 function elaborate_pattern_bindings(
@@ -815,8 +827,8 @@ function elaborate_pattern_bindings(
   }
 
   if (
-    pattern.tag === "literal" || pattern.tag === "union_case" ||
-    pattern.tag === "type"
+    pattern.tag === "literal" || pattern.tag === "value" ||
+    pattern.tag === "union_case" || pattern.tag === "type"
   ) {
     throw new Error(
       "Refutable " + pattern.tag +
@@ -1380,7 +1392,28 @@ function rewrite_statement(stmt: Stmt, scope: TypeSetScope): Stmt {
       return stmt;
 
     case "bind": {
-      let value = rewrite_expr(stmt.value, scope);
+      const normalized_type_annotation = normalize_scope_type_expr(
+        stmt.type_annotation,
+        scope,
+      );
+      let source_value = stmt.value;
+      const function_type = function_type_expr(normalized_type_annotation);
+
+      if (
+        function_type !== undefined &&
+        (source_value.tag === "lam" || source_value.tag === "rec") &&
+        source_value.params.length === 1 &&
+        source_value.params[0]?.name.startsWith("_pattern#param")
+      ) {
+        const param = source_value.params[0];
+        expect(param, "Missing structural function parameter");
+        source_value = {
+          ...source_value,
+          params: [{ ...param, type_annotation: function_type.param }],
+        };
+      }
+
+      let value = rewrite_expr(source_value, scope);
       const annotation = lower_direct_type_set_annotation(
         stmt.annotation,
         scope,
@@ -1434,10 +1467,7 @@ function rewrite_statement(stmt: Stmt, scope: TypeSetScope): Stmt {
       return {
         ...stmt,
         annotation,
-        type_annotation: normalize_scope_type_expr(
-          stmt.type_annotation,
-          scope,
-        ),
+        type_annotation: normalized_type_annotation,
         value,
       };
     }
@@ -1879,6 +1909,13 @@ function elaborate_match_arm(
     throw new Error("Type match must be elaborated at compile time");
   }
 
+  if (arm.pattern.tag === "value") {
+    throw new Error(
+      "Compile-time value pattern must be specialized before lowering: " +
+        arm.pattern.name,
+    );
+  }
+
   if (arm.pattern.tag === "union_case") {
     const branch = clone_scope(scope);
     let value_name: string | undefined;
@@ -2148,6 +2185,10 @@ function validate_match_coverage(
       continue;
     }
 
+    if (arm.pattern.tag === "value") {
+      continue;
+    }
+
     if (arm.pattern.tag === "union_case") {
       const case_name = arm.pattern.name;
 
@@ -2316,50 +2357,22 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
         normalize_scope_param(param, scope)
       );
 
-      if (
-        expr.tag === "rec" &&
-        function_pattern_requires_projection(expr.pattern, params)
-      ) {
+      if (function_pattern_requires_projection(expr.pattern, params)) {
         const pattern = expr.pattern;
         expect(pattern, "Missing function parameter pattern");
         const param_name = fresh_pattern_parameter_name(scope);
         const is_linear = pattern_bindings(pattern).some((binding) => {
           return binding.mode === "linear";
         });
+        const original_param = params[0];
         let type_annotation: TypeExpr | undefined;
 
-        if (pattern.tag === "product") {
-          const entries: Extract<TypeExpr, { tag: "product" }>["entries"] = [];
+        if (original_param !== undefined) {
+          type_annotation = original_param.type_annotation;
+        }
 
-          for (const entry of pattern.entries) {
-            if (entry.pattern.tag !== "binding") {
-              entries.length = 0;
-              break;
-            }
-
-            let entry_type = entry.pattern.type_annotation;
-
-            if (
-              entry_type === undefined &&
-              entry.pattern.annotation !== undefined
-            ) {
-              entry_type = {
-                tag: "name",
-                name: entry.pattern.annotation,
-              };
-            }
-
-            if (entry_type === undefined) {
-              entries.length = 0;
-              break;
-            }
-
-            entries.push({ label: entry.label, type_expr: entry_type });
-          }
-
-          if (entries.length === pattern.entries.length) {
-            type_annotation = { tag: "product", entries };
-          }
+        if (type_annotation === undefined) {
+          type_annotation = structural_pattern_type(pattern);
         }
 
         const param: Param = {
@@ -2373,10 +2386,55 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
           param.type_annotation = type_annotation;
         }
         const body_scope = scope_for_params([param], scope);
+        const source: FrontExpr = { tag: "var", name: param_name };
+
+        if (
+          pattern.tag === "literal" || pattern.tag === "union_case" ||
+          pattern.tag === "type"
+        ) {
+          const message: FrontExpr = {
+            tag: "text",
+            value: "Function argument does not match " +
+              format_pattern(pattern),
+          };
+          const panic: FrontExpr = {
+            tag: "app",
+            func: { tag: "var", name: "@panic" },
+            arg: message,
+            args: [message],
+          };
+          return {
+            ...expr,
+            pattern,
+            params: [param],
+            body: rewrite_expr({
+              tag: "match",
+              target: source,
+              arms: [
+                { pattern, guard: undefined, body: expr.body },
+                {
+                  pattern: { tag: "wildcard", mode: "default" },
+                  guard: undefined,
+                  body: panic,
+                },
+              ],
+            }, body_scope),
+          };
+        }
+
+        if (pattern.tag === "value") {
+          return {
+            ...expr,
+            pattern,
+            params: [{ ...param, is_const: true }],
+            body: rewrite_expr(expr.body, body_scope),
+          };
+        }
+
         const bindings: Stmt[] = [];
         elaborate_pattern_bindings(
           pattern,
-          { tag: "var", name: param_name },
+          source,
           undefined,
           undefined,
           bindings,
@@ -2410,6 +2468,41 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
       }
 
       let args = expr.args.map((item) => rewrite_expr(item, scope));
+      const product_pattern = callable_product_pattern(func, scope, new Set());
+
+      if (
+        product_pattern !== undefined &&
+        flattenable_product_pattern(product_pattern) && args.length === 1
+      ) {
+        const source = args[0];
+        expect(source !== undefined, "Missing structural function argument");
+        args = flatten_product_pattern_arguments(product_pattern, source);
+        arg = {
+          tag: "product",
+          entries: args.map((value) => ({ value })),
+          value_pack: true,
+        };
+      }
+      const value_pattern = callable_value_pattern(func, scope, new Set());
+
+      if (value_pattern !== undefined) {
+        expect(
+          args.length === 1,
+          "Value-pattern function expects exactly one argument: " +
+            value_pattern.name,
+        );
+        const value = args[0];
+        expect(value !== undefined, "Missing value-pattern function argument");
+
+        if (!named_value_pattern_matches(value_pattern.name, value, scope)) {
+          throw new Error(
+            "Function argument does not match " + value_pattern.name + ": " +
+              format_expr(value),
+          );
+        }
+
+        return rewrite_expr(value_pattern.body, scope);
+      }
       const unconstrained_arg = arg;
       arg = contextualize_union_call_payload(func, arg, scope);
 
@@ -3014,6 +3107,210 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
       return { ...expr, value, type_expr };
     }
   }
+}
+
+function callable_value_pattern(
+  expr: FrontExpr,
+  scope: TypeSetScope,
+  resolving: Set<string>,
+): { name: string; body: FrontExpr } | undefined {
+  if (expr.tag === "lam") {
+    if (expr.pattern?.tag === "value") {
+      return { name: expr.pattern.name, body: expr.body };
+    }
+
+    return undefined;
+  }
+
+  if (expr.tag === "rec" && expr.pattern?.tag === "value") {
+    throw new Error("Recursive value-pattern functions are not supported");
+  }
+
+  if (expr.tag === "captured" || expr.tag === "comptime") {
+    return callable_value_pattern(expr.expr, scope, resolving);
+  }
+
+  if (expr.tag !== "var" || resolving.has(expr.name)) {
+    return undefined;
+  }
+
+  const binding = scope.bindings.get(expr.name);
+
+  if (binding?.value === undefined) {
+    return undefined;
+  }
+
+  const next = new Set(resolving);
+  next.add(expr.name);
+  return callable_value_pattern(binding.value, scope, next);
+}
+
+function callable_product_pattern(
+  expr: FrontExpr,
+  scope: TypeSetScope,
+  resolving: Set<string>,
+): Extract<Pattern, { tag: "product" }> | undefined {
+  if (expr.tag === "lam" || expr.tag === "rec") {
+    if (expr.pattern?.tag === "product") {
+      return expr.pattern;
+    }
+
+    return undefined;
+  }
+
+  if (expr.tag === "captured" || expr.tag === "comptime") {
+    return callable_product_pattern(expr.expr, scope, resolving);
+  }
+
+  if (expr.tag !== "var" || resolving.has(expr.name)) {
+    return undefined;
+  }
+
+  const binding = scope.bindings.get(expr.name);
+
+  if (binding?.value === undefined) {
+    return undefined;
+  }
+
+  const next = new Set(resolving);
+  next.add(expr.name);
+  return callable_product_pattern(binding.value, scope, next);
+}
+
+function flattenable_product_pattern(
+  pattern: Extract<Pattern, { tag: "product" }>,
+): boolean {
+  if (pattern.value_pack === true) {
+    return false;
+  }
+
+  return pattern.entries.every((entry) => {
+    if (entry.pattern.tag === "binding") {
+      return true;
+    }
+
+    if (entry.pattern.tag === "wildcard") {
+      return true;
+    }
+
+    if (entry.pattern.tag === "product") {
+      return flattenable_product_pattern(entry.pattern);
+    }
+
+    return false;
+  });
+}
+
+function flatten_product_pattern_arguments(
+  pattern: Extract<Pattern, { tag: "product" }>,
+  source: FrontExpr,
+): FrontExpr[] {
+  const args: FrontExpr[] = [];
+
+  for (let index = 0; index < pattern.entries.length; index += 1) {
+    const entry = pattern.entries[index];
+    expect(entry, "Missing structural function pattern entry");
+    let projected: FrontExpr;
+    let direct: FrontExpr | undefined;
+
+    if (source.tag === "product") {
+      if (entry.label === undefined) {
+        direct = source.entries[index]?.value;
+      } else {
+        direct = source.entries.find((candidate) => {
+          return candidate.label === entry.label;
+        })?.value;
+      }
+    }
+
+    if (direct !== undefined) {
+      projected = direct;
+    } else if (entry.label !== undefined) {
+      projected = { tag: "field", object: source, name: entry.label };
+    } else {
+      projected = {
+        tag: "index",
+        object: source,
+        index: { tag: "num", type: "i32", value: index },
+      };
+    }
+
+    if (entry.pattern.tag === "product") {
+      args.push(...flatten_product_pattern_arguments(entry.pattern, projected));
+    } else {
+      args.push(projected);
+    }
+  }
+
+  return args;
+}
+
+function structural_pattern_type(pattern: Pattern): TypeExpr | undefined {
+  if (pattern.tag === "binding") {
+    if (pattern.type_annotation !== undefined) {
+      return pattern.type_annotation;
+    }
+
+    if (pattern.annotation !== undefined) {
+      return { tag: "name", name: pattern.annotation };
+    }
+
+    return undefined;
+  }
+
+  if (pattern.tag !== "product") {
+    return undefined;
+  }
+
+  const entries: Extract<TypeExpr, { tag: "product" }>["entries"] = [];
+
+  for (const entry of pattern.entries) {
+    const type_expr = structural_pattern_type(entry.pattern);
+
+    if (type_expr === undefined) {
+      return undefined;
+    }
+
+    entries.push({ label: entry.label, type_expr });
+  }
+
+  const type: Extract<TypeExpr, { tag: "product" }> = {
+    tag: "product",
+    entries,
+  };
+
+  if (pattern.value_pack === true) {
+    type.value_pack = true;
+  }
+
+  return type;
+}
+
+function named_value_pattern_matches(
+  expected_name: string,
+  actual: FrontExpr,
+  scope: TypeSetScope,
+): boolean {
+  if (actual.tag === "var" && actual.name === expected_name) {
+    return true;
+  }
+
+  const expected = resolve_front_type_value(
+    { tag: "var", name: expected_name },
+    scope.type_values,
+    new Set(),
+  );
+  const resolved_actual = resolve_front_type_value(
+    actual,
+    scope.type_values,
+    new Set(),
+  );
+
+  if (expected === undefined || resolved_actual === undefined) {
+    return false;
+  }
+
+  return format_expr(expected) === format_expr(resolved_actual);
 }
 
 function relabel_product_type_expr(

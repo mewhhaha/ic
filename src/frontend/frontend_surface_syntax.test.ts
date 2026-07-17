@@ -229,8 +229,8 @@ Deno.test("compiler functions retain their intrinsic prefix", () => {
   assert_equals(
     format_source(source),
     "let append = [left, right] => left\n" +
-      'let compiler_value = @append ["a", "b"]\n' +
-      'let user_value = append ["a", "b"]',
+      'let compiler_value = @append ("a", "b")\n' +
+      'let user_value = append ("a", "b")',
   );
 });
 

@@ -1,0 +1,46 @@
+const mixer_module = import "./mixer.duck"
+const sequence_module = import "./sequence.duck"
+const folder_module = import "./folder.duck"
+const pipeline_module = import "./pipeline.duck"
+
+const mixer = comptime mixer_module(7)
+const sequence = comptime sequence_module(7)
+const folder = comptime folder_module(11)
+const pipeline = comptime pipeline_module(4)
+
+let rec mix = (state, remaining) => {
+  if remaining == 0 {
+    state
+  } else {
+    mix(state * mixer.factor + mixer.salt, remaining - 1)
+  }
+}
+
+let rec advance = (left, right, remaining) => {
+  if remaining == 0 {
+    left
+  } else {
+    advance(right, left + right + sequence.increment, remaining - 1)
+  }
+}
+
+let rec fold = (state, remaining) => {
+  if remaining == 0 {
+    state
+  } else {
+    fold(
+      state * folder.factor + remaining + folder.bias,
+      remaining - 1
+    )
+  }
+}
+
+let mixed = mix(pipeline.seed, pipeline.rounds)
+let advanced = advance(mixed, sequence.second, pipeline.rounds)
+let result = fold(mixed + advanced, pipeline.rounds)
+let selected = if result == 381455585 {
+  (value: I32) => value
+} else {
+  (value: I32) => value + 0
+}
+selected(result)

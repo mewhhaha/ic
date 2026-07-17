@@ -198,11 +198,27 @@ Deno.test("structured type expressions round trip canonical syntax", () => {
   assert_equals(format_type_expr(parse_type_expr(tokenize("#(a)"))), "#(a)");
 });
 
-Deno.test("structured type expressions reject malformed names", () => {
-  assert_throws(
-    () => parse_type_expr(tokenize("(I32, I32) -> I32")),
-    "Expected `)` in type annotation",
+Deno.test("value-pack types round trip separately from product types", () => {
+  assert_equals(
+    format_type_expr(parse_type_expr(tokenize("(I32, Bool) -> (Bool, I32)"))),
+    "(I32, Bool) -> (Bool, I32)",
   );
+  assert_equals(
+    format_type_expr(parse_type_expr(tokenize("[I32, Bool] -> [Bool, I32]"))),
+    "[I32, Bool] -> [Bool, I32]",
+  );
+});
+
+Deno.test("repeated value-pack types retain their compile-time length", () => {
+  const type = parse_type_expr(tokenize("(I32; width * 2) -> (Bool; 0)"));
+
+  assert_equals(
+    format_type_expr(type),
+    "(I32; width * 2) -> (Bool; 0)",
+  );
+});
+
+Deno.test("structured type expressions reject malformed names", () => {
   assert_throws(
     () => parse_type_expr(tokenize("#Not-Snake")),
     "Unexpected token in type annotation",

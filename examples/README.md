@@ -38,6 +38,7 @@ The executable expectations and deterministic runners live in `manifest.ts`.
 | `09_literals.duck`                 | text, character, and boolean literals   | IC      | `42`        |
 | `10_else_if.duck`                  | expression-valued `else if` chains      | IC      | `42`        |
 | `11_no_demand_bindings.duck`       | `_` in ignored binding positions        | Core    | `42`        |
+| `12_value_packs_and_tuples.duck`   | transient packs and stored tuples       | Core    | `42`        |
 
 ## Compile Time
 
@@ -57,18 +58,19 @@ The executable expectations and deterministic runners live in `manifest.ts`.
 
 ## Functions And Control Flow
 
-| Example                            | Focus                             | Route   | Result            |
-| ---------------------------------- | --------------------------------- | ------- | ----------------- |
-| `01_closure_capture.duck`          | runtime capture before shadowing  | IC      | `43`              |
-| `02_returned_closure.duck`         | closure returned from a function  | IC      | `42`              |
-| `03_closure_local_shadow.duck`     | closure-local assignment          | IC      | `42`              |
-| `04_recursive_fibonacci.duck`      | non-tail recursive function       | Core    | `8`               |
-| `05_tail_recursive_gcd.duck`       | tail recursion and remainder      | Core    | `42`              |
-| `06_runtime_selected_closure.duck` | runtime-selected `Int` closure    | Managed | `22` / `42`       |
-| `07_selected_i64_closure.duck`     | runtime-selected `I64` closure    | Managed | `22i64` / `42i64` |
-| `08_no_else_fallthrough.duck`      | dynamic no-else fallthrough       | Managed | `42` / `1`        |
-| `09_nested_control_flow.duck`      | nested dynamic statements         | Managed | `42` / `21`       |
-| `10_union_selected_closure.duck`   | runtime union selecting a closure | Managed | `42`              |
+| Example                            | Focus                                 | Route   | Result            |
+| ---------------------------------- | ------------------------------------- | ------- | ----------------- |
+| `01_closure_capture.duck`          | runtime capture before shadowing      | IC      | `43`              |
+| `02_returned_closure.duck`         | closure returned from a function      | IC      | `42`              |
+| `03_closure_local_shadow.duck`     | closure-local assignment              | IC      | `42`              |
+| `04_recursive_fibonacci.duck`      | non-tail recursive function           | Core    | `8`               |
+| `05_tail_recursive_gcd.duck`       | tail recursion and remainder          | Core    | `42`              |
+| `06_runtime_selected_closure.duck` | runtime-selected `Int` closure        | Managed | `22` / `42`       |
+| `07_selected_i64_closure.duck`     | runtime-selected `I64` closure        | Managed | `22i64` / `42i64` |
+| `08_no_else_fallthrough.duck`      | dynamic no-else fallthrough           | Managed | `42` / `1`        |
+| `09_nested_control_flow.duck`      | nested dynamic statements             | Managed | `42` / `21`       |
+| `10_union_selected_closure.duck`   | runtime union selecting a closure     | Managed | `42`              |
+| `11_mutual_recursion.duck`         | one mutually recursive function group | Core    | `2`               |
 
 ## Data And Text
 

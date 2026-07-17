@@ -219,17 +219,15 @@ let inverted = ^^false
                   (identifier)))))))))
   (extension_declaration_statement
     (identifier)
-    (field_block
+    (extension_member_block
       (shape_field
         (identifier)
-        (binary_expression
-          (postfix_expression
-            (array_expression
-              (postfix_expression
-                (identifier))
-              (postfix_expression
-                (identifier))))
-          (operator_symbol)
+        (arrow_function
+          (bracket_parameter_list
+            (parameter
+              (identifier))
+            (parameter
+              (identifier)))
           (application_expression
             (postfix_expression
               (intrinsic_identifier))

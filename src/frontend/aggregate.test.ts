@@ -320,6 +320,62 @@ sum(20, 22)
   assert_includes(wat, "i32.add");
 });
 
+Deno.test("functions accept structural annotated patterns", () => {
+  const source = `
+type Box = [.a = I32]
+let increment = { a: I32 } => a + 1
+increment([.a = 41] as Box)
+`;
+
+  assert_equals(Source.analyze(source).diagnostics, []);
+  assert_includes(Source.wat(source), "i32.add");
+});
+
+Deno.test("functions accept nested structural and array patterns", () => {
+  const structural = `
+type Inner = [.value = I32]
+type Outer = [.inner = Inner]
+let read = { .inner = { value: I32 } } => value
+read([.inner = [.value = 42]] as Outer)
+`;
+  const array = `
+let first: [I32; 2] -> I32 = [head, ..._] => head
+first([42, 0])
+`;
+
+  assert_equals(Source.analyze(structural).diagnostics, []);
+  assert_includes(Source.wat(structural), "i32.const 42");
+  assert_equals(Source.analyze(array).diagnostics, []);
+  assert_includes(Source.wat(array), "i32.const 42");
+});
+
+Deno.test("functions accept union and wildcard patterns", () => {
+  const union = `
+type Option = | .some = I32 | .none
+let unwrap = .some(value) => value
+unwrap(Option.some(42))
+`;
+
+  assert_equals(Source.analyze(union).diagnostics, []);
+  assert_includes(Source.wat(union), "i32.const 42");
+  assert_includes(
+    Source.wat("let ignore = _ => 42\nignore(0)"),
+    "i32.const 42",
+  );
+});
+
+Deno.test("functions accept literal and compile-time value patterns", () => {
+  assert_includes(Source.wat("let f = 42 => 1\nf(42)"), "i32.eq");
+  assert_includes(
+    Source.wat("const f = I32 => ()\nconst out = f(I32)\n42"),
+    "i32.const 42",
+  );
+  assert_throws(
+    () => Source.wat("const f = I32 => ()\nconst out = f(Bool)\n42"),
+    "Function argument does not match I32: Bool",
+  );
+});
+
 Deno.test("structural if-let patterns project fixed aggregate values", () => {
   const wat = Source.wat(`
 if let [head, ...tail] = [1, 2, 3] {

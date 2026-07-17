@@ -91,6 +91,31 @@ fib(input)
   }
 });
 
+Deno.test("mutually recursive functions compile through Core to Wasm", async () => {
+  const wat_text = wat_from_core_source(`
+let rec even = n => {
+  if n == 0 { 1 } else { odd(n - 1) }
+}
+and odd = n => {
+  if n == 0 { 0 } else { even(n - 1) }
+}
+
+even(10) + odd(9)
+`);
+  const instance = await instantiate_wat(wat_text, "mutual_recursion", {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing mutual recursion main export");
+  }
+
+  const result = main();
+
+  if (result !== 2) {
+    throw new Error("Expected mutual recursion result 2, got " + result);
+  }
+});
+
 Deno.test("frontend static text collection loop compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_source(`
 let total = 0

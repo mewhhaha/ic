@@ -35,6 +35,10 @@ export function core_stmt(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
 function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
   switch (stmt.tag) {
     case "bind": {
+      if (stmt.mutual !== undefined) {
+        return core_mutually_recursive_binding(stmt, ctx);
+      }
+
       if (stmt.is_recursive || stmt.managed_export) {
         const name = bind_core_name(ctx, stmt.name);
 
@@ -311,6 +315,88 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
         text: stmt.text,
       };
   }
+}
+
+function core_mutually_recursive_binding(
+  stmt: Extract<Stmt, { tag: "bind" }>,
+  ctx: CoreFromSourceCtx,
+): CoreStmt {
+  const additional = stmt.mutual;
+
+  if (additional === undefined || additional.length === 0) {
+    throw new Error("Mutually recursive group has no additional bindings");
+  }
+
+  const members = [stmt, ...additional];
+  const names = new Map<string, string>();
+
+  for (const member of members) {
+    if (member.is_linear) {
+      throw new Error("Recursive binding cannot be linear: " + member.name);
+    }
+
+    if (member.value.tag !== "lam") {
+      throw new Error("Recursive binding requires a lambda: " + member.name);
+    }
+
+    const name = bind_core_name(ctx, member.name);
+    const params = member.value.params.map((param) => core_param(param, ctx));
+    names.set(member.name, name);
+    ctx.namedRecs.set(name, { params, body: undefined });
+  }
+
+  for (const member of members) {
+    if (member.value.tag !== "lam") {
+      throw new Error("Recursive binding requires a lambda: " + member.name);
+    }
+
+    const name = names.get(member.name);
+
+    if (name === undefined) {
+      throw new Error("Missing Core recursive name: " + member.name);
+    }
+
+    const recursive = ctx.namedRecs.get(name);
+
+    if (recursive === undefined) {
+      throw new Error("Missing Core recursive declaration: " + member.name);
+    }
+
+    const body_ctx = fork_core_from_source_ctx(ctx);
+
+    for (const param of member.value.params) {
+      body_ctx.aliases.set(param.name, param.name);
+
+      if (param.is_linear) {
+        body_ctx.linear_names.add(param.name);
+      } else {
+        body_ctx.linear_names.delete(param.name);
+      }
+    }
+
+    recursive.body = core_expr(member.value.body, body_ctx);
+  }
+
+  const first_name = names.get(stmt.name);
+
+  if (first_name === undefined) {
+    throw new Error("Missing first Core recursive name: " + stmt.name);
+  }
+
+  const first = ctx.namedRecs.get(first_name);
+
+  if (first === undefined) {
+    throw new Error("Missing first Core recursive declaration: " + stmt.name);
+  }
+
+  return {
+    tag: "bind",
+    kind: "let",
+    name: first_name,
+    is_linear: false,
+    annotation: resolve_core_annotation(ctx, stmt.annotation),
+    value: { tag: "rec_ref", name: first_name, params: first.params },
+  };
 }
 
 function inline_match_if_let_target(

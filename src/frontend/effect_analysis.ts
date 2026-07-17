@@ -15,6 +15,10 @@ import { val_type_from_type_name } from "./types.ts";
 import { resolve_effect_row } from "./effect_row.ts";
 import { format_type_expr, function_type_expr } from "./type_expr.ts";
 import { prim_returns_bool } from "./numeric.ts";
+import {
+  const_i32_value,
+  expanded_type_product_entries,
+} from "./fixed_array_type.ts";
 
 export type FrontEffectFunction = {
   name: string;
@@ -62,6 +66,7 @@ type EffectIndex = {
 
 type BindingValue = {
   value: FrontExpr;
+  is_const: boolean;
 };
 
 type HandlerVariant = {
@@ -262,7 +267,10 @@ function collect_binding_values(
       continue;
     }
 
-    result.set(stmt.name, { value: stmt.value });
+    result.set(stmt.name, {
+      value: stmt.value,
+      is_const: stmt.kind === "const",
+    });
 
     if (
       (stmt.value.tag === "lam" || stmt.value.tag === "rec") &&
@@ -310,7 +318,7 @@ function collect_function_facts_from_statements(
 
     if (declared_function_type) {
       type_annotation = declared_function_type;
-      const params = function_type_params(type_annotation);
+      const params = function_type_params(type_annotation, analysis);
       expect(
         params.length === value.params.length,
         "Function type on " + stmt.name + " expects " +
@@ -322,10 +330,12 @@ function collect_function_facts_from_statements(
     const parameter_effects = function_parameter_effects(
       type_annotation,
       value.params,
+      analysis,
     );
     const parameter_result_types = function_parameter_result_types(
       type_annotation,
       value.params,
+      analysis,
     );
 
     const scan = with_parameter_effects(
@@ -412,6 +422,7 @@ function refine_function_effects(
             function_parameter_result_types(
               fact.type_annotation,
               fact.params,
+              analysis,
             ),
             () => {
               return scan_expr(
@@ -455,6 +466,7 @@ function validate_function_effects(
           function_parameter_result_types(
             fact.type_annotation,
             fact.params,
+            analysis,
           ),
           () => {
             with_effect_variable_observer(
@@ -479,6 +491,7 @@ function validate_function_effects(
       analysis.index.effects,
       observed_effect_variables,
       analysis.scalar_type_aliases,
+      analysis,
     );
 
     const allowed_rows: { label: string; operations: EffectRef[] }[] = [];
@@ -523,6 +536,7 @@ function validate_function_value_type(
   effects: Map<string, EffectDeclaration>,
   observed_effect_variables: Set<string>,
   scalar_type_aliases: Map<string, string>,
+  analysis: AnalysisContext,
 ): void {
   const type = fact.type_annotation;
 
@@ -537,7 +551,7 @@ function validate_function_value_type(
     return;
   }
 
-  const param_types = function_type_params(type);
+  const param_types = function_type_params(type, analysis);
   const value_types = new Map<string, string>();
   let outer_effects: ResolvedTypeEffectRow = {
     effects: new Map(),
@@ -616,27 +630,57 @@ function validate_function_value_type(
   );
 }
 
-function function_type_params(type: FunctionTypeExpr): TypeExpr[] {
+function function_type_params(
+  type: FunctionTypeExpr,
+  analysis: AnalysisContext,
+): TypeExpr[] {
   if (type.param.tag === "tuple") {
     return type.param.items;
   }
 
   if (type.param.tag === "product") {
-    return type.param.entries.map((entry) => entry.type_expr);
+    return expanded_type_product_entries(
+      type.param,
+      (name) => effect_const_i32_name(name, analysis, new Set()),
+    ).map((entry) => entry.type_expr);
   }
 
   return [type.param];
 }
 
+function effect_const_i32_name(
+  name: string,
+  analysis: AnalysisContext,
+  resolving: Set<string>,
+): number | undefined {
+  if (resolving.has(name)) {
+    return undefined;
+  }
+
+  const binding = analysis.bindings.get(name);
+
+  if (binding === undefined || !binding.is_const) {
+    return undefined;
+  }
+
+  const next = new Set(resolving);
+  next.add(name);
+  return const_i32_value(
+    binding.value,
+    (nested_name) => effect_const_i32_name(nested_name, analysis, next),
+  );
+}
+
 function function_parameter_effects(
   type: FunctionTypeExpr | undefined,
   params: Param[],
+  analysis: AnalysisContext,
 ): ParameterEffectRows {
   const result = new Map<string, EffectRowExpr | undefined>();
   let types: TypeExpr[] = [];
 
   if (type) {
-    types = function_type_params(type);
+    types = function_type_params(type, analysis);
   }
 
   for (let index = 0; index < params.length; index += 1) {
@@ -672,12 +716,13 @@ function function_parameter_effects(
 function function_parameter_result_types(
   type: FunctionTypeExpr | undefined,
   params: Param[],
+  analysis: AnalysisContext,
 ): Map<string, string | undefined> {
   const result = new Map<string, string | undefined>();
   let types: TypeExpr[] = [];
 
   if (type) {
-    types = function_type_params(type);
+    types = function_type_params(type, analysis);
   }
 
   for (let index = 0; index < params.length; index += 1) {
@@ -882,7 +927,7 @@ function instantiate_call_effects(
 ): ResolvedTypeEffectRow {
   const type = called.type_annotation;
   expect(type, "Missing function type for " + called.name);
-  const param_types = function_type_params(type);
+  const param_types = function_type_params(type, analysis);
   const bindings = new Map<string, ResolvedTypeEffectRow>();
 
   for (let index = 0; index < param_types.length; index += 1) {
@@ -2775,6 +2820,7 @@ function infer_effect_bind_result_type(
           function_parameter_result_types(
             called.type_annotation,
             called.params,
+            analysis,
           ),
           () => {
             return infer_effect_bind_result_type(

@@ -25,7 +25,12 @@ export type TypeExpr =
   | { tag: "difference"; left: TypeExpr; right: TypeExpr }
   | { tag: "apply"; func: TypeExpr; arg: TypeExpr }
   | { tag: "tuple"; items: TypeExpr[] }
-  | { tag: "product"; entries: TypeProductEntry[] }
+  | {
+    tag: "product";
+    entries: TypeProductEntry[];
+    value_pack?: true;
+    repeat?: ArrayLengthExpr;
+  }
   | { tag: "array"; element: TypeExpr; length: ArrayLengthExpr }
   | {
     tag: "arrow";

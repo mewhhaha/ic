@@ -134,10 +134,10 @@ let (_, value) = source
   const formatted = format_source(source);
   assert_includes(formatted, "let _ = 1");
   assert_includes(formatted, "const _ = 2");
-  assert_includes(formatted, "let pair = [_, const _] => 0");
-  assert_includes(formatted, "let count = rec [_, const _] => 0");
+  assert_includes(formatted, "let pair = (_, const _) => 0");
+  assert_includes(formatted, "let count = rec (_, const _) => 0");
   assert_includes(formatted, "if let .ok(_) = result");
-  assert_includes(formatted, "let [_, value] = source");
+  assert_includes(formatted, "let (_, value) = source");
 });
 
 Deno.test("no-demand binders cannot be used as linear values or expressions", () => {

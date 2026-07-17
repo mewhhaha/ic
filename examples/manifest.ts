@@ -98,6 +98,11 @@ export const success_examples: SuccessExample[] = [
     route: "core",
     runs: run(42),
   },
+  {
+    path: "examples/basics/12_value_packs_and_tuples.duck",
+    route: "core",
+    runs: run(42),
+  },
 
   {
     path: "examples/compile_time/01_comptime_adder.duck",
@@ -219,6 +224,11 @@ export const success_examples: SuccessExample[] = [
     path: "examples/functions/10_union_selected_closure.duck",
     route: "managed",
     runs: flag_runs(42, 42),
+  },
+  {
+    path: "examples/functions/11_mutual_recursion.duck",
+    route: "core",
+    runs: run(2),
   },
 
   { path: "examples/data/01_struct_fields.duck", route: "core", runs: run(39) },

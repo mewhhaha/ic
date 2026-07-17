@@ -104,6 +104,10 @@ export function format_pattern(pattern: Pattern): string {
     return pattern.value.value.toString();
   }
 
+  if (pattern.tag === "value") {
+    return pattern.name;
+  }
+
   if (pattern.tag === "type") {
     return format_type_pattern(pattern.pattern);
   }
@@ -126,11 +130,9 @@ export function format_pattern(pattern: Pattern): string {
         if (
           entry.pattern.tag === "binding" &&
           entry.pattern.name === entry.label &&
-          entry.pattern.mode === "default" &&
-          entry.pattern.annotation === undefined &&
-          entry.pattern.type_annotation === undefined
+          entry.pattern.mode === "default"
         ) {
-          text = entry.label;
+          text = format_pattern(entry.pattern);
         } else {
           text = "." + entry.label + " = " + text;
         }
@@ -143,6 +145,10 @@ export function format_pattern(pattern: Pattern): string {
       pattern.entries.every((entry) => entry.label !== undefined)
     ) {
       return "{ " + entries.join(", ") + " }";
+    }
+
+    if (pattern.value_pack === true) {
+      return "(" + entries.join(", ") + ")";
     }
 
     return "[" + entries.join(", ") + "]";

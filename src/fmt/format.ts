@@ -237,9 +237,15 @@ function split_lines(tokens: FormatToken[]): FormatToken[][] {
     } else {
       current.push(token);
 
-      if (token.kind === "symbol" && token.text === "[") {
+      if (
+        token.kind === "symbol" &&
+        (token.text === "[" || token.text === "(")
+      ) {
         bracket_depth += 1;
-      } else if (token.kind === "symbol" && token.text === "]") {
+      } else if (
+        token.kind === "symbol" &&
+        (token.text === "]" || token.text === ")")
+      ) {
         bracket_depth -= 1;
       }
     }

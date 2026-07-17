@@ -14,6 +14,92 @@ import type {
   StatementLowerHooks,
 } from "./types.ts";
 
+export function lower_mutually_recursive_runtime_bindings(
+  stmt: Extract<Stmt, { tag: "bind" }>,
+  stmts: Stmt[],
+  index: number,
+  env: Env,
+  hooks: StatementLowerHooks,
+  on_done: StatementDone,
+  lower_statements_with_done: LowerStatementsWithDone,
+): IcNode {
+  const additional = stmt.mutual;
+
+  if (additional === undefined || additional.length === 0) {
+    throw new Error("Mutually recursive group has no additional bindings");
+  }
+
+  const members = [stmt, ...additional];
+  const entries: Extract<FrontExpr, { tag: "product" }>["entries"] = [];
+
+  for (const member of members) {
+    if (member.is_linear) {
+      throw new Error("Recursive binding cannot be linear: " + member.name);
+    }
+
+    if (member.value.tag !== "lam") {
+      throw new Error("Recursive binding requires a lambda: " + member.name);
+    }
+
+    entries.push({ value: member.value });
+  }
+
+  const knot_value: FrontExpr = { tag: "product", entries };
+  const knot_type = hooks.infer_expr(knot_value, env);
+  const knot_name = fresh(env, "mutual");
+  push_binding(env, {
+    name: knot_name,
+    ic_name: knot_name,
+    type: knot_type,
+    is_const: false,
+    is_linear: false,
+    value: undefined,
+    value_env: undefined,
+  });
+
+  for (let member_index = 0; member_index < members.length; member_index += 1) {
+    const member = members[member_index];
+
+    if (member === undefined) {
+      throw new Error("Missing mutually recursive member " + member_index);
+    }
+
+    const value: FrontExpr = {
+      tag: "index",
+      object: { tag: "var", name: knot_name },
+      index: { tag: "num", type: "i32", value: member_index },
+    };
+    push_binding(env, {
+      name: member.name,
+      ic_name: fresh(env, member.name),
+      type: hooks.infer_expr(member.value, env),
+      is_const: false,
+      is_linear: false,
+      value,
+      value_env: clone_env(env),
+    });
+  }
+
+  const value = lower_expr_as_front_type(knot_value, knot_type, env, hooks);
+  let body: IcNode;
+
+  if (index + 1 < stmts.length) {
+    body = lower_statements_with_done(
+      stmts,
+      index + 1,
+      env,
+      hooks,
+      on_done,
+    );
+  } else if (on_done !== undefined) {
+    body = on_done();
+  } else {
+    throw new Error("Mutually recursive group requires a following result");
+  }
+
+  return { tag: "fix", name: knot_name, expr: value, body };
+}
+
 export function lower_recursive_runtime_binding(
   name: string,
   stmt_value: FrontExpr,

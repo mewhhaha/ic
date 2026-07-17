@@ -214,7 +214,7 @@ export abstract class ParserAggregate extends ParserParams {
       this.skip_newlines();
     }
 
-    return { tag: "product", entries };
+    return { tag: "product", entries, value_pack: true };
   }
 
   protected parse_parenthesized_call(): {
@@ -264,7 +264,7 @@ export abstract class ParserAggregate extends ParserParams {
     }
 
     return {
-      arg: { tag: "product", entries },
+      arg: { tag: "product", entries, value_pack: true },
       args: entries.map((entry) => entry.value),
     };
   }

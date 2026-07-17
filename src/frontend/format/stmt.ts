@@ -28,8 +28,16 @@ export function format_stmt_with_expr(
     }
 
     if (stmt.pattern) {
-      return text + format_pattern(stmt.pattern) + " = " +
-        format_expr(stmt.value);
+      text += format_pattern(stmt.pattern) + " = " + format_expr(stmt.value);
+
+      if (stmt.mutual !== undefined) {
+        for (const member of stmt.mutual) {
+          text += "\nand " + format_pattern(member.pattern) + " = " +
+            format_expr(member.value);
+        }
+      }
+
+      return text;
     }
 
     if (stmt.is_linear) {

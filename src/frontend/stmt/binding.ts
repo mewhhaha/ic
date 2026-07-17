@@ -7,6 +7,7 @@ import { validate_linear_rest } from "../linear.ts";
 import { unwrap_ownership_wrapper_context_expr } from "../ownership.ts";
 import { same_type } from "../types.ts";
 import {
+  lower_mutually_recursive_runtime_bindings,
   lower_recursive_runtime_binding,
   lower_runtime_binding,
 } from "./runtime_binding.ts";
@@ -26,6 +27,18 @@ export function lower_bind_statement(
   lower_statements_with_done: LowerStatementsWithDone,
 ): IcNode {
   let stmt_value = stmt.value;
+
+  if (stmt.mutual !== undefined) {
+    return lower_mutually_recursive_runtime_bindings(
+      stmt,
+      stmts,
+      index,
+      env,
+      hooks,
+      on_done,
+      lower_statements_with_done,
+    );
+  }
 
   if (stmt.kind === "const") {
     return lower_const_binding(

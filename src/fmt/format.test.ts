@@ -68,8 +68,11 @@ Deno.test("format_text keeps effect rows tight", () => {
 
 Deno.test("format_text preserves fixed array separators", () => {
   assert_equals(
-    format_text("type Pixels=[Int;2]\nlet pixels=[20;2]\n"),
-    "type Pixels = [Int; 2]\nlet pixels = [20; 2]\n",
+    format_text(
+      "type Pixels=[Int;2]\nlet pixels=[20;2]\nlet pack:(Int;2)=(1,2)\n",
+    ),
+    "type Pixels = [Int; 2]\nlet pixels = [20; 2]\n" +
+      "let pack: (Int; 2) = (1, 2)\n",
   );
 });
 

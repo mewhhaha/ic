@@ -1,5 +1,6 @@
 import { assert_equals, assert_throws } from "../assert.ts";
 import { Source } from "../frontend.ts";
+import { instantiate_wat } from "../wasm_test_util.ts";
 import { fixed_array_length } from "./fixed_array_type.ts";
 
 Deno.test("fixed array lengths evaluate compile-time natural expressions", () => {
@@ -97,4 +98,52 @@ let values: [Int; width] = [1, 2]
     analysis.diagnostics.map((diagnostic) => diagnostic.message),
     ["Fixed array length requires a compile-time natural: width"],
   );
+});
+
+Deno.test("repeated value packs resolve const lengths at function boundaries", async () => {
+  const source = `
+const width = 1 + 2
+let sum: (I32; width) -> I32 = (a, b, c) => a + b + c
+sum(10, 20, 12)
+`;
+
+  assert_equals(Source.analyze(source).diagnostics, []);
+
+  const instance = await instantiate_wat(
+    Source.wat(source),
+    "repeated_value_pack",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing repeated value-pack main export");
+  }
+
+  assert_equals(main(), 42);
+});
+
+Deno.test("repeated value packs reject runtime lengths", () => {
+  const analysis = Source.analyze(`
+let width = 2
+let sum: (I32; width) -> I32 = (a, b) => a + b
+sum(20, 22)
+`);
+
+  assert_equals(
+    analysis.diagnostics.map((diagnostic) => diagnostic.message),
+    ["Value-pack length requires a compile-time natural: width"],
+  );
+});
+
+Deno.test("repeated value packs cover empty, unary, and returned packs", () => {
+  const analysis = Source.analyze(`
+let answer: (I32; 0) -> I32 = () => 42
+let identity: (I32; 1) -> I32 = value => value
+let swap: (I32; 2) -> (I32; 2) = (left, right) => (right, left)
+let (first, second) = swap(identity(20), answer())
+first + second
+`);
+
+  assert_equals(analysis.diagnostics, []);
 });

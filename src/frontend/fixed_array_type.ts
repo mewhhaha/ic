@@ -1,4 +1,10 @@
-import type { ArrayLengthExpr, TypeExpr } from "./ast.ts";
+import { expect } from "../expect.ts";
+import type {
+  ArrayLengthExpr,
+  FrontExpr,
+  TypeExpr,
+  TypeProductEntry,
+} from "./ast.ts";
 
 export type FixedArrayLengthResolver = (
   name: string,
@@ -8,16 +14,110 @@ export function fixed_array_length(
   length: ArrayLengthExpr,
   resolve_name?: FixedArrayLengthResolver,
 ): number {
-  const value = evaluate_fixed_array_length(length, resolve_name);
+  return type_repetition_length(length, resolve_name, "Fixed array");
+}
+
+export function value_pack_length(
+  length: ArrayLengthExpr,
+  resolve_name?: FixedArrayLengthResolver,
+): number {
+  return type_repetition_length(length, resolve_name, "Value-pack");
+}
+
+function type_repetition_length(
+  length: ArrayLengthExpr,
+  resolve_name: FixedArrayLengthResolver | undefined,
+  subject: string,
+): number {
+  const value = evaluate_fixed_array_length(length, resolve_name, subject);
 
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(
-      "Fixed array length must be a non-negative safe integer, got " +
+      subject + " length must be a non-negative safe integer, got " +
         value.toString(),
     );
   }
 
   return value;
+}
+
+export function expanded_type_product_entries(
+  type: Extract<TypeExpr, { tag: "product" }>,
+  resolve_name: FixedArrayLengthResolver,
+): TypeProductEntry[] {
+  if (type.repeat === undefined) {
+    return type.entries;
+  }
+
+  expect(
+    type.value_pack === true && type.entries.length === 1,
+    "Repeated value pack must have exactly one element type",
+  );
+  const entry = type.entries[0];
+  expect(entry !== undefined, "Repeated value pack has no element type");
+  const length = value_pack_length(type.repeat, resolve_name);
+  return Array.from({ length }, () => ({ ...entry }));
+}
+
+export function const_i32_value(
+  expr: FrontExpr,
+  resolve_name: FixedArrayLengthResolver,
+): number | undefined {
+  if (
+    expr.tag === "num" && expr.type === "i32" &&
+    typeof expr.value === "number"
+  ) {
+    return expr.value;
+  }
+
+  if (expr.tag === "var") {
+    return resolve_name(expr.name);
+  }
+
+  if (expr.tag === "captured" || expr.tag === "comptime") {
+    return const_i32_value(expr.expr, resolve_name);
+  }
+
+  if (expr.tag !== "prim") {
+    return undefined;
+  }
+
+  const left = const_i32_value(expr.left, resolve_name);
+  const right = const_i32_value(expr.right, resolve_name);
+
+  if (left === undefined || right === undefined) {
+    return undefined;
+  }
+
+  if (expr.prim === "i32.add") {
+    return (left + right) | 0;
+  }
+
+  if (expr.prim === "i32.sub") {
+    return (left - right) | 0;
+  }
+
+  if (expr.prim === "i32.mul") {
+    return Math.imul(left, right);
+  }
+
+  if (expr.prim === "i32.div_s") {
+    if (right === 0) {
+      return undefined;
+    }
+
+    return Math.trunc(left / right) | 0;
+  }
+
+  if (expr.prim === "i32.rem_s") {
+    if (right === 0) {
+      return undefined;
+    }
+
+    return left % right;
+  }
+
+  return undefined;
 }
 
 export function normalize_fixed_array_type_lengths(
@@ -69,6 +169,21 @@ export function normalize_fixed_array_type_lengths(
       };
 
     case "product":
+      if (type.repeat !== undefined) {
+        return {
+          tag: "product",
+          entries: expanded_type_product_entries(type, resolve_name).map(
+            (entry) => ({
+              ...entry,
+              type_expr: normalize_fixed_array_type_lengths(
+                entry.type_expr,
+                resolve_name,
+              ),
+            }),
+          ),
+          value_pack: true,
+        };
+      }
       return {
         ...type,
         entries: type.entries.map((entry) => ({
@@ -105,6 +220,7 @@ export function normalize_fixed_array_type_lengths(
 function evaluate_fixed_array_length(
   length: ArrayLengthExpr,
   resolve_name: FixedArrayLengthResolver | undefined,
+  subject: string,
 ): number {
   if (length.tag === "number") {
     return length.value;
@@ -119,15 +235,19 @@ function evaluate_fixed_array_length(
 
     if (value === undefined) {
       throw new Error(
-        "Fixed array length requires a compile-time natural: " + length.name,
+        subject + " length requires a compile-time natural: " + length.name,
       );
     }
 
     return value;
   }
 
-  const left = evaluate_fixed_array_length(length.left, resolve_name);
-  const right = evaluate_fixed_array_length(length.right, resolve_name);
+  const left = evaluate_fixed_array_length(length.left, resolve_name, subject);
+  const right = evaluate_fixed_array_length(
+    length.right,
+    resolve_name,
+    subject,
+  );
   let value: number;
 
   if (length.op === "+") {
@@ -138,13 +258,13 @@ function evaluate_fixed_array_length(
     value = left * right;
   } else if (length.op === "/") {
     if (right === 0) {
-      throw new Error("Fixed array length divides by zero");
+      throw new Error(subject + " length divides by zero");
     }
 
     value = Math.trunc(left / right);
   } else {
     if (right === 0) {
-      throw new Error("Fixed array length divides by zero");
+      throw new Error(subject + " length divides by zero");
     }
 
     value = left % right;

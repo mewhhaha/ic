@@ -49,6 +49,8 @@ module.exports = grammar({
     [$.condition_expression, $.linear_reference],
     [$.bracket_parameter_list, $.positional_type_product],
     [$.positional_type_product, $.array_expression],
+    [$.function_shape_pattern_field, $.shorthand_field],
+    [$._primary_expression, $.function_shape_pattern_field, $.shorthand_field],
   ],
 
   rules: {
@@ -126,6 +128,15 @@ module.exports = grammar({
         optional(seq(":", field("type", $.type_reference))),
         "=",
         field("value", $._expression),
+        repeat(
+          seq(
+            "and",
+            field("mutual_name", $.identifier),
+            optional(seq(":", field("mutual_type", $.type_reference))),
+            "=",
+            field("mutual_value", $._expression),
+          ),
+        ),
       ),
 
     effect_row: ($) => $._effect_row_expression,
@@ -290,7 +301,18 @@ module.exports = grammar({
       ),
 
     duck_member_block: ($) =>
-      seq("{", repeat1(seq($.duck_member, optional(","))), "}"),
+      seq(
+        "{",
+        repeat1(seq(choice($.duck_type_member, $.duck_member), optional(","))),
+        "}",
+      ),
+
+    duck_type_member: ($) =>
+      seq(
+        "type",
+        field("name", $.identifier),
+        optional(seq("=", field("default", $.type_reference))),
+      ),
 
     duck_member: ($) =>
       seq(
@@ -304,7 +326,27 @@ module.exports = grammar({
       seq(
         "extend",
         field("type", $.identifier),
-        field("members", $.field_block),
+        field("members", $.extension_member_block),
+      ),
+
+    extension_member_block: ($) =>
+      seq(
+        "{",
+        repeat(
+          seq(
+            choice($.extension_type_member, $.shape_field),
+            optional(","),
+          ),
+        ),
+        "}",
+      ),
+
+    extension_type_member: ($) =>
+      seq(
+        "type",
+        field("name", $.identifier),
+        "=",
+        field("type", $.type_reference),
       ),
 
     fixity_declaration_statement: ($) =>
@@ -364,6 +406,13 @@ module.exports = grammar({
     positional_type_product: ($) =>
       choice(
         seq("(", commaSep2($.type_reference), ")"),
+        seq(
+          "(",
+          field("element", $.type_reference),
+          ";",
+          field("length", choice($._expression, $.wildcard)),
+          ")",
+        ),
         seq("[", optional(commaSep1($.type_reference)), "]"),
       ),
 
@@ -495,15 +544,53 @@ module.exports = grammar({
       ),
 
     arrow_function: ($) =>
-      prec.right(
-        PREC.ARROW,
-        seq(
-          field(
-            "parameters",
-            choice($.parameter, $.parameter_list, $.bracket_parameter_list),
+      choice(
+        prec.dynamic(
+          100,
+          prec.right(
+            PREC.POSTFIX + 1,
+            seq(
+              field("parameters", $.function_shape_pattern),
+              "=>",
+              field("body", $._expression),
+            ),
           ),
-          "=>",
-          field("body", $._expression),
+        ),
+        prec.dynamic(
+          100,
+          prec.right(
+            PREC.POSTFIX + 1,
+            seq(
+              field(
+                "parameters",
+                alias($.effect_identifier, $.identifier),
+              ),
+              "=>",
+              field("body", $._expression),
+            ),
+          ),
+        ),
+        prec.dynamic(
+          100,
+          prec.right(
+            PREC.ARROW,
+            seq(
+              field(
+                "parameters",
+                choice(
+                  $.parameter,
+                  $.parameter_list,
+                  $.bracket_parameter_list,
+                  $.number,
+                  $.string,
+                  $.character,
+                  $.boolean,
+                ),
+              ),
+              "=>",
+              field("body", $._expression),
+            ),
+          ),
         ),
       ),
 
@@ -541,7 +628,13 @@ module.exports = grammar({
       seq(
         optional("const"),
         optional("!"),
-        field("name", choice($.identifier, $.wildcard)),
+        field(
+          "name",
+          choice(
+            $.identifier,
+            $.wildcard,
+          ),
+        ),
         optional(seq(":", field("type", $.type_reference))),
       ),
 
@@ -1027,6 +1120,25 @@ module.exports = grammar({
         ),
       ),
 
+    function_shape_pattern: ($) =>
+      prec(
+        10,
+        seq(
+          "{",
+          optional(commaSep1($.function_shape_pattern_field)),
+          "}",
+        ),
+      ),
+
+    function_shape_pattern_field: ($) =>
+      prec.dynamic(
+        2,
+        seq(
+          field("name", $.identifier),
+          optional(seq(":", field("type", $.type_reference))),
+        ),
+      ),
+
     shorthand_shape_pattern_field: ($) => field("name", $.identifier),
 
     named_shape_pattern_field: ($) =>
@@ -1074,7 +1186,7 @@ module.exports = grammar({
       ),
 
     field_definition: ($) =>
-      seq(field("name", $.identifier), ":", field("value", $._expression)),
+      seq(field("name", $.identifier), ":", field("value", $.arrow_function)),
 
     shorthand_field: ($) => field("name", $.identifier),
 
@@ -1258,7 +1370,7 @@ module.exports = grammar({
       token(
         prec(
           0,
-          /[-!$%&*+\/<=>?@\\^|~:]+/,
+          /([-!$%&*+\/<>?@\\^|~:][-!$%&*+\/<=>?@\\^|~:]*|=[-!$%&*+\/<=?@\\^|~:][-!$%&*+\/<=>?@\\^|~:]*)/,
         ),
       ),
 

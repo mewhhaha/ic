@@ -32,17 +32,30 @@ export function format_source(source: SourceNode): string {
 
 function format_declaration(declaration: Declaration): string {
   if (declaration.tag === "duck") {
-    const members = declaration.members.map((member) => {
-      return "." + member.name + " = " + format_type_expr(member.type_expr);
+    const members = declaration.types.map((member) => {
+      let text = "type " + member.name;
+
+      if (member.default_type !== undefined) {
+        text += " = " + format_type_expr(member.default_type);
+      }
+
+      return text;
     });
+    members.push(...declaration.members.map((member) => {
+      return "." + member.name + " = " + format_type_expr(member.type_expr);
+    }));
     return "duck " + declaration.name + " " + declaration.roles.join(" ") +
       " { " + members.join(", ") + " }";
   }
 
   if (declaration.tag === "extend") {
-    const fields = declaration.fields.map((field) => {
-      return "." + field.name + " = " + format_expr(field.value);
+    const fields = declaration.types.map((member) => {
+      return "type " + member.name + " = " +
+        format_type_expr(member.type_expr);
     });
+    fields.push(...declaration.fields.map((field) => {
+      return "." + field.name + " = " + format_expr(field.value);
+    }));
     return "extend " + declaration.type_name + " { " +
       fields.join(", ") + " }";
   }

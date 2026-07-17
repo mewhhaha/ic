@@ -2006,7 +2006,7 @@ host_read (&message)
       'host_import host_frozen from "env.frozen" (#Text) => I32\n' +
       'host_import host_make from "env.make" () => Text\n' +
       'host_import host_count from "env.count" (I32, I64) => I32\n' +
-      'let message: Text = @append ["he", "llo"]\n' +
+      'let message: Text = @append ("he", "llo")\n' +
       "host_read &message",
   );
 

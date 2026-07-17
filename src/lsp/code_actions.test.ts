@@ -238,7 +238,7 @@ Deno.test("code actions lift an escaping scratch result to owned storage", () =>
   );
   expect(lift !== undefined, "Expected scratch escape quick fix");
   const after = apply(before, lift);
-  assert_equals(after, '@append ["a", "b"]\n');
+  assert_equals(after, '@append ("a", "b")\n');
   assert_equals(Source.analyze(after, { route: "core" }).diagnostics, []);
 });
 

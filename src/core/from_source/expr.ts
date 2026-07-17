@@ -1,4 +1,4 @@
-import type { FrontExpr, Param, Stmt } from "../../frontend/ast.ts";
+import type { FrontExpr, Param, Pattern, Stmt } from "../../frontend/ast.ts";
 import { contains_reserved_linear_effect } from "../../frontend/linear.ts";
 import type { CoreExpr, CoreField, CoreParam, CoreTypeField } from "../ast.ts";
 import {
@@ -2544,15 +2544,26 @@ function flattened_product_function(
     body = final_stmt.expr;
   }
 
+  const params = flattened_product_pattern_params(pattern, { next: 0 });
+
+  if (params === undefined) {
+    return undefined;
+  }
+
+  return { params, body };
+}
+
+function flattened_product_pattern_params(
+  pattern: Extract<Pattern, { tag: "product" }>,
+  ignored: { next: number },
+): Param[] | undefined {
+  if (pattern.value_pack === true) {
+    return undefined;
+  }
+
   const params: Param[] = [];
 
-  for (let index = 0; index < pattern.entries.length; index += 1) {
-    const entry = pattern.entries[index];
-
-    if (!entry) {
-      throw new Error("Missing product function pattern entry " + index);
-    }
-
+  for (const entry of pattern.entries) {
     if (entry.pattern.tag === "binding") {
       params.push({
         name: entry.pattern.name,
@@ -2566,18 +2577,30 @@ function flattened_product_function(
 
     if (entry.pattern.tag === "wildcard") {
       params.push({
-        name: "_pattern#ignored" + index.toString(),
+        name: "_pattern#ignored" + ignored.next.toString(),
         is_const: entry.pattern.mode === "const",
         is_linear: false,
         annotation: undefined,
       });
+      ignored.next += 1;
+      continue;
+    }
+
+    if (entry.pattern.tag === "product") {
+      const nested = flattened_product_pattern_params(entry.pattern, ignored);
+
+      if (nested === undefined) {
+        return undefined;
+      }
+
+      params.push(...nested);
       continue;
     }
 
     return undefined;
   }
 
-  return { params, body };
+  return params;
 }
 
 export function core_param(param: {

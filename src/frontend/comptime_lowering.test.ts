@@ -1297,9 +1297,9 @@ user_layout.size
     "Name must use snake_case: BadName",
   );
 
-  assert_throws(
-    () => Source.parse("const id = T => T\nid"),
-    "Parameter must use snake_case: T",
+  assert_equals(
+    Format.fmt(Source, Source.parse("const only_i32 = I32 => ()\nonly_i32")),
+    "const only_i32 = I32 => ()\nonly_i32",
   );
 
   assert_throws(
@@ -1364,8 +1364,8 @@ user_layout.size
   );
 
   assert_throws(
-    () => Source.parse("module app = Caps => { { main: Caps.value } }"),
-    "Parameter must use snake_case: Caps",
+    () => Source.parse("module app = _caps => { { main: 1 } }"),
+    "Parameter must use snake_case: _caps",
   );
 
   assert_throws(
@@ -1394,8 +1394,8 @@ user_layout.size
   );
 
   assert_throws(
-    () => Source.parse("let loop = rec Current => Current\nloop"),
-    "Parameter must use snake_case: Current",
+    () => Source.parse("let loop = rec currentValue => currentValue\nloop"),
+    "Parameter must use snake_case: currentValue",
   );
 
   assert_throws(

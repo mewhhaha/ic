@@ -32,6 +32,10 @@ import { type_declaration_bindings } from "./type_declaration.ts";
 import { prim_returns_bool } from "./numeric.ts";
 import { function_type_expr } from "./type_expr.ts";
 import { pattern_bindings } from "./pattern.ts";
+import {
+  const_i32_value,
+  expanded_type_product_entries,
+} from "./fixed_array_type.ts";
 
 type EffectElaboration = {
   analysis: FrontEffectAnalysis;
@@ -46,6 +50,7 @@ type EffectElaboration = {
       value: Extract<FrontExpr, { tag: "lam" | "rec" }>;
     }
   >;
+  const_values: Map<string, FrontExpr>;
 };
 
 export function elaborate_front_effects(source: Source): Source {
@@ -551,6 +556,7 @@ function create_elaboration(source: Source): EffectElaboration {
       value: Extract<FrontExpr, { tag: "lam" | "rec" }>;
     }
   >();
+  const const_values = new Map<string, FrontExpr>();
 
   for (const declaration of source.declarations || []) {
     if (declaration.tag === "record") {
@@ -582,6 +588,10 @@ function create_elaboration(source: Source): EffectElaboration {
   }
 
   for (const stmt of source.statements) {
+    if (stmt.tag === "bind" && stmt.kind === "const") {
+      const_values.set(stmt.name, stmt.value);
+    }
+
     if (
       stmt.tag === "bind" && stmt.kind === "const" &&
       front_expr_is_type_constructor(stmt.value)
@@ -619,6 +629,7 @@ function create_elaboration(source: Source): EffectElaboration {
     type_names,
     modules,
     effect_functions,
+    const_values,
   };
 }
 
@@ -1123,6 +1134,7 @@ function rewrite_statements(
               ...apply_function_parameter_types(
                 stmt.value.params,
                 stmt.type_annotation,
+                elaboration,
               ),
             ],
             body: rewrite_expr(
@@ -1167,7 +1179,11 @@ function rewrite_statements(
         type_annotation: undefined,
         effectful: undefined,
         value: rewrite_expr(
-          apply_binding_function_type(stmt.value, stmt.type_annotation),
+          apply_binding_function_type(
+            stmt.value,
+            stmt.type_annotation,
+            elaboration,
+          ),
           providers,
           elaboration,
         ),
@@ -1211,6 +1227,7 @@ function front_expr_is_type_constructor(value: FrontExpr): boolean {
 function apply_binding_function_type(
   value: FrontExpr,
   type: TypeExpr | undefined,
+  elaboration: EffectElaboration,
 ): FrontExpr {
   if (
     !type || type.tag !== "arrow" ||
@@ -1221,13 +1238,14 @@ function apply_binding_function_type(
 
   return {
     ...value,
-    params: apply_function_parameter_types(value.params, type),
+    params: apply_function_parameter_types(value.params, type, elaboration),
   };
 }
 
 function apply_function_parameter_types(
   params: Param[],
   type: TypeExpr | undefined,
+  elaboration: EffectElaboration,
 ): Param[] {
   if (!type || type.tag !== "arrow") {
     return params;
@@ -1240,7 +1258,15 @@ function apply_function_parameter_types(
   }
 
   if (type.param.tag === "product") {
-    types = type.param.entries.map((entry) => entry.type_expr);
+    types = expanded_type_product_entries(
+      type.param,
+      (name) =>
+        effect_elaboration_const_i32_name(
+          name,
+          elaboration,
+          new Set(),
+        ),
+    ).map((entry) => entry.type_expr);
   }
 
   return params.map((param, index) => {
@@ -1253,6 +1279,30 @@ function apply_function_parameter_types(
 
     return { ...param, annotation: param_type.name };
   });
+}
+
+function effect_elaboration_const_i32_name(
+  name: string,
+  elaboration: EffectElaboration,
+  resolving: Set<string>,
+): number | undefined {
+  if (resolving.has(name)) {
+    return undefined;
+  }
+
+  const value = elaboration.const_values.get(name);
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const next = new Set(resolving);
+  next.add(name);
+  return const_i32_value(
+    value,
+    (nested_name) =>
+      effect_elaboration_const_i32_name(nested_name, elaboration, next),
+  );
 }
 
 function hidden_effect_params(effects: EffectRef[]): Param[] {

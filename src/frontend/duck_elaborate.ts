@@ -241,6 +241,8 @@ function resolve_comptime_duck_check(
       );
     }
 
+    bind_duck_type_members(declaration, implementation, role_types);
+
     validate_extension_signature(
       declaration,
       member,
@@ -423,6 +425,8 @@ function resolve_duck_member_call(
     );
   }
 
+  bind_duck_type_members(target.declaration, implementation, role_types);
+
   const result_type = validate_extension_signature(
     target.declaration,
     target.member,
@@ -604,6 +608,40 @@ function extension_member(
   return matches[0];
 }
 
+function bind_duck_type_members(
+  declaration: DuckDeclaration,
+  extension: ExtensionDeclaration,
+  role_types: Map<string, DuckRoleBinding>,
+): void {
+  for (const member of declaration.types) {
+    const implementation = extension.types.find((candidate) => {
+      return candidate.name === member.name;
+    });
+    let type = member.default_type;
+
+    if (implementation !== undefined) {
+      type = implementation.type_expr;
+    }
+
+    expect(
+      type !== undefined,
+      "Missing associated type " + declaration.name + "." + member.name +
+        " for " + extension.type_name,
+    );
+    const name = format_type_expr(type);
+    const existing = role_types.get(member.name);
+
+    if (existing !== undefined && existing.name !== name) {
+      throw new Error(
+        "Associated type " + declaration.name + "." + member.name +
+          " is both " + existing.name + " and " + name,
+      );
+    }
+
+    role_types.set(member.name, { name });
+  }
+}
+
 function validate_extension_signature(
   declaration: DuckDeclaration,
   member: DuckMember,
@@ -717,6 +755,19 @@ function bind_duck_fact(
         pattern.name,
         concrete_fact_name(actual),
         role_types,
+        types,
+      );
+      return;
+    }
+
+    const associated = role_types.get(pattern.name);
+
+    if (associated !== undefined) {
+      expect_duck_type_name(
+        declaration,
+        member,
+        associated.name,
+        actual,
         types,
       );
       return;
@@ -1378,6 +1429,10 @@ function instantiate_duck_type(
       }
 
       entries.push({ ...entry, type_expr: entry_type });
+    }
+
+    if (type.value_pack === true) {
+      return { tag: "product", entries, value_pack: true };
     }
 
     return { tag: "product", entries };

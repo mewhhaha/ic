@@ -227,6 +227,45 @@ Deno.test("semantic validation reports one const capture cause", () => {
   assert_equals(diagnostics[0]?.code, "DUCK2101");
 });
 
+Deno.test("value packs pass and return without becoming stored tuples", () => {
+  const accepted = parse_source(`
+let swap = (left, right) => (right, left)
+let (first, second) = swap(1, 2)
+[first, second]
+`);
+  assert_equals(validate_frontend_semantics(accepted), []);
+
+  const stored = parse_source("let pair = (1, 2)\npair");
+  assert_equals(
+    validate_frontend_semantics(stored).map((diagnostic) => diagnostic.message),
+    [
+      "Value packs may only be passed, returned, or destructured immediately; use `[...]` to store a tuple",
+    ],
+  );
+});
+
+Deno.test("calls distinguish argument packs from tuple values", () => {
+  const pack_call = parse_source(
+    "let choose = (left, right) => left\nchoose([1, 2])",
+  );
+  assert_equals(
+    validate_frontend_semantics(pack_call).map((diagnostic) =>
+      diagnostic.message
+    ),
+    ["Call requires an argument pack written `f(a, b)`"],
+  );
+
+  const tuple_call = parse_source(
+    "let choose = [left, right] => left\nchoose(1, 2)",
+  );
+  assert_equals(
+    validate_frontend_semantics(tuple_call).map((diagnostic) =>
+      diagnostic.message
+    ),
+    ["Call requires a tuple argument written `f([a, b])`"],
+  );
+});
+
 Deno.test("semantic warning liveness traverses handlers and type tests", async () => {
   for (
     const path of [

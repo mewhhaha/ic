@@ -74,19 +74,22 @@ The runtime benchmark uses the modular program in `workload/main.duck`. Four
 parameterized modules specialize constants used by three recursive 512-round
 kernels. The current Core backend cannot emit the linked modular form yet, so
 `workload/current.duck` is the checked-in flattened equivalent used for the
-runtime baseline. The benchmark verifies that both return the same value before
+runtime baseline. `workload/current_callable.duck` separately exposes the same
+kernels as a managed callable. The benchmark verifies every contract before
 measuring fresh first execution, instantiation plus first execution, and warm
-calls on one instance. Gpufuck's compact scalar entry forces the pure result on
-the first call and retains it for later calls, so the warm measurement is lookup
-latency rather than repeated kernel execution.
+calls on one instance.
 
-In the same checkout, gpufuck's fresh first execution was slower (8.18 us versus
-966 ns), as was instantiation plus first execution (19.95 us versus 2.91 us).
-After the pure result had been forced, repeated calls on the same instance took
-6.37 ns versus 982 ns. That warm result is retained-value lookup, not a 154x
-speedup of the recursive calculation itself. The experiment currently shows no
-compilation gain and trades startup latency for extremely cheap repeated access
-to a pure result.
+The output separates recomputing entries, recomputing callables, and retained
+values. Recomputing measurements execute all three kernels on every call; the
+retained-value measurement intentionally evaluates once and measures lookup on
+later calls. This prevents retained lookup from being presented as kernel
+execution speed. In the July 2026 checkout, the compact modular gpufuck entry
+was 234 bytes versus 204 bytes and repeated the workload in 990 ns versus 983
+ns. Its fresh execution was 977 ns versus 964 ns. The managed callable
+recomputed in 1.03 us after initialization versus 992 ns, while its first call
+remained slower because it initializes the general functional runtime. The
+explicit retained fixture took 6.26 ns after its first evaluation. These are
+local measurements, not stable performance guarantees.
 
 The compatibility test compiles all 73 non-failure, standalone programs in the
 current `examples/` manifest through gpufuck. The focused tests also execute

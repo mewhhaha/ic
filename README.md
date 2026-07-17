@@ -105,68 +105,102 @@ diagnostics, document formatting, and document symbols.
 `just install` registers the language server and enables format-on-save for
 `.duck` files in Helix alongside the Tree-sitter grammar.
 
-## Example
+## Language Tour
+
+This tour introduces one idea at a time. Most snippets are header-free programs:
+their last expression becomes the exported `main` result. Imported application
+modules use the explicit header and export record introduced in step 15.
+
+| Area                                     | Start here                                      |
+| ---------------------------------------- | ----------------------------------------------- |
+| Values and control flow                  | steps 1–6                                       |
+| Data and types                           | steps 7–10                                      |
+| Compile-time programming and the prelude | steps 11–13                                     |
+| Effects, ownership, and modules          | steps 14–16                                     |
+| Compiler routes and embedding            | [Compiler Entry Points](#compiler-entry-points) |
+
+The complete executable catalog is in [examples/README.md](examples/README.md),
+and [docs/language.md](docs/language.md) is the detailed language reference.
+
+### 1. A program is a sequence of expressions
+
+The result of the last expression is the program result:
 
 ```duck
-const make_adder = n => {
-  x => x + n
-}
+let answer = 40 + 2
+answer
+```
 
-const add_three = comptime make_adder(3)
+Save that as `answer.duck` and run it with:
 
-let value = add_three(29)
-value = value + 1
+```sh
+just duck run answer.duck
+```
+
+The main scalar types are `Bool`, `I32`, `U32`, `I64`, `F32`, `F64`, `Text`,
+`Bytes`, and `Unit`. `Int` is the ergonomic source integer type and has the same
+runtime representation as `I32`. Literals retain their type:
+
+```duck
+let count: I32 = 42i32
+let large: I64 = 42i64
+let ratio: F32 = 1.5f32
+let ready: Bool = true
+let letter = 'A'
+let greeting: Text = "hello"
+
+count
+```
+
+Fixed-width integers are available as `I<N>` and `U<N>` for any positive bit
+width. Widths through 64 bits use scalar carriers; wider integers use an affine
+multi-limb Core representation.
+
+### 2. `let`, `const`, and shadowing
+
+`let` binds a runtime value. `const` binds a compile-time value. Values are
+immutable; assignment syntax creates a new lexical generation:
+
+```duck
+let value = 40
+value = value + 2  // same type
+value := "done"   // a new value with a different type
+
 value
 ```
 
-This is the header-free fragment compiled by the demo in `main.ts`: it parses
-source, lowers it through IC and Expr, wraps it in a Wasm module exporting
-`main` with the value `33`, and writes WAT. Loaded `.duck` files use the module
-header and export-record form shown in the next section.
+Use `=` when the type stays the same and `:=` when it changes. The compiler
+rejects accidental type changes through `=`.
 
-## Source Language
+### 3. Functions, calls, and function types
 
-Loaded `.duck` files are modules. A module declares its inputs in the header and
-returns an ordered export shape at the end of the file:
+Functions use `=>`. A multi-parameter function still receives one product
+argument, which keeps application uniform:
 
 ```duck
-module () where
+let add: [Int, Int] -> Int = (left: Int, right: Int) => {
+  left + right
+}
 
-let x = 40
-return { .answer = x + 2 }
+let increment = value => value + 1
+increment(add(20, 21))
 ```
 
-`Source.parse` also accepts header-free fragments for tests and interactive use.
-
-Runtime values are immutable. Assignment syntax is modeled as shadowing:
+`[A, B]` is the canonical stored tuple type. `(A, B)` is a transient value-pack
+type used only at function boundaries. `(A; N)` repeats `A` into an `N`-value
+pack at compile time, while `[A; N]` remains one stored fixed array. `A -> B` is
+a pure function type, and arrows associate to the right. Functions close over
+lexical bindings and may return other functions:
 
 ```duck
-let x = 40
-x = x + 2     // same-type shadowing
-x := "done"  // type-changing shadowing
+let make_adder = amount => {
+  value => value + amount
+}
+let add_two = make_adder(2)
+add_two(40)
 ```
 
-Compile-time bindings use `const`, and compile-time execution uses `comptime`:
-
-```duck
-const factor = 2
-const add_factor = comptime (n => x => x + n)(factor)
-```
-
-Const evaluation supports memoized structural recursion, type descriptors, and
-ordinary fixed-array construction. Fixed-array lengths may use arithmetic over
-const integers, such as `const width = 2` followed by `[Int; width + 1]`. The
-derived equality example combines records, arrays, and unions:
-[`examples/compile_time/13_derived_nested_equality.duck`](examples/compile_time/13_derived_nested_equality.duck).
-
-Closures use arrow syntax:
-
-```duck
-let add = (x, y) => x + y
-let inc = x => x + 1
-```
-
-Recursive functions use `let rec`:
+Recursive runtime functions use `let rec`:
 
 ```duck
 let rec fib = n => {
@@ -177,164 +211,368 @@ let rec fib = n => {
   }
 }
 
-fib(6)
+fib(8)
 ```
 
-Duck supports explicit Rank-N polymorphism with `forall`. Quantifiers may appear
-at any type position, and unannotated const functions are generalized:
+Functions in one `let rec ... and ...` group are mutually visible:
 
 ```duck
-const apply_identity: (forall value. value -> value) -> I32 =
-  (const identity) => identity(42)
+let rec even = n => if n == 0 { true } else { odd(n - 1) }
+and odd = n => if n == 0 { false } else { even(n - 1) }
 
-const identity = value => value
-comptime apply_identity(identity)
+even(8)
 ```
 
-## Syntax Snapshot
+### 4. Boolean control flow and explicit casts
 
-Common statement forms:
-
-```duck
-let name = expr
-let name: Type = expr
-let rec name = params => body
-let !name = expr
-
-const name = expr
-const name: Type = expr
-
-name = expr
-name := expr
-name[index] = expr
-
-if cond { statements }
-if let .case(value) = target { statements }
-
-for i in start..end { statements }
-for i in start..end by step { statements }
-for item in collection { statements }
-for i, item in collection { statements }
-
-return expr
-break
-continue
-```
-
-File-module forms:
+Conditions require `Bool`; integers are never implicitly truthy:
 
 ```duck
-module () where
-module (!init: Init) where
-module (const release: Bool) where
+let value = 40
 
-const logger = import "./logger.duck"
-const { .write = write } = logger { .io = !init.io }
-
-return { .write = write }
-```
-
-Common expression forms:
-
-```duck
-42
-42i32
-42i64
-"text"
-
-x + y
-x - y
-x * y
-x / y
-x % y
-x == y
-x != y
-x < y
-x <= y
-x > y
-x >= y
-x && y
-x || y
-
-x => x + 1
-(x: Int, y: Int) => x + y
-func(arg1, arg2)
-
-if cond { a } else { b }
-if let .ok(value) = result { value } else { 0 }
-
-object.field
-object[index]
-object :+ { .field = value }
-```
-
-Built-in type names:
-
-```duck
-Int
-I32
-U32
-I64
-Text
-Unit
-Type
-```
-
-## Types, Structs, And Unions
-
-Types are compile-time values.
-
-```duck
-const { struct } = comptime import "duck:prelude" ()
-
-const user_type = struct {
-  .name = Text,
-  .age = Int
-}
-
-let user: user_type = [.name = "Ada", .age = 36]
-
-user.age
-```
-
-Unions support typed constructors and `if let` matching:
-
-```duck
-type Option t = | .some = t | .none
-type IntOption = Option Int
-let value = IntOption.some 41
-
-if let .some(x) = value {
-  x + 1
+if value < 41 && value != 0 {
+  value + 2
 } else {
   0
 }
 ```
 
-## Text
-
-Text literals are UTF-8 strings. Visible text operations can fold during
-frontend lowering, while runtime `Text` values are represented as `i32` pointers
-to length-prefixed UTF-8 data in generated WAT.
+Use `@as` when an explicit zero-cost representation cast is intended. `Bool`
+shares its carrier with `Int`, `I32`, and `U32`, so zero is false and nonzero is
+true after an explicit cast:
 
 ```duck
-let greeting = "hello" + " " + "Ada"
-@len(greeting)
+let flag: I32 = 2
+
+if @as(flag, Bool) {
+  42
+} else {
+  0
+}
 ```
 
-Text builtins include:
+`@as` does not permit width changes or cross a newtype boundary. The explicit
+unsafe numeric intrinsics cover bit reinterpretation, truncation, and extension.
+
+### 5. Blocks, early return, and pattern conditions
+
+Blocks and conditionals are expressions. `return` exits the current function:
 
 ```duck
-@len(value)
-@get(value, index)
-@slice(value, start, end)
-@append(left, right)
+let classify = value => {
+  if value < 0 {
+    return 0
+  }
+
+  if value == 0 { 1 } else { 2 }
+}
+
+classify(10) + 40
 ```
 
-## Host Effects And Modules
+`if let` checks and extracts one union case; step 8 introduces union types.
 
-Host services are nominal opaque effects declared in a Ducklang host interface.
-Their methods are the operations tracked by the effect system:
+### 6. Loops and collections
+
+Ranges are half-open. `for` supports a value, an optional index, and an explicit
+step:
+
+```duck
+let total = 0
+
+for value in 1..5 {
+  total = total + value
+}
+
+total
+```
+
+`break`, `continue`, nested loops, collection iteration, and value-producing
+`loop` expressions are supported:
+
+```duck
+let answer = loop {
+  for value in 0..10 {
+    if value == 6 {
+      break 42
+    }
+  }
+
+  break 0
+}
+
+answer
+```
+
+See [examples/loops](examples/loops) for dynamic bounds, stepped ranges, text
+byte iteration, and folds.
+
+### 7. Products, structs, fields, and updates
+
+Brackets create real tuple data that can be bound, nested, and stored.
+Parenthesized comma lists are non-storable value packs: they can be passed,
+returned, or immediately destructured, but `let pair = (left, right)` is
+rejected. This keeps function arity separate from data representation:
+
+```duck
+let swap = (left, right) => (right, left)
+let (first, second) = swap(20, 22)
+let stored = [first, second]
+```
+
+Labeled products are created with the source-defined `struct` type function:
+
+```duck
+const { struct } = comptime import "duck:prelude" ()
+
+type Point = struct { .x = Int, .y = Int }
+
+let point: Point = [20, 21]
+let moved: Point = point :+ { .x = point.x + 1 }
+
+moved.x + moved.y
+```
+
+Fields can be read by name or index. `:+` returns an updated product; it does
+not mutate the original value. Product patterns can destructure all fields or
+select labeled fields.
+
+Fixed arrays use `[Element; Length]`, and their lengths are compile-time natural
+expressions:
+
+```duck
+const width = 3
+let values: [Int; width] = [20, 21, 1]
+values[0] + values[1] + values[2]
+```
+
+The same length syntax describes homogeneous transient function inputs and
+results without introducing stored data:
+
+```duck
+const width = 3
+let sum: (I32; width) -> I32 = (a, b, c) => a + b + c
+sum(20, 21, 1)
+```
+
+`(T; 0)` is the empty pack and `(T; 1)` is a one-value pack. Both remain
+distinct from grouping `(T)`.
+
+Function inputs are patterns rather than a separate parameter-only grammar. They
+may bind one typed value, destructure one structural value, or require an exact
+literal or compile-time value:
+
+```duck
+let scalar = (value: I32) => value
+let field = { value: I32 } => value
+let exactly_42 = 42 => ()
+const only_i32 = I32 => ()
+```
+
+### 8. Sum types, generics, and matching
+
+`type` declares sum types with named constructors. Type application uses
+whitespace:
+
+```duck
+type Option value =
+  | .some = value
+  | .none
+
+type IntOption = Option Int
+let value: IntOption = IntOption.some(41)
+
+if let .some(found) = value {
+  found + 1
+} else {
+  0
+}
+```
+
+`match` handles larger sums with explicit arms and coverage checking. Union
+payloads may contain products, text, fixed arrays, or other unions.
+
+### 9. Text, bytes, and runtime collections
+
+`Text` is UTF-8. `Bytes` is an immutable byte collection. The runtime prelude
+wraps the compiler primitives with ordinary source functions:
+
+```duck
+const { append, length, get, slice } =
+  comptime import "duck:prelude/runtime" ()
+
+let name = append ["Ada", " Lovelace"]
+let first = slice [name, 0, 3]
+
+length(first) + get [name, 1]
+```
+
+The functional prelude also defines `<>` for append. UTF-8 conversion is
+explicit through `encode_utf8` and `decode_utf8`; `Text` and `Bytes` are not
+silently interchangeable. Runtime indexing and slicing emit bounds checks.
+
+### 10. Types are compile-time values
+
+Type algebra is expressed by source-defined operators:
+
+```duck
+type Value = I32 :| Text :| I64
+type Number = Value :- Text
+type ExactInt = Number :& I32
+
+let value: Value = 42
+
+if value is I32 {
+  value
+} else {
+  0
+}
+```
+
+- `:|` forms a type union.
+- `:&` forms an intersection.
+- `:-` removes members.
+- `:+` extends a type value with namespace members or methods.
+- `:>` seals a representation-compatible value as a nominal newtype.
+
+Newtypes are zero-cost but nominally distinct:
+
+```duck
+const { newtype } = comptime import "duck:prelude" ()
+
+type Centimeter = newtype I32
+const distance = 42 :> Centimeter
+
+Centimeter.unwrap distance
+```
+
+`packed` builds one source-defined scalar from fixed-width fields and generates
+typed `pack`, access, and immutable `with_<field>` functions. See
+[examples/data/15_packed_integers.duck](examples/data/15_packed_integers.duck).
+
+### 11. Compile-time programming and Rank-N types
+
+`comptime` evaluates a call while compiling. Const functions can generate
+specialized runtime functions:
+
+```duck
+const make_adder = amount => value => value + amount
+const add_two = comptime make_adder(2)
+
+add_two(40)
+```
+
+Const evaluation supports lexical capture, memoized structural recursion, fixed
+arrays, type descriptors, and reflection such as `@describe_fields`. Parameters
+marked `const` specialize at each call site.
+
+Explicit `forall` works at any type position. This function requires a callback
+that remains polymorphic across both calls:
+
+```duck
+const apply_identity: (forall value.value -> value) -> I32 =
+  (const identity) => if identity(true) {
+    identity(41) + 1
+  } else {
+    0
+  }
+
+const identity = value => value
+comptime apply_identity(identity)
+```
+
+### 12. Operators and the batteries-included prelude
+
+Operators are declarations in Duck source, not parser-wired implementations. The
+runtime prelude supplies arithmetic and comparison syntax. Importing the
+functional prelude adds pipelines, application, append, bit operations, and
+functional categories:
+
+```duck
+const { pipe, apply, length, bit_or } =
+  comptime import "duck:prelude/functional" ()
+
+const increment = value => value + 1
+const double = value => value * 2
+
+let piped = 20 |> increment |> double
+let applied = double $ 10
+let shifted = 1 << 4
+
+piped + applied + length("abc") + bit_or [shifted, 2]
+```
+
+The same module exports `identity`, `constant`, `compose`, `flip`, `curry`,
+`uncurry`, `fanout`, `converge`, and helpers for `Option`, `Result`, and
+`Either`. It declares the standard ducks `Eq`, `Ord`, `Semigroup`, `Monoid`,
+`Bits`, `Functor`, `Applicative`, `Monad`, `Foldable`, `Traversable`,
+`Category`, `Show`, `From`, `Into`, `TryFrom`, and related categories.
+
+The standard functional operators are:
+
+| Operator            | Meaning                                      |
+| ------------------- | -------------------------------------------- |
+| `$`                 | function application                         |
+| `                   | >`                                           |
+| `<>`                | append                                       |
+| `&&&`, `            |                                              |
+| `<<`, `>>`          | left and unsigned-right shift                |
+| `<$>`, `<*>`, `>>=` | functor map, applicative apply, monadic bind |
+| `<                  | >`                                           |
+
+### 13. Ducks, extensions, and compiler intrinsics
+
+A `duck` is a structural compile-time contract. `extend` installs members for a
+type, and `:+` creates a lexically extended type or const value:
+
+```duck
+duck Iterator Self {
+  type Item
+  .next = Self -> [Item, Self]
+}
+
+extend Counter {
+  type Item = I32
+  .next = counter => [counter.value, counter]
+}
+```
+
+Duck type members are internal to the contract: member signatures can name them,
+while each extension supplies the concrete type (or uses a declared default).
+Value members remain structural and are checked after those type members are
+substituted.
+
+```duck
+const readable = operations => {
+  operations.read
+  operations
+}
+
+const scalar_operations = 0
+const scalar_operations = scalar_operations :+ {
+  .read = value => value + 1
+}
+
+let read = (const operations: readable, value) => operations.read(value)
+read(scalar_operations, 41)
+```
+
+Names beginning with `@` are compiler functions. Most application code reaches
+them through source prelude wrappers. Important groups include:
+
+- checked representation casts: `@as`, `@seal`, and `@representation`;
+- text and collection operations: `@append`, `@len`, `@get`, and `@slice`;
+- integer bits and shifts: `@bit_and`, `@bit_or`, `@bit_xor`, `@shift_left`, and
+  `@shift_right_u`;
+- numeric conversions, formatting, SIMD, UTF-8, and explicit panic;
+- compile-time type reflection and the `@type.*` functions behind type
+  operators.
+
+### 14. Effects: host operations, local handlers, and defaults
+
+Effects are typed operation sets. `<-` executes an effectful computation and
+binds its result; ordinary `let` stays pure. Unannotated functions infer their
+minimal row, while `-> <row>` states an explicit upper bound:
 
 ```duck
 declare effect Io {
@@ -342,65 +580,26 @@ declare effect Io {
   print: (&Text) => Unit
 }
 
-declare Init {
-  io: Io
-}
-```
-
-Unannotated functions infer their minimal operation row. Function types use
-`-> <row>` for an explicit upper bound; a plain `->` is pure:
-
-```duck
-let read_name = () => {
-  name <- Io.read()
-  name
-}
-
 let greet: () -> <Io.read :| Io.print> Text = () => {
-  name <- read_name()
+  name <- Io.read()
   _ <- Io.print(&name)
   name
 }
 ```
 
-`<-` executes an effectful computation and binds its result; `_ <-` discards a
-`Unit` result. Ordinary `let value = ...` remains pure. Effect operations are
-always qualified by their declared effect (for example, `Io.read()`). The
-compiler retains the linear context-renewal proof internally, so application
-code does not thread an effect token explicitly.
-
-Effect annotations are operation sets. A family such as `Io` expands to all of
-its operations. `:|` is union, `:&` is intersection, and `:-` is difference.
-Rows propagate through calls, and a row annotation is an upper bound on the
-inferred minimal row. Type constructors compose by whitespace application,
-arrows associate right, and lowercase row variables propagate callback effects:
-
-```duck
-[List a, a -> <e> b] -> <e> List b
-```
-
-Imported files are loaded first and then instantiated with an explicitly
-narrowed context record; an import does not grant authority by itself.
-
-The entry module receives the sole root authority from JavaScript:
-
-```duck
-module (!init: Init) where
-
-const console = import "./console.duck"
-const { .greet = greet } = console { .io = !init.io }
-result <- greet("Ada")
-
-return { .result = result }
-```
-
-`declare effect` means that the operations are implemented by the host. Plain
-`effect` defines operations handled entirely inside Duck:
+`declare effect` is implemented by the host. Plain `effect` is implemented by a
+Duck handler:
 
 ```duck
 effect Counter {
   get: () => I32
   add: (I32) => Unit
+}
+
+let run: () -> <Counter> I32 = () => {
+  _ <- Counter.add(40)
+  value <- Counter.get()
+  value + 2
 }
 
 let counter = {
@@ -411,53 +610,125 @@ let counter = {
       count = count + amount
       !resume(())
     },
-    return: value => { value, count },
+    return: value => value,
   }
 }
 
-let result = try run() with counter
+try run() with counter
 ```
 
-Effect implementation values are affine. Handlers are deep, omitted clauses
-forward outward, and the matched handler is inactive while a clause runs.
-Resumptions may abort, resume once, or be duplicated with checked
-`let (!left, !right) = dup !resume` when all captures are copy/share safe. Plain
-effects and resumptions remain internal to one Duck run and never appear in the
-managed JavaScript manifest.
+Handlers are deep and resumptions are affine. Omitted operations forward to an
+outer handler. Checked duplication is available only when every captured value
+is safe to copy or share.
 
-## Ownership And Host Effects
-
-Linear bindings and parameters are marked with `!`.
+The effects prelude declares `State`, `Reader`, `Writer`, `Raise`, `Clock`,
+`Random`, `Console`, `Environment`, `Resource`, `Log`, `Validation`, `Async`,
+`Channel`, `Mutex`, `Semaphore`, `TaskGroup`, and `Stm`. The defaults module
+provides source handlers and explicit adapter factories:
 
 ```duck
-let !buffer = make_buffer()
-let use_once = (!value) => value
+const _ = comptime import "duck:prelude/effects" ()
+const { default_state, default_reader } =
+  comptime import "duck:prelude/effects/defaults" ()
+
+let run = () => {
+  environment <- Reader.ask()
+  _ <- State.put(environment + 2)
+  value <- State.get()
+  value
+}
+
+try (try run() with default_state(0)) with default_reader(40)
 ```
 
-Ownership-oriented expressions:
+Use named const instances when one run has several effects from the same family:
 
 ```duck
-&value
-freeze value
-scratch { statements }
+const _ = comptime import "duck:prelude/effects" ()
+
+const counter = State I32
+const message = State Text
 ```
 
-Host boundaries are declared as effects and supplied through `Init`. Operation
-parameters carry the same scalar and ownership contracts used by Core:
+Those constants are nominal effect identities, not runtime state. Two
+`State I32` instances are independent; each installed handler owns its state.
+Async, STM, clock, and random adapters do not invent authority—the installed
+implementation supplies scheduling, transactions, time, or entropy.
+
+### 15. Affine values, borrowing, scratch storage, and freezing
+
+`!` marks a value that must be consumed exactly once:
 
 ```duck
+let consume = (!value) => value + 1
+
+let !token = 41
+consume(!token)
+```
+
+Ownership-oriented expressions make lifetime changes explicit:
+
+- `&value` creates a bounded borrow.
+- `scratch { ... }` scopes temporary allocation.
+- `freeze value` promotes an immutable value to shareable storage.
+- `dup` requests checked duplication rather than silently copying an affine
+  value.
+
+Host effect signatures use the same contracts:
+
+```duck
+declare effect Host {
+  read: (&Text) => I32
+  take: (Text) => I32
+}
+```
+
+Core proves moves, borrows, allocation ownership, cleanup, and drops before WAT
+emission. The managed ABI preserves those contracts when values cross into
+JavaScript.
+
+### 16. Modules, imports, capabilities, and exports
+
+Reusable files are functions from an explicit module input to an export record:
+
+```duck
+module (capabilities) where
+
+return {
+  .run = capabilities.base + capabilities.bonus
+}
+```
+
+The importer loads the module value, supplies its dependencies, and selects its
+exports:
+
+```duck
+const score_module = import "./multi_file/score_module.duck"
+const capabilities = [.base = 40, .bonus = 2]
+
+let application = score_module(capabilities)
+application.run
+```
+
+Importing does not grant authority. Managed entry modules receive their root
+resources through `Init`, and imported modules receive only the narrowed record
+the caller passes:
+
+```duck
+module (!init: Init) where
+
 declare effect Console {
-  log: (I32) => I32
-  print: (&Text) => I32
-  make_text: (I32) => Text
+  print: (&Text) => Unit
 }
 
 declare Init { console: Console }
+
+_ <- Console.print(&"hello")
+return { .status = 0 }
 ```
 
-The compiler turns these operations into typed Wasm imports internally. There is
-no user-written raw-import statement; this keeps host authority visible in
-effect rows and makes the complete handler set swappable through `DuckRunner`.
+The compiler turns declared host effects into typed Wasm imports internally;
+there is no user-written raw Wasm import form.
 
 ## Compiler Entry Points
 

@@ -168,6 +168,13 @@ export class ParserParams extends ParserCursor {
       );
     }
 
+    if (
+      token.kind === "name" && /^[A-Z][A-Za-z0-9]*$/.test(token.text)
+    ) {
+      this.advance();
+      return { tag: "value", name: token.text };
+    }
+
     return this.parse_binding_pattern("default");
   }
 
@@ -272,7 +279,7 @@ export class ParserParams extends ParserCursor {
       this.skip_newlines();
     }
 
-    return { tag: "product", entries };
+    return { tag: "product", entries, value_pack: true };
   }
 
   private parse_product_pattern_entry(): import("./ast.ts").ProductPatternEntry {
@@ -343,6 +350,7 @@ export class ParserParams extends ParserCursor {
     const names = new Set<string>();
 
     while (!this.match_symbol("}")) {
+      const entry_start = this.index;
       const explicit = this.match_symbol(".");
       const label = this.expect_name("Expected product pattern label");
       expect_snake_case(label, "Product pattern label");
@@ -357,6 +365,22 @@ export class ParserParams extends ParserCursor {
 
       if (explicit && this.match_symbol("=")) {
         pattern = this.parse_pattern();
+      } else if (this.match_symbol(":")) {
+        const parsed = this.consume_annotation();
+        pattern = {
+          tag: "binding",
+          name: label,
+          mode: "default",
+          annotation: parsed.annotation,
+        };
+
+        if (parsed.type_annotation !== undefined) {
+          pattern.type_annotation = parsed.type_annotation;
+        }
+      }
+
+      if (pattern.tag === "binding") {
+        pattern = this.concrete_node(entry_start, pattern);
       }
 
       entries.push({ label, pattern });

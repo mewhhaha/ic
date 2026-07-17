@@ -1,0 +1,31 @@
+const run: I32 -> I32 = (rounds: I32) => {
+  let rec mix: (I32, I32) -> I32 = (state, remaining) => {
+    if remaining == 0 {
+      state
+    } else {
+      mix(state * 17 + 17, remaining - 1)
+    }
+  }
+
+  let rec advance: (I32, I32, I32) -> I32 = (left, right, remaining) => {
+    if remaining == 0 {
+      left
+    } else {
+      advance(right, left + right + 3, remaining - 1)
+    }
+  }
+
+  let rec fold: (I32, I32) -> I32 = (state, remaining) => {
+    if remaining == 0 {
+      state
+    } else {
+      fold(state * 3 + remaining + 11, remaining - 1)
+    }
+  }
+
+  let mixed = mix(42, rounds)
+  let advanced = advance(mixed, 42, rounds)
+  fold(mixed + advanced, rounds)
+}
+
+return { .run = run, .answer = 0 }

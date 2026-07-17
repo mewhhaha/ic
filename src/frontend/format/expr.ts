@@ -160,6 +160,10 @@ function format_expr(
 
       return text;
     });
+    if (expr.value_pack === true) {
+      return "(" + entries.join(", ") + ")";
+    }
+
     return "[" + entries.join(", ") + "]";
   }
 

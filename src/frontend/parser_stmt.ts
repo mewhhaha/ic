@@ -8,6 +8,7 @@ import type {
   Source as SourceNode,
   Stmt,
   Token,
+  TypeExpr,
 } from "./ast.ts";
 import { expect } from "../expect.ts";
 import { expect_snake_case } from "./names.ts";
@@ -285,12 +286,30 @@ export class ParserStmt extends ParserTypeDeclaration {
     this.expect_symbol("{");
     this.skip_newlines();
     const members: Extract<Declaration, { tag: "duck" }>["members"] = [];
+    const types: Extract<Declaration, { tag: "duck" }>["types"] = [];
     const names = new Set<string>();
 
     this.allow_pascal_type_names += 1;
 
     try {
       while (!this.match_symbol("}")) {
+        if (this.match_name("type")) {
+          const type_name = this.expect_declaration_name("Duck type member");
+          expect(!names.has(type_name), "Duplicate duck member: " + type_name);
+          names.add(type_name);
+          let default_type: TypeExpr | undefined;
+
+          if (this.match_symbol("=")) {
+            const annotation = this.consume_type_field_annotation();
+            default_type = parse_type_expr(annotation.tokens);
+          }
+
+          types.push({ name: type_name, default_type });
+          this.match_symbol(",");
+          this.skip_newlines();
+          continue;
+        }
+
         this.expect_symbol(".");
         const member = this.expect_name("Expected duck member name");
         expect_snake_case(member, "Duck member");
@@ -310,7 +329,7 @@ export class ParserStmt extends ParserTypeDeclaration {
     }
 
     expect(members.length > 0, "Duck declaration requires a member");
-    return { tag: "duck", name, roles, members };
+    return { tag: "duck", name, roles, types, members };
   }
 
   private parse_extension(): Declaration {
@@ -320,12 +339,35 @@ export class ParserStmt extends ParserTypeDeclaration {
       /^[A-Z][A-Za-z0-9]*$/.test(type_name),
       "Extension type must use PascalCase: " + type_name,
     );
-    const shape = this.parse_shape_value();
-    const fields = shape.entries.map((entry) => {
-      expect(entry.label !== undefined, "Extension member requires a name");
-      return { name: entry.label, value: entry.value };
-    });
-    return { tag: "extend", type_name, fields };
+    this.expect_symbol("{");
+    this.skip_newlines();
+    const types: Extract<Declaration, { tag: "extend" }>["types"] = [];
+    const fields: Extract<Declaration, { tag: "extend" }>["fields"] = [];
+    const names = new Set<string>();
+
+    while (!this.match_symbol("}")) {
+      if (this.match_name("type")) {
+        const name = this.expect_declaration_name("Extension type member");
+        expect(!names.has(name), "Duplicate extension member: " + name);
+        names.add(name);
+        this.expect_symbol("=");
+        const annotation = this.consume_type_field_annotation();
+        types.push({ name, type_expr: parse_type_expr(annotation.tokens) });
+      } else {
+        this.expect_symbol(".");
+        const name = this.expect_name("Expected extension member name");
+        expect_snake_case(name, "Extension member");
+        expect(!names.has(name), "Duplicate extension member: " + name);
+        names.add(name);
+        this.expect_symbol("=");
+        fields.push({ name, value: this.parse_expr() });
+      }
+
+      this.match_symbol(",");
+      this.skip_newlines();
+    }
+
+    return { tag: "extend", type_name, types, fields };
   }
 
   private parse_fixity(): Declaration {

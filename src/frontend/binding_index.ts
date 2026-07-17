@@ -430,6 +430,33 @@ function visit_statements(
       let entity: EntityId | undefined;
       let kind: BindingEntityKind = "value";
       if (statement.kind === "const") kind = "const";
+      if (statement.mutual !== undefined) {
+        const members = [statement, ...statement.mutual];
+
+        for (const member of members) {
+          define(
+            member,
+            "name",
+            undefined,
+            member.name,
+            kind,
+            "definition",
+            scope,
+            state,
+          );
+          if (member.pattern?.tag === "binding") {
+            mark_name_slot_visited(member.pattern, "name", state);
+          }
+        }
+
+        for (const member of members) {
+          visit_expr(member.value, scope, state);
+          visit_name_slot(member, "annotation", scope, state);
+          visit_type(member.type_annotation, scope, state);
+        }
+
+        continue;
+      }
       if (statement.is_recursive) {
         if (
           statement.pattern !== undefined &&
@@ -1079,7 +1106,8 @@ function visit_pattern(
 
   if (
     pattern.tag === "wildcard" || pattern.tag === "unit" ||
-    pattern.tag === "literal" || pattern.tag === "type"
+    pattern.tag === "literal" || pattern.tag === "value" ||
+    pattern.tag === "type"
   ) {
     return;
   }
