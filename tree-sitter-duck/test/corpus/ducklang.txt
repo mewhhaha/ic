@@ -60,7 +60,6 @@ let { .x = x } = moved
             (identifier))))
       (type_case
         (identifier))))
-
   (type_declaration_statement
     (identifier)
     (type_reference
@@ -109,6 +108,66 @@ let { .x = x } = moved
         (identifier)))
     (postfix_expression
       (identifier))))
+
+==================
+Colon type algebra and newtypes
+==================
+
+type Centimeter = newtype I32
+type Numeric = I32 :| I64
+const readable = Point :+ { .read = value => value.x }
+let distance = 42 :> Centimeter
+
+---
+
+(source_file
+  (type_declaration_statement
+    (identifier)
+    (newtype_type
+      (type_reference
+        (type_union
+          (type_intersection
+            (type_difference
+              (identifier)))))))
+  (type_declaration_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_intersection
+          (type_difference
+            (identifier))))))
+  (expression_statement
+    (unary_expression
+      (operator_symbol)
+      (postfix_expression
+        (identifier))))
+  (binding_statement
+    (identifier)
+    (binary_expression
+      (postfix_expression
+        (identifier))
+      (operator_symbol)
+      (postfix_expression
+        (object_literal
+          (field_block
+            (shape_field
+              (identifier)
+              (arrow_function
+                (parameter
+                  (identifier))
+                (postfix_expression
+                  (field_expression
+                    (postfix_expression
+                      (identifier))
+                    (identifier))))))))))
+  (binding_statement
+    (identifier)
+    (binary_expression
+      (postfix_expression
+        (number))
+      (operator_symbol)
+      (postfix_expression
+        (identifier)))))
 
 ==================
 Ducks, extensions, intrinsics, and custom operators
@@ -182,15 +241,17 @@ let inverted = ^^false
   (fixity_declaration_statement
     (number)
     (operator_symbol)
-    (qualified_identifier
-      (identifier)
-      (identifier)))
+    (fixity_target
+      (qualified_identifier
+        (identifier)
+        (identifier))))
   (fixity_declaration_statement
     (number)
     (operator_symbol)
-    (qualified_identifier
-      (identifier)
-      (identifier)))
+    (fixity_target
+      (qualified_identifier
+        (identifier)
+        (identifier))))
   (binding_statement
     (identifier)
     (binary_expression
@@ -299,3 +360,85 @@ return { code, .status = code }
           (identifier)
           (postfix_expression
             (identifier)))))))
+
+==================
+Packed types and fixed-width integers
+==================
+
+type Flags = packed [U1, U2, U5]
+type Header = packed struct { .kind = U3, .length = U13 }
+let flags: Flags = Flags.pack [1u1, 2u2, 17u5]
+let signed: I5 = -16i5
+
+---
+
+(source_file
+  (type_declaration_statement
+    (identifier)
+    (packed_type
+      (type_product
+        (positional_type_product
+          (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier)))))
+          (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier)))))
+          (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier)))))))))
+  (type_declaration_statement
+    (identifier)
+    (packed_type
+      (struct_type
+        (type_field_block
+          (named_type_field
+            (identifier)
+            (type_reference
+              (type_union
+                (type_intersection
+                  (type_difference
+                    (identifier))))))
+          (named_type_field
+            (identifier)
+            (type_reference
+              (type_union
+                (type_intersection
+                  (type_difference
+                    (identifier))))))))))
+  (binding_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_intersection
+          (type_difference
+            (identifier)))))
+    (application_expression
+      (postfix_expression
+        (field_expression
+          (identifier)
+          (identifier)))
+      (postfix_expression
+        (array_expression
+          (postfix_expression
+            (number))
+          (postfix_expression
+            (number))
+          (postfix_expression
+            (number))))))
+  (binding_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_intersection
+          (type_difference
+            (identifier)))))
+    (unary_expression
+      (postfix_expression
+        (number)))))

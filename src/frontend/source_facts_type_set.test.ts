@@ -69,8 +69,8 @@ let value: Bool | Text = true
 value
 `);
 
-  assert_equals(binding_types(source, facts), ["Bool | Text"]);
-  assert_equals(variable_type_names(facts), ["Bool | Text"]);
+  assert_equals(binding_types(source, facts), ["Bool :| Text"]);
+  assert_equals(variable_type_names(facts), ["Bool :| Text"]);
 });
 
 Deno.test("source facts distinguish Bool and I32 type-set membership", () => {

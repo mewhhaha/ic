@@ -65,7 +65,11 @@ function format_declaration(declaration: Declaration): string {
 
   const operations = declaration.operations.map((operation) => {
     const params = operation.params.map(format_effect_param).join(", ");
-    return operation.name + ": (" + params + ") => " +
+    let execution = "";
+    if (operation.execution === "suspending") {
+      execution = "suspending ";
+    }
+    return execution + operation.name + ": (" + params + ") => " +
       format_effect_result(operation.result);
   });
   let prefix = "effect ";
@@ -91,7 +95,9 @@ function format_type_declaration(declaration: TypeDeclaration): string {
     head += " " + declaration.params.join(" ");
   }
 
-  if (declaration.body.tag === "product") {
+  if (
+    declaration.body.tag === "product" || declaration.body.tag === "packed"
+  ) {
     const entries: string[] = [];
 
     for (const field of declaration.body.fields) {
@@ -106,14 +112,33 @@ function format_type_declaration(declaration: TypeDeclaration): string {
     }
 
     if (declaration.body.positional) {
-      return head + " = [" + entries.join(", ") + "]";
+      let constructor = "";
+
+      if (declaration.body.tag === "packed") {
+        constructor = "packed ";
+      }
+
+      return head + " = " + constructor + "[" + entries.join(", ") + "]";
     }
 
-    return head + " = struct { " + entries.join(", ") + " }";
+    let constructor = "struct";
+
+    if (declaration.body.tag === "packed") {
+      constructor = "packed struct";
+    }
+
+    return head + " = " + constructor + " { " + entries.join(", ") + " }";
   }
 
   if (declaration.body.tag === "alias") {
-    return head + " = " + format_type_text(declaration.body.type_name);
+    let constructor = "";
+
+    if (declaration.body.opaque) {
+      constructor = "newtype ";
+    }
+
+    return head + " = " + constructor +
+      format_type_text(declaration.body.type_name);
   }
 
   const cases = declaration.body.cases.map((item) => {

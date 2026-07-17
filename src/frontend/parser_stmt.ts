@@ -352,22 +352,19 @@ export class ParserStmt extends ParserTypeDeclaration {
     );
     this.advance();
     this.expect_symbol("=");
-    const target_parts = [this.expect_name("Expected fixity target namespace")];
+    const target_parts = [this.expect_name("Expected fixity target")];
 
     while (this.match_symbol(".")) {
       target_parts.push(this.expect_name("Expected fixity target member"));
     }
+    const target = target_parts.join(".");
 
-    expect(
-      target_parts.length >= 2,
-      "Fixity target must be a qualified namespace member",
-    );
     return {
       tag: "fixity",
       fixity: keyword as "infixl" | "infixr" | "infix" | "prefix",
       precedence,
       operator: operator_token.text,
-      target: target_parts.join("."),
+      target,
     };
   }
 
@@ -400,6 +397,13 @@ export class ParserStmt extends ParserTypeDeclaration {
 
     while (!this.match_symbol("}")) {
       const operation_start = this.index;
+      let execution: EffectOperation["execution"] = "synchronous";
+      if (
+        this.peek().kind === "name" && this.peek().text === "suspending"
+      ) {
+        this.expect_name("Expected `suspending`");
+        execution = "suspending";
+      }
       const operation = this.expect_name("Expected effect operation name");
       expect_snake_case(operation, "Effect operation");
       this.expect_symbol(":");
@@ -414,6 +418,7 @@ export class ParserStmt extends ParserTypeDeclaration {
       operations.push(
         this.concrete_node(operation_start, {
           name: operation,
+          execution,
           params,
           result,
         }),
@@ -699,5 +704,5 @@ export class ParserStmt extends ParserTypeDeclaration {
 function is_effect_scalar_type(type_name: string): boolean {
   return type_name === "Unit" || type_name === "Bool" ||
     type_name === "Int" || type_name === "I32" || type_name === "U32" ||
-    type_name === "I64" || type_name === "F32";
+    type_name === "I64" || type_name === "F32" || type_name === "F64";
 }

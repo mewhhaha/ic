@@ -14,7 +14,7 @@ export function val_type_size(value_type: ValType): number {
     return 4;
   }
 
-  if (value_type === "i64") {
+  if (value_type === "i64" || value_type === "f64") {
     return 8;
   }
 

@@ -244,7 +244,9 @@ function artifact_from_source(
   };
 }
 
-function source_with_managed_callable_exports(source: SourceNode): SourceNode {
+export function source_with_managed_callable_exports(
+  source: SourceNode,
+): SourceNode {
   const final_stmt = source.statements[source.statements.length - 1];
 
   if (

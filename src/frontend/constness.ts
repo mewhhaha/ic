@@ -20,6 +20,8 @@ const stable_compiler_callable_names = new Set([
   "@unsafe_i32_reinterpret_f32",
   "@unsafe_f32_reinterpret_i32",
   "@as",
+  "@seal",
+  "@representation",
   "@format_i32",
   "@format_i64",
   "@format_f32",
@@ -44,7 +46,8 @@ export function is_const_builtin_name(name: string): boolean {
     name === "@construct" || name === "@project" || name === "@is_case" ||
     name === "@len" || name === "@get" ||
     name === "@shape.entries" || name === "@type.product" ||
-    name === "@type.namespace" ||
+    name === "@type.namespace" || name === "@type.union" ||
+    name === "@type.intersection" || name === "@type.difference" ||
     is_builtin_type_name(name) ||
     name === "object_type" || name === "layout_type" ||
     name === "field_offsets_type";

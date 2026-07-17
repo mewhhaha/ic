@@ -66,5 +66,9 @@ function rec_numeric_primitive_operand_type(prim: Prim): NumType {
     return "f32";
   }
 
+  if (prim.startsWith("f64.")) {
+    return "f64";
+  }
+
   return "i32";
 }

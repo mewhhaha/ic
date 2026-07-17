@@ -1,3 +1,5 @@
+const { identity } = comptime import "duck:prelude/functional" ()
+
 const apply_identity: (forall value.value -> value) -> I32 =
   (const identity) => if identity(true) {
     identity(41) + 1
@@ -5,5 +7,4 @@ const apply_identity: (forall value.value -> value) -> I32 =
     0
   }
 
-const identity = value => value
 comptime apply_identity(identity)

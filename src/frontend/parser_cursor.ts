@@ -28,6 +28,7 @@ export class ParseFailure extends Error {
 export type ParserState = {
   index: number;
   effect_names: Set<string>;
+  effect_instance_names: Set<string>;
   type_names: Set<string>;
   declaration_names: Set<string>;
   no_demand_name: number;
@@ -39,6 +40,7 @@ export class ParserCursor {
   protected tokens: Token[];
   protected index = 0;
   protected effect_names = new Set<string>();
+  protected effect_instance_names = new Set<string>();
   protected type_names = new Set<string>();
   protected declaration_names = new Set<string>();
   protected next_no_demand_name = 0;
@@ -240,6 +242,7 @@ export class ParserCursor {
     return {
       index: this.index,
       effect_names: new Set(this.effect_names),
+      effect_instance_names: new Set(this.effect_instance_names),
       type_names: new Set(this.type_names),
       declaration_names: new Set(this.declaration_names),
       no_demand_name: this.next_no_demand_name,
@@ -249,6 +252,7 @@ export class ParserCursor {
   protected restore_parser_state(state: ParserState): void {
     this.index = state.index;
     this.effect_names = state.effect_names;
+    this.effect_instance_names = state.effect_instance_names;
     this.type_names = state.type_names;
     this.declaration_names = state.declaration_names;
     this.next_no_demand_name = state.no_demand_name;

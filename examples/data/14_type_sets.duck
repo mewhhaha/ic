@@ -1,7 +1,7 @@
 const { length } = comptime import "duck:prelude/runtime" ()
 
-type Value = Int | Text | I64
-type Answer = (Value \ Text) & Int
+type Value = Int :| Text :| I64
+type Answer = (Value :- Text) :& Int
 type Marker = #answer
 type FrozenText = #Text
 

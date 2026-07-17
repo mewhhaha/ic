@@ -47,8 +47,19 @@ export function lower_expr(
     case "atom":
       return { tag: "num", type: "i32", value: atom_i32(expr.name) };
 
-    case "num":
-      return { tag: "num", type: expr.type, value: expr.value };
+    case "num": {
+      const lowered: IcNode = {
+        tag: "num",
+        type: expr.type,
+        value: expr.value,
+      };
+
+      if (expr.integer) {
+        lowered.integer = expr.integer;
+      }
+
+      return lowered;
+    }
 
     case "unit":
       return { tag: "num", type: "i32", value: 0 };

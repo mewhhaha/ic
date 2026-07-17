@@ -6,6 +6,7 @@ export type TypeScalar =
   | "U32"
   | "I64"
   | "F32"
+  | "F64"
   | "F32x4"
   | "Text"
   | "Bytes"
@@ -31,6 +32,7 @@ export type Type =
   | { tag: "top" }
   | { tag: "never" }
   | { tag: "scalar"; name: TypeScalar }
+  | { tag: "integer"; signed: boolean; width: number }
   | { tag: "named"; name: string; args: Type[] }
   | { tag: "product"; fields: TypeProductField[] }
   | { tag: "record"; fields: TypeRecordField[] }
@@ -146,6 +148,9 @@ export function format_type(type: Type): string {
 
     case "scalar":
       return type.name;
+
+    case "integer":
+      return integer_type_name(type);
 
     case "named": {
       if (type.args.length === 0) {
@@ -290,6 +295,7 @@ export class TypeEngine {
       case "top":
       case "never":
       case "scalar":
+      case "integer":
         return head;
 
       case "forall":
@@ -620,6 +626,18 @@ export class TypeEngine {
 
         if (left.name !== right.name) {
           this.fail_unification(left, right, site, "scalar names differ");
+        }
+
+        return;
+      }
+
+      case "integer": {
+        if (right.tag !== "integer") {
+          throw new Error("Expected integer type during unification");
+        }
+
+        if (left.signed !== right.signed || left.width !== right.width) {
+          this.fail_unification(left, right, site, "integer types differ");
         }
 
         return;
@@ -956,6 +974,7 @@ export class TypeEngine {
       case "top":
       case "never":
       case "scalar":
+      case "integer":
         return false;
 
       case "forall":
@@ -1186,6 +1205,7 @@ export class TypeEngine {
       case "top":
       case "never":
       case "scalar":
+      case "integer":
         return type;
 
       case "forall":
@@ -1529,6 +1549,17 @@ export class TypeEngine {
 
     if (left.tag === "scalar" && right.tag === "scalar") {
       return !scalar_representation_compatible(left.name, right.name);
+    }
+
+    if (left.tag === "integer" && right.tag === "integer") {
+      return left.signed !== right.signed || left.width !== right.width;
+    }
+
+    if (
+      (left.tag === "integer" && right.tag === "scalar") ||
+      (left.tag === "scalar" && right.tag === "integer")
+    ) {
+      return true;
     }
 
     if (left.tag === "named" && right.tag === "named") {
@@ -1893,6 +1924,7 @@ export class TypeEngine {
       case "top":
       case "never":
       case "scalar":
+      case "integer":
         return resolved;
 
       case "forall": {
@@ -2120,6 +2152,9 @@ function type_key_at(
     case "scalar":
       return "scalar(" + type.name + ")";
 
+    case "integer":
+      return "integer(" + integer_type_name(type) + ")";
+
     case "named":
       return "named(" + type.name + "," + type.args.map((arg) => {
         return type_key_at(arg, bound_variables, binders);
@@ -2181,3 +2216,4 @@ function type_key_at(
         type_key_at(type.removed, bound_variables, binders) + ")";
   }
 }
+import { integer_type_name } from "../integer.ts";

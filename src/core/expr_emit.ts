@@ -1,5 +1,11 @@
 import { expect } from "../expect.ts";
-import { emit_prim_call, type PrimOperandEmission } from "../op.ts";
+import {
+  emit_prim_call,
+  prim_preserves_integer_type,
+  type PrimOperandEmission,
+  specialize_prim_for_integer,
+} from "../op.ts";
+import type { IntegerType } from "../integer.ts";
 import { type Wat, wat_number } from "../wat.ts";
 import type { CoreExpr } from "./ast.ts";
 import { find_core_field, static_indexed_field } from "./analysis/field.ts";
@@ -152,7 +158,11 @@ export function emit_core_expr<ctx extends CoreExprEmitCtx>(
       }
 
       hooks.check_core_text_concat_operand_visibility(expr, ctx);
-      const prim = hooks.core_typed_prim(expr, ctx);
+      let prim = hooks.core_typed_prim(expr, ctx);
+
+      if (expr.integer) {
+        prim = specialize_prim_for_integer(prim, expr.integer.signed);
+      }
       hooks.expr_type(expr, ctx);
       const operands: PrimOperandEmission[] = [];
 
@@ -172,7 +182,13 @@ export function emit_core_expr<ctx extends CoreExprEmitCtx>(
         });
       }
 
-      return emit_prim_call(prim, operands);
+      const call = emit_prim_call(prim, operands);
+
+      if (!expr.integer || !prim_preserves_integer_type(prim)) {
+        return call;
+      }
+
+      return call + "\n" + emit_integer_normalization(expr.integer);
     }
 
     case "app":
@@ -381,4 +397,31 @@ export function emit_core_expr<ctx extends CoreExprEmitCtx>(
   function emit_core_expr_with_hooks(value: CoreExpr, value_ctx: ctx): Wat {
     return emit_core_expr(value, value_ctx, hooks);
   }
+}
+
+function emit_integer_normalization(integer: IntegerType): Wat {
+  let carrier_width = 32;
+  let prefix = "i32";
+
+  if (integer.width > 32) {
+    carrier_width = 64;
+    prefix = "i64";
+  }
+
+  if (integer.width === carrier_width) {
+    return "";
+  }
+
+  if (!integer.signed) {
+    const mask = (1n << BigInt(integer.width)) - 1n;
+    return prefix + ".const " + mask.toString() + "\n" + prefix + ".and";
+  }
+
+  const shift = carrier_width - integer.width;
+  return [
+    prefix + ".const " + shift.toString(),
+    prefix + ".shl",
+    prefix + ".const " + shift.toString(),
+    prefix + ".shr_s",
+  ].join("\n");
 }

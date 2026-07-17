@@ -11,6 +11,7 @@ import {
 } from "./core/runtime_allocator.ts";
 import { closure_heap_global } from "./core/closure_runtime.ts";
 import { fixed_array_length } from "./frontend/fixed_array_type.ts";
+import { integer_type_from_name, integer_val_type } from "./integer.ts";
 
 export const duck_abi_name = "duck-js";
 export const duck_abi_version = "duck-js-1";
@@ -26,6 +27,7 @@ export type AbiTypeRef =
   | { tag: "i32" }
   | { tag: "i64" }
   | { tag: "f32" }
+  | { tag: "f64" }
   | { tag: "unit" }
   | { tag: "text" }
   | { tag: "bytes" }
@@ -92,6 +94,7 @@ export type AbiImport = {
 
 export type AbiEffectOperation = {
   name: string;
+  execution: "synchronous" | "suspending";
   import: string;
   params: AbiValueContract[];
   result: AbiValueContract;
@@ -439,8 +442,13 @@ export function build_abi_manifest(
         resolve_named,
         resolve_fixed_array,
       );
+      let execution: AbiEffectOperation["execution"] = "synchronous";
+      if (operation.execution === "suspending") {
+        execution = "suspending";
+      }
       operations[operation.name] = {
         name: operation.name,
+        execution,
         import: import_name,
         params: operation_params,
         result,
@@ -741,7 +749,7 @@ function validate_effect_ownership(
 
 function is_scalar_abi_type(type: AbiTypeRef): boolean {
   return type.tag === "i32" || type.tag === "i64" || type.tag === "f32" ||
-    type.tag === "unit";
+    type.tag === "f64" || type.tag === "unit";
 }
 
 function abi_init(
@@ -999,6 +1007,10 @@ function abi_wasm_type(type: AbiTypeRef): import("./op.ts").ValType {
     return "f32";
   }
 
+  if (type.tag === "f64") {
+    return "f64";
+  }
+
   return "i32";
 }
 
@@ -1193,6 +1205,23 @@ function primitive_abi_type_alias(
 
 function primitive_abi_type_ref(name: string): AbiTypeRef | undefined {
   reject_resume_abi_type(name);
+  const integer = integer_type_from_name(name);
+
+  if (integer) {
+    const type = integer_val_type(integer);
+
+    if (type === "i32") {
+      return { tag: "i32" };
+    }
+
+    if (type === "i64") {
+      return { tag: "i64" };
+    }
+
+    throw new Error(
+      "Managed ABI cannot expose wide integer values directly: " + name,
+    );
+  }
 
   if (name === "F32x4") {
     throw new Error("Managed ABI cannot expose F32x4 values");
@@ -1210,6 +1239,10 @@ function primitive_abi_type_ref(name: string): AbiTypeRef | undefined {
 
   if (name === "F32") {
     return { tag: "f32" };
+  }
+
+  if (name === "F64") {
+    return { tag: "f64" };
   }
 
   if (name === "Unit") {
@@ -1245,7 +1278,7 @@ function abi_type_ref_layout(
   type: AbiTypeRef,
   resolve_named: (name: string) => AbiType,
 ): { size: number; align: number } {
-  if (type.tag === "i64") {
+  if (type.tag === "i64" || type.tag === "f64") {
     return { size: 8, align: 8 };
   }
 

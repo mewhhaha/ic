@@ -2,19 +2,25 @@ import { expect } from "../expect.ts";
 import type { FrontType, Param, TypeField } from "./ast.ts";
 import type { ValType } from "../op.ts";
 import { format_type_expr } from "./type_expr.ts";
+import {
+  integer_type_from_name,
+  integer_type_name,
+  integer_val_type,
+} from "../integer.ts";
 
 export function is_builtin_type_name(name: string): boolean {
+  if (integer_type_from_name(name)) {
+    return true;
+  }
+
   return name === "Bool" || name === "Unit" || name === "Int" ||
     name === "I32" ||
-    name === "U32" || name === "I64" || name === "F32" || name === "F32x4" ||
+    name === "U32" || name === "I64" || name === "F32" || name === "F64" ||
+    name === "F32x4" ||
     name === "Text" || name === "Bytes" || name === "Resume";
 }
 
 export function front_type_from_type_name(name: string): FrontType {
-  if (name === "Bool") {
-    return { tag: "bool" };
-  }
-
   if (
     name === "Int" || name === "I32" || name === "U32" ||
     name === "Resume"
@@ -26,8 +32,28 @@ export function front_type_from_type_name(name: string): FrontType {
     return { tag: "int", type: "i64" };
   }
 
+  const integer = integer_type_from_name(name);
+
+  if (integer) {
+    const type = integer_val_type(integer);
+
+    if (type) {
+      return { tag: "int", type, integer };
+    }
+
+    return { tag: "wide_int", integer };
+  }
+
+  if (name === "Bool") {
+    return { tag: "bool" };
+  }
+
   if (name === "F32") {
     return { tag: "int", type: "f32" };
+  }
+
+  if (name === "F64") {
+    return { tag: "int", type: "f64" };
   }
 
   if (name === "F32x4") {
@@ -50,12 +76,22 @@ export function front_type_from_type_name(name: string): FrontType {
 }
 
 export function val_type_from_type_name(name: string): ValType | undefined {
+  const integer = integer_type_from_name(name);
+
+  if (integer) {
+    return integer_val_type(integer);
+  }
+
   if (name === "I64") {
     return "i64";
   }
 
   if (name === "F32") {
     return "f32";
+  }
+
+  if (name === "F64") {
+    return "f64";
   }
 
   if (name === "F32x4") {
@@ -84,8 +120,16 @@ export function front_type_name(type: FrontType): string {
       return "F32x4";
 
     case "int":
+      if (type.integer) {
+        return integer_type_name(type.integer);
+      }
+
       if (type.type === "f32") {
         return "F32";
+      }
+
+      if (type.type === "f64") {
+        return "F64";
       }
 
       if (type.type === "i64") {
@@ -97,6 +141,9 @@ export function front_type_name(type: FrontType): string {
       }
 
       return "Int";
+
+    case "wide_int":
+      return integer_type_name(type.integer);
 
     case "atom":
       return "#" + type.name;
@@ -143,8 +190,16 @@ export function type_name_from_front_type(
   }
 
   if (type.tag === "int") {
+    if (type.integer) {
+      return integer_type_name(type.integer);
+    }
+
     if (type.type === "f32") {
       return "F32";
+    }
+
+    if (type.type === "f64") {
+      return "F64";
     }
 
     if (type.type === "i64") {
@@ -152,6 +207,10 @@ export function type_name_from_front_type(
     }
 
     return "Int";
+  }
+
+  if (type.tag === "wide_int") {
+    return integer_type_name(type.integer);
   }
 
   if (type.tag === "text") {

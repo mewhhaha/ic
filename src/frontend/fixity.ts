@@ -1,5 +1,11 @@
 import { expect } from "../expect.ts";
 import type { Token } from "./ast.ts";
+import prelude_text from "./prelude.duck" with { type: "text" };
+import functional_prelude_text from "./prelude_functional.duck" with {
+  type: "text",
+};
+import runtime_prelude_text from "./prelude_runtime.duck" with { type: "text" };
+import { tokenize } from "./tokenize.ts";
 
 export type InfixAssociativity = "left" | "right" | "none";
 
@@ -28,6 +34,7 @@ export type FixityTable = {
 };
 
 const builtin_fixities: Fixity[] = [
+  infix("infixr", 15, ":>", "@seal"),
   infix("infixr", 20, "||", "Bool.or"),
   infix("infixr", 30, "&&", "Bool.and"),
   infix("infix", 40, "==", "Eq.eq"),
@@ -45,23 +52,25 @@ const builtin_fixities: Fixity[] = [
   prefix(80, "-", "Neg.neg"),
 ];
 
-const prelude_fixities: Fixity[] = [
-  infix("infixr", 10, "$", "Function.apply"),
-  infix("infixl", 10, "|>", "Function.pipe"),
-  infix("infixr", 50, "<>", "Semigroup.append"),
-  infix("infixl", 55, "<$>", "Functor.map"),
-  infix("infixl", 55, "<*>", "Applicative.apply"),
-  infix("infixl", 50, ">>=", "Monad.bind"),
-  infix("infixl", 45, "<|>", "Alternative.or_else"),
-  infix("infixl", 45, "|||", "Bits.bit_or"),
-  infix("infixl", 50, "^^^", "Bits.bit_xor"),
-  infix("infixl", 55, "&&&", "Bits.bit_and"),
-  infix("infixl", 60, "<<", "Bits.shift_left"),
-  infix("infixl", 60, ">>", "Bits.shift_right_unsigned"),
-];
+const prelude_fixities = [
+  prelude_text,
+  runtime_prelude_text,
+  functional_prelude_text,
+]
+  .flatMap((text) => declared_fixities(tokenize(text)));
 
 export function collect_source_fixities(tokens: Token[]): FixityTable {
   const table = create_fixity_table();
+
+  for (const fixity of declared_fixities(tokens)) {
+    register_fixity(table, fixity);
+  }
+
+  return table;
+}
+
+function declared_fixities(tokens: Token[]): Fixity[] {
+  const fixities: Fixity[] = [];
   let braces = 0;
   let brackets = 0;
   let parens = 0;
@@ -89,11 +98,11 @@ export function collect_source_fixities(tokens: Token[]): FixityTable {
     }
 
     const declaration = read_fixity(tokens, index);
-    register_fixity(table, declaration.fixity);
+    fixities.push(declaration.fixity);
     index = declaration.end;
   }
 
-  return table;
+  return fixities;
 }
 
 function is_line_start(tokens: Token[], index: number): boolean {
@@ -129,6 +138,10 @@ export function register_fixity(table: FixityTable, fixity: Fixity): void {
   }
 
   if (existing !== undefined && !existing.builtin) {
+    if (same_fixity(existing, fixity)) {
+      return;
+    }
+
     throw new Error(
       "Duplicate " + fixity.kind + " operator declaration: " +
         fixity.operator,
@@ -140,6 +153,25 @@ export function register_fixity(table: FixityTable, fixity: Fixity): void {
   } else {
     table.infix.set(fixity.operator, fixity);
   }
+}
+
+function same_fixity(left: Fixity, right: Fixity): boolean {
+  if (
+    left.kind !== right.kind || left.precedence !== right.precedence ||
+    left.operator !== right.operator || left.target !== right.target
+  ) {
+    return false;
+  }
+
+  if (left.kind === "prefix" && right.kind === "prefix") {
+    return true;
+  }
+
+  if (left.kind === "infix" && right.kind === "infix") {
+    return left.associativity === right.associativity;
+  }
+
+  return false;
 }
 
 export function fixity_keyword(fixity: Fixity): string {
@@ -186,8 +218,8 @@ function read_fixity(
   );
   const precedence = Number(precedence_token.text);
   validate_precedence(precedence);
-  const target_parts: string[] = [];
   let index = start + 4;
+  const target_parts: string[] = [];
 
   while (index < tokens.length) {
     const token = tokens[index];
@@ -202,7 +234,7 @@ function read_fixity(
       (target_parts.length % 2 === 1 &&
         (token.kind !== "symbol" || token.text !== "."))
     ) {
-      throw new Error("Fixity target must be a qualified namespace member");
+      throw new Error("Fixity target must be a function or namespace member");
     }
 
     target_parts.push(token.text);
@@ -210,10 +242,16 @@ function read_fixity(
   }
 
   expect(
-    target_parts.length >= 3 && target_parts.length % 2 === 1,
-    "Fixity target must be a qualified namespace member",
+    target_parts.length >= 1 && target_parts.length % 2 === 1,
+    "Fixity target must be a function or namespace member",
   );
   const target = target_parts.join("");
+
+  const trailing = tokens[index];
+  expect(
+    trailing?.kind === "newline" || trailing?.kind === "eof",
+    "Unexpected token after fixity target: " + trailing?.text,
+  );
   let fixity: Fixity;
 
   if (keyword.text === "prefix") {
@@ -282,7 +320,7 @@ function validate_precedence(precedence: number): void {
 }
 
 export function is_operator_symbol(value: string): boolean {
-  return /^[-!$%&*+\/<=>?^|~\\]+$/.test(value) &&
+  return /^[:!$%&*+\/<=>?^|~\\-]+$/.test(value) &&
     value !== "=" && value !== "=>" && value !== "->" && value !== "<-" &&
-    value !== "|";
+    value !== "|" && value !== ":";
 }

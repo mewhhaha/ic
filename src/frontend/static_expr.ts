@@ -59,7 +59,17 @@ export function lower_static_expr(
   }
 
   if (expr.tag === "num") {
-    return { tag: "num", type: expr.type, value: expr.value };
+    const lowered: IcNode = {
+      tag: "num",
+      type: expr.type,
+      value: expr.value,
+    };
+
+    if (expr.integer) {
+      lowered.integer = expr.integer;
+    }
+
+    return lowered;
   }
 
   if (expr.tag === "type_name") {

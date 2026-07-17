@@ -34,7 +34,7 @@ Deno.test("forall types parse at arbitrary ranks", () => {
 
 Deno.test("type expressions compose with whitespace application and arrows", () => {
   const type = parse_type_expr(tokenize(
-    "[List a, a -> <Stdin | Stdout | e> List b] -> <e> List b",
+    "[List a, a -> <Stdin :| Stdout :| e> List b] -> <e> List b",
   ));
 
   assert_equals(type, {
@@ -80,7 +80,7 @@ Deno.test("type expressions compose with whitespace application and arrows", () 
   });
   assert_equals(
     format_type_expr(type),
-    "[List a, a -> <Stdin | Stdout | e> List b] -> <e> List b",
+    "[List a, a -> <Stdin :| Stdout :| e> List b] -> <e> List b",
   );
 });
 
@@ -175,20 +175,23 @@ Deno.test("type expressions parse the structured type surface", () => {
       },
     },
   });
-  assert_equals(format_type_expr(type), "#hello | #Text & &(List a) \\ Never");
+  assert_equals(
+    format_type_expr(type),
+    "#hello :| #Text :& &(List a) :- Never",
+  );
 });
 
 Deno.test("type expression set operators bind tighter from union to difference", () => {
   const type = parse_type_expr(tokenize("A | B & C \\ D"));
-  assert_equals(format_type_expr(type), "A | B & C \\ D");
+  assert_equals(format_type_expr(type), "A :| B :& C :- D");
   assert_equals(
     format_type_expr(parse_type_expr(tokenize("(A | B) & (C \\ D)"))),
-    "(A | B) & C \\ D",
+    "(A :| B) :& C :- D",
   );
 });
 
 Deno.test("structured type expressions round trip canonical syntax", () => {
-  const source = "#(List a) -> <e> &(List a) | _";
+  const source = "#(List a) -> <e> &(List a) :| _";
   assert_equals(format_type_expr(parse_type_expr(tokenize(source))), source);
   assert_equals(format_type_expr(parse_type_expr(tokenize("#(a)"))), "#(a)");
 });

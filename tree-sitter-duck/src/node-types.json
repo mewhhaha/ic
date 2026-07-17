@@ -2095,6 +2095,10 @@
           {
             "type": "effect_identifier",
             "named": true
+          },
+          {
+            "type": "identifier",
+            "named": true
           }
         ]
       }
@@ -2695,11 +2699,30 @@
         "required": true,
         "types": [
           {
-            "type": "qualified_identifier",
+            "type": "fixity_target",
             "named": true
           }
         ]
       }
+    }
+  },
+  {
+    "type": "fixity_target",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "qualified_identifier",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -3990,6 +4013,22 @@
     }
   },
   {
+    "type": "newtype_type",
+    "named": true,
+    "fields": {
+      "representation": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_reference",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
     "type": "object_literal",
     "named": true,
     "fields": {
@@ -4003,6 +4042,25 @@
           }
         ]
       }
+    }
+  },
+  {
+    "type": "packed_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "struct_type",
+          "named": true
+        },
+        {
+          "type": "type_product",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -5233,6 +5291,14 @@
         "required": true,
         "types": [
           {
+            "type": "newtype_type",
+            "named": true
+          },
+          {
+            "type": "packed_type",
+            "named": true
+          },
+          {
             "type": "struct_type",
             "named": true
           },
@@ -6059,7 +6125,19 @@
     "named": false
   },
   {
+    "type": ":&",
+    "named": false
+  },
+  {
+    "type": ":-",
+    "named": false
+  },
+  {
     "type": ":=",
+    "named": false
+  },
+  {
+    "type": ":|",
     "named": false
   },
   {
@@ -6249,12 +6327,20 @@
     "named": true
   },
   {
+    "type": "newtype",
+    "named": false
+  },
+  {
     "type": "number",
     "named": true
   },
   {
     "type": "operator_symbol",
     "named": true
+  },
+  {
+    "type": "packed",
+    "named": false
   },
   {
     "type": "prefix",

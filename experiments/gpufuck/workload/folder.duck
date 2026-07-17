@@ -1,0 +1,3 @@
+module (seed) where
+
+return { .factor = seed - 8, .bias = seed }

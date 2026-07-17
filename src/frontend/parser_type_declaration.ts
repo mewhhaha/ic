@@ -28,6 +28,43 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
     this.allow_pascal_type_names += 1;
 
     try {
+      if (this.peek().kind === "name" && this.peek().text === "packed") {
+        this.expect_name("Expected packed constructor");
+
+        if (this.peek().kind === "name" && this.peek().text === "struct") {
+          this.expect_name("Expected struct constructor");
+          const product = this.parse_struct_constructor_shape(name);
+          return {
+            tag: "type",
+            name,
+            params,
+            body: {
+              tag: "packed",
+              fields: product.fields,
+              positional: false,
+            },
+            recursive: product.recursive,
+          };
+        }
+
+        expect(
+          this.starts_product_type() && this.peek().text === "[",
+          "Packed types use `packed [...]` or `packed struct { ... }`",
+        );
+        const product = this.parse_product_type(name);
+        return {
+          tag: "type",
+          name,
+          params,
+          body: {
+            tag: "packed",
+            fields: product.body.fields,
+            positional: product.body.positional,
+          },
+          recursive: product.recursive,
+        };
+      }
+
       if (this.peek().kind === "name" && this.peek().text === "struct") {
         this.expect_name("Expected struct constructor");
         const product = this.parse_struct_constructor_shape(name);
@@ -98,15 +135,28 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
       }
 
       const body_start = this.index;
+      let opaque = false;
+
+      if (this.peek().kind === "name" && this.peek().text === "newtype") {
+        this.expect_name("Expected newtype constructor");
+        opaque = true;
+      }
+
       const alias = this.consume_type_member(name, new Set());
+      const body: Extract<TypeDeclaration["body"], { tag: "alias" }> = {
+        tag: "alias",
+        type_name: alias.text,
+      };
+
+      if (opaque) {
+        body.opaque = true;
+      }
+
       return {
         tag: "type",
         name,
         params,
-        body: this.concrete_node(body_start, {
-          tag: "alias",
-          type_name: alias.text,
-        }),
+        body: this.concrete_node(body_start, body),
         recursive: alias.recursive,
       };
     } finally {

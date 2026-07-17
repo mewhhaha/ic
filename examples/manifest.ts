@@ -286,6 +286,11 @@ export const success_examples: SuccessExample[] = [
   },
   { path: "examples/data/13_type_rows.duck", route: "core", runs: run(42) },
   { path: "examples/data/14_type_sets.duck", route: "core", runs: run(42) },
+  {
+    path: "examples/data/15_packed_integers.duck",
+    route: "core",
+    runs: run(2),
+  },
 
   { path: "examples/loops/01_range_sum.duck", route: "core", runs: run(10) },
   {

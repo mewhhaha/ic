@@ -14,7 +14,7 @@ let read_name: () -> <Io.read> Text = () => {
   name
 }
 
-let greet: () -> <Io.read | Io.print> Text = () => {
+let greet: () -> <Io.read :| Io.print> Text = () => {
   name <- read_name()
   _ <- Io.print(&name)
   name

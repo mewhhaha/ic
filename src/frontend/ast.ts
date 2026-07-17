@@ -1,4 +1,5 @@
 import type { NumType, Prim, ValType } from "../op.ts";
+import type { IntegerType } from "../integer.ts";
 import type {
   ResumeSignature,
   TypeExpr,
@@ -72,6 +73,7 @@ export type EffectDeclaration = {
 
 export type EffectOperation = {
   name: string;
+  execution?: "synchronous" | "suspending";
   params: EffectParam[];
   result: EffectResult;
 };
@@ -107,8 +109,13 @@ export type TypeDeclaration = {
       positional: boolean;
       initializer?: FrontExpr;
     }
+    | {
+      tag: "packed";
+      fields: TypeField[];
+      positional: boolean;
+    }
     | { tag: "sum"; cases: TypeField[] }
-    | { tag: "alias"; type_name: string };
+    | { tag: "alias"; type_name: string; opaque?: boolean };
   recursive: boolean;
 };
 
@@ -121,7 +128,12 @@ export type PatternMode = "default" | "const" | "linear";
 
 export type PatternLiteral =
   | { tag: "bool"; value: boolean }
-  | { tag: "num"; type: NumType; value: number | bigint }
+  | {
+    tag: "num";
+    type: NumType;
+    value: number | bigint;
+    integer?: IntegerType;
+  }
   | { tag: "text"; value: string }
   | { tag: "atom"; name: string };
 
@@ -241,7 +253,12 @@ export type Stmt =
 
 export type FrontExpr =
   | { tag: "bool"; value: boolean }
-  | { tag: "num"; type: NumType; value: number | bigint }
+  | {
+    tag: "num";
+    type: NumType;
+    value: number | bigint;
+    integer?: IntegerType;
+  }
   | { tag: "atom"; name: string }
   | { tag: "unit" }
   | { tag: "text"; value: string; encoding?: "bytes" }
@@ -269,7 +286,7 @@ export type FrontExpr =
   | { tag: "array_repeat"; value: FrontExpr; length: FrontExpr }
   | { tag: "import"; path: string }
   | { tag: "block"; statements: Stmt[] }
-  | { tag: "comptime"; expr: FrontExpr }
+  | { tag: "comptime"; expr: FrontExpr; implicit?: boolean }
   | { tag: "borrow"; value: FrontExpr }
   | { tag: "freeze"; value: FrontExpr }
   | { tag: "scratch"; body: FrontExpr }
@@ -403,7 +420,8 @@ export type FrontHostImport = {
 export type FrontType =
   | { tag: "never" }
   | { tag: "bool" }
-  | { tag: "int"; type: NumType | undefined }
+  | { tag: "int"; type: NumType | undefined; integer?: IntegerType }
+  | { tag: "wide_int"; integer: IntegerType }
   | { tag: "f32x4" }
   | { tag: "atom"; name: string }
   | { tag: "text"; encoding?: "bytes" }

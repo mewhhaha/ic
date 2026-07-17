@@ -246,7 +246,9 @@ export function indexed_result_type_from_fields(
     result_type = field_type;
   }
 
-  if (result_type === "i64" || result_type === "f32") {
+  if (
+    result_type === "i64" || result_type === "f32" || result_type === "f64"
+  ) {
     return result_type;
   }
 

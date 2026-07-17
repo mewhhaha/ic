@@ -136,7 +136,7 @@ function closure_call_arg_struct_type(
     return expr.type_expr;
   }
 
-  if (expr.tag === "var") {
+  if (expr.tag === "var" || expr.tag === "linear") {
     const local = ctx.struct_locals.get(expr.name);
 
     if (local) {

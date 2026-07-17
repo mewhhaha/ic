@@ -696,9 +696,9 @@ Deno.test("hover shows one honest type presentation for every value entity", () 
 });
 
 Deno.test("hover preserves finite type-set annotations", () => {
-  const text = "type Scalar = Bool | Text\n" +
+  const text = "type Scalar = Bool :| Text\n" +
     "let named: Scalar = true\n" +
-    "let inline: Bool | I32 = false\n" +
+    "let inline: Bool :| I32 = false\n" +
     "let invalid: Scalar = 1\n" +
     "named\ninline\ninvalid\n";
   const analysis = analyzed(text);
@@ -708,7 +708,7 @@ Deno.test("hover preserves finite type-set annotations", () => {
     text,
     analysis,
     text.lastIndexOf("inline"),
-    "Bool | I32",
+    "Bool :| I32",
   );
   assert_hover_type(text, analysis, text.lastIndexOf("invalid"), "unknown");
 });

@@ -8,6 +8,7 @@ import type {
   Stmt,
 } from "./ast.ts";
 import { parse_source } from "./parser.ts";
+import { pattern_bindings } from "./pattern.ts";
 import { bundled_source_text } from "./prelude.ts";
 import { has_source_span, inherit_source_span } from "./syntax.ts";
 
@@ -21,6 +22,12 @@ type ImportResolution = {
   require_module: boolean;
   bundled_only: boolean;
 };
+
+const projected_const_module_imports = new WeakSet<FrontExpr>();
+
+export function is_projected_const_module_import(value: FrontExpr): boolean {
+  return projected_const_module_imports.has(value);
+}
 
 export function load_source(path: string): SourceNode {
   const url = source_file_url(path);
@@ -201,7 +208,26 @@ function resolve_statement_imports_untracked(
     case "unsupported":
       return stmt;
 
-    case "bind":
+    case "bind": {
+      const was_projected = is_projected_const_module_import(stmt.value);
+      let value = resolve_expression_imports(
+        stmt.value,
+        base,
+        stack,
+        resolution,
+      );
+      const selected_exports = direct_module_import_exports(stmt);
+
+      if (selected_exports !== undefined) {
+        value = project_module_call(value, selected_exports);
+        projected_const_module_imports.add(value);
+      } else if (was_projected) {
+        projected_const_module_imports.add(value);
+      }
+
+      return { ...stmt, value };
+    }
+
     case "state_bind":
     case "bind_pattern":
     case "resume_dup":
@@ -842,6 +868,208 @@ function module_value(module: ModuleHeader, statements: Stmt[]): FrontExpr {
     pattern: module_pattern(params),
     params,
     body: { tag: "block", statements },
+  };
+}
+
+function direct_module_import_exports(
+  stmt: Extract<Stmt, { tag: "bind" }>,
+): Set<string> | undefined {
+  if (
+    stmt.kind !== "const" || stmt.pattern?.tag !== "product" ||
+    stmt.value.tag !== "comptime" || stmt.value.expr.tag !== "app" ||
+    stmt.value.expr.func.tag !== "import"
+  ) {
+    return undefined;
+  }
+
+  const exports = new Set<string>();
+
+  for (const entry of stmt.pattern.entries) {
+    if (entry.label === undefined) {
+      return undefined;
+    }
+
+    exports.add(entry.label);
+  }
+
+  return exports;
+}
+
+function project_module_call(
+  value: FrontExpr,
+  selected_exports: Set<string>,
+): FrontExpr {
+  if (value.tag === "comptime") {
+    return {
+      ...value,
+      expr: project_module_call(value.expr, selected_exports),
+    };
+  }
+
+  if (value.tag !== "app" || value.func.tag !== "lam") {
+    return value;
+  }
+
+  if (value.func.body.tag !== "block") {
+    return value;
+  }
+
+  return {
+    ...value,
+    func: {
+      ...value.func,
+      body: {
+        ...value.func.body,
+        statements: project_module_statements(
+          value.func.body.statements,
+          selected_exports,
+        ),
+      },
+    },
+  };
+}
+
+function project_module_statements(
+  statements: Stmt[],
+  selected_exports: Set<string>,
+): Stmt[] {
+  const final = statements[statements.length - 1];
+
+  if (
+    final?.tag !== "return" || final.value.tag !== "struct_value"
+  ) {
+    return statements;
+  }
+
+  const selected_fields = final.value.fields.filter((field) =>
+    selected_exports.has(field.name)
+  );
+
+  if (selected_fields.length !== selected_exports.size) {
+    return statements;
+  }
+
+  const bindings = new Map<string, Extract<Stmt, { tag: "bind" }>>();
+
+  for (const statement of statements) {
+    if (statement.tag !== "bind") {
+      continue;
+    }
+
+    if (statement.pattern === undefined) {
+      bindings.set(statement.name, statement);
+      continue;
+    }
+
+    for (const binding of pattern_bindings(statement.pattern)) {
+      bindings.set(binding.name, statement);
+    }
+  }
+
+  const required = new Set<string>();
+
+  for (const field of selected_fields) {
+    collect_top_level_references(field.value, bindings, required);
+  }
+
+  const retained: Stmt[] = [];
+
+  for (const statement of statements.slice(0, -1)) {
+    if (statement.tag !== "bind") {
+      retained.push(statement);
+      continue;
+    }
+
+    const names = statement.pattern === undefined
+      ? [statement.name]
+      : pattern_bindings(statement.pattern).map((binding) => binding.name);
+
+    if (!names.some((name) => required.has(name))) {
+      continue;
+    }
+
+    collect_top_level_references(statement.value, bindings, required);
+    retained.push(project_required_pattern_binding(statement, required));
+  }
+
+  retained.push({
+    ...final,
+    value: { ...final.value, fields: selected_fields },
+  });
+  return retained;
+}
+
+function collect_top_level_references(
+  value: unknown,
+  bindings: Map<string, Extract<Stmt, { tag: "bind" }>>,
+  required: Set<string>,
+): void {
+  const pending: unknown[] = [value];
+  const visited = new WeakSet<object>();
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+
+    if (current === null || typeof current !== "object") {
+      continue;
+    }
+
+    if (visited.has(current)) {
+      continue;
+    }
+
+    visited.add(current);
+
+    if (
+      "tag" in current && (current.tag === "var" || current.tag === "linear") &&
+      "name" in current && typeof current.name === "string" &&
+      bindings.has(current.name) && !required.has(current.name)
+    ) {
+      required.add(current.name);
+      const binding = bindings.get(current.name);
+
+      if (binding !== undefined) {
+        pending.push(binding.value);
+      }
+    }
+
+    pending.push(...Object.values(current));
+  }
+}
+
+function project_required_pattern_binding(
+  statement: Extract<Stmt, { tag: "bind" }>,
+  required: Set<string>,
+): Extract<Stmt, { tag: "bind" }> {
+  if (statement.pattern?.tag !== "product") {
+    return statement;
+  }
+
+  const entries = statement.pattern.entries.filter((entry) =>
+    pattern_bindings(entry.pattern).some((binding) =>
+      required.has(binding.name)
+    )
+  );
+  const selected_exports = new Set<string>();
+
+  for (const entry of entries) {
+    if (entry.label === undefined) {
+      return statement;
+    }
+
+    selected_exports.add(entry.label);
+  }
+
+  const value = project_module_call(statement.value, selected_exports);
+
+  if (is_projected_const_module_import(statement.value)) {
+    projected_const_module_imports.add(value);
+  }
+
+  return {
+    ...statement,
+    pattern: { ...statement.pattern, entries },
+    value,
   };
 }
 

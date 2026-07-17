@@ -47,6 +47,7 @@ import { f32x4_builtin_call, validate_f32x4_lane_argument } from "./f32x4.ts";
 import { scan_source, source_tokens } from "./tokenize.ts";
 import { validate_union_payload_type } from "./union_payload.ts";
 import { fixed_array_length } from "./fixed_array_type.ts";
+import { integer_type_from_name } from "../integer.ts";
 
 type SemanticBinding = {
   type: FrontType;
@@ -2948,7 +2949,7 @@ function infer_type(
   }
 
   if (expr.tag === "num") {
-    return { tag: "int", type: expr.type };
+    return { tag: "int", type: expr.type, integer: expr.integer };
   }
 
   if (expr.tag === "text") {
@@ -2979,6 +2980,13 @@ function infer_type(
   }
 
   if (expr.tag === "prim") {
+    const left_type = infer_type(expr.left, env, active_calls);
+    const right_type = infer_type(expr.right, env, active_calls);
+
+    if (!same_type(left_type, right_type)) {
+      return { tag: "unknown" };
+    }
+
     if (prim_returns_bool(expr.prim)) {
       return { tag: "bool" };
     }
@@ -5158,6 +5166,18 @@ function resolve_type_name(
         type_name: canonical_type_name(union_case.type_name, env),
       })),
     };
+  }
+
+  if (declaration.body.tag === "packed") {
+    let width = 0;
+
+    for (const field of declaration.body.fields) {
+      const integer = integer_type_from_name(field.type_name);
+      expect(integer, "Packed field requires an integer type: " + field.name);
+      width += integer.width;
+    }
+
+    return front_type_from_type_name("U" + width.toString());
   }
 
   if (resolving.has(name)) {

@@ -22,6 +22,11 @@ import {
   TypeEngine,
 } from "./type_engine.ts";
 import { is_builtin_type_name } from "./types.ts";
+import {
+  integer_literal_fits,
+  integer_type_from_name,
+  integer_type_name,
+} from "../integer.ts";
 import { format_type_expr, parse_type_expr } from "./type_expr.ts";
 import { tokenize } from "./tokenize.ts";
 import { f32x4_builtin_prim, numeric_builtin_prim } from "../op.ts";
@@ -931,6 +936,19 @@ class SourceFactRecorder {
           definition_type = declared;
           scope_type = declared;
         } else {
+          if (
+            inferred !== undefined &&
+            (source_is_opaque_alias(declared) ||
+              source_is_opaque_alias(inferred))
+          ) {
+            this.facts.inference_diagnostics.push(source_diagnostic(
+              diagnostic_codes.annotation_type_mismatch,
+              "Binding annotation expects " + declared.name + ", got " +
+                inferred.name,
+              statement.value,
+            ));
+          }
+
           definition_type = named_type("unknown");
           scope_type = definition_type;
         }
@@ -1256,7 +1274,27 @@ class SourceFactRecorder {
     if (expr.tag === "bool") {
       type = named_type("Bool");
     } else if (expr.tag === "num") {
-      if (expr.type === "i64") {
+      if (expr.integer) {
+        let value: bigint;
+
+        if (typeof expr.value === "bigint") {
+          value = expr.value;
+        } else {
+          value = BigInt(expr.value);
+        }
+
+        if (!integer_literal_fits(expr.integer, value)) {
+          this.facts.inference_diagnostics.push(source_diagnostic(
+            diagnostic_codes.operand_type_mismatch,
+            "Integer literal " + value.toString() + " is out of range for " +
+              integer_type_name(expr.integer),
+            expr,
+          ));
+          type = named_type("unknown");
+        } else {
+          type = named_type(integer_type_name(expr.integer));
+        }
+      } else if (expr.type === "i64") {
         type = named_type("I64");
       } else if (expr.type === "f32") {
         type = named_type("F32");
@@ -1362,16 +1400,20 @@ class SourceFactRecorder {
       }
     } else if (expr.tag === "app") {
       if (
-        expr.func.tag === "var" && expr.func.name === "@as" &&
+        expr.func.tag === "var" &&
+        (expr.func.name === "@as" || expr.func.name === "@seal" ||
+          expr.func.name === "@representation" ||
+          expr.func.name === "@integer.wrap") &&
         !scope.has(expr.func.name)
       ) {
+        const cast_name = expr.func.name;
         const args = compiler_builtin_args(expr);
         this.record_expr(expr.func, scope, undefined, break_types);
 
         if (args.length !== 2) {
           this.facts.inference_diagnostics.push(source_diagnostic(
             diagnostic_codes.unresolved_call_type,
-            "@as expects 2 arguments, got " + args.length.toString(),
+            cast_name + " expects 2 arguments, got " + args.length.toString(),
             expr,
           ));
           type = named_type("unknown");
@@ -1400,23 +1442,44 @@ class SourceFactRecorder {
           ) {
             this.facts.inference_diagnostics.push(source_diagnostic(
               diagnostic_codes.unresolved_call_type,
-              "@as target must be a statically known type value",
+              cast_name + " target must be a statically known type value",
+              target,
+            ));
+            type = named_type("unknown");
+          } else if (
+            cast_name === "@integer.wrap" &&
+            !integer_type_from_name(target_type.resolved_name)
+          ) {
+            this.facts.inference_diagnostics.push(source_diagnostic(
+              diagnostic_codes.unresolved_call_type,
+              "@integer.wrap target must be an I<N> or U<N> type",
               target,
             ));
             type = named_type("unknown");
           } else if (value_type === undefined) {
             type = target_type;
+          } else if (cast_name === "@integer.wrap") {
+            type = target_type;
           } else {
             const engine = new TypeEngine();
             const variables = new WeakMap<SourceTypeFact, Type>();
+            let represented_value = value_type;
+            let represented_target = target_type;
+
+            if (cast_name === "@seal") {
+              represented_target = source_representation_type(target_type);
+            } else if (cast_name === "@representation") {
+              represented_value = source_representation_type(value_type);
+            }
+
             const value_canonical = canonical_type_from_source_fact(
-              value_type,
+              represented_value,
               engine,
               variables,
               new Set(),
             );
             const target_canonical = canonical_type_from_source_fact(
-              target_type,
+              represented_target,
               engine,
               variables,
               new Set(),
@@ -1431,7 +1494,7 @@ class SourceFactRecorder {
             ) {
               this.facts.inference_diagnostics.push(source_diagnostic(
                 diagnostic_codes.unresolved_call_type,
-                "@as cannot cast " + value_type.name + " to " +
+                cast_name + " cannot cast " + value_type.name + " to " +
                   target_type.name +
                   " because their runtime representations differ",
                 expr,
@@ -1499,6 +1562,11 @@ class SourceFactRecorder {
           expected_arg = named_type("Shape");
         } else if (builtin === "@type.product") {
           expected_arg = named_type("StructSlots");
+        } else if (
+          builtin === "@type.union" || builtin === "@type.intersection" ||
+          builtin === "@type.difference"
+        ) {
+          expected_arg = named_type("Type");
         } else if (builtin === "@type.namespace") {
           expected_arg = type_namespace_argument_type();
         } else if (
@@ -1720,6 +1788,9 @@ class SourceFactRecorder {
     }
 
     if (
+      expr.func.name === "@as" || expr.func.name === "@seal" ||
+      expr.func.name === "@representation" ||
+      expr.func.name === "@integer.wrap" ||
       expr.func.name === "@len" || expr.func.name === "@get" ||
       expr.func.name === "@slice" || expr.func.name === "@append" ||
       expr.func.name === "@Bytes.generate" ||
@@ -1729,6 +1800,9 @@ class SourceFactRecorder {
       expr.func.name === "@format_f32" ||
       expr.func.name === "@shape.entries" ||
       expr.func.name === "@type.product" ||
+      expr.func.name === "@type.union" ||
+      expr.func.name === "@type.intersection" ||
+      expr.func.name === "@type.difference" ||
       expr.func.name === "@type.namespace" ||
       expr.func.name === "@describe_type" ||
       expr.func.name === "@describe_fields" ||
@@ -1936,7 +2010,10 @@ class SourceFactRecorder {
       type_names = declaration.fields.map((field) => field.type_name);
     } else if (declaration.body.tag === "alias") {
       type_names = [declaration.body.type_name];
-    } else if (declaration.body.tag === "product") {
+    } else if (
+      declaration.body.tag === "product" ||
+      declaration.body.tag === "packed"
+    ) {
       type_names = declaration.body.fields.map((field) => field.type_name);
     } else {
       type_names = declaration.body.cases.map((union_case) =>
@@ -2063,8 +2140,14 @@ class SourceFactRecorder {
       return undefined;
     }
 
+    let contextual = contextual_integer_literal_type(expr.left, left, right);
+
+    if (!contextual) {
+      contextual = contextual_integer_literal_type(expr.right, right, left);
+    }
+
     if (prim_returns_bool(expr.prim)) {
-      if (compatible_equality_operands(expr.prim, left, right)) {
+      if (contextual || compatible_equality_operands(expr.prim, left, right)) {
         return named_type("Bool");
       }
 
@@ -2073,6 +2156,10 @@ class SourceFactRecorder {
 
     if (same_numeric_type_family(left, right)) {
       return left;
+    }
+
+    if (contextual) {
+      return contextual;
     }
 
     return undefined;
@@ -3646,9 +3733,25 @@ class SourceFactRecorder {
         type.name = "unknown";
         type.resolved_name = "unknown";
         type.nominal = undefined;
-      } else {
+      } else if (!declaration.body.opaque) {
         type.resolved_name = target.resolved_name;
       }
+    } else if (declaration.body.tag === "packed") {
+      let width = 0;
+
+      for (const field of declaration.body.fields) {
+        const integer = integer_type_from_name(field.type_name);
+        expect(integer, "Packed field requires an integer type: " + field.name);
+        width += integer.width;
+      }
+
+      const target = this.resolve_declared_type(
+        "U" + width.toString(),
+        substitutions,
+        next,
+      );
+      type.alias_target = target;
+      type.resolved_name = target.resolved_name;
     } else if (declaration.body.tag === "product") {
       type.positional_fields = declaration.body.positional;
       type.fields = declaration.body.fields.map((field) => ({
@@ -3754,6 +3857,46 @@ class SourceFactRecorder {
   }
 }
 
+function contextual_integer_literal_type(
+  expr: FrontExpr,
+  actual: SourceTypeFact,
+  expected: SourceTypeFact,
+): SourceTypeFact | undefined {
+  if (expr.tag !== "num" || expr.integer || expr.type !== "i32") {
+    return undefined;
+  }
+
+  const integer = integer_type_from_name(expected.resolved_name);
+
+  if (!integer) {
+    return undefined;
+  }
+
+  if (
+    expected.resolved_name !== "I32" && expected.resolved_name !== "U32"
+  ) {
+    return undefined;
+  }
+
+  let value: bigint;
+
+  if (typeof expr.value === "bigint") {
+    value = expr.value;
+  } else {
+    value = BigInt(expr.value);
+  }
+
+  if (!integer_literal_fits(integer, value)) {
+    return undefined;
+  }
+
+  if (actual.resolved_name !== "I32" && actual.resolved_name !== "I64") {
+    return undefined;
+  }
+
+  return expected;
+}
+
 function applied_type_expr(
   type: Extract<TypeExpr, { tag: "apply" }>,
 ): { name: string; args: TypeExpr[] } {
@@ -3846,6 +3989,13 @@ function builtin_call_result(
     return named_type("Type");
   }
 
+  if (
+    (name === "@type.union" || name === "@type.intersection" ||
+      name === "@type.difference") && args.length === 2
+  ) {
+    return named_type("Type");
+  }
+
   if (name === "@f32x4" && args.length === 4) {
     if (args.every((arg) => arg?.resolved_name === "F32")) {
       return named_type("F32x4");
@@ -3911,7 +4061,8 @@ function builtin_call_result(
       left !== undefined && right !== undefined &&
       left.resolved_name === right.resolved_name &&
       (left.resolved_name === "I32" || left.resolved_name === "Int" ||
-        left.resolved_name === "U32" || left.resolved_name === "I64")
+        left.resolved_name === "U32" || left.resolved_name === "I64" ||
+        integer_type_from_name(left.resolved_name) !== undefined)
     ) {
       return left;
     }
@@ -4265,6 +4416,29 @@ function named_type(name: string, nominal?: string): SourceTypeFact {
     quantified_variables: undefined,
   };
   return type;
+}
+
+function source_representation_type(type: SourceTypeFact): SourceTypeFact {
+  let representation = type;
+  const seen = new Set<SourceTypeFact>();
+
+  while (representation.alias_target !== undefined) {
+    if (seen.has(representation)) {
+      throw new Error(
+        "Recursive type representation for " + representation.name,
+      );
+    }
+
+    seen.add(representation);
+    representation = representation.alias_target;
+  }
+
+  return representation;
+}
+
+function source_is_opaque_alias(type: SourceTypeFact): boolean {
+  return type.alias_target !== undefined &&
+    type.resolved_name !== type.alias_target.resolved_name;
 }
 
 function shape_entries_type(): SourceTypeFact {
@@ -4692,6 +4866,12 @@ function canonical_type_from_source_fact(
 
   if (scalar !== undefined) {
     return { tag: "scalar", name: scalar };
+  }
+
+  const integer = integer_type_from_name(source.resolved_name);
+
+  if (integer !== undefined) {
+    return { tag: "integer", ...integer };
   }
 
   if (source.call_params !== undefined || source.call_result !== undefined) {
@@ -5335,6 +5515,9 @@ function source_type_from_canonical(
     case "scalar":
       return named_type(type.name);
 
+    case "integer":
+      return named_type(integer_type_name(type));
+
     case "named":
       return named_type(type.name, type.name);
 
@@ -5729,12 +5912,22 @@ function source_type_fact_is_resolved(
 }
 
 function is_numeric_type(type: SourceTypeFact): boolean {
+  if (integer_type_from_name(type.resolved_name)) {
+    return true;
+  }
+
   return type.resolved_name === "I32" || type.resolved_name === "I64" ||
     type.resolved_name === "F32" || type.resolved_name === "Int" ||
     type.resolved_name === "U32";
 }
 
 function is_i32_family(type: SourceTypeFact): boolean {
+  const integer = integer_type_from_name(type.resolved_name);
+
+  if (integer) {
+    return integer.width <= 32;
+  }
+
   return type.resolved_name === "I32" || type.resolved_name === "Int" ||
     type.resolved_name === "U32";
 }
@@ -5743,6 +5936,31 @@ function same_runtime_type_family(
   left: SourceTypeFact,
   right: SourceTypeFact,
 ): boolean {
+  const left_integer = integer_type_from_name(left.resolved_name);
+  const right_integer = integer_type_from_name(right.resolved_name);
+
+  if (left_integer || right_integer) {
+    let left_name = left.resolved_name;
+    let right_name = right.resolved_name;
+
+    if (left_name === "Int") {
+      left_name = "I32";
+    }
+
+    if (right_name === "Int") {
+      right_name = "I32";
+    }
+
+    if (
+      (left_name === "I32" || left_name === "U32") &&
+      (right_name === "I32" || right_name === "U32")
+    ) {
+      return true;
+    }
+
+    return left_name === right_name;
+  }
+
   if (is_i32_family(left) && is_i32_family(right)) {
     return true;
   }

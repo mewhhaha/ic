@@ -2350,6 +2350,41 @@ sum_to n
   }
 });
 
+Deno.test("managed modules specialize only selected prelude exports", () => {
+  const artifact = Source.artifact(`
+module () where
+
+const { length } = comptime import "duck:prelude/runtime" ()
+let finish: Bytes -> I32 = (state: Bytes) => length state
+return { .finish = finish }
+`);
+
+  assert_equals(artifact.abi.callables?.finish?.name, "finish");
+});
+
+Deno.test("managed lambdas inline selected prelude compiler wrappers", () => {
+  const artifact = Source.artifact(`
+module () where
+
+const { panic } = comptime import "duck:prelude/runtime" ()
+let fail: Bytes -> Bytes = (state: Bytes) => panic "failed"
+return { .fail = fail }
+`);
+
+  assert_equals(artifact.abi.callables?.fail?.name, "fail");
+});
+
+Deno.test("imported Rank-N exports retain their polymorphic annotation", () => {
+  const wat = Source.wat(`
+const { identity } = comptime import "duck:prelude/functional" ()
+const apply_identity: (forall value. value -> value) -> I32 =
+  (const call) => if call true { call 42 } else { 0 }
+comptime apply_identity identity
+`);
+
+  assert_includes(wat, "i32.const 42");
+});
+
 Deno.test("Source rejects missing imported exports", () => {
   const dir = Deno.makeTempDirSync();
 

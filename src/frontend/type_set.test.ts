@@ -22,7 +22,14 @@ async function run_i32_source(source: string, name: string): Promise<number> {
 Deno.test("type-set declarations format with canonical operator spacing", () => {
   assert_equals(
     Source.fmt(Source.parse("type Value=Int|Text\\Never\n0")),
-    "type Value = Int | Text \\ Never\n0",
+    "type Value = Int :| Text :- Never\n0",
+  );
+});
+
+Deno.test("newtype declarations retain their nominal constructor", () => {
+  assert_equals(
+    Source.fmt(Source.parse("type Centimeter=newtype I32\n0")),
+    "type Centimeter = newtype I32\n0",
   );
 });
 

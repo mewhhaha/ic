@@ -8,6 +8,7 @@ import {
   tokenize,
 } from "../from_source/type_contract.ts";
 import { expect } from "../../expect.ts";
+import { integer_type_from_name, integer_val_type } from "../../integer.ts";
 import type { CoreExpr, CoreParam, CoreStmt, CoreTypeField } from "../ast.ts";
 import { record_core_expr_provenance } from "../subject_provenance.ts";
 import { is_type_level_expr, static_block_result } from "../type_static.ts";
@@ -381,6 +382,38 @@ function apply_core_value_annotation<ctx extends CoreTypeCheckCtx>(
     return semantic;
   }
 
+  const integer = integer_type_from_name(annotation);
+
+  if (integer) {
+    const expected = integer_val_type(integer);
+
+    if (!expected) {
+      const type_value = static_annotation_type_value(annotation, ctx, hooks);
+      expect(
+        type_value,
+        "Missing Core wide-integer representation for " + annotation,
+      );
+      return apply_core_direct_type_annotation(
+        annotation,
+        type_value,
+        value,
+        ctx,
+        hooks,
+      );
+    }
+
+    const actual = hooks.expr_type(value, ctx);
+
+    if (actual !== expected) {
+      throw new Error(
+        "Core " + label + " annotation expects " + annotation + ", got " +
+          actual,
+      );
+    }
+
+    return value;
+  }
+
   if (annotation === "Resume") {
     const actual = hooks.expr_type(value, ctx);
 
@@ -436,6 +469,18 @@ function apply_core_value_annotation<ctx extends CoreTypeCheckCtx>(
     if (actual !== "F32") {
       throw new Error(
         "Core " + label + " annotation expects F32, got " + actual,
+      );
+    }
+
+    return value;
+  }
+
+  if (annotation === "F64") {
+    const actual = core_binding_value_type_name(value, ctx, hooks);
+
+    if (actual !== "F64") {
+      throw new Error(
+        "Core " + label + " annotation expects F64, got " + actual,
       );
     }
 
@@ -779,6 +824,17 @@ function core_value_matches_set_member<ctx extends CoreTypeCheckCtx>(
   }
 
   const actual = core_binding_value_type_name(value, ctx, hooks);
+  const integer = integer_type_from_name(type.name);
+
+  if (integer) {
+    const expected = integer_val_type(integer);
+
+    if (!expected) {
+      return false;
+    }
+
+    return hooks.expr_type(value, ctx) === expected;
+  }
 
   if (
     type.name === "Bool" || type.name === "Int" || type.name === "I32" ||
@@ -793,6 +849,10 @@ function core_value_matches_set_member<ctx extends CoreTypeCheckCtx>(
 
   if (type.name === "F32") {
     return actual === "F32";
+  }
+
+  if (type.name === "F64") {
+    return actual === "F64";
   }
 
   if (type.name === "Text" || type.name === "Bytes") {

@@ -22,6 +22,8 @@
   "declare"
   "effect"
   "struct"
+  "newtype"
+  "packed"
   "type"
   "union"
   "duck"
@@ -192,7 +194,7 @@
   type: (identifier) @type)
 
 (fixity_declaration_statement
-  target: (qualified_identifier) @function)
+  target: (fixity_target) @function)
 
 (type_case
   name: (identifier) @constructor)

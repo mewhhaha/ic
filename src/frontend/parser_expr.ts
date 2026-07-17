@@ -2,6 +2,7 @@ import { expect } from "../expect.ts";
 import type { FrontExpr, Param, Pattern, Token, TypeExpr } from "./ast.ts";
 import { expect_snake_case } from "./names.ts";
 import { binary_prim, numeric_expr_type } from "./numeric.ts";
+import { integer_literal_fits, integer_type_name } from "../integer.ts";
 import { ParserPrimary } from "./parser_primary.ts";
 import { pattern_bindings } from "./pattern.ts";
 import { parse_type_expr } from "./type_expr.ts";
@@ -178,35 +179,7 @@ export abstract class ParserExpr extends ParserPrimary {
 
       const right = this.parse_binary(right_precedence, fixity);
 
-      if (op === "$") {
-        left = {
-          tag: "app",
-          func: left,
-          arg: right,
-          args: [right],
-          operator_syntax: {
-            kind: "infix",
-            operator: op,
-            precedence,
-            associativity: fixity.associativity,
-            target: fixity.target,
-          },
-        };
-      } else if (op === "|>") {
-        left = {
-          tag: "app",
-          func: right,
-          arg: left,
-          args: [left],
-          operator_syntax: {
-            kind: "infix",
-            operator: op,
-            precedence,
-            associativity: fixity.associativity,
-            target: fixity.target,
-          },
-        };
-      } else if (compiler_intrinsic !== undefined) {
+      if (compiler_intrinsic !== undefined) {
         left = {
           tag: "app",
           func: { tag: "var", name: compiler_intrinsic },
@@ -254,7 +227,7 @@ export abstract class ParserExpr extends ParserPrimary {
           second = left;
         }
 
-        left = {
+        const application: FrontExpr = {
           tag: "app",
           func: qualified_target(fixity.target),
           arg: {
@@ -270,6 +243,12 @@ export abstract class ParserExpr extends ParserPrimary {
             target: fixity.target,
           },
         };
+
+        if (op.startsWith(":")) {
+          left = { tag: "comptime", expr: application, implicit: true };
+        } else {
+          left = application;
+        }
       }
 
       previous_fixity = fixity;
@@ -416,12 +395,26 @@ export abstract class ParserExpr extends ParserPrimary {
     }
 
     if (this.match_symbol("-")) {
-      const right = this.parse_unary();
+      this.allow_signed_minimum_literal += 1;
+      let right: FrontExpr;
+
+      try {
+        right = this.parse_unary();
+      } finally {
+        this.allow_signed_minimum_literal -= 1;
+      }
 
       if (right.tag === "num") {
         if (right.type === "i64") {
           expect(typeof right.value === "bigint", "Expected i64 literal");
-          return { tag: "num", type: "i64", value: -right.value };
+          const negated: FrontExpr = {
+            tag: "num",
+            type: "i64",
+            value: -right.value,
+            integer: right.integer,
+          };
+          validate_negated_integer_literal(negated);
+          return negated;
         }
 
         if (right.type === "f32") {
@@ -429,8 +422,20 @@ export abstract class ParserExpr extends ParserPrimary {
           return { tag: "num", type: "f32", value: Math.fround(-right.value) };
         }
 
+        if (right.type === "f64") {
+          expect(typeof right.value === "number", "Expected f64 literal");
+          return { tag: "num", type: "f64", value: -right.value };
+        }
+
         expect(typeof right.value === "number", "Expected i32 literal");
-        return { tag: "num", type: "i32", value: -right.value };
+        const negated: FrontExpr = {
+          tag: "num",
+          type: "i32",
+          value: -right.value,
+          integer: right.integer,
+        };
+        validate_negated_integer_literal(negated);
+        return negated;
       }
 
       if (numeric_expr_type(right) === "i64") {
@@ -447,6 +452,15 @@ export abstract class ParserExpr extends ParserPrimary {
           tag: "prim",
           prim: "f32.sub",
           left: { tag: "num", type: "f32", value: 0 },
+          right,
+        };
+      }
+
+      if (numeric_expr_type(right) === "f64") {
+        return {
+          tag: "prim",
+          prim: "f64.sub",
+          left: { tag: "num", type: "f64", value: 0 },
           right,
         };
       }
@@ -613,6 +627,7 @@ export abstract class ParserExpr extends ParserPrimary {
         if (
           expr.tag === "var" &&
           (this.effect_names.has(expr.name) ||
+            this.effect_instance_names.has(expr.name) ||
             /^[A-Z][A-Za-z0-9]*$/.test(expr.name))
         ) {
           expr = this.parse_effect_handler_literal(expr.name);
@@ -670,8 +685,31 @@ export abstract class ParserExpr extends ParserPrimary {
   }
 }
 
+function validate_negated_integer_literal(expr: FrontExpr): void {
+  if (expr.tag !== "num" || !expr.integer) {
+    return;
+  }
+
+  let value: bigint;
+
+  if (typeof expr.value === "bigint") {
+    value = expr.value;
+  } else {
+    value = BigInt(expr.value);
+  }
+
+  if (!integer_literal_fits(expr.integer, value)) {
+    throw new Error(
+      "Integer literal " + value.toString() + " is out of range for " +
+        integer_type_name(expr.integer),
+    );
+  }
+}
+
 function compiler_operator_intrinsic(operator: string): string | undefined {
   switch (operator) {
+    case ":>":
+      return "@seal";
     case "<>":
       return "@append";
     case "&&&":

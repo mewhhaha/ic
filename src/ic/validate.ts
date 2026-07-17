@@ -195,9 +195,9 @@ function validate_num(
     return;
   }
 
-  if (ic.type === "f32") {
+  if (ic.type === "f32" || ic.type === "f64") {
     if (typeof ic.value !== "number") {
-      issue(ctx, path, "f32 literal must use a number value");
+      issue(ctx, path, ic.type + " literal must use a number value");
     }
 
     return;

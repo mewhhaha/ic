@@ -1,0 +1,27 @@
+let rec mix = (state, remaining) => {
+  if remaining == 0 {
+    state
+  } else {
+    mix(state * 17 + 17, remaining - 1)
+  }
+}
+
+let rec advance = (left, right, remaining) => {
+  if remaining == 0 {
+    left
+  } else {
+    advance(right, left + right + 3, remaining - 1)
+  }
+}
+
+let rec fold = (state, remaining) => {
+  if remaining == 0 {
+    state
+  } else {
+    fold(state * 3 + remaining + 11, remaining - 1)
+  }
+}
+
+let mixed = mix(42, 512)
+let advanced = advance(mixed, 42, 512)
+fold(mixed + advanced, 512)

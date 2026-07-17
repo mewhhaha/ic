@@ -4,6 +4,7 @@ import type {
   FrontExpr,
   Param,
   Source,
+  Stmt,
 } from "./ast.ts";
 import {
   source_diagnostic,
@@ -18,6 +19,7 @@ type EffectSpecialization = {
 };
 
 export function specialize_front_effects(source: Source): Source {
+  source = instantiate_named_effects(source);
   const declarations = source.declarations || [];
   const specializations = new Map<string, EffectSpecialization>();
 
@@ -37,6 +39,148 @@ export function specialize_front_effects(source: Source): Source {
 
   const facts = source_facts(source);
   const visited = new WeakSet<object>();
+  const handler_parameter_facts = new WeakMap<
+    Extract<FrontExpr, { tag: "handler" }>,
+    Map<string, SourceTypeFact[]>
+  >();
+
+  const function_bindings = new Map<
+    string,
+    Extract<FrontExpr, { tag: "lam" }>
+  >();
+
+  function collect_function_bindings(value: unknown): void {
+    if (value === null || typeof value !== "object") {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        collect_function_bindings(entry);
+      }
+      return;
+    }
+
+    const node = value as Record<string, unknown>;
+
+    if (node.tag === "bind") {
+      const statement = node as Extract<Stmt, { tag: "bind" }>;
+
+      if (statement.value.tag === "lam") {
+        function_bindings.set(statement.name, statement.value);
+      }
+    }
+
+    for (const child of Object.values(node)) {
+      collect_function_bindings(child);
+    }
+  }
+
+  function attach_handler_parameter_facts(
+    value: unknown,
+    parameter_facts: Map<string, SourceTypeFact[]>,
+  ): void {
+    if (value === null || typeof value !== "object") {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        attach_handler_parameter_facts(entry, parameter_facts);
+      }
+      return;
+    }
+
+    const node = value as Record<string, unknown>;
+
+    if (node.tag === "handler") {
+      const handler = node as Extract<FrontExpr, { tag: "handler" }>;
+      const handler_facts = new Map(parameter_facts);
+
+      for (const state of handler.state) {
+        if (state.value.tag !== "var") {
+          continue;
+        }
+
+        const inferred = handler_facts.get(state.value.name);
+
+        if (inferred !== undefined) {
+          handler_facts.set(state.name, [...inferred]);
+        }
+      }
+
+      const previous = handler_parameter_facts.get(handler);
+
+      if (previous === undefined) {
+        handler_parameter_facts.set(handler, handler_facts);
+      } else {
+        for (const [name, inferred] of handler_facts) {
+          const existing = previous.get(name);
+
+          if (existing === undefined) {
+            previous.set(name, [...inferred]);
+          } else {
+            existing.push(...inferred);
+          }
+        }
+      }
+    }
+
+    for (const child of Object.values(node)) {
+      attach_handler_parameter_facts(child, parameter_facts);
+    }
+  }
+
+  function collect_handler_factory_calls(value: unknown): void {
+    if (value === null || typeof value !== "object") {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        collect_handler_factory_calls(entry);
+      }
+      return;
+    }
+
+    const node = value as Record<string, unknown>;
+
+    if (node.tag === "app") {
+      const call = node as Extract<FrontExpr, { tag: "app" }>;
+
+      if (call.func.tag === "var") {
+        const target = function_bindings.get(call.func.name);
+
+        if (target !== undefined && target.params.length === call.args.length) {
+          const parameter_facts = new Map<string, SourceTypeFact[]>();
+
+          for (let index = 0; index < target.params.length; index += 1) {
+            const param = target.params[index];
+            const arg = call.args[index];
+
+            if (param === undefined || arg === undefined) {
+              throw new Error("Missing handler factory argument " + index);
+            }
+
+            const fact = facts.editor_type_of.get(arg);
+
+            if (fact !== undefined && !fact.inference_variable) {
+              parameter_facts.set(param.name, [fact]);
+            }
+          }
+
+          attach_handler_parameter_facts(target.body, parameter_facts);
+        }
+      }
+    }
+
+    for (const child of Object.values(node)) {
+      collect_handler_factory_calls(child);
+    }
+  }
+
+  collect_function_bindings(source.statements);
+  collect_handler_factory_calls(source.statements);
 
   function bind(
     specialization: EffectSpecialization,
@@ -182,6 +326,7 @@ export function specialize_front_effects(source: Source): Source {
           resume,
           specialization,
           operation,
+          handler_parameter_facts.get(expr),
         );
       }
     }
@@ -192,6 +337,7 @@ export function specialize_front_effects(source: Source): Source {
     resume: Param,
     specialization: EffectSpecialization,
     operation: EffectOperation,
+    parameter_facts: Map<string, SourceTypeFact[]> | undefined,
   ): void {
     if (value === null || typeof value !== "object") {
       return;
@@ -204,6 +350,7 @@ export function specialize_front_effects(source: Source): Source {
           resume,
           specialization,
           operation,
+          parameter_facts,
         );
       }
       return;
@@ -221,12 +368,45 @@ export function specialize_front_effects(source: Source): Source {
         const arg = app.args[0];
 
         if (arg !== undefined) {
+          const fact = facts.editor_type_of.get(arg);
           bind(
             specialization,
             operation.result.type_name,
-            facts.editor_type_of.get(arg),
+            fact,
             arg,
           );
+
+          if (
+            (fact === undefined || fact.inference_variable) &&
+            arg.tag === "var"
+          ) {
+            const inferred = parameter_facts?.get(arg.name) || [];
+
+            for (const parameter_fact of inferred) {
+              bind(
+                specialization,
+                operation.result.type_name,
+                parameter_fact,
+                arg,
+              );
+            }
+          }
+
+          if (
+            (fact === undefined || fact.inference_variable) &&
+            arg.tag === "app" && arg.func.tag === "var"
+          ) {
+            const inferred = parameter_facts?.get(arg.func.name) || [];
+
+            for (const parameter_fact of inferred) {
+              bind(
+                specialization,
+                operation.result.type_name,
+                parameter_fact.call_result,
+                arg,
+              );
+            }
+          }
         }
       }
     }
@@ -237,6 +417,7 @@ export function specialize_front_effects(source: Source): Source {
         resume,
         specialization,
         operation,
+        parameter_facts,
       );
     }
   }
@@ -305,49 +486,177 @@ export function specialize_front_effects(source: Source): Source {
     specialized_declarations.push({
       ...declaration,
       params: [],
-      operations: declaration.operations.map((operation) => {
-        const result_type_name = substitute_effect_type(
-          operation.result.type_name,
-          specialization.types,
-        );
-        let result_ownership = operation.result.ownership;
-
-        if (
-          result_ownership === "unique_heap" &&
-          is_effect_scalar_type(result_type_name)
-        ) {
-          result_ownership = "scalar";
-        }
-
-        return {
-          ...operation,
-          params: operation.params.map((param) => {
-            const type_name = substitute_effect_type(
-              param.type_name,
-              specialization.types,
-            );
-            let ownership = param.ownership;
-
-            if (
-              ownership === "ownership_transfer" &&
-              is_effect_scalar_type(type_name)
-            ) {
-              ownership = "scalar";
-            }
-
-            return { ...param, type_name, ownership };
-          }),
-          result: {
-            ...operation.result,
-            type_name: result_type_name,
-            ownership: result_ownership,
-          },
-        };
-      }),
+      operations: specialize_effect_operations(
+        declaration,
+        specialization.types,
+      ),
     });
   }
 
   return { ...source, declarations: specialized_declarations };
+}
+
+export function instantiate_named_effects(source: Source): Source {
+  const declarations = source.declarations || [];
+  const effects = new Map<string, EffectDeclaration>();
+
+  for (const declaration of declarations) {
+    if (declaration.tag === "effect") {
+      effects.set(declaration.name, declaration);
+    }
+  }
+
+  const instances: EffectDeclaration[] = [];
+  const statements: Stmt[] = [];
+
+  for (const statement of source.statements) {
+    if (
+      statement.tag !== "bind" || statement.pattern?.tag !== "binding"
+    ) {
+      statements.push(statement);
+      continue;
+    }
+
+    let effect_name: string | undefined;
+    let type_args: FrontExpr[] = [];
+
+    if (statement.value.tag === "var") {
+      effect_name = statement.value.name;
+    } else if (
+      statement.value.tag === "app" && statement.value.func.tag === "var"
+    ) {
+      effect_name = statement.value.func.name;
+      type_args = statement.value.args;
+    }
+
+    if (effect_name === undefined) {
+      statements.push(statement);
+      continue;
+    }
+
+    const declaration = effects.get(effect_name);
+
+    if (declaration === undefined) {
+      statements.push(statement);
+      continue;
+    }
+
+    if (statement.kind !== "const") {
+      throw new SourceDiagnosticError(source_diagnostic(
+        "DUCK2101",
+        "Effect instance " + statement.name + " must use a const binding",
+        statement,
+      ));
+    }
+
+    if (
+      declaration.params.length === 0 && type_args.length === 1 &&
+      type_args[0]?.tag === "unit"
+    ) {
+      type_args = [];
+    }
+
+    if (
+      type_args.length === 1 && type_args[0]?.tag === "product" &&
+      type_args[0].entries.length === declaration.params.length
+    ) {
+      type_args = type_args[0].entries.map((entry) => entry.value);
+    }
+
+    if (type_args.length !== declaration.params.length) {
+      throw new SourceDiagnosticError(source_diagnostic(
+        "DUCK2312",
+        "Effect " + declaration.name + " expects " +
+          declaration.params.length + " type arguments, got " +
+          type_args.length,
+        statement.value,
+      ));
+    }
+
+    const substitutions = new Map<string, string>();
+
+    for (let index = 0; index < declaration.params.length; index += 1) {
+      const param = declaration.params[index];
+      const arg = type_args[index];
+
+      if (param === undefined || arg === undefined) {
+        throw new Error("Missing named effect type argument " + index);
+      }
+
+      if (arg.tag !== "var" && arg.tag !== "type_name") {
+        throw new SourceDiagnosticError(source_diagnostic(
+          "DUCK2312",
+          "Named effect " + statement.name +
+            " requires concrete type-name arguments",
+          arg,
+        ));
+      }
+
+      substitutions.set(param, arg.name);
+    }
+
+    instances.push({
+      ...declaration,
+      name: statement.name,
+      params: [],
+      operations: specialize_effect_operations(declaration, substitutions),
+    });
+  }
+
+  if (instances.length === 0) {
+    return source;
+  }
+
+  return {
+    ...source,
+    declarations: [...declarations, ...instances],
+    statements,
+  };
+}
+
+function specialize_effect_operations(
+  declaration: EffectDeclaration,
+  substitutions: Map<string, string>,
+): EffectOperation[] {
+  return declaration.operations.map((operation) => {
+    const result_type_name = substitute_effect_type(
+      operation.result.type_name,
+      substitutions,
+    );
+    let result_ownership = operation.result.ownership;
+
+    if (
+      result_ownership === "unique_heap" &&
+      is_effect_scalar_type(result_type_name)
+    ) {
+      result_ownership = "scalar";
+    }
+
+    return {
+      ...operation,
+      params: operation.params.map((param) => {
+        const type_name = substitute_effect_type(
+          param.type_name,
+          substitutions,
+        );
+        let ownership = param.ownership;
+
+        if (
+          ownership === "ownership_transfer" &&
+          is_effect_scalar_type(type_name)
+        ) {
+          ownership = "scalar";
+        }
+
+        return { ...param, type_name, ownership };
+      }),
+      result: {
+        ...operation.result,
+        type_name: result_type_name,
+        ownership: result_ownership,
+      },
+    };
+  });
 }
 
 function substitute_effect_type(
@@ -369,5 +678,5 @@ function substitute_effect_type(
 function is_effect_scalar_type(type_name: string): boolean {
   return type_name === "Unit" || type_name === "Bool" ||
     type_name === "Int" || type_name === "I32" || type_name === "U32" ||
-    type_name === "I64" || type_name === "F32";
+    type_name === "I64" || type_name === "F32" || type_name === "F64";
 }

@@ -1,5 +1,7 @@
 module () where
 
+const { panic } = comptime import "duck:prelude/runtime" ()
+
 let initialize: (Bytes, I32) -> Bytes = (state: Bytes, key_mask: I32) => {
   state[6192] = 0x02
   state[6193] = 0x00
@@ -316,7 +318,7 @@ let read: (Bytes, I32) -> I32 = (state: Bytes, field: I32) => {
   } else if field == 12 {
     state[register_base + 0xf]
   } else {
-    @panic("Unknown CHIP-8 summary field")
+    panic "Unknown CHIP-8 summary field"
   }
 }
 

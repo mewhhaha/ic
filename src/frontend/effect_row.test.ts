@@ -47,7 +47,7 @@ result
   const formatted = Source.fmt(source);
   assert_includes(
     formatted,
-    "run: [] -> <Io | (Io & Io.read) \\ Io.print> Text",
+    "run: [] -> <Io :| (Io :& Io.read) :- Io.print> Text",
   );
   assert_includes(formatted, "value <- Io.read ()");
   assert_includes(formatted, "_ <- Io.print value");

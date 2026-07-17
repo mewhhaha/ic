@@ -1,6 +1,7 @@
 import {
   type NumType,
   Prim,
+  prim_preserves_integer_type,
   specialize_prim_for_operands,
   type ValType,
 } from "../../op.ts";
@@ -50,7 +51,12 @@ export function infer_builtin_call_type(
     return undefined;
   }
 
-  if (expr.func.name === "@as" && !lookup(env, expr.func.name)) {
+  if (
+    (expr.func.name === "@as" || expr.func.name === "@seal" ||
+      expr.func.name === "@representation" ||
+      expr.func.name === "@integer.wrap") &&
+    !lookup(env, expr.func.name)
+  ) {
     const args = compiler_builtin_args(expr);
     const target = args[1];
 
@@ -108,6 +114,29 @@ export function infer_builtin_call_type(
 
       if (result === "v128") {
         throw new Error("Numeric builtin cannot produce F32x4 values");
+      }
+
+      if (prim_preserves_integer_type(prim)) {
+        const left_front_type = infer_expr(left, env, hooks);
+        const right_front_type = infer_expr(right, env, hooks);
+
+        if (
+          left_front_type.tag === "wide_int" &&
+          right_front_type.tag === "wide_int" &&
+          left_front_type.integer.signed === right_front_type.integer.signed &&
+          left_front_type.integer.width === right_front_type.integer.width
+        ) {
+          return left_front_type;
+        }
+
+        if (
+          left_front_type.tag === "int" && right_front_type.tag === "int" &&
+          left_front_type.integer && right_front_type.integer &&
+          left_front_type.integer.signed === right_front_type.integer.signed &&
+          left_front_type.integer.width === right_front_type.integer.width
+        ) {
+          return left_front_type;
+        }
       }
 
       return { tag: "int", type: result };

@@ -72,6 +72,42 @@ let value: UserId = 41
   );
 });
 
+Deno.test("newtypes seal matching representations without becoming aliases", () => {
+  const source = parse_source(`
+type Centimeter = newtype I32
+type Seconds = newtype I32
+const distance = 42 :> Centimeter
+let time: Seconds = distance
+time
+`);
+  const facts = source_facts(source);
+
+  assert_equals(
+    source_inference_diagnostics(source, facts).map((diagnostic) => ({
+      code: diagnostic.code,
+      message: diagnostic.message,
+    })),
+    [{
+      code: "DUCK2306",
+      message: "Binding annotation expects Seconds, got Centimeter",
+    }],
+  );
+
+  const direct_cast = parse_source(`
+type Centimeter = newtype I32
+@as(42, Centimeter)
+`);
+  const direct_cast_facts = source_facts(direct_cast);
+  assert_equals(
+    source_inference_diagnostics(direct_cast, direct_cast_facts).map(
+      (diagnostic) => diagnostic.message,
+    ),
+    [
+      "@as cannot cast I32 to Centimeter because their runtime representations differ",
+    ],
+  );
+});
+
 Deno.test("source facts specialize generic product aliases recursively", () => {
   const source = parse_source(`
 type Box a = [.value = a]

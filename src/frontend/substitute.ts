@@ -83,13 +83,47 @@ export function substitute_front_expr(
         arg = substitute_front_expr(arg, replacements);
       }
 
+      const func = substitute_front_expr(expr.func, replacements);
+      const args = expr.args.map((item) =>
+        substitute_front_expr(item, replacements)
+      );
+      let call_args = args;
+
+      if (
+        func.tag === "lam" && args.length === 1 &&
+        args[0]?.tag === "product" &&
+        args[0].entries.length === func.params.length
+      ) {
+        call_args = args[0].entries.map((entry) => entry.value);
+      }
+
+      if (
+        func.tag === "lam" &&
+        func.body.tag === "app" && func.body.func.tag === "var" &&
+        func.body.func.name.startsWith("@") &&
+        func.params.length === call_args.length
+      ) {
+        const call_replacements = new Map<string, FrontExpr>();
+
+        for (let index = 0; index < func.params.length; index += 1) {
+          const param = func.params[index];
+          const call_arg = call_args[index];
+
+          if (param === undefined || call_arg === undefined) {
+            throw new Error("Missing imported function argument " + index);
+          }
+
+          call_replacements.set(param.name, call_arg);
+        }
+
+        return substitute_front_expr(func.body, call_replacements);
+      }
+
       return {
         ...expr,
-        func: substitute_front_expr(expr.func, replacements),
+        func,
         arg,
-        args: expr.args.map((item) =>
-          substitute_front_expr(item, replacements)
-        ),
+        args,
       };
     }
 
@@ -140,6 +174,7 @@ export function substitute_front_expr(
       return {
         tag: "comptime",
         expr: substitute_front_expr(expr.expr, replacements),
+        implicit: expr.implicit,
       };
 
     case "borrow":
@@ -362,19 +397,14 @@ function substitute_front_block(
   return result;
 }
 
-function substitute_front_stmt(
+export function substitute_front_stmt(
   stmt: Stmt,
   replacements: Map<string, FrontExpr>,
 ): Stmt {
   switch (stmt.tag) {
     case "bind":
       return {
-        tag: "bind",
-        kind: stmt.kind,
-        name: stmt.name,
-        is_recursive: stmt.is_recursive,
-        is_linear: stmt.is_linear,
-        annotation: stmt.annotation,
+        ...stmt,
         value: substitute_front_expr(stmt.value, replacements),
       };
 

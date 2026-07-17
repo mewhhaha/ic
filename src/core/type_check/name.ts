@@ -66,6 +66,10 @@ export function core_binding_value_type_name<ctx extends CoreTypeCheckCtx>(
     return "F32";
   }
 
+  if (value_type === "f64") {
+    return "F64";
+  }
+
   if (value_type === "v128") {
     return "F32x4";
   }

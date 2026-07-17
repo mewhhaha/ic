@@ -21,6 +21,8 @@ import {
   core_host_import_result_contract,
 } from "./from_source/host_import.ts";
 import { core_stmt } from "./from_source/stmt.ts";
+import { is_builtin_type_name } from "../frontend/types.ts";
+import { integer_type_name } from "../integer.ts";
 
 export function core_from_source(source: SourceNode): Core {
   const ctx = create_core_from_source_ctx(core_stmt);
@@ -70,6 +72,13 @@ export function core_from_source(source: SourceNode): Core {
         continue;
       }
 
+      if (
+        stmt.tag === "bind" && stmt.kind === "const" &&
+        source_type_namespace_binding(stmt.value)
+      ) {
+        continue;
+      }
+
       const lowered = core_stmt(stmt, ctx);
 
       if (
@@ -84,7 +93,10 @@ export function core_from_source(source: SourceNode): Core {
 
   const core: Core = {
     tag: "program",
-    statements,
+    statements: [
+      ...wide_integer_type_statements(ctx.wide_integer_types),
+      ...statements,
+    ],
   };
 
   const capability_methods = [];
@@ -124,6 +136,64 @@ export function core_from_source(source: SourceNode): Core {
   }
 
   return core;
+}
+
+function wide_integer_type_statements(
+  types: Map<string, import("../integer.ts").IntegerType>,
+): CoreStmt[] {
+  const statements: CoreStmt[] = [];
+  const ordered = [...types.values()].sort((left, right) => {
+    if (left.width !== right.width) {
+      return left.width - right.width;
+    }
+
+    if (left.signed === right.signed) {
+      return 0;
+    }
+
+    if (left.signed) {
+      return -1;
+    }
+
+    return 1;
+  });
+
+  for (const integer of ordered) {
+    const fields = [];
+    const limb_count = Math.ceil(integer.width / 32);
+
+    for (let index = 0; index < limb_count; index += 1) {
+      fields.push({ name: "limb_" + index.toString(), type_name: "U32" });
+    }
+
+    statements.push({
+      tag: "bind",
+      kind: "const",
+      name: integer_type_name(integer),
+      is_linear: false,
+      annotation: undefined,
+      value: { tag: "struct_type", fields },
+    });
+  }
+
+  return statements;
+}
+
+function source_type_namespace_binding(
+  value: import("../frontend/ast.ts").FrontExpr,
+): boolean {
+  if (value.tag !== "with") {
+    return false;
+  }
+
+  let base = value.base;
+
+  while (base.tag === "with") {
+    base = base.base;
+  }
+
+  return (base.tag === "var" || base.tag === "type_name") &&
+    is_builtin_type_name(base.name);
 }
 
 function host_import_result_type_expr(

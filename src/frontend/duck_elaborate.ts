@@ -899,7 +899,9 @@ function duck_type_expr_matches_fact(
     let fields;
     let actual_fields: SourceTypeFact[] | undefined;
 
-    if (declaration.body.tag === "product") {
+    if (
+      declaration.body.tag === "product" || declaration.body.tag === "packed"
+    ) {
       fields = declaration.body.fields;
       actual_fields = source_fact_fields(actual);
     } else {

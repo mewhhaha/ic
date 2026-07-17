@@ -9,11 +9,21 @@ import {
   resolve_core_name,
   shadow_core_name,
 } from "./context.ts";
-import { block_body, core_expr, core_param } from "./expr.ts";
+import {
+  block_body,
+  core_expr,
+  core_param,
+  front_expr_integer_type,
+} from "./expr.ts";
 import { validate_named_recursive_tail_binding } from "./rec.ts";
 import { record_optional_core_source_origin } from "../source_origin.ts";
 import { substitute_core_call_expr } from "../substitute.ts";
 import { core_runtime_buffer_builtin } from "../runtime_buffer.ts";
+import {
+  integer_type_from_name,
+  integer_type_name,
+  type IntegerType,
+} from "../../integer.ts";
 
 export function core_stmt(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
   return record_optional_core_source_origin(
@@ -58,7 +68,37 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
 
       const name = bind_core_name(ctx, stmt.name);
 
-      if (stmt.is_linear) {
+      let integer: IntegerType | undefined;
+
+      if (stmt.annotation) {
+        const annotation = resolve_core_annotation(ctx, stmt.annotation);
+
+        if (annotation) {
+          integer = integer_type_from_name(annotation);
+        }
+      }
+
+      if (!integer) {
+        integer = front_expr_integer_type(source_value, ctx);
+      }
+
+      if (integer) {
+        ctx.integer_types.set(name, integer);
+
+        if (integer.width > 64) {
+          ctx.wide_integer_types.set(integer_type_name(integer), integer);
+        }
+      } else {
+        ctx.integer_types.delete(name);
+      }
+
+      let is_linear = stmt.is_linear;
+
+      if (integer && integer.width > 64) {
+        is_linear = true;
+      }
+
+      if (is_linear) {
         ctx.linear_names.add(name);
       } else {
         ctx.linear_names.delete(name);
@@ -76,14 +116,20 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
         );
       }
 
-      return {
+      const lowered: Extract<CoreStmt, { tag: "bind" }> = {
         tag: "bind",
         kind: stmt.kind,
         name,
-        is_linear: stmt.is_linear,
+        is_linear,
         annotation: resolve_core_annotation(ctx, stmt.annotation),
         value,
       };
+
+      if (integer && integer.width > 64) {
+        lowered.force_materialized = true;
+      }
+
+      return lowered;
     }
 
     case "assign": {
@@ -403,6 +449,10 @@ function runtime_capability_field_type_name(
     }
     if (value.type === "f32") {
       return "F32";
+    }
+
+    if (value.type === "f64") {
+      return "F64";
     }
   }
   if (value.tag === "text") {

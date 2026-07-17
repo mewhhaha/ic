@@ -1,6 +1,7 @@
 import { assert_equals, assert_includes, assert_throws } from "../assert.ts";
 import { instantiate_wat } from "../wasm_test_util.ts";
 import {
+  ducklang_effect_defaults_prelude_text,
   ducklang_effects_prelude_text,
   ducklang_functional_prelude_text,
   ducklang_prelude_text,
@@ -127,6 +128,169 @@ Point.x point
   assert_includes(wat, "i32.const 20");
 });
 
+Deno.test("newtype seals and unwraps a zero-cost nominal value", () => {
+  const wat = Source.wat(`
+const { newtype } = comptime import "duck:prelude" ()
+type Centimeter = newtype I32
+const distance = 42 :> Centimeter
+Centimeter.unwrap distance
+`);
+
+  assert_includes(wat, "i32.const 42");
+  assert_equals(ducklang_prelude_text.includes("const newtype"), true);
+});
+
+Deno.test("fixed-width integers wrap and preserve unsigned comparisons", async () => {
+  const wat = Source.wat(`
+let maximum: U5 = 31u5
+let one: U5 = 1u5
+let wrapped = maximum + one
+if maximum > one { wrapped } else { 7u5 }
+`);
+  const instance = await instantiate_wat(wat, "ducklang_fixed_integer", {});
+  const main = instance.exports.main;
+  assert_equals(typeof main, "function");
+
+  if (typeof main !== "function") {
+    throw new Error("Missing fixed-width integer main function");
+  }
+
+  assert_equals(main(), 0);
+  assert_includes(wat, "i32.gt_u");
+  assert_includes(wat, "i32.and");
+});
+
+Deno.test("fixed-width shifts use the declared width", async () => {
+  const wat = Source.wat(`
+let shift = (value: U5, amount: U5) => value << amount
+shift [31u5, 5u5]
+`);
+  const instance = await instantiate_wat(wat, "ducklang_fixed_shift", {});
+  const main = instance.exports.main;
+  assert_equals(typeof main, "function");
+
+  if (typeof main !== "function") {
+    throw new Error("Missing fixed-width shift main function");
+  }
+
+  assert_equals(main(), 0);
+  assert_includes(wat, "i32.ge_u");
+});
+
+Deno.test("wide integers use little-endian Core limbs", async () => {
+  const wat = Source.wat(`
+let maximum: U128 = 340282366920938463463374607431768211455u128
+let one: U128 = 1u128
+maximum + one
+`);
+  const instance = await instantiate_wat(wat, "ducklang_wide_integer", {});
+  const main = instance.exports.main;
+  const memory = instance.exports.memory;
+  assert_equals(typeof main, "function");
+  assert_equals(memory instanceof WebAssembly.Memory, true);
+
+  if (typeof main !== "function" || !(memory instanceof WebAssembly.Memory)) {
+    throw new Error("Missing wide-integer runtime exports");
+  }
+
+  const pointer = main();
+  assert_equals(typeof pointer, "number");
+
+  if (typeof pointer !== "number") {
+    throw new Error("Wide-integer main result is not a pointer");
+  }
+
+  const limbs = new Uint32Array(memory.buffer, pointer, 4);
+  assert_equals([...limbs], [0, 0, 0, 0]);
+});
+
+Deno.test("signed wide integer division truncates toward zero", async () => {
+  for (
+    const example of [
+      { expression: "-100i96 / 7i96", expected: -14 },
+      { expression: "-100i96 % 7i96", expected: -2 },
+      { expression: "100i96 / -7i96", expected: -14 },
+    ]
+  ) {
+    const wat = Source.wat(
+      "@integer.wrap [(" + example.expression + "), I32]",
+    );
+    const instance = await instantiate_wat(wat, "ducklang_wide_signed", {});
+    const main = instance.exports.main;
+    assert_equals(typeof main, "function");
+
+    if (typeof main !== "function") {
+      throw new Error("Missing signed wide-integer main function");
+    }
+
+    assert_equals(main(), example.expected);
+  }
+});
+
+Deno.test("packed source types use one scalar and typed accessors", async () => {
+  const wat = Source.wat(`
+const { packed } = comptime import "duck:prelude" ()
+type Header = packed struct {
+  .kind = U3,
+  .urgent = U1,
+  .length = U12,
+}
+let header: Header = Header.pack [5u3, 1u1, 120u12]
+let changed: Header = Header.with_kind [header, 2u3]
+Header.kind changed
+`);
+  const instance = await instantiate_wat(wat, "ducklang_packed", {});
+  const main = instance.exports.main;
+  assert_equals(typeof main, "function");
+
+  if (typeof main !== "function") {
+    throw new Error("Missing packed type main function");
+  }
+
+  assert_equals(main(), 2);
+  assert_equals(wat.includes("call $__alloc"), false);
+  assert_equals(ducklang_prelude_text.includes("const packed"), true);
+});
+
+Deno.test("packed source types cross the scalar boundary with Core limbs", async () => {
+  const wat = Source.wat(`
+const { packed } = comptime import "duck:prelude" ()
+type Packet = packed [U64, U64]
+let packet: Packet = Packet.pack [1u64, 2u64]
+Packet.item_1 packet
+`);
+  const instance = await instantiate_wat(wat, "ducklang_wide_packed", {});
+  const main = instance.exports.main;
+  assert_equals(typeof main, "function");
+
+  if (typeof main !== "function") {
+    throw new Error("Missing wide packed main function");
+  }
+
+  assert_equals(main(), 2n);
+  assert_includes(wat, "i32.load");
+});
+
+Deno.test("type operators compose source type values", () => {
+  const wat = Source.wat(`
+const { struct, type_extend, type_union, type_difference } =
+  comptime import "duck:prelude" ()
+
+type Point = struct { .x = I32 }
+const point_with_double = Point :+ { .double = value => value.x * 2 }
+const numeric = I32 :| I64
+const narrowed = numeric :- I64
+let point: Point = [21]
+
+const _ = narrowed
+point_with_double.double point
+`);
+
+  assert_includes(wat, "i32.const 21");
+  assert_includes(wat, "i32.const 2");
+  assert_includes(wat, "i32.mul");
+});
+
 Deno.test("prelude exports compose into a specialized runtime function", async () => {
   const wat = Source.wat(`
 const { identity, compose } = comptime (import "duck:prelude/functional")()
@@ -145,16 +309,113 @@ identity (combined 20)
   assert_equals(main(), 42);
 });
 
+Deno.test("prelude option combinators eliminate and inspect options", async () => {
+  const wat = Source.wat(`
+const { option, option_unwrap_or, option_is_some, option_is_none } = comptime import "duck:prelude/functional" ()
+type IntOption = Option I32
+let present: IntOption = IntOption.some 41
+let absent: IntOption = .none
+const increment = value => value + 1
+const resolve_option = comptime option [0, increment]
+let flags = if option_is_some present { 1 } else { 0 }
+flags = flags + if option_is_none absent { 1 } else { 0 }
+resolve_option present + option_unwrap_or [2, absent] + flags
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "ducklang_prelude_option_combinators",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing main function for prelude option combinators");
+  }
+
+  assert_equals(main(), 46);
+});
+
+Deno.test("prelude result combinators eliminate and inspect results", async () => {
+  const wat = Source.wat(`
+const { result_unwrap_or, result_is_ok, result_is_err } = comptime import "duck:prelude/functional" ()
+type IntResult = Result I32 I32
+let succeeded: IntResult = IntResult.ok 41
+let failed: IntResult = IntResult.err 7
+let flags = if result_is_ok succeeded { 1 } else { 0 }
+flags = flags + if result_is_err failed { 1 } else { 0 }
+result_unwrap_or [3, failed] + flags
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "ducklang_prelude_result_combinators",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing main function for prelude result combinators");
+  }
+
+  assert_equals(main(), 5);
+});
+
+Deno.test("prelude either combinators distinguish both cases", async () => {
+  const wat = Source.wat(`
+const { either_is_left, either_is_right } = comptime import "duck:prelude/functional" ()
+type IntEither = Either I32 I32
+let left: IntEither = IntEither.left 9
+let right: IntEither = IntEither.right 10
+let flags = if either_is_left left { 1 } else { 0 }
+flags + if either_is_right right { 1 } else { 0 }
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "ducklang_prelude_either_combinators",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing main function for prelude either combinators");
+  }
+
+  assert_equals(main(), 2);
+});
+
+Deno.test("prelude converge combines two projections", async () => {
+  const wat = Source.wat(`
+const { converge } = comptime import "duck:prelude/functional" ()
+const add_pair = [first, second] => first + second
+const increment = value => value + 1
+const double = value => value * 2
+const combined = comptime converge [add_pair, increment, double]
+combined 10
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "ducklang_prelude_converge",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing main function for prelude converge");
+  }
+
+  assert_equals(main(), 31);
+});
+
 Deno.test("prelude operators cover pipelines collections and integer bits", async () => {
   const wat = Source.wat(`
-const { length, bit_or } = comptime import "duck:prelude/functional" ()
+const { pipe, apply, length, bit_or } = comptime import "duck:prelude/functional" ()
 const increment = value => value + 1
 const double = value => value * 2
 const decorate = value => value <> "c"
 let piped = 20 |> increment |> double
+let applied = double $ 10
 let text_length = length (decorate "ab")
 let shifted = 1 << 4
-piped + text_length + bit_or [shifted, 2]
+piped + applied + text_length + bit_or [shifted, 2]
 `);
   const instance = await instantiate_wat(wat, "ducklang_prelude_operators", {});
   const main = instance.exports.main;
@@ -163,7 +424,19 @@ piped + text_length + bit_or [shifted, 2]
     throw new Error("Missing main function for prelude operators");
   }
 
-  assert_equals(main(), 63);
+  assert_equals(main(), 83);
+});
+
+Deno.test("pipe rejects a value outside its generic input type", () => {
+  assert_throws(
+    () =>
+      Source.wat(`
+const { pipe } = comptime import "duck:prelude/functional" ()
+const text_length = (value: Text) => @len(value)
+20 |> text_length
+`),
+    "Core parameter annotation expects Text, got I32",
+  );
 });
 
 Deno.test("prelude functor and monad operators dispatch through ducks", async () => {
@@ -255,6 +528,24 @@ Deno.test("prelude declares functional contracts and standard effects", () => {
 
     return [];
   });
+  const functional_fixities = (functional.declarations || []).flatMap(
+    (declaration) => {
+      if (declaration.tag === "fixity") {
+        return [[declaration.operator, declaration.target]];
+      }
+
+      return [];
+    },
+  );
+  const runtime_fixities = (runtime.declarations || []).flatMap(
+    (declaration) => {
+      if (declaration.tag === "fixity") {
+        return [[declaration.operator, declaration.target]];
+      }
+
+      return [];
+    },
+  );
   const effects = (effects_source.declarations || []).flatMap((declaration) => {
     if (declaration.tag === "effect") {
       return [declaration.name];
@@ -267,12 +558,21 @@ Deno.test("prelude declares functional contracts and standard effects", () => {
     "Eq",
     "Ord",
     "Monoid",
+    "Semigroup",
+    "Bits",
+    "Semiring",
+    "Ring",
+    "EuclideanRing",
     "Functor",
+    "Apply",
     "Applicative",
     "Monad",
+    "Bind",
     "Foldable",
     "Show",
     "From",
+    "Into",
+    "TryFrom",
     "Default",
     "Bounded",
     "Enum",
@@ -280,13 +580,43 @@ Deno.test("prelude declares functional contracts and standard effects", () => {
     "Bifunctor",
     "Contravariant",
     "Traversable",
+    "Category",
+    "Profunctor",
   ]);
-  assert_equals(runtime_ducks, ["Semigroup", "Bits"]);
+  assert_equals(runtime_ducks, []);
+  assert_equals(functional_fixities, [
+    ["$", "apply"],
+    ["|>", "pipe"],
+    ["<$>", "Functor.map"],
+    ["<*>", "Applicative.apply"],
+    [">>=", "Monad.bind"],
+    ["<|>", "Alternative.or_else"],
+    ["<>", "Semigroup.append"],
+    ["|||", "bit_or"],
+    ["^^^", "bit_xor"],
+    ["&&&", "bit_and"],
+    ["<<", "shift_left"],
+    [">>", "shift_right_unsigned"],
+  ]);
+  assert_equals(runtime_fixities, []);
   assert_equals(effects, [
     "State",
     "Reader",
     "Writer",
     "Raise",
+    "Clock",
+    "Random",
+    "Console",
+    "Environment",
+    "Resource",
+    "Log",
+    "Validation",
+    "Async",
+    "Channel",
+    "Mutex",
+    "Semaphore",
+    "TaskGroup",
+    "Stm",
   ]);
   assert_equals(
     (effects_source.declarations || []).flatMap((declaration) => {
@@ -296,8 +626,129 @@ Deno.test("prelude declares functional contracts and standard effects", () => {
 
       return [];
     }),
-    [["value"], ["environment"], ["output"], ["error"]],
+    [
+      ["value"],
+      ["environment"],
+      ["output"],
+      ["error"],
+      [],
+      [],
+      [],
+      ["value"],
+      ["resource"],
+      ["message"],
+      ["error"],
+      ["task", "result"],
+      ["value"],
+      ["value"],
+      [],
+      ["task"],
+      ["value"],
+    ],
   );
+});
+
+Deno.test("effect defaults export a complete source handler set", () => {
+  const source = Source.parse(ducklang_effect_defaults_prelude_text);
+  const final = source.statements[source.statements.length - 1];
+
+  if (final?.tag !== "return" || final.value.tag !== "struct_value") {
+    throw new Error("Missing effect defaults export record");
+  }
+
+  assert_equals(final.value.fields.map((field) => field.name), [
+    "default_state",
+    "default_reader",
+    "handle_writer",
+    "handle_raise",
+    "deterministic_clock",
+    "handle_random",
+    "handle_console",
+    "handle_environment",
+    "handle_resource",
+    "handle_log",
+    "handle_validation",
+    "handle_async",
+    "handle_channel",
+    "single_slot_channel",
+    "handle_mutex",
+    "sequential_mutex",
+    "handle_semaphore",
+    "counting_semaphore",
+    "handle_task_group",
+    "handle_stm",
+  ]);
+});
+
+Deno.test("source default State and Reader handlers compose", async () => {
+  const wat = Source.wat(`
+const { default_state, default_reader } = comptime import "duck:prelude/effects/defaults" ()
+let run = () => {
+  environment <- Reader.ask()
+  _ <- State.put(environment + 2)
+  value <- State.get()
+  value
+}
+try (try run() with default_state(0)) with default_reader(40)
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "effect_defaults_state_reader",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing main function for State and Reader defaults");
+  }
+
+  assert_equals(main(), 42);
+});
+
+Deno.test("deterministic effect defaults retain local state", async () => {
+  const wat = Source.wat(`
+const { deterministic_clock, single_slot_channel } = comptime import "duck:prelude/effects/defaults" ()
+let run = () => {
+  first <- Clock.wall_time_ms()
+  _ <- Channel.send(20)
+  value <- Channel.receive()
+  second <- Clock.wall_time_ms()
+  @unsafe_i32_wrap_i64(first + second) + value
+}
+try (try run() with deterministic_clock(10i64, 2i64)) with single_slot_channel(0)
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "effect_defaults_deterministic",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing main function for deterministic defaults");
+  }
+
+  assert_equals(main(), 42);
+});
+
+Deno.test("effect adapters receive explicit authority functions", async () => {
+  const wat = Source.wat(`
+const { handle_environment } = comptime import "duck:prelude/effects/defaults" ()
+const lookup = name => 40
+let run = () => {
+  value <- Environment.lookup("answer")
+  value + 2
+}
+try run() with handle_environment(lookup)
+`);
+  const instance = await instantiate_wat(wat, "effect_defaults_authority", {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing main function for effect adapter authority");
+  }
+
+  assert_equals(main(), 42);
 });
 
 Deno.test("higher-kinded duck signatures validate source type constructors", () => {
@@ -359,6 +810,53 @@ identity (try run() with state)
 
   if (typeof main !== "function") {
     throw new Error("Missing main function for prelude State effect");
+  }
+
+  assert_equals(main(), 42);
+});
+
+Deno.test("named State instances keep independent identities and value types", async () => {
+  const wat = Source.wat(`
+const _ = comptime import "duck:prelude/effects" ()
+const counter = State I32
+const message = State Text
+let run = () => {
+  before <- counter.get()
+  text <- message.get()
+  _ <- counter.put(before + 1)
+  _ <- message.put(@append(text, "!"))
+  after <- message.get()
+  before + @len(after)
+}
+let counter_handler = {
+  let counter_value = 40
+  counter {
+    get: (!resume) => !resume(counter_value),
+    put: (value, !resume) => {
+      counter_value = value
+      !resume(())
+    },
+    return: value => value,
+  }
+}
+let message_handler = {
+  let message_value = "a"
+  message {
+    get: (!resume) => !resume(message_value),
+    put: (value, !resume) => {
+      message_value = value
+      !resume(())
+    },
+    return: value => value,
+  }
+}
+try (try run() with counter_handler) with message_handler
+`);
+  const instance = await instantiate_wat(wat, "named_state_instances", {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing main function for named State instances");
   }
 
   assert_equals(main(), 42);

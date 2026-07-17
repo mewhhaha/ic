@@ -39,6 +39,12 @@ function collect_materialized_stmt_bindings(
 ): void {
   switch (stmt.tag) {
     case "bind":
+      if (stmt.force_materialized) {
+        result.add(stmt.name);
+      }
+      collect_materialized_expr_bindings(stmt.value, union_types, result);
+      return;
+
     case "assign":
       collect_materialized_expr_bindings(stmt.value, union_types, result);
       return;

@@ -7,8 +7,11 @@ import {
   is_builtin_type_reference_name,
   unsupported_reserved_feature,
 } from "./parser_support.ts";
+import { integer_literal_fits, integer_type_name } from "../integer.ts";
 
 export abstract class ParserPrimary extends ParserBlock {
+  protected allow_signed_minimum_literal = 0;
+
   protected parse_primary(): FrontExpr {
     const start = this.index;
     const expr = this.parse_primary_inner();
@@ -29,6 +32,26 @@ export abstract class ParserPrimary extends ParserBlock {
     const literal = front_literal_expr(token);
 
     if (literal) {
+      if (literal.tag === "num" && literal.integer) {
+        let value: bigint;
+
+        if (typeof literal.value === "bigint") {
+          value = literal.value;
+        } else {
+          value = BigInt(literal.value);
+        }
+
+        if (
+          !integer_literal_fits(literal.integer, value) &&
+          this.allow_signed_minimum_literal === 0
+        ) {
+          throw this.error(
+            "Integer literal " + value.toString() + " is out of range for " +
+              integer_type_name(literal.integer),
+          );
+        }
+      }
+
       this.advance();
       return literal;
     }
@@ -155,10 +178,16 @@ export abstract class ParserPrimary extends ParserBlock {
       const effect_literal = (this.effect_names.has(token.text) ||
         /^[A-Z][A-Za-z0-9]*$/.test(token.text)) &&
         this.peek().kind === "symbol" && this.peek().text === "{";
+      const uppercase_application = /^[A-Z][A-Za-z0-9]*$/.test(token.text) &&
+        (this.peek().kind === "name" ||
+          (this.peek().kind === "symbol" &&
+            (this.peek().text === "(" || this.peek().text === "[")));
 
       if (
         !is_builtin_type_reference_name(token.text) &&
         !this.type_names.has(token.text) &&
+        !this.effect_names.has(token.text) &&
+        !uppercase_application &&
         !effect_literal &&
         !(
           /^[A-Z][A-Za-z0-9]*$/.test(token.text) &&

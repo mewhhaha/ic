@@ -1,0 +1,3 @@
+module (seed) where
+
+return { .increment = seed - 4, .second = seed * 6 }

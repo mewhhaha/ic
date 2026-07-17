@@ -9,6 +9,11 @@ import type { ValType } from "../op.ts";
 import { Callable } from "../trait.ts";
 import { front_type_name } from "./types.ts";
 import { compiler_builtin_args } from "./call_args.ts";
+import {
+  integer_literal_fits,
+  integer_type_from_name,
+  integer_val_type,
+} from "../integer.ts";
 
 export type NumericOperandHooks = {
   infer_expr: (expr: FrontExpr, env: Env) => FrontType;
@@ -44,6 +49,17 @@ export function i32_expr(value: number): FrontExpr {
 }
 
 export function parse_number_expr(text: string): FrontExpr {
+  if (text.endsWith("f64")) {
+    const literal = text.slice(0, text.length - 3);
+    const value = Number(literal);
+
+    if (!Number.isFinite(value)) {
+      throw new Error("f64 literal is out of range: " + literal);
+    }
+
+    return { tag: "num", type: "f64", value };
+  }
+
   if (text.endsWith("f32")) {
     const literal = text.slice(0, text.length - 3);
     const value = Math.fround(Number(literal));
@@ -55,14 +71,56 @@ export function parse_number_expr(text: string): FrontExpr {
     return { tag: "num", type: "f32", value };
   }
 
-  if (text.endsWith("i64")) {
-    const value = text.slice(0, text.length - 3);
-    return { tag: "num", type: "i64", value: BigInt(value) };
-  }
+  const integer_suffix = /([iu])([1-9][0-9]*)$/.exec(text);
 
-  if (text.endsWith("i32")) {
-    const value = text.slice(0, text.length - 3);
-    return { tag: "num", type: "i32", value: Number(value) };
+  if (integer_suffix) {
+    const suffix = integer_suffix[0];
+    const integer = integer_type_from_name(suffix.toUpperCase());
+
+    if (!integer) {
+      throw new Error("Invalid fixed-width integer suffix: " + suffix);
+    }
+
+    const literal = text.slice(0, text.length - suffix.length);
+    const value = BigInt(literal);
+
+    let fits = integer_literal_fits(integer, value);
+
+    if (integer.signed) {
+      const minimum_magnitude = 1n << BigInt(integer.width - 1);
+
+      if (value === minimum_magnitude) {
+        fits = true;
+      }
+    }
+
+    if (!fits) {
+      throw new Error(
+        "Integer literal " + literal + " is out of range for " +
+          suffix.toUpperCase(),
+      );
+    }
+
+    const carrier = integer_val_type(integer);
+    let type: "i32" | "i64" = "i64";
+
+    if (carrier) {
+      type = carrier;
+    }
+
+    if (type === "i32") {
+      if (suffix === "i32") {
+        return { tag: "num", type, value: Number(value) };
+      }
+
+      return { tag: "num", type, value: Number(value), integer };
+    }
+
+    if (suffix === "i64") {
+      return { tag: "num", type, value };
+    }
+
+    return { tag: "num", type, value, integer };
   }
 
   return { tag: "num", type: "i32", value: Number(text) };
@@ -75,45 +133,46 @@ export function binary_prim(
 ): Prim | undefined {
   const type = binary_operand_type(left, right);
 
-  if (type === "f32") {
+  if (type === "f32" || type === "f64") {
+    const prefix = type + ".";
     if (op === "+") {
-      return "f32.add";
+      return prefix + "add" as Prim;
     }
 
     if (op === "-") {
-      return "f32.sub";
+      return prefix + "sub" as Prim;
     }
 
     if (op === "*") {
-      return "f32.mul";
+      return prefix + "mul" as Prim;
     }
 
     if (op === "/") {
-      return "f32.div";
+      return prefix + "div" as Prim;
     }
 
     if (op === "==") {
-      return "f32.eq";
+      return prefix + "eq" as Prim;
     }
 
     if (op === "!=") {
-      return "f32.ne";
+      return prefix + "ne" as Prim;
     }
 
     if (op === "<") {
-      return "f32.lt";
+      return prefix + "lt" as Prim;
     }
 
     if (op === "<=") {
-      return "f32.le";
+      return prefix + "le" as Prim;
     }
 
     if (op === ">") {
-      return "f32.gt";
+      return prefix + "gt" as Prim;
     }
 
     if (op === ">=") {
-      return "f32.ge";
+      return prefix + "ge" as Prim;
     }
 
     return undefined;
@@ -221,6 +280,10 @@ export function binary_operand_type(
   const left_type = parse_numeric_expr_type(left);
   const right_type = parse_numeric_expr_type(right);
 
+  if (left_type === "f64" || right_type === "f64") {
+    return "f64";
+  }
+
   if (left_type === "f32" || right_type === "f32") {
     return "f32";
   }
@@ -243,7 +306,10 @@ function parse_numeric_expr_type(expr: FrontExpr): ValType | undefined {
   if (expr.tag === "prim") {
     const result_type = prim_result_type(expr.prim);
 
-    if (result_type === "i64" || result_type === "f32") {
+    if (
+      result_type === "i64" || result_type === "f32" ||
+      result_type === "f64"
+    ) {
       return result_type;
     }
 
@@ -253,6 +319,18 @@ function parse_numeric_expr_type(expr: FrontExpr): ValType | undefined {
 
     const left_type = parse_numeric_expr_type(expr.left);
     const right_type = parse_numeric_expr_type(expr.right);
+
+    if (left_type === "f64" || right_type === "f64") {
+      if (left_type !== undefined && left_type !== "f64") {
+        return "i32";
+      }
+
+      if (right_type !== undefined && right_type !== "f64") {
+        return "i32";
+      }
+
+      return "f64";
+    }
 
     if (left_type === "f32" || right_type === "f32") {
       if (left_type !== undefined && left_type !== "f32") {
@@ -310,7 +388,9 @@ export function prim_returns_bool(prim: Prim): boolean {
     prim === "i32.le_s" || prim === "i64.le_s" || prim === "i32.gt_s" ||
     prim === "i64.gt_s" || prim === "i32.ge_s" || prim === "i64.ge_s" ||
     prim === "f32.eq" || prim === "f32.ne" || prim === "f32.lt" ||
-    prim === "f32.le" || prim === "f32.gt" || prim === "f32.ge";
+    prim === "f32.le" || prim === "f32.gt" || prim === "f32.ge" ||
+    prim === "f64.eq" || prim === "f64.ne" || prim === "f64.lt" ||
+    prim === "f64.le" || prim === "f64.gt" || prim === "f64.ge";
 }
 
 export function numeric_expr_type(expr: FrontExpr): ValType | undefined {
@@ -424,6 +504,18 @@ export function select_prim_for_branches(
 ): Prim {
   const then_type = numeric_expr_type(then_branch);
   const else_type = numeric_expr_type(else_branch);
+
+  if (then_type === "f64" || else_type === "f64") {
+    if (then_type !== undefined && then_type !== "f64") {
+      throw new Error("Mixed f64 and " + then_type + " if branches");
+    }
+
+    if (else_type !== undefined && else_type !== "f64") {
+      throw new Error("Mixed f64 and " + else_type + " if branches");
+    }
+
+    return "f64.select";
+  }
 
   if (then_type === "f32" || else_type === "f32") {
     if (then_type !== undefined && then_type !== "f32") {

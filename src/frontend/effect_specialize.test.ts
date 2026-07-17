@@ -101,3 +101,74 @@ try run() with state
 
   assert_includes(wat, "i32.add");
 });
+
+Deno.test("named effect instances distinguish equal payload types", () => {
+  const analysis = Source.effects(`
+effect State value {
+  get: () => value
+  put: (value) => Unit
+}
+const left = State I32
+const right = State I32
+let run = () => {
+  _ <- left.put(1)
+  _ <- right.put(2)
+}
+0
+`);
+
+  assert_equals(analysis.functions.run?.effects, [
+    { effect: "left", operation: "put" },
+    { effect: "right", operation: "put" },
+  ]);
+});
+
+Deno.test("named effect instances require const bindings", () => {
+  assert_throws(
+    () =>
+      Source.wat(`
+effect State value { get: () => value }
+let counter = State I32
+let run = () => {
+  value <- counter.get()
+  value
+}
+run()
+`),
+    "Effect instance counter must use a const binding",
+  );
+});
+
+Deno.test("parameterless effects support named instances", () => {
+  const analysis = Source.effects(`
+effect Clock { now: () => I64 }
+const wall_clock = Clock ()
+let run = () => {
+  time <- wall_clock.now()
+  time
+}
+0
+`);
+
+  assert_equals(analysis.functions.run?.effects, [
+    { effect: "wall_clock", operation: "now" },
+  ]);
+});
+
+Deno.test("named effects accept multiple concrete type arguments", () => {
+  const analysis = Source.effects(`
+const _ = comptime import "duck:prelude/effects" ()
+const jobs = Async [I32, I64]
+let run = () => {
+  task <- jobs.spawn(42)
+  result <- jobs.await(task)
+  result
+}
+0
+`);
+
+  assert_equals(analysis.functions.run?.effects, [
+    { effect: "jobs", operation: "await" },
+    { effect: "jobs", operation: "spawn" },
+  ]);
+});

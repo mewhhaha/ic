@@ -94,6 +94,52 @@ function elaborate_comptime_type_intrinsic(
     intrinsic = binding.value.body.func.name;
   }
 
+  if (
+    intrinsic === "@type.union" || intrinsic === "@type.intersection" ||
+    intrinsic === "@type.difference"
+  ) {
+    if (args.length !== 2) {
+      throw new Error(intrinsic + " expects exactly two type values");
+    }
+
+    const left_arg = args[0];
+    const right_arg = args[1];
+    expect(left_arg, "Missing left type operand for " + intrinsic);
+    expect(right_arg, "Missing right type operand for " + intrinsic);
+    const left = unwrap_const_result(
+      resolve_scope_const_value(left_arg, scope),
+    );
+    const right = unwrap_const_result(
+      resolve_scope_const_value(right_arg, scope),
+    );
+
+    if (
+      !scope_const_expr_known(left, scope) ||
+      !scope_const_expr_known(right, scope)
+    ) {
+      return undefined;
+    }
+
+    let tag: "union" | "intersection" | "difference";
+
+    if (intrinsic === "@type.union") {
+      tag = "union";
+    } else if (intrinsic === "@type.intersection") {
+      tag = "intersection";
+    } else {
+      tag = "difference";
+    }
+
+    return {
+      tag: "set_type",
+      type_expr: {
+        tag,
+        left: prelude_type_expr(left),
+        right: prelude_type_expr(right),
+      },
+    };
+  }
+
   let arg = unary_arg;
 
   if (arg === undefined && args.length === 1) {

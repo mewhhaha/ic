@@ -1,7 +1,7 @@
 import { expect } from "./expect.ts";
 import { Callable, type CallableType, Emit, Format } from "./trait.ts";
 
-export type NumType = "i32" | "i64" | "f32";
+export type NumType = "i32" | "i64" | "f32" | "f64";
 export type ValType = NumType | "v128";
 
 type IntegerPrimOp =
@@ -9,18 +9,25 @@ type IntegerPrimOp =
   | "sub"
   | "mul"
   | "div_s"
+  | "div_u"
   | "rem_s"
+  | "rem_u"
   | "eq"
   | "ne"
   | "lt_s"
+  | "lt_u"
   | "le_s"
+  | "le_u"
   | "gt_s"
+  | "gt_u"
   | "ge_s"
+  | "ge_u"
   | "and"
   | "or"
   | "xor"
   | "shl"
   | "shr_u"
+  | "shr_s"
   | "select"
   | "load"
   | "load8_u"
@@ -70,6 +77,7 @@ export type Prim =
   | `i32.${I32PrimOp}`
   | `i64.${I64PrimOp}`
   | `f32.${FloatPrimOp}`
+  | `f64.${Exclude<FloatPrimOp, "reinterpret_i32" | "sqrt">}`
   | "f32x4.make"
   | "f32x4.splat"
   | "f32x4.add"
@@ -154,7 +162,9 @@ export function wasm_intrinsic_prim(name: string): Prim | undefined {
   const operation = name.slice(0, separator);
   const type = name.slice(separator + 1);
 
-  if (type !== "i32" && type !== "i64" && type !== "f32") {
+  if (
+    type !== "i32" && type !== "i64" && type !== "f32" && type !== "f64"
+  ) {
     return undefined;
   }
 
@@ -166,8 +176,8 @@ export function wasm_intrinsic_prim(name: string): Prim | undefined {
   }
 
   if (operation === "div") {
-    if (type === "f32") {
-      return "f32.div";
+    if (type === "f32" || type === "f64") {
+      return type + ".div" as Prim;
     }
 
     return type + ".div_s" as Prim;
@@ -177,15 +187,15 @@ export function wasm_intrinsic_prim(name: string): Prim | undefined {
     operation === "lt" || operation === "le" || operation === "gt" ||
     operation === "ge"
   ) {
-    if (type === "f32") {
-      return "f32." + operation as Prim;
+    if (type === "f32" || type === "f64") {
+      return type + "." + operation as Prim;
     }
 
     return type + "." + operation + "_s" as Prim;
   }
 
   if (
-    type !== "f32" &&
+    type !== "f32" && type !== "f64" &&
     (operation === "rem" || operation === "and" || operation === "or" ||
       operation === "xor" || operation === "shl" || operation === "shr_u")
   ) {
@@ -300,6 +310,22 @@ export function specialize_prim_for_operands(
     return prim;
   }
 
+  if (left_type === "f64" || right_type === "f64") {
+    if (left_type !== undefined && left_type !== "f64") {
+      throw mixed_numeric_types(op, left_type, "f64");
+    }
+
+    if (right_type !== undefined && right_type !== "f64") {
+      throw mixed_numeric_types(op, "f64", right_type);
+    }
+
+    if (left_type === "f64" && right_type === "f64") {
+      return prim_for_type("f64", op);
+    }
+
+    return prim;
+  }
+
   if (left_type === "f32" || right_type === "f32") {
     if (left_type !== undefined && left_type !== "f32") {
       throw mixed_numeric_types(op, left_type, "f32");
@@ -321,14 +347,70 @@ export function specialize_prim_for_operands(
       throw mixed_numeric_types(op, "i32", "i64");
     }
 
-    return prim_for_type("i64", op);
+    return preserve_unsigned_prim(prim, prim_for_type("i64", op));
   }
 
   if (left_type === "i32" && right_type === "i32") {
-    return prim_for_type("i32", op);
+    return preserve_unsigned_prim(prim, prim_for_type("i32", op));
   }
 
   return prim;
+}
+
+function preserve_unsigned_prim(original: Prim, specialized: Prim): Prim {
+  if (!original.endsWith("_u")) {
+    return specialized;
+  }
+
+  return specialize_prim_for_integer(specialized, false);
+}
+
+export function specialize_prim_for_integer(
+  prim: Prim,
+  signed: boolean,
+): Prim {
+  if (signed) {
+    return prim;
+  }
+
+  switch (prim) {
+    case "i32.div_s":
+      return "i32.div_u";
+    case "i64.div_s":
+      return "i64.div_u";
+    case "i32.rem_s":
+      return "i32.rem_u";
+    case "i64.rem_s":
+      return "i64.rem_u";
+    case "i32.lt_s":
+      return "i32.lt_u";
+    case "i64.lt_s":
+      return "i64.lt_u";
+    case "i32.le_s":
+      return "i32.le_u";
+    case "i64.le_s":
+      return "i64.le_u";
+    case "i32.gt_s":
+      return "i32.gt_u";
+    case "i64.gt_s":
+      return "i64.gt_u";
+    case "i32.ge_s":
+      return "i32.ge_u";
+    case "i64.ge_s":
+      return "i64.ge_u";
+    default:
+      return prim;
+  }
+}
+
+export function prim_preserves_integer_type(prim: Prim): boolean {
+  return !(
+    prim.endsWith(".eq") || prim.endsWith(".ne") ||
+    prim.endsWith(".lt_s") || prim.endsWith(".lt_u") ||
+    prim.endsWith(".le_s") || prim.endsWith(".le_u") ||
+    prim.endsWith(".gt_s") || prim.endsWith(".gt_u") ||
+    prim.endsWith(".ge_s") || prim.endsWith(".ge_u")
+  );
 }
 
 function mixed_numeric_types(
@@ -347,45 +429,67 @@ function binary_numeric_op(prim: Prim): NumericOp | undefined {
     case "i32.add":
     case "i64.add":
     case "f32.add":
+    case "f64.add":
       return "add";
     case "i32.sub":
     case "i64.sub":
     case "f32.sub":
+    case "f64.sub":
       return "sub";
     case "i32.mul":
     case "i64.mul":
     case "f32.mul":
+    case "f64.mul":
       return "mul";
     case "i32.div_s":
+    case "i32.div_u":
     case "i64.div_s":
+    case "i64.div_u":
     case "f32.div":
+    case "f64.div":
       return "div";
     case "i32.rem_s":
+    case "i32.rem_u":
     case "i64.rem_s":
+    case "i64.rem_u":
       return "rem";
     case "i32.eq":
     case "i64.eq":
     case "f32.eq":
+    case "f64.eq":
       return "eq";
     case "i32.ne":
     case "i64.ne":
     case "f32.ne":
+    case "f64.ne":
       return "ne";
     case "i32.lt_s":
+    case "i32.lt_u":
     case "i64.lt_s":
+    case "i64.lt_u":
     case "f32.lt":
+    case "f64.lt":
       return "lt";
     case "i32.le_s":
+    case "i32.le_u":
     case "i64.le_s":
+    case "i64.le_u":
     case "f32.le":
+    case "f64.le":
       return "le";
     case "i32.gt_s":
+    case "i32.gt_u":
     case "i64.gt_s":
+    case "i64.gt_u":
     case "f32.gt":
+    case "f64.gt":
       return "gt";
     case "i32.ge_s":
+    case "i32.ge_u":
     case "i64.ge_s":
+    case "i64.ge_u":
     case "f32.ge":
+    case "f64.ge":
       return "ge";
     case "i32.and":
     case "i64.and":
@@ -402,19 +506,25 @@ function binary_numeric_op(prim: Prim): NumericOp | undefined {
     case "i32.shr_u":
     case "i64.shr_u":
       return "shr_u";
+    case "i32.shr_s":
+    case "i64.shr_s":
     case "i32.select":
     case "i64.select":
     case "f32.select":
+    case "f64.select":
     case "i32.load":
     case "i64.load":
     case "f32.load":
+    case "f64.load":
     case "i32.load8_u":
     case "i64.load8_u":
     case "i32.trap":
     case "i64.trap":
     case "f32.trap":
+    case "f64.trap":
     case "f32.sqrt":
     case "f32.convert_i32_s":
+    case "f64.convert_i32_s":
     case "i32.trunc_f32_s":
     case "i32.wrap_i64":
     case "i64.extend_i32_s":
@@ -471,28 +581,29 @@ function numeric_op_text(op: NumericOp): string {
 }
 
 function prim_for_type(type: NumType, op: NumericOp): Prim {
-  if (type === "f32") {
+  if (type === "f32" || type === "f64") {
+    const prefix = type + ".";
     switch (op) {
       case "add":
-        return "f32.add";
+        return prefix + "add" as Prim;
       case "sub":
-        return "f32.sub";
+        return prefix + "sub" as Prim;
       case "mul":
-        return "f32.mul";
+        return prefix + "mul" as Prim;
       case "div":
-        return "f32.div";
+        return prefix + "div" as Prim;
       case "eq":
-        return "f32.eq";
+        return prefix + "eq" as Prim;
       case "ne":
-        return "f32.ne";
+        return prefix + "ne" as Prim;
       case "lt":
-        return "f32.lt";
+        return prefix + "lt" as Prim;
       case "le":
-        return "f32.le";
+        return prefix + "le" as Prim;
       case "gt":
-        return "f32.gt";
+        return prefix + "gt" as Prim;
       case "ge":
-        return "f32.ge";
+        return prefix + "ge" as Prim;
       case "rem":
       case "and":
       case "or":
@@ -500,7 +611,8 @@ function prim_for_type(type: NumType, op: NumericOp): Prim {
       case "shl":
       case "shr_u":
         throw new Error(
-          "Operator " + numeric_op_text(op) + " does not support f32 operands",
+          "Operator " + numeric_op_text(op) + " does not support " + type +
+            " operands",
         );
     }
   }
@@ -580,6 +692,7 @@ Prim.fmt = function fmt(prim: Prim): string {
       return "trap";
     case "f32.sqrt":
     case "f32.convert_i32_s":
+    case "f64.convert_i32_s":
     case "i32.trunc_f32_s":
     case "i32.wrap_i64":
     case "i64.extend_i32_s":
@@ -608,19 +721,26 @@ Prim.type = function type(prim: Prim): CallableType<ValType> {
     case "i32.sub":
     case "i32.mul":
     case "i32.div_s":
+    case "i32.div_u":
     case "i32.rem_s":
+    case "i32.rem_u":
     case "i32.and":
     case "i32.or":
     case "i32.xor":
     case "i32.shl":
     case "i32.shr_u":
+    case "i32.shr_s":
       return { args: ["i32", "i32"], result: "i32" };
     case "i32.eq":
     case "i32.ne":
     case "i32.lt_s":
+    case "i32.lt_u":
     case "i32.le_s":
+    case "i32.le_u":
     case "i32.gt_s":
+    case "i32.gt_u":
     case "i32.ge_s":
+    case "i32.ge_u":
       return { args: ["i32", "i32"], result: "i32" };
     case "i32.select":
       return { args: ["i32", "i32", "i32"], result: "i32" };
@@ -640,19 +760,26 @@ Prim.type = function type(prim: Prim): CallableType<ValType> {
     case "i64.sub":
     case "i64.mul":
     case "i64.div_s":
+    case "i64.div_u":
     case "i64.rem_s":
+    case "i64.rem_u":
     case "i64.and":
     case "i64.or":
     case "i64.xor":
     case "i64.shl":
     case "i64.shr_u":
+    case "i64.shr_s":
       return { args: ["i64", "i64"], result: "i64" };
     case "i64.eq":
     case "i64.ne":
     case "i64.lt_s":
+    case "i64.lt_u":
     case "i64.le_s":
+    case "i64.le_u":
     case "i64.gt_s":
+    case "i64.gt_u":
     case "i64.ge_s":
+    case "i64.ge_u":
       return { args: ["i64", "i64"], result: "i32" };
     case "i64.select":
       return { args: ["i64", "i64", "i32"], result: "i64" };
@@ -689,6 +816,27 @@ Prim.type = function type(prim: Prim): CallableType<ValType> {
       return { args: ["i32"], result: "f32" };
     case "f32.reinterpret_i32":
       return { args: ["i32"], result: "f32" };
+
+    case "f64.add":
+    case "f64.sub":
+    case "f64.mul":
+    case "f64.div":
+      return { args: ["f64", "f64"], result: "f64" };
+    case "f64.eq":
+    case "f64.ne":
+    case "f64.lt":
+    case "f64.le":
+    case "f64.gt":
+    case "f64.ge":
+      return { args: ["f64", "f64"], result: "i32" };
+    case "f64.select":
+      return { args: ["f64", "f64", "i32"], result: "f64" };
+    case "f64.load":
+      return { args: ["i32"], result: "f64" };
+    case "f64.trap":
+      return { args: [], result: "f64" };
+    case "f64.convert_i32_s":
+      return { args: ["i32"], result: "f64" };
 
     case "f32x4.make":
       return { args: ["f32", "f32", "f32", "f32"], result: "v128" };

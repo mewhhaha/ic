@@ -1,5 +1,18 @@
 module () where
 
+infixr 10 $ = apply
+infixl 10 |> = pipe
+infixl 55 <$> = Functor.map
+infixl 55 <*> = Applicative.apply
+infixl 50 >>= = Monad.bind
+infixl 45 <|> = Alternative.or_else
+infixr 50 <> = Semigroup.append
+infixl 45 ||| = bit_or
+infixl 50 ^^^ = bit_xor
+infixl 55 &&& = bit_and
+infixl 60 << = shift_left
+infixl 60 >> = shift_right_unsigned
+
 type Option value =
   | .some = value
   | .none
@@ -30,8 +43,45 @@ duck Monoid Self {
   .append = [Self, Self] -> Self
 }
 
+duck Semigroup Self {
+  .append = [Self, Self] -> Self
+}
+
+duck Bits Self {
+  .bit_and = [Self, Self] -> Self
+  .bit_or = [Self, Self] -> Self
+  .bit_xor = [Self, Self] -> Self
+  .shift_left = [Self, Self] -> Self
+  .shift_right_unsigned = [Self, Self] -> Self
+}
+
+duck Semiring Self {
+  .zero = [] -> Self
+  .one = [] -> Self
+  .add = [Self, Self] -> Self
+  .multiply = [Self, Self] -> Self
+}
+
+duck Ring Self {
+  .zero = [] -> Self
+  .one = [] -> Self
+  .add = [Self, Self] -> Self
+  .multiply = [Self, Self] -> Self
+  .negate = Self -> Self
+  .subtract = [Self, Self] -> Self
+}
+
+duck EuclideanRing Self {
+  .divide = [Self, Self] -> Self
+  .remainder = [Self, Self] -> Self
+}
+
 duck Functor F A B {
   .map = [F A, A -> B] -> F B
+}
+
+duck Apply F A B {
+  .apply = [F (A -> B), F A] -> F B
 }
 
 duck Applicative F A B {
@@ -41,6 +91,10 @@ duck Applicative F A B {
 
 duck Monad M A B {
   .pure = A -> M A
+  .bind = [M A, A -> M B] -> M B
+}
+
+duck Bind M A B {
   .bind = [M A, A -> M B] -> M B
 }
 
@@ -54,6 +108,14 @@ duck Show Self {
 
 duck From Source Target {
   .from = Source -> Target
+}
+
+duck Into Source Target {
+  .into = Source -> Target
+}
+
+duck TryFrom Source Target Error {
+  .try_from = Source -> Result Error Target
 }
 
 duck Default Self {
@@ -87,19 +149,100 @@ duck Traversable T F A B {
   .traverse = [T A, A -> F B] -> F (T B)
 }
 
+duck Category C A B D {
+  .identity = [] -> C A A
+  .compose = [C B D, C A B] -> C A D
+}
+
+duck Profunctor P A B C D {
+  .dimap = [A -> B, C -> D, P B C] -> P A D
+}
+
+extend Text {
+  .append = [left, right] => @append(left, right)
+}
+
+extend Bytes {
+  .append = [left, right] => @append(left, right)
+}
+
+extend I32 {
+  .bit_and = [left, right] => @bit_and(left, right)
+  .bit_or = [left, right] => @bit_or(left, right)
+  .bit_xor = [left, right] => @bit_xor(left, right)
+  .shift_left = [value, amount] => @shift_left(value, amount)
+  .shift_right_unsigned = [value, amount] => @shift_right_u(value, amount)
+}
+
+extend I64 {
+  .bit_and = [left, right] => @bit_and(left, right)
+  .bit_or = [left, right] => @bit_or(left, right)
+  .bit_xor = [left, right] => @bit_xor(left, right)
+  .shift_left = [value, amount] => @shift_left(value, amount)
+  .shift_right_unsigned = [value, amount] => @shift_right_u(value, amount)
+}
+
 const identity = value => value
 
 const constant = value => _ => value
 
 const compose = [outer, inner] => value => outer(inner value)
 
-const pipe = [value, transform] => transform value
+const pipe: forall input output. [input, input -> output] -> output =
+  (value, const transform) => transform value
 
 const flip = call => [left, right] => call [right, left]
 
 const curry = call => left => right => call [left, right]
 
 const uncurry = call => [left, right] => call left right
+
+const apply: forall input output. [input -> output, input] -> output =
+  (const call, value) => call value
+
+const reverse_apply = (value, const call) => call value
+
+const on = [combine, project] => [left, right] => combine [project left, project right]
+
+const swap = [left, right] => [right, left]
+
+const first = [left, _] => left
+
+const second = [_, right] => right
+
+const fanout = [left, right] => value => [left value, right value]
+
+const converge = [combine, left, right] => value => combine [left value, right value]
+
+const option = [fallback, transform] => value => if let .some(item) = value {
+  transform item
+} else {
+  fallback
+}
+
+const option_unwrap_or = [fallback, value] => if let .some(item) = value {
+  item
+} else {
+  fallback
+}
+
+const option_is_some = value => if let .some(_) = value { true } else { false }
+
+const option_is_none = value => if let .some(_) = value { false } else { true }
+
+const result_unwrap_or = [fallback, value] => if let .ok(item) = value {
+  item
+} else {
+  fallback
+}
+
+const result_is_ok = value => if let .ok(_) = value { true } else { false }
+
+const result_is_err = value => if let .err(_) = value { true } else { false }
+
+const either_is_left = value => if let .left(_) = value { true } else { false }
+
+const either_is_right = value => if let .right(_) = value { true } else { false }
 
 const { append, length, get, slice, bit_and, bit_or, bit_xor, shift_left, shift_right_unsigned, sqrt_f32, f32_from_i32, i32_from_f32, format_i32, format_i64, format_f32, generate_bytes, encode_utf8, decode_utf8, panic, f32x4, f32x4_splat, f32x4_add, f32x4_subtract, f32x4_multiply, f32x4_divide } = comptime import "duck:prelude/runtime" ()
 
@@ -111,6 +254,23 @@ return {
   flip,
   curry,
   uncurry,
+  apply,
+  reverse_apply,
+  on,
+  swap,
+  first,
+  second,
+  fanout,
+  converge,
+  option,
+  option_unwrap_or,
+  option_is_some,
+  option_is_none,
+  result_unwrap_or,
+  result_is_ok,
+  result_is_err,
+  either_is_left,
+  either_is_right,
   append,
   length,
   get,

@@ -138,6 +138,10 @@ function layout_type_name(name: string): { size: number; align: number } {
     return { size: 8, align: 8 };
   }
 
+  if (name === "F64") {
+    return { size: 8, align: 8 };
+  }
+
   if (name === "F32x4") {
     return { size: 16, align: 16 };
   }

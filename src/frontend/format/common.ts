@@ -97,6 +97,10 @@ export function format_pattern(pattern: Pattern): string {
       return pattern.value.value.toString() + "f32";
     }
 
+    if (pattern.value.tag === "num" && pattern.value.type === "f64") {
+      return pattern.value.value.toString() + "f64";
+    }
+
     return pattern.value.value.toString();
   }
 

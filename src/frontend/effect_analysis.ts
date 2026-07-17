@@ -2556,6 +2556,10 @@ function infer_simple_type(
       return "F32";
     }
 
+    if (expr.type === "f64") {
+      return "F64";
+    }
+
     return "I32";
   }
 
@@ -2627,6 +2631,10 @@ function infer_simple_type(
 
     if (expr.prim.startsWith("f32.")) {
       return "F32";
+    }
+
+    if (expr.prim.startsWith("f64.")) {
+      return "F64";
     }
 
     return "I32";
@@ -2976,7 +2984,7 @@ function effect_result_is_discardable_scalar(
   );
   return resolved === "Unit" || resolved === "Bool" || resolved === "Int" ||
     resolved === "I32" || resolved === "U32" || resolved === "I64" ||
-    resolved === "F32";
+    resolved === "F32" || resolved === "F64";
 }
 
 function resolved_scalar_type_name(

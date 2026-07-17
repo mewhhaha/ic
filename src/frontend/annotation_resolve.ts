@@ -4,7 +4,11 @@ import type { Env, FrontExpr, FrontType } from "./ast.ts";
 import type { AnnotationHooks } from "./annotation_types.ts";
 import { numeric_expr_type, prim_result_type } from "./numeric.ts";
 import { resolve_extended_type_value } from "./type_patterns.ts";
-import { front_type_from_type_name, front_type_name } from "./types.ts";
+import {
+  front_type_from_type_name,
+  front_type_name,
+  is_builtin_type_name,
+} from "./types.ts";
 import { parse_type_expr } from "./type_expr.ts";
 import { tokenize } from "./tokenize.ts";
 import { sem_type_from_expr } from "./semantic_type.ts";
@@ -49,6 +53,10 @@ export function resolve_annotation_type(
 
   if (annotation === "F32") {
     return { tag: "int", type: "f32" };
+  }
+
+  if (annotation === "F64") {
+    return { tag: "int", type: "f64" };
   }
 
   if (annotation === "F32x4") {
@@ -117,14 +125,7 @@ function direct_annotation_front_type(
       return { tag: "set", type_expr: type };
 
     case "name":
-      if (
-        type.name === "Bool" || type.name === "Unit" ||
-        type.name === "Int" || type.name === "I32" ||
-        type.name === "U32" || type.name === "I64" || type.name === "F32" ||
-        type.name === "F32x4" ||
-        type.name === "Text" || type.name === "Bytes" ||
-        type.name === "Resume"
-      ) {
+      if (is_builtin_type_name(type.name)) {
         return front_type_from_type_name(type.name);
       }
 
@@ -267,6 +268,10 @@ export function binding_value_type_name(
 
   if (numeric_type === "f32") {
     return "F32";
+  }
+
+  if (numeric_type === "f64") {
+    return "F64";
   }
 
   if (hooks.infer_expr(value, env).tag === "f32x4") {

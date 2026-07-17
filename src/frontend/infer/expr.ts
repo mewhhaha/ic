@@ -1,3 +1,4 @@
+import type { IntegerType } from "../../integer.ts";
 import type { Binding, Env, FrontExpr, FrontType, Stmt } from "../ast.ts";
 import { lookup } from "../env.ts";
 import { front_expr_is_static_shareable_text } from "../ownership.ts";
@@ -29,7 +30,7 @@ export function infer_front_expr(
       return { tag: "atom", name: expr.name };
 
     case "num":
-      return { tag: "int", type: expr.type };
+      return { tag: "int", type: expr.type, integer: expr.integer };
 
     case "unit":
       return { tag: "int", type: "i32" };
@@ -86,21 +87,53 @@ export function infer_front_expr(
       return { tag: "unknown" };
     }
 
-    case "prim":
+    case "prim": {
       if (hooks.visible_text_value(expr, env, new Set())) {
         return { tag: "text" };
       }
 
       hooks.check_text_concat_operand_visibility(expr, env);
 
+      const left_type = infer_front_expr(expr.left, env, hooks);
+      const right_type = infer_front_expr(expr.right, env, hooks);
+
+      if (!same_type(left_type, right_type)) {
+        return { tag: "unknown" };
+      }
+
       if (prim_returns_bool(expr.prim)) {
         return { tag: "bool" };
+      }
+
+      if (
+        left_type.tag === "wide_int" && right_type.tag === "wide_int" &&
+        left_type.integer.signed === right_type.integer.signed &&
+        left_type.integer.width === right_type.integer.width
+      ) {
+        return left_type;
+      }
+
+      let integer: IntegerType | undefined;
+
+      if (
+        left_type.tag === "int" && right_type.tag === "int" &&
+        left_type.integer && right_type.integer &&
+        left_type.integer.signed === right_type.integer.signed &&
+        left_type.integer.width === right_type.integer.width
+      ) {
+        integer = left_type.integer;
+      } else if (left_type.tag === "int" && left_type.integer) {
+        integer = left_type.integer;
+      } else if (right_type.tag === "int" && right_type.integer) {
+        integer = right_type.integer;
       }
 
       return {
         tag: "int",
         type: infer_prim_result_type(expr, env, hooks, infer_front_expr),
+        integer,
       };
+    }
 
     case "lam":
       return { tag: "fn", params: expr.params };

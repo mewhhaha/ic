@@ -1,5 +1,33 @@
 module () where
 
+infixl 65 :+ = type_extend
+infixl 45 :| = type_union
+infixl 50 :& = type_intersection
+infixl 55 :- = type_difference
+
+const type_extend: forall base additions. [base, additions] -> base =
+  [base, additions] => {
+    let extended = base
+
+    for member in additions {
+      extended = extended with {
+        .[member.name] = member.value
+      }
+    }
+
+    extended
+  }
+
+const type_union = [left, right] => @type.union(left, right)
+
+const type_intersection = [left, right] => @type.intersection(left, right)
+
+const type_difference = [base, removed] => @type.difference(base, removed)
+
+const newtype = representation => representation
+
+const packed = layout => layout
+
 const struct = (const shape) => {
   let product_type = []
 
@@ -16,4 +44,12 @@ const struct = (const shape) => {
   product_type
 }
 
-return { struct }
+return {
+  struct,
+  packed,
+  newtype,
+  type_extend,
+  type_union,
+  type_intersection,
+  type_difference,
+}

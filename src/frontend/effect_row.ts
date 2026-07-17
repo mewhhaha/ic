@@ -121,13 +121,13 @@ function format(row: EffectRowExpr, parent_precedence: number): string {
   let precedence: number;
 
   if (row.tag === "union") {
-    operator = "|";
+    operator = ":|";
     precedence = 1;
   } else if (row.tag === "intersection") {
-    operator = "&";
+    operator = ":&";
     precedence = 2;
   } else if (row.tag === "difference") {
-    operator = "\\";
+    operator = ":-";
     precedence = 3;
   } else {
     row satisfies never;

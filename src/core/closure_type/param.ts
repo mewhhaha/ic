@@ -7,6 +7,7 @@ import {
 } from "../from_source/type_contract.ts";
 import type { CoreExpr } from "../ast.ts";
 import type { ClosureParamInfo } from "./types.ts";
+import { integer_type_from_name, integer_val_type } from "../../integer.ts";
 
 type ClosureParamInfoHooks<ctx> = {
   static_annotation_type_value: (
@@ -26,6 +27,16 @@ export function closure_param_info<ctx>(
     return undefined;
   }
 
+  const integer = integer_type_from_name(annotation);
+
+  if (integer) {
+    const type = integer_val_type(integer);
+
+    if (type) {
+      return { type, is_text: false };
+    }
+  }
+
   if (
     annotation === "Bool" || annotation === "Int" || annotation === "I32" ||
     annotation === "U32" || annotation === "Resume"
@@ -43,6 +54,10 @@ export function closure_param_info<ctx>(
 
   if (annotation === "F32") {
     return { type: "f32", is_text: false };
+  }
+
+  if (annotation === "F64") {
+    return { type: "f64", is_text: false };
   }
 
   if (annotation === "F32x4") {

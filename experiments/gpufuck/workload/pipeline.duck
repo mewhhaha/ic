@@ -1,0 +1,3 @@
+module (scale) where
+
+return { .rounds = scale * 128, .seed = scale * 10 + 2 }

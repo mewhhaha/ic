@@ -12,6 +12,8 @@ import type {
   CoreParam,
   CoreStmt,
 } from "../ast.ts";
+import type { IntegerType } from "../../integer.ts";
+import { integer_type_from_name, integer_type_name } from "../../integer.ts";
 
 export type CoreNamedRecSource = {
   params: CoreParam[];
@@ -26,6 +28,8 @@ export type CoreFromSourceCtx = {
   host_import_names: Set<string>;
   host_import_type_values: Map<string, CoreHostImportOwnerReason>;
   linear_names: Set<string>;
+  integer_types: Map<string, IntegerType>;
+  wide_integer_types: Map<string, IntegerType>;
   lower_stmt: (stmt: Stmt, ctx: CoreFromSourceCtx) => CoreStmt;
   fresh: { next: number };
   namedRecs: Map<string, CoreNamedRecSource>;
@@ -44,6 +48,8 @@ export function create_core_from_source_ctx(
     host_import_names: new Set(),
     host_import_type_values: new Map(),
     linear_names: new Set(),
+    integer_types: new Map(),
+    wide_integer_types: new Map(),
     lower_stmt,
     fresh: { next: 0 },
     namedRecs: new Map(),
@@ -63,6 +69,8 @@ export function fork_core_from_source_ctx(
     host_import_names: new Set(ctx.host_import_names),
     host_import_type_values: new Map(ctx.host_import_type_values),
     linear_names: new Set(ctx.linear_names),
+    integer_types: new Map(ctx.integer_types),
+    wide_integer_types: ctx.wide_integer_types,
     lower_stmt: ctx.lower_stmt,
     fresh: ctx.fresh,
     namedRecs: new Map(ctx.namedRecs),
@@ -111,16 +119,25 @@ export function record_core_from_source_type_value(
     ctx.type_set_aliases.set(stmt.name, alias);
   }
 
-  if (stmt.value.tag === "var") {
+  const scalar_base_name = core_scalar_type_value_base(stmt.value);
+
+  if (scalar_base_name) {
+    const integer = integer_type_from_name(scalar_base_name);
+
+    if (integer && integer.width > 64) {
+      ctx.wide_integer_types.set(integer_type_name(integer), integer);
+    }
+
     let scalar_annotation = ctx.scalar_annotation_aliases.get(
-      stmt.value.name,
+      scalar_base_name,
     );
 
     if (
       !scalar_annotation &&
-      core_builtin_scalar_annotation_names.has(stmt.value.name)
+      (core_builtin_scalar_annotation_names.has(scalar_base_name) ||
+        /^([IU])([1-9][0-9]*)$/.test(scalar_base_name))
     ) {
-      scalar_annotation = stmt.value.name;
+      scalar_annotation = scalar_base_name;
     }
 
     if (scalar_annotation) {
@@ -142,11 +159,24 @@ export function record_core_from_source_type_value(
   ctx.host_import_type_values.set(stmt.name, reason);
 }
 
+function core_scalar_type_value_base(expr: FrontExpr): string | undefined {
+  if (expr.tag === "var" || expr.tag === "type_name") {
+    return expr.name;
+  }
+
+  if (expr.tag === "with") {
+    return core_scalar_type_value_base(expr.base);
+  }
+
+  return undefined;
+}
+
 const core_builtin_scalar_annotation_names = new Set([
   "Bool",
   "I32",
   "I64",
   "F32",
+  "F64",
   "F32x4",
   "Int",
   "Resume",
@@ -399,6 +429,7 @@ const core_builtin_value_names = new Set([
   "I32",
   "I64",
   "F32",
+  "F64",
   "Int",
   "Bytes",
   "Text",

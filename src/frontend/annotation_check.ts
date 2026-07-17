@@ -17,6 +17,11 @@ import {
 import { parse_type_expr } from "./type_expr.ts";
 import { tokenize } from "./tokenize.ts";
 import { contextual_struct_fields } from "./struct_value_type.ts";
+import {
+  integer_literal_fits,
+  integer_type_from_name,
+  integer_type_name,
+} from "../integer.ts";
 
 export function check_binding_annotation(
   annotation: string,
@@ -261,6 +266,42 @@ function check_builtin_binding_annotation(
   env: Env,
   hooks: AnnotationHooks,
 ): void {
+  const expected_integer = integer_type_from_name(annotation);
+
+  if (
+    expected_integer && annotation !== "I32" && annotation !== "U32" &&
+    annotation !== "I64"
+  ) {
+    const actual = hooks.infer_expr(value, env);
+
+    if (actual.tag === "int" && actual.integer) {
+      if (integer_type_name(actual.integer) === annotation) {
+        return;
+      }
+    } else if (actual.tag === "wide_int") {
+      if (integer_type_name(actual.integer) === annotation) {
+        return;
+      }
+    } else if (value.tag === "num") {
+      let literal: bigint;
+
+      if (typeof value.value === "bigint") {
+        literal = value.value;
+      } else {
+        literal = BigInt(value.value);
+      }
+
+      if (integer_literal_fits(expected_integer, literal)) {
+        return;
+      }
+    }
+
+    throw new Error(
+      "Binding annotation expects " + annotation + ", got " +
+        binding_value_type_name(value, env, hooks),
+    );
+  }
+
   if (annotation === "Bool") {
     const actual = hooks.infer_expr(value, env);
 
@@ -322,6 +363,19 @@ function check_builtin_binding_annotation(
     if (numeric_type !== "f32") {
       throw new Error(
         "Binding annotation expects F32, got " +
+          binding_value_type_name(value, env, hooks),
+      );
+    }
+
+    return;
+  }
+
+  if (annotation === "F64") {
+    const numeric_type = resolve_numeric_expr_type(value, env, hooks);
+
+    if (numeric_type !== "f64") {
+      throw new Error(
+        "Binding annotation expects F64, got " +
           binding_value_type_name(value, env, hooks),
       );
     }

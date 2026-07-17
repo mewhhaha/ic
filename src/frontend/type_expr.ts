@@ -101,7 +101,7 @@ class TypeExprParser {
   private parse_union(): TypeExpr {
     let type = this.parse_intersection();
 
-    while (this.match_symbol("|")) {
+    while (this.match_set_operator("|", ":|")) {
       type = { tag: "union", left: type, right: this.parse_intersection() };
     }
 
@@ -111,7 +111,7 @@ class TypeExprParser {
   private parse_intersection(): TypeExpr {
     let type = this.parse_difference();
 
-    while (this.match_symbol("&")) {
+    while (this.match_set_operator("&", ":&")) {
       type = {
         tag: "intersection",
         left: type,
@@ -125,7 +125,7 @@ class TypeExprParser {
   private parse_difference(): TypeExpr {
     let type = this.parse_apply();
 
-    while (this.match_symbol("\\")) {
+    while (this.match_set_operator("\\", ":-")) {
       type = {
         tag: "difference",
         left: type,
@@ -369,7 +369,7 @@ class TypeExprParser {
   private parse_effect_row_union(): EffectRowExpr {
     let row = this.parse_effect_row_intersection();
 
-    while (this.match_symbol("|")) {
+    while (this.match_set_operator("|", ":|")) {
       row = {
         tag: "union",
         left: row,
@@ -383,7 +383,7 @@ class TypeExprParser {
   private parse_effect_row_intersection(): EffectRowExpr {
     let row = this.parse_effect_row_difference();
 
-    while (this.match_symbol("&")) {
+    while (this.match_set_operator("&", ":&")) {
       row = {
         tag: "intersection",
         left: row,
@@ -397,7 +397,7 @@ class TypeExprParser {
   private parse_effect_row_difference(): EffectRowExpr {
     let row = this.parse_effect_row_atom();
 
-    while (this.match_symbol("\\")) {
+    while (this.match_set_operator("\\", ":-")) {
       row = {
         tag: "difference",
         left: row,
@@ -459,6 +459,10 @@ class TypeExprParser {
 
     this.index += 1;
     return true;
+  }
+
+  private match_set_operator(legacy: string, canonical: string): boolean {
+    return this.match_symbol(canonical) || this.match_symbol(legacy);
   }
 
   private expect_symbol(text: string): void {
@@ -540,16 +544,16 @@ function format(type: TypeExpr, parent_precedence: number): string {
     type.tag === "difference"
   ) {
     let precedence = 1;
-    let operator = " | ";
+    let operator = " :| ";
 
     if (type.tag === "intersection") {
       precedence = 2;
-      operator = " & ";
+      operator = " :& ";
     }
 
     if (type.tag === "difference") {
       precedence = 3;
-      operator = " \\ ";
+      operator = " :- ";
     }
 
     const text = format(type.left, precedence) + operator +

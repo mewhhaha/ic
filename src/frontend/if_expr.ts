@@ -163,6 +163,10 @@ export function lower_if_expr(
     select_prim = "f32.select";
   }
 
+  if (branch_type.tag === "int" && branch_type.type === "f64") {
+    select_prim = "f64.select";
+  }
+
   return {
     tag: "prim",
     prim: select_prim,

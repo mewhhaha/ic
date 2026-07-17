@@ -759,6 +759,10 @@ function effect_value_type(
     return "f32";
   }
 
+  if (resolved === "F64") {
+    return "f64";
+  }
+
   return "i32";
 }
 

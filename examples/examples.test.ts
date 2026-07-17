@@ -110,7 +110,7 @@ Deno.test("example manifest accounts for every .duck file", () => {
 
   const actual = new Set(collect_duck_files("examples"));
   assert_equals([...actual].sort(), [...expected].sort());
-  assert_equals(success_examples.length, 72);
+  assert_equals(success_examples.length, 73);
   assert_equals(compile_failure_examples.length, 12);
   assert_equals(trap_examples.length, 4);
 });

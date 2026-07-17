@@ -26,9 +26,9 @@ export const gpufuck_benchmark_cases: readonly GpufuckBenchmarkCase[] = [
     expected: 42,
   },
   {
-    path: "examples/compile_time/02_higher_order_compose.duck",
+    path: "examples/compile_time/03_const_parameter_twice.duck",
     current_route: "ic",
-    expected: 41,
+    expected: 42,
   },
   {
     path: "examples/compile_time/05_static_recursion_factorial.duck",

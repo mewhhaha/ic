@@ -10,7 +10,7 @@ Deno.test("Core analysis diagnoses an invalid generic Bool type-set binding", ()
   assert_equals(analysis.diagnostics, [{
     code: "DUCK2306",
     severity: "error",
-    message: "Type-set binding annotation expects Bool | Text, got I32",
+    message: "Type-set binding annotation expects Bool :| Text, got I32",
     span: { start: 50, end: 51 },
   }]);
 });

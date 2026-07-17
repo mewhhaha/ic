@@ -1,5 +1,6 @@
 import type { ResumeSignature, TypeExpr, TypePattern } from "../type_syntax.ts";
 import type { NumType, Prim, ValType } from "../op.ts";
+import type { IntegerType } from "../integer.ts";
 
 export type Core = {
   tag: "program";
@@ -98,6 +99,7 @@ export type CoreStmt =
     kind: "let" | "const";
     name: string;
     is_linear: boolean;
+    force_materialized?: true;
     annotation: string | undefined;
     value: CoreExpr;
   }
@@ -147,12 +149,13 @@ export type CoreExpr =
     type: NumType;
     value: number | bigint;
     atom_name?: string;
+    integer?: IntegerType;
   }
   | { tag: "text"; value: string }
   | { tag: "type_name"; name: string }
   | { tag: "var"; name: string; resume_signature?: ResumeSignature }
   | { tag: "linear"; name: string; resume_signature?: ResumeSignature }
-  | { tag: "prim"; prim: Prim; args: CoreExpr[] }
+  | { tag: "prim"; prim: Prim; args: CoreExpr[]; integer?: IntegerType }
   | {
     tag: "lam";
     params: CoreParam[];

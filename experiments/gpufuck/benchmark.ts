@@ -60,7 +60,11 @@ try {
 const compiler_startup_ms = performance.now() - compiler_start;
 
 try {
-  for (let round = 0; round < warmup_rounds; round += 1) {
+  const first_compile_start = performance.now();
+  await compile_gpufuck_suite(compiler, benchmark_sources);
+  const first_compile_ms = performance.now() - first_compile_start;
+
+  for (let round = 1; round < warmup_rounds; round += 1) {
     await compile_gpufuck_suite(compiler, benchmark_sources);
   }
 
@@ -183,6 +187,7 @@ try {
       after: {
         compiler: "experimental gpufuck route",
         startup_ms: compiler_startup_ms,
+        first_compile_ms,
         median_encode_ms: gpufuck_encode_ms,
         median_gpu_compile_ms: gpufuck_compile_ms,
         median_wasm_emit_ms: gpufuck_emit_ms,

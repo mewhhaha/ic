@@ -1,41 +1,5 @@
 module () where
 
-duck Semigroup Self {
-  .append = [Self, Self] -> Self
-}
-
-duck Bits Self {
-  .bit_and = [Self, Self] -> Self
-  .bit_or = [Self, Self] -> Self
-  .bit_xor = [Self, Self] -> Self
-  .shift_left = [Self, Self] -> Self
-  .shift_right_unsigned = [Self, Self] -> Self
-}
-
-extend Text {
-  .append = [left, right] => @append(left, right)
-}
-
-extend Bytes {
-  .append = [left, right] => @append(left, right)
-}
-
-extend I32 {
-  .bit_and = [left, right] => @bit_and(left, right)
-  .bit_or = [left, right] => @bit_or(left, right)
-  .bit_xor = [left, right] => @bit_xor(left, right)
-  .shift_left = [value, amount] => @shift_left(value, amount)
-  .shift_right_unsigned = [value, amount] => @shift_right_u(value, amount)
-}
-
-extend I64 {
-  .bit_and = [left, right] => @bit_and(left, right)
-  .bit_or = [left, right] => @bit_or(left, right)
-  .bit_xor = [left, right] => @bit_xor(left, right)
-  .shift_left = [value, amount] => @shift_left(value, amount)
-  .shift_right_unsigned = [value, amount] => @shift_right_u(value, amount)
-}
-
 const append = [left, right] => @append(left, right)
 const length = value => @len(value)
 const get = [value, index] => @get(value, index)

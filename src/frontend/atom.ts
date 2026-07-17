@@ -469,7 +469,10 @@ export function validate_atom_identities(source: Source): void {
     }
 
     if (declaration.tag === "type") {
-      if (declaration.body.tag === "product") {
+      if (
+        declaration.body.tag === "product" ||
+        declaration.body.tag === "packed"
+      ) {
         visit_type_fields(declaration.body.fields);
       } else if (declaration.body.tag === "sum") {
         visit_type_fields(declaration.body.cases);

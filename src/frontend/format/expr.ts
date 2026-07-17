@@ -30,12 +30,21 @@ function format_expr(
   }
 
   if (expr.tag === "num") {
+    if (expr.integer) {
+      return expr.value.toString() + (expr.integer.signed ? "i" : "u") +
+        expr.integer.width.toString();
+    }
+
     if (expr.type === "i64") {
       return expr.value.toString() + "i64";
     }
 
     if (expr.type === "f32") {
       return expr.value.toString() + "f32";
+    }
+
+    if (expr.type === "f64") {
+      return expr.value.toString() + "f64";
     }
 
     return expr.value.toString();
@@ -107,21 +116,7 @@ function format_expr(
       let left = expr.args[0];
       let right = expr.args[1];
 
-      if (syntax.operator === "$") {
-        if (expr.arg === undefined) {
-          throw new Error("Missing infix operator operand");
-        }
-
-        left = expr.func;
-        right = expr.arg;
-      } else if (syntax.operator === "|>") {
-        if (expr.arg === undefined) {
-          throw new Error("Missing infix operator operand");
-        }
-
-        left = expr.arg;
-        right = expr.func;
-      } else if (syntax.operator === "<$>") {
+      if (syntax.operator === "<$>") {
         left = expr.args[1];
         right = expr.args[0];
       }
@@ -207,6 +202,10 @@ function format_expr(
   }
 
   if (expr.tag === "comptime") {
+    if (expr.implicit) {
+      return nested(expr.expr, 0);
+    }
+
     return "comptime " + nested(expr.expr, 31);
   }
 

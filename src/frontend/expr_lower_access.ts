@@ -13,14 +13,19 @@ export function lower_app_expr(
   hooks: ExprLowerHooks,
   lower_expr: LowerExprFn,
 ): IcNode {
-  if (expr.func.tag === "var" && expr.func.name === "@as") {
+  if (
+    expr.func.tag === "var" &&
+    (expr.func.name === "@as" || expr.func.name === "@seal" ||
+      expr.func.name === "@representation")
+  ) {
+    const cast_name = expr.func.name;
     const args = compiler_builtin_args(expr);
     expect(
       args.length === 2,
-      "@as expects 2 arguments, got " + args.length.toString(),
+      cast_name + " expects 2 arguments, got " + args.length.toString(),
     );
     const value = args[0];
-    expect(value, "Missing @as value argument");
+    expect(value, "Missing " + cast_name + " value argument");
     return lower_expr(value, env, hooks);
   }
 

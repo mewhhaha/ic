@@ -10,7 +10,10 @@ import {
   type FrontEffectAnalysis,
 } from "./effect_analysis.ts";
 import { elaborate_front_effects } from "./effect_elaborate.ts";
-import { specialize_front_effects } from "./effect_specialize.ts";
+import {
+  instantiate_named_effects,
+  specialize_front_effects,
+} from "./effect_specialize.ts";
 import { elaborate_front_ducks } from "./duck_elaborate.ts";
 import { erase_undemanded_front_bindings } from "./demand.ts";
 import {
@@ -21,6 +24,7 @@ import {
 import { validate_ic_route } from "./ic_route.ts";
 import { validate_source_linear } from "./linear.ts";
 import { resolve_bundled_source_imports } from "./load.ts";
+import { specialize_const_module_imports } from "./module_specialize.ts";
 import type { ParseSourceResult } from "./parser.ts";
 import { validate_frontend_semantics } from "./semantic_validation.ts";
 import {
@@ -54,23 +58,42 @@ export function analyze_frontend(
 ): FrontendAnalysis {
   const diagnostics = syntax_diagnostics(parsed);
   diagnostics.push(...name_and_scope_diagnostics(parsed, source, options));
+  let analyzed_source = resolve_bundled_source_imports(source);
 
-  const facts = source_facts(source);
-  const semantic_diagnostics = validate_frontend_semantics(source, {
+  try {
+    analyzed_source = instantiate_named_effects(analyzed_source);
+  } catch (error) {
+    if (error instanceof SourceDiagnosticError) {
+      diagnostics.push(error.diagnostic);
+    } else {
+      throw error;
+    }
+  }
+
+  const facts = source_facts(analyzed_source);
+  const semantic_diagnostics = validate_frontend_semantics(analyzed_source, {
     warnings: options.warnings,
   });
   diagnostics.push(...semantic_diagnostics);
 
   if (!contains_error(diagnostics)) {
-    diagnostics.push(...source_inference_diagnostics(source, facts));
+    const inference_source = specialize_const_module_imports(
+      resolve_bundled_source_imports(analyzed_source),
+    );
+    const inference_facts = source_facts(inference_source);
+    diagnostics.push(
+      ...source_inference_diagnostics(inference_source, inference_facts),
+    );
   }
 
-  append_affine_diagnostics(source, diagnostics);
-  return { source, facts, diagnostics };
+  append_affine_diagnostics(analyzed_source, diagnostics);
+  return { source: analyzed_source, facts, diagnostics };
 }
 
 export function source_for_ic_route(source: Source): Source {
   source = resolve_bundled_source_imports(source);
+  source = specialize_const_module_imports(source);
+  derive_missing_source_spans(source, { start: 0, end: 0 });
   source = specialize_front_effects(source);
   require_rank_n_types(source);
   validate_atom_identities(source);
@@ -80,6 +103,7 @@ export function source_for_ic_route(source: Source): Source {
 
 export function source_for_core_route(source: Source): Source {
   source = resolve_bundled_source_imports(source);
+  source = specialize_const_module_imports(source);
   derive_missing_source_spans(source, { start: 0, end: 0 });
   source = specialize_front_effects(source);
   require_rank_n_types(source);
@@ -92,6 +116,7 @@ export function source_for_core_route(source: Source): Source {
 
 export function source_effects(source: Source): FrontEffectAnalysis {
   source = resolve_bundled_source_imports(source);
+  source = specialize_const_module_imports(source);
   return analyze_front_effects(specialize_front_effects(source));
 }
 

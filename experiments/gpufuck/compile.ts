@@ -18,11 +18,10 @@ if (output_path === undefined) {
   }
 }
 
-const source = await Deno.readTextFile(input_path);
 const compiler = await ExperimentalDuckCompiler.create();
 
 try {
-  const wasm = await compiler.compile(source);
+  const wasm = await compiler.compile_file(input_path);
   await Deno.writeFile(output_path, wasm);
   console.log(output_path);
 } finally {

@@ -1,0 +1,3 @@
+module (seed) where
+
+return { .factor = seed * 2 + 3, .salt = seed + 10 }

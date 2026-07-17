@@ -185,25 +185,36 @@ let user: user_type = [input, 0]
 ```
 
 Numeric literals carry value types in Ic. Unsuffixed source integers are the
-`Int`/`i32` convention. Decimal fractions and exponents require the `f32`
-suffix. Hexadecimal integer literals use `0x` or `0X` and may carry an `i32` or
-`i64` suffix. Annotated `I64` and `F32` bindings and parameters give matching
-type context to arithmetic over runtime names; mixed-width operands are rejected
-instead of converted implicitly.
+`Int`/`i32` convention. `I<N>` and `U<N>` name signed and unsigned integers of
+any positive bit width; their literal suffixes are `i<N>` and `u<N>`. A literal
+must fit its declared type, including the signed minimum such as `-16i5`.
+Decimal fractions and exponents require the `f32` suffix. Hexadecimal integer
+literals use `0x` or `0X` and may carry the same integer suffixes. Mixed-width
+operands are rejected instead of converted implicitly.
 
 ```txt
 let small = 42i32
 let wide = 42i64
+let flags = 17u5
+let signed_minimum = -16i5
+let identifier = 340282366920938463463374607431768211455u128
 let mask = 0xff
 let ratio = 1.5f32
 ```
 
 Integer bitwise operations are named functions: `@bit_and`, `@bit_or`,
-`@bit_xor`, `@shift_left`, and `@shift_right_u`. Each accepts two matching `I32`
-or two matching `I64` values. Shift counts use Wasm's masked-count semantics.
-The scalar conversion functions are explicit: `@f32_from_i32` converts signed
-`I32` to `F32`, and `@i32_from_f32` truncates toward zero and traps for NaN,
-infinity, or an out-of-range result. `@f32_sqrt` computes an `F32` square root.
+`@bit_xor`, `@shift_left`, and `@shift_right_u`. Each accepts two matching
+integer types. The prelude operators `&&&`, `|||`, `^^^`, `<<`, and `>>` call
+those functions directly. Arithmetic wraps at the declared bit width and
+comparisons preserve signedness. A shift count greater than or equal to the
+declared width produces zero; it does not expose Wasm's carrier-width masking.
+Widths through 32 bits use an `i32` carrier and widths through 64 bits use an
+`i64` carrier. Wider values use one affine Core value containing little-endian
+`U32` limbs; this representation is internal and does not change source-level
+integer semantics. The scalar conversion functions are explicit: `@f32_from_i32`
+converts signed `I32` to `F32`, and `@i32_from_f32` truncates toward zero and
+traps for NaN, infinity, or an out-of-range result. `@f32_sqrt` computes an
+`F32` square root.
 
 `@as(value, Target)` is an erased checked cast. `Target` must be a statically
 known type value, and the canonical source and target types must have identical
@@ -222,6 +233,13 @@ unsafe compiler names:
 
 These intrinsics expose the corresponding Wasm operation exactly; they do not
 perform range validation or semantic conversion.
+
+`@integer.wrap(value, Target)` is the compiler boundary used by source numeric
+conversion functions. It keeps the low `Target` bits, sign- or zero-extends when
+widening according to the source type, and then interprets the result as
+`Target`. Ordinary code should expose intentional conversions through a
+source-defined `From` or `TryFrom` implementation rather than call the compiler
+boundary directly.
 
 Double-quoted string literals produce UTF-8 `Text`.
 
@@ -694,6 +712,76 @@ value with that namespace member; it does not mutate extensions for other
 structs with the same slot layout. Repeat types use `[Element; Length]`
 directly; there is no `array` constructor.
 
+The root prelude also exports the type constructors and functions used by the
+colon-prefixed type algebra:
+
+```txt
+const {
+  newtype,
+  type_extend,
+  type_union,
+  type_intersection,
+  type_difference,
+} = comptime import "duck:prelude" ()
+
+const readable_point = Point :+ {
+  .read = value => value.x
+}
+
+const numeric = I32 :| I64
+const signed = numeric :- I64
+```
+
+`:+` extends a compile-time type value with namespace members or methods and
+rejects incompatible collisions. `:|`, `:&`, and `:-` are union, intersection,
+and difference. These operators are implicitly compile-time; the functions they
+dispatch to remain ordinary Duck source. `:>` is the representation-checked
+compiler boundary used to seal a value as a nominal type.
+
+`newtype` creates a fresh nominal type while preserving the representation of
+its argument:
+
+```txt
+type Centimeter = newtype I32
+type Seconds = newtype I32
+
+const distance = 42 :> Centimeter
+const raw = Centimeter.unwrap distance
+```
+
+`Centimeter` and `Seconds` are not interchangeable. Sealing and the generated
+`wrap`/`unwrap` functions emit no runtime conversion. Ordinary `@as` does not
+cross a newtype boundary.
+
+`packed` creates a bit-packed product type from fixed-width integer fields. It
+is imported from the prelude like `struct`; the declaration supplies the
+compiler-known layout while the resulting namespace contains ordinary source
+functions. Fields are laid out in declaration order from most-significant to
+least-significant bit, with no padding. Positional declarations generate
+`item_0`, `item_1`, and so on; named declarations use their field names. Every
+field also gets an immutable `with_<field>` replacement function.
+
+```txt
+const { packed } = comptime import "duck:prelude" ()
+
+type Flags = packed [U1, U2, U5]
+type Header = packed struct {
+  .kind = U3,
+  .urgent = U1,
+  .length = U12,
+}
+
+let header: Header = Header.pack [5u3, 1u1, 120u12]
+let changed = Header.with_kind [header, 2u3]
+let kind: U3 = Header.kind changed
+```
+
+Packed fields must be `I<N>` or `U<N>`. Layouts through 64 bits are a single
+Wasm scalar. Larger layouts use the same Core limb value as a wide unsigned
+integer. Generated accessors preserve the exact field type, and direct indexing
+is deliberately unavailable: this prevents a dynamic index from erasing
+different field widths or signedness.
+
 There is no source `union` function. Named sums use leading-pipe declarations:
 
 ```txt
@@ -722,8 +810,6 @@ let joined = left <> right
 
 It exports:
 
-- function combinators: `identity`, `constant`, `compose`, `pipe`, `flip`,
-  `curry`, and `uncurry`;
 - collection operations: `append`, `length`, `get`, and `slice`;
 - integer bits: `bit_and`, `bit_or`, `bit_xor`, `shift_left`, and
   `shift_right_unsigned`;
@@ -740,10 +826,20 @@ prefixed as `@len`. The runtime prelude also supplies `Semigroup` instances for
 
 Importing `duck:prelude/functional` re-exports the runtime functions and also
 brings the generic `Option`, `Result`, and `Either` sum types, the `Ordering`
-type, the function combinators, and the structural `Eq`, `Ord`, `Semigroup`,
-`Monoid`, `Functor`, `Applicative`, `Monad`, `Foldable`, `Show`, `Default`,
-`Bounded`, `Enum`, `Alternative`, `Bifunctor`, `Contravariant`, `Traversable`,
-`From`, and `Bits` ducks into lexical scope. `From Source Target` defines
+type, and these function combinators:
+
+- application and composition: `identity`, `constant`, `compose`, `pipe`,
+  `apply`, `reverse_apply`, `flip`, `curry`, `uncurry`, and `on`;
+- products and branching: `swap`, `first`, `second`, `fanout`, and `converge`;
+- sum elimination and queries: `option`, `option_unwrap_or`, `option_is_some`,
+  `option_is_none`, `result_unwrap_or`, `result_is_ok`, `result_is_err`,
+  `either_is_left`, and `either_is_right`.
+
+The structural category set includes `Eq`, `Ord`, `Semigroup`, `Monoid`,
+`Semiring`, `Ring`, `EuclideanRing`, `Functor`, `Apply`, `Applicative`, `Monad`,
+`Bind`, `Foldable`, `Show`, `Default`, `Bounded`, `Enum`, `Alternative`,
+`Bifunctor`, `Contravariant`, `Traversable`, `Category`, `Profunctor`, `From`,
+`Into`, `TryFrom`, and `Bits`. `From Source Target` defines
 `.from = Source -> Target`; its implementation is an extension on `Source`, and
 the target is inferred from the result context. Higher-kinded roles are written
 directly in duck signatures, for example `F A`, `A -> B`, and `F B`. Instances
@@ -769,10 +865,13 @@ bits << amount
 bits >> amount
 ```
 
-`|>` and `$` are direct function application. `<$>`, `<*>`, `>>=`, and `<|>`
-dispatch through their corresponding ducks. `<>` and the bit operators lower to
-their matching compiler intrinsics. Other instances are ordinary `extend`
-declarations.
+`|>` and `$` dispatch to the source-defined `pipe` and `apply` functions. Their
+function operands are compile-time parameters, and their generic annotations
+require the applied value to match the function input type. `<$>`, `<*>`, `>>=`,
+and `<|>` dispatch through their corresponding ducks. `<>` and the bit operators
+lower to their matching compiler intrinsics. Other instances are ordinary
+`extend` declarations. Import `pipe` or `apply` from the functional prelude when
+using its corresponding operator.
 
 ```txt
 const { struct } = comptime import "duck:prelude" ()
@@ -842,9 +941,9 @@ Types also compose as sets. Union, intersection, and difference use the same
 operators as effect rows, with difference binding most tightly:
 
 ```txt
-type Value = Int | Text | I64
-type Number = Value \ Text
-type Answer = Number & Int
+type Value = Int :| Text :| I64
+type Number = Value :- Text
+type Answer = Number :& Int
 
 let value: Value = 42
 let answer: Answer = if value is Int { value } else { 0 }
@@ -860,7 +959,7 @@ Set aliases may be generic, and a plain member value is injected into the
 appropriate finite-union case at an annotated binding or function call:
 
 ```txt
-type Maybe a = a | #nothing
+type Maybe a = a :| #nothing
 type MaybeInt = Maybe Int
 
 let unwrap = (value: MaybeInt) =>
@@ -881,7 +980,7 @@ can exhaust unions with more than two members.
 Atoms use `#snake_case` as both a value and its singleton type:
 
 ```txt
-type Marker = #ready | #waiting
+type Marker = #ready :| #waiting
 let marker: Marker = #ready
 
 if marker is #ready { 1 } else { 0 }
@@ -916,7 +1015,7 @@ normally.
 
 Recursive algebraic layouts are still rejected, so `#(List a)` is available as
 type syntax but cannot make the currently unsupported recursive `List` layout
-emittable. Ownership-qualified members such as `#Text | Int` are also rejected
+emittable. Ownership-qualified members such as `#Text :| Int` are also rejected
 as runtime tagged sets for now: the current union envelope does not encode a
 different ownership policy per tag, and accepting it would make destruction
 unsound.
@@ -1142,7 +1241,7 @@ bound, so every inferred operation must belong to it. Omitting the row from an
 explicit function type declares the function pure:
 
 ```txt
-let greet: () -> <Io.read | Io.print> Text = () => {
+let greet: () -> <Io.read :| Io.print> Text = () => {
   name <- Io.read()
   _ <- Io.print(&name)
   name
@@ -1177,20 +1276,20 @@ latent row.
 
 In this first row-polymorphism slice, unresolved row variables compose through
 union. Intersection and difference still work for concrete rows; an unresolved
-variable beneath `&` or `\` is reserved until symbolic row constraints are
+variable beneath `:&` or `:-` is reserved until symbolic row constraints are
 implemented.
 
 Effect rows are sets of qualified operations. A family atom expands to every
 operation declared by that effect. Set expressions use these operators:
 
 ```txt
-A | B  // union
-A & B  // intersection
-A \ B  // difference
+A :| B  // union
+A :& B  // intersection
+A :- B  // difference
 ```
 
-`Io.read | Io.print` permits both operations, while two disjoint families such
-as `Stdin & Stdout` intersect to the empty row. Parentheses group compound row
+`Io.read :| Io.print` permits both operations, while two disjoint families such
+as `Stdin :& Stdout` intersect to the empty row. Parentheses group compound row
 expressions. Handler discharge subtracts the handled operation set
 automatically.
 
@@ -1224,20 +1323,42 @@ record.
 
 ## Duck-Defined Effects And Handlers
 
-The `duck:prelude/effects` module declares four small standard effects:
-`State value` with `get`/`put`, `Reader environment` with `ask`, `Writer output`
-with `tell`, and `Raise error` with `raise`. The compiler infers each parameter
+The `duck:prelude/effects` module includes `State`, `Reader`, `Writer`, `Raise`,
+`Clock`, `Random`, `Console`, `Environment`, `Resource`, `Log`, `Validation`,
+`Async`, `Channel`, `Mutex`, `Semaphore`, `TaskGroup`, and `Stm`. These are
+handler-defined capabilities; importing their declarations does not select a
+scheduler, clock, random source, transaction store, or other authority.
+
+An uninstantiated generic effect such as `State value` may infer its parameter
 from operation arguments, operation results, and values passed to handler
-resumptions. A used parameter must resolve to one concrete type throughout a
-compilation; incompatible uses are rejected at the effect boundary. Host effects
-remain concrete because their declarations define the ABI contract.
+resumptions. A used parameter must resolve to one concrete type throughout that
+effect identity. Incompatible uses are rejected at the effect boundary. Host
+effects remain concrete because their declarations define the ABI contract.
+
+Use a named const instance when the same effect family is needed more than once:
+
+```txt
+const counter = State I32
+const message = State Text
+
+count <- counter.get()
+text <- message.get()
+```
+
+The instance is `const` because it is compile-time capability identity, not
+runtime state. The handler contains the runtime state. Identity is nominal, so
+two `State I32` instances are still independent. Calls, effect rows, and
+handlers use the lowercase instance name. A family without type parameters uses
+the unit application form, such as `const wall_clock = Clock ()`.
 
 ```txt
 const _ = comptime import "duck:prelude/effects" ()
 
+const counter = State I32
+
 let state = {
   let current = 0
-  State {
+  counter {
     get: (!resume) => !resume(current),
     put: (value, !resume) => {
       current = value
@@ -1247,6 +1368,57 @@ let state = {
   }
 }
 ```
+
+`Async`, `Channel`, `Mutex`, `Semaphore`, and `TaskGroup` describe structured
+concurrency operations. Their handlers own task scheduling, cancellation, and
+wake-up policy. `Stm` describes transactional reads, writes, retry, and
+alternative selection; its handler owns transaction logs, conflict detection,
+commit, and restart. The compiler preserves the typed capability boundaries but
+does not pretend that ordinary sequential state is asynchronous or atomic.
+
+The `duck:prelude/effects/defaults` module supplies source-defined handler
+factories. Import only the factories an application installs:
+
+```txt
+const { default_state, default_reader } =
+  comptime import "duck:prelude/effects/defaults" ()
+
+let run = () => {
+  environment <- Reader.ask()
+  _ <- State.put(environment + 2)
+  value <- State.get()
+  value
+}
+
+try (try run() with default_state(0)) with default_reader(40)
+```
+
+`default_state` and `default_reader` provide the ordinary local semantics.
+`deterministic_clock`, `single_slot_channel`, `sequential_mutex`, and
+`counting_semaphore` provide predictable sequential handlers intended for tests
+and single-threaded programs. The semaphore handler assumes acquisition is
+valid; it is not a blocking scheduler.
+
+Every remaining effect has a complete adapter factory: `handle_writer`,
+`handle_raise`, `handle_random`, `handle_console`, `handle_environment`,
+`handle_resource`, `handle_log`, `handle_validation`, `handle_async`,
+`handle_channel`, `handle_mutex`, `handle_semaphore`, `handle_task_group`, and
+`handle_stm`. Their arguments implement the operations and therefore make
+authority visible at the installation site:
+
+```txt
+const { handle_environment } =
+  comptime import "duck:prelude/effects/defaults" ()
+
+const lookup = name => 40
+try run() with handle_environment(lookup)
+```
+
+The adapters do not manufacture platform authority. A production clock, console,
+random source, scheduler, or transaction engine must still be supplied
+explicitly. In particular, `handle_async` and `handle_task_group` delegate to a
+real scheduler, while `handle_stm` delegates commit and retry behavior to a real
+transaction engine.
 
 Plain `effect` declares operations implemented inside Duck:
 

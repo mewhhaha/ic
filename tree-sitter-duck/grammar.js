@@ -145,7 +145,7 @@ module.exports = grammar({
         PREC.EFFECT_UNION,
         seq(
           field("left", $._effect_row_expression),
-          "|",
+          choice(":|", "|"),
           field("right", $._effect_row_expression),
         ),
       ),
@@ -155,7 +155,7 @@ module.exports = grammar({
         PREC.EFFECT_INTERSECTION,
         seq(
           field("left", $._effect_row_expression),
-          "&",
+          choice(":&", "&"),
           field("right", $._effect_row_expression),
         ),
       ),
@@ -165,7 +165,7 @@ module.exports = grammar({
         PREC.EFFECT_DIFFERENCE,
         seq(
           field("left", $._effect_row_expression),
-          "\\",
+          choice(":-", "\\"),
           field("right", $._effect_row_expression),
         ),
       ),
@@ -267,10 +267,17 @@ module.exports = grammar({
             $.type_sum,
             $.type_product,
             $.struct_type,
+            $.newtype_type,
+            $.packed_type,
             $.type_reference,
           ),
         ),
       ),
+
+    newtype_type: ($) =>
+      seq("newtype", field("representation", $.type_reference)),
+
+    packed_type: ($) => seq("packed", choice($.type_product, $.struct_type)),
 
     duck_declaration_statement: ($) =>
       seq(
@@ -304,11 +311,14 @@ module.exports = grammar({
         field("precedence", $.number),
         field("operator", $.operator_symbol),
         "=",
-        field("target", $.qualified_identifier),
+        field("target", $.fixity_target),
       ),
+
+    fixity_target: ($) => choice(prec(1, $.qualified_identifier), $.identifier),
 
     qualified_identifier: ($) =>
       prec.left(
+        1,
         seq($.identifier, ".", $.identifier, repeat(seq(".", $.identifier))),
       ),
 
@@ -875,7 +885,7 @@ module.exports = grammar({
         prec(
           PREC.POSTFIX + 1,
           seq(
-            field("effect", $.effect_identifier),
+            field("effect", choice($.effect_identifier, $.identifier)),
             field("clauses", $.handler_clause_block),
           ),
         ),
@@ -1169,7 +1179,7 @@ module.exports = grammar({
           $.type_intersection,
           seq(
             field("left", $.type_union),
-            "|",
+            choice(":|", "|"),
             field("right", $.type_intersection),
           ),
         ),
@@ -1182,7 +1192,7 @@ module.exports = grammar({
           $.type_difference,
           seq(
             field("left", $.type_intersection),
-            "&",
+            choice(":&", "&"),
             field("right", $.type_difference),
           ),
         ),
@@ -1195,7 +1205,7 @@ module.exports = grammar({
           $._type_application,
           seq(
             field("left", $.type_difference),
-            "\\",
+            choice(":-", "\\"),
             field("right", $._type_application),
           ),
         ),
@@ -1287,6 +1297,11 @@ module.exports = grammar({
         prec(
           2,
           choice(
+            ":+",
+            ":-",
+            ":&",
+            ":|",
+            ":>",
             "<>",
             "<*>",
             "<$>",
@@ -1313,7 +1328,7 @@ module.exports = grammar({
 
     row_variable: () => /[a-z_][A-Za-z0-9_]*/,
 
-    number: () => /[0-9]+(i32|i64)?/,
+    number: () => /[0-9]+([iu][1-9][0-9]*|f32)?/,
 
     string: () => /"([^"\\]|\\[ntr"\\])*"/,
 

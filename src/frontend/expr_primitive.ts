@@ -1,6 +1,12 @@
 import { expect } from "../expect.ts";
 import { Ic, type Ic as IcNode } from "../ic.ts";
-import type { NumType, Prim } from "../op.ts";
+import {
+  type NumType,
+  type Prim,
+  prim_preserves_integer_type,
+  specialize_prim_for_integer,
+} from "../op.ts";
+import type { IntegerType } from "../integer.ts";
 import type { Binding, Env, FrontExpr, Stmt } from "./ast.ts";
 import { stmt_result_expr } from "./block_result.ts";
 import { structured_core_route } from "./diagnostic.ts";
@@ -58,14 +64,167 @@ export function lower_prim_expr(
   }
 
   hooks.check_text_concat_operand_visibility(expr, env);
-  const prim = hooks.check_numeric_primitive_operands(expr, env);
-  return {
+  let prim = hooks.check_numeric_primitive_operands(expr, env);
+  const inferred = hooks.infer_expr(expr, env);
+  let integer: IntegerType | undefined;
+
+  if (inferred.tag === "int") {
+    integer = inferred.integer;
+  }
+
+  if (integer) {
+    prim = specialize_prim_for_integer(prim, integer.signed);
+  }
+
+  const left = lower_numeric_primitive_operand(
+    expr.left,
+    prim,
+    env,
+    hooks,
+    lower_expr,
+  );
+  const right = lower_numeric_primitive_operand(
+    expr.right,
+    prim,
+    env,
+    hooks,
+    lower_expr,
+  );
+
+  if (integer && integer.width < integer_carrier_width(integer)) {
+    if (prim.endsWith(".shl") || prim.endsWith(".shr_u")) {
+      return lower_narrow_integer_shift(prim, left, right, integer, env);
+    }
+  }
+
+  const lowered: IcNode = {
     tag: "prim",
     prim,
+    args: [left, right],
+  };
+
+  if (!integer || !prim_preserves_integer_type(prim)) {
+    return lowered;
+  }
+
+  return normalize_ic_integer(lowered, integer);
+}
+
+function lower_narrow_integer_shift(
+  prim: Prim,
+  value: IcNode,
+  amount: IcNode,
+  integer: IntegerType,
+  env: Env,
+): IcNode {
+  let carrier: "i32" | "i64" = "i32";
+
+  if (integer.width > 32) {
+    carrier = "i64";
+  }
+  const shared = fresh(env, "integer_shift");
+  let width: number | bigint = integer.width;
+
+  if (carrier === "i64") {
+    width = BigInt(integer.width);
+  }
+
+  const shifted = normalize_ic_integer({
+    tag: "prim",
+    prim,
+    args: [value, { tag: "var", name: shared + "1" }],
+  }, integer);
+  let zero_value: number | bigint = 0;
+
+  if (carrier === "i64") {
+    zero_value = 0n;
+  }
+
+  const zero: IcNode = {
+    tag: "num",
+    type: carrier,
+    value: zero_value,
+    integer,
+  };
+  const outside_width: IcNode = {
+    tag: "prim",
+    prim: carrier + ".ge_u" as Prim,
     args: [
-      lower_numeric_primitive_operand(expr.left, prim, env, hooks, lower_expr),
-      lower_numeric_primitive_operand(expr.right, prim, env, hooks, lower_expr),
+      { tag: "var", name: shared + "0" },
+      { tag: "num", type: carrier, value: width },
     ],
+  };
+
+  return {
+    tag: "dup",
+    label: shared,
+    name: shared,
+    expr: amount,
+    body: {
+      tag: "prim",
+      prim: carrier + ".select" as Prim,
+      args: [zero, shifted, outside_width],
+    },
+  };
+}
+
+function integer_carrier_width(integer: IntegerType): number {
+  if (integer.width <= 32) {
+    return 32;
+  }
+
+  return 64;
+}
+
+function normalize_ic_integer(value: IcNode, integer: IntegerType): IcNode {
+  let carrier: "i32" | "i64" = "i32";
+  let carrier_width = 32;
+
+  if (integer.width > 32) {
+    carrier = "i64";
+    carrier_width = 64;
+  }
+
+  if (integer.width === carrier_width) {
+    return value;
+  }
+
+  if (!integer.signed) {
+    const mask = (1n << BigInt(integer.width)) - 1n;
+    let literal: number | bigint = mask;
+
+    if (carrier === "i32") {
+      literal = Number(mask);
+    }
+
+    return {
+      tag: "prim",
+      prim: carrier + ".and" as Prim,
+      args: [value, { tag: "num", type: carrier, value: literal, integer }],
+    };
+  }
+
+  const shift = carrier_width - integer.width;
+  let literal: number | bigint = BigInt(shift);
+
+  if (carrier === "i32") {
+    literal = shift;
+  }
+
+  const amount: IcNode = {
+    tag: "num",
+    type: carrier,
+    value: literal,
+    integer,
+  };
+  return {
+    tag: "prim",
+    prim: carrier + ".shr_s" as Prim,
+    args: [{
+      tag: "prim",
+      prim: carrier + ".shl" as Prim,
+      args: [value, amount],
+    }, amount],
   };
 }
 
@@ -249,6 +408,10 @@ function numeric_primitive_operand_type(prim: Prim): NumType {
 
   if (prim.startsWith("f32.")) {
     return "f32";
+  }
+
+  if (prim.startsWith("f64.")) {
+    return "f64";
   }
 
   return "i32";

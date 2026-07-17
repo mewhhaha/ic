@@ -220,11 +220,19 @@ export function scan_source(text: string): SourceSyntax {
         }
       }
 
+      const fixed_integer_suffix = /^[iu][1-9][0-9]*/.exec(text.slice(index));
       const suffix = text.slice(index, index + 3);
 
-      if (
-        suffix === "i32" || suffix === "i64" ||
-        (!hexadecimal && suffix === "f32")
+      if (fixed_integer_suffix) {
+        for (
+          let suffix_index = 0;
+          suffix_index < fixed_integer_suffix[0].length;
+          suffix_index += 1
+        ) {
+          advance();
+        }
+      } else if (
+        !hexadecimal && (suffix === "f32" || suffix === "f64")
       ) {
         advance();
         advance();
@@ -234,7 +242,7 @@ export function scan_source(text: string): SourceSyntax {
           start,
           start_line,
           start_column,
-          "Floating-point literal requires an f32 suffix",
+          "Floating-point literal requires an f32 or f64 suffix",
         );
         continue;
       }
@@ -380,7 +388,7 @@ function is_two_symbol(value: string): boolean {
 }
 
 function is_operator_character(value: string): boolean {
-  return "-!$%&*+/<=>?^|~\\".includes(value);
+  return ":-!$%&*+/<=>?^|~\\".includes(value);
 }
 
 function is_hex_digit(value: string): boolean {

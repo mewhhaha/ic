@@ -1158,7 +1158,7 @@ function check_callable_contract(
   manifest_type_ref_layout(manifest, contract.type, path + ".type");
   const scalar = contract.type.tag === "i32" ||
     contract.type.tag === "i64" || contract.type.tag === "f32" ||
-    contract.type.tag === "unit";
+    contract.type.tag === "f64" || contract.type.tag === "unit";
 
   if (contract.type.tag === "resource") {
     throw new DuckAbiError(
@@ -1413,7 +1413,7 @@ function manifest_type_ref_layout(
   type: AbiTypeRef,
   path: string,
 ): { size: number; align: number } {
-  if (type.tag === "i64") {
+  if (type.tag === "i64" || type.tag === "f64") {
     return { size: 8, align: 8 };
   }
 
@@ -1568,6 +1568,14 @@ function abi_runtime(instance: WebAssembly.Instance, manifest: AbiManifest) {
       }
 
       return Math.fround(raw);
+    }
+
+    if (type.tag === "f64") {
+      if (typeof raw !== "number") {
+        throw type_error(path, "f64 number");
+      }
+
+      return raw;
     }
 
     if (type.tag === "unit") {
@@ -1752,6 +1760,10 @@ function abi_runtime(instance: WebAssembly.Instance, manifest: AbiManifest) {
       return view.getFloat32(address, true);
     }
 
+    if (type.tag === "f64") {
+      return view.getFloat64(address, true);
+    }
+
     if (type.tag === "unit") {
       return undefined;
     }
@@ -1797,6 +1809,14 @@ function abi_runtime(instance: WebAssembly.Instance, manifest: AbiManifest) {
       }
 
       return Math.fround(value);
+    }
+
+    if (type.tag === "f64") {
+      if (typeof value !== "number") {
+        throw type_error(path, "number");
+      }
+
+      return value;
     }
 
     if (type.tag === "unit") {
@@ -2029,6 +2049,15 @@ function abi_runtime(instance: WebAssembly.Instance, manifest: AbiManifest) {
       return;
     }
 
+    if (type.tag === "f64") {
+      if (typeof value !== "number") {
+        throw type_error(path, "number");
+      }
+
+      new DataView(memory.buffer).setFloat64(address, value, true);
+      return;
+    }
+
     if (type.tag === "unit") {
       return;
     }
@@ -2095,7 +2124,7 @@ function abi_runtime(instance: WebAssembly.Instance, manifest: AbiManifest) {
   function free_slot(type: AbiTypeRef, address: number, view: DataView): void {
     if (
       type.tag === "i32" || type.tag === "i64" || type.tag === "f32" ||
-      type.tag === "unit"
+      type.tag === "f64" || type.tag === "unit"
     ) {
       return;
     }

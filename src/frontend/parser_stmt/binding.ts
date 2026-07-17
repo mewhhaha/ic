@@ -123,6 +123,16 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
       stmt.type_annotation = pattern.type_annotation;
     }
 
+    if (
+      kind === "const" && pattern.tag === "binding" &&
+      ((value.tag === "var" && this.effect_names.has(value.name)) ||
+        (value.tag === "app" && value.func.tag === "var" &&
+          (this.effect_names.has(value.func.name) ||
+            /^[A-Z][A-Za-z0-9]*$/.test(value.func.name))))
+    ) {
+      this.effect_instance_names.add(pattern.name);
+    }
+
     return stmt;
   }
 
@@ -212,7 +222,9 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
     const object = value.func.object;
 
     if (object.tag === "var") {
-      return /^[A-Z][A-Za-z0-9]*$/.test(object.name);
+      return this.effect_names.has(object.name) ||
+        this.effect_instance_names.has(object.name) ||
+        /^[A-Z][A-Za-z0-9]*$/.test(object.name);
     }
 
     return object.tag === "field" && object.object.tag === "var" &&

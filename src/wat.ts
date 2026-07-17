@@ -3,12 +3,12 @@ import type { NumType } from "./op.ts";
 export type Wat = string;
 
 export function wat_number(type: NumType, value: number | bigint): string {
-  if (type !== "f32") {
+  if (type !== "f32" && type !== "f64") {
     return value.toString();
   }
 
   if (typeof value !== "number") {
-    throw new Error("f32 literal must use a number value");
+    throw new Error(type + " literal must use a number value");
   }
 
   if (Number.isNaN(value)) {
@@ -27,7 +27,11 @@ export function wat_number(type: NumType, value: number | bigint): string {
     return "-0";
   }
 
-  return Math.fround(value).toString();
+  if (type === "f32") {
+    return Math.fround(value).toString();
+  }
+
+  return value.toString();
 }
 
 export function indent(text: string, spaces: number): string {
