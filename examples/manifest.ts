@@ -391,6 +391,16 @@ export const success_examples: SuccessExample[] = [
     route: "core",
     runs: run(42),
   },
+  {
+    path: "examples/handlers/02_inferred_option_do.duck",
+    route: "core",
+    runs: run(42),
+  },
+  {
+    path: "examples/handlers/03_composed_default_handlers.duck",
+    route: "core",
+    runs: run(42),
+  },
 
   {
     path: "examples/showcases/01_numeric_toolkit.duck",
@@ -423,6 +433,11 @@ export const success_examples: SuccessExample[] = [
   {
     path: "examples/showcases/06_modular_score_application.duck",
     route: "ic",
+    runs: run(42),
+  },
+  {
+    path: "examples/showcases/07_domain_abstractions.duck",
+    route: "core",
     runs: run(42),
   },
 ];
@@ -507,6 +522,10 @@ export const trap_examples: TrapExample[] = [
     route: "managed",
     init: () => ({ input: { step: () => 0 } }),
   },
+];
+
+export const test_example_paths = [
+  "examples/testing/01_inline_tests.duck",
 ];
 
 export const dependency_paths = [

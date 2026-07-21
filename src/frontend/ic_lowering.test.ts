@@ -183,7 +183,7 @@ f + 1
   assert_throws(
     () =>
       compile(`
-let result = .ok(1)
+let result = \`Ok (1)
 result + 1
 `),
     "Primitive i32.add expects numeric operands, got union",
@@ -395,12 +395,12 @@ f(40)
   });
 
   const aliased_struct_shadow = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int
 }
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const other_user_type = struct {
   .age= I32
 }
@@ -429,7 +429,7 @@ user.age + 1
   });
 
   const typed_to_anonymous_shadow = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int
 }
@@ -446,10 +446,10 @@ user.age + 1
   });
 
   const shorthand_union_shadow = compile(`
-let result = .ok(1)
-result = .ok(41)
+let result = \`Ok (1)
+result = \`Ok (41)
 
-if let .ok(value) = result {
+if let \`Ok value = result {
   value + 1
 } else {
   0
@@ -552,7 +552,7 @@ x
   assert_equals(Ic.reduce(ic), { tag: "num", type: "i32", value: 42 });
 
   const extended_type = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 type User = struct { .age = I32 }
 extend User { .default_age = 41 }
 const default_age = 0
@@ -566,14 +566,14 @@ User.default_age + 1
   });
 
   const union_result = compile(`
-let option = if let .ok(value) = if input {
-  .ok(41)
+let option = if let \`Ok value = if input {
+  \`Ok (41)
 } else {
-  .err(0)
+  \`Err (0)
 } {
-  .some(value)
+  \`Some (value)
 } else {
-  .none
+  \`None ()
 }
 
 option := 1
@@ -611,14 +611,14 @@ x
   assert_throws(
     () =>
       compile(`
-let option = if let .ok(value) = if input {
-  .ok(41)
+let option = if let \`Ok value = if input {
+  \`Ok (41)
 } else {
-  .err(0)
+  \`Err (0)
 } {
-  .some(value)
+  \`Some (value)
 } else {
-  .none
+  \`None ()
 }
 
 option = 1
@@ -630,14 +630,14 @@ option
   assert_throws(
     () =>
       compile(`
-let option = if let .ok(value) = if input {
-  .ok(41)
+let option = if let \`Ok value = if input {
+  \`Ok (41)
 } else {
-  .err(0)
+  \`Err (0)
 } {
-  scratch { .some(value) }
+  scratch { \`Some (value) }
 } else {
-  freeze .none
+  freeze \`None ()
 }
 
 option = 1
@@ -714,12 +714,12 @@ f(message)
   assert_throws(
     () =>
       compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int
 }
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const other_user_type = struct {
   .age= Text
 }
@@ -734,12 +734,12 @@ user.age
   assert_throws(
     () =>
       compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int
 }
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const other_user_type = struct {
   .age= I64
 }
@@ -754,7 +754,7 @@ user.age
   assert_throws(
     () =>
       compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int
 }
@@ -769,7 +769,7 @@ user.age
   assert_throws(
     () =>
       compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int
 }
@@ -794,8 +794,8 @@ user.age
   assert_throws(
     () =>
       compile(`
-let result = .ok(1)
-result = .ok("Ada")
+let result = \`Ok (1)
+result = \`Ok ("Ada")
 result
 `),
     "Assignment changes type for result",
@@ -804,12 +804,24 @@ result
   assert_throws(
     () =>
       compile(`
-let result = .ok(1)
-result = .ok(2i64)
+let result = \`Ok (1)
+result = \`Ok (2i64)
 result
 `),
     "Assignment changes type for result",
   );
+});
+
+Deno.test("source-defined trait operators lower through IC intrinsics", () => {
+  assert_equals(Ic.reduce(compile("1 << 4")), {
+    tag: "num",
+    type: "i32",
+    value: 16,
+  });
+  assert_equals(Ic.reduce(compile('"a" <> "b"')), {
+    tag: "text",
+    value: "ab",
+  });
 });
 
 Deno.test("Source lowers text literals to Ic", () => {
@@ -1437,7 +1449,7 @@ left != right
 
   assert_equals(
     Ic.reduce(compile(`
-let message = if let .ok(value) = .ok("Ada") {
+let message = if let \`Ok value = \`Ok ("Ada") {
   value
 } else {
   "Grace"
@@ -1454,7 +1466,7 @@ message == "Ada"
 
   assert_equals(
     Ic.reduce(compile(`
-let message = if let .ok(value) = .ok("Ada") {
+let message = if let \`Ok value = \`Ok ("Ada") {
   value
 } else {
   "Grace"
@@ -1471,7 +1483,7 @@ let message = if let .ok(value) = .ok("Ada") {
 
   assert_equals(
     Ic.reduce(compile(`
-let message = if let .ok(value) = .ok("Ada") {
+let message = if let \`Ok value = \`Ok ("Ada") {
   value
 } else {
   "Grace"
@@ -1489,10 +1501,10 @@ message[1]
   const dynamic_if_let_text_equality = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let message = if let .ok(value) = if input {
-  .ok("Ada")
+let message = if let \`Ok value = if input {
+  \`Ok ("Ada")
 } else {
-  .err("Grace")
+  \`Err ("Grace")
 } {
   value
 } else {
@@ -1510,10 +1522,10 @@ message == "Ada"
   const dynamic_if_let_text_len = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let message = if let .ok(value) = if input {
-  .ok("Ada")
+let message = if let \`Ok value = if input {
+  \`Ok ("Ada")
 } else {
-  .err("Grace")
+  \`Err ("Grace")
 } {
   value
 } else {
@@ -1531,10 +1543,10 @@ let message = if let .ok(value) = if input {
   const dynamic_if_let_text_index = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-let message = if let .ok(value) = if input {
-  .ok("Ada")
+let message = if let \`Ok value = if input {
+  \`Ok ("Ada")
 } else {
-  .err("Grace")
+  \`Err ("Grace")
 } {
   value
 } else {
@@ -1606,19 +1618,19 @@ message == "Ada"
   const helper_if_let_text_equality = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-type ResultType = | .ok = Text | .err = Text
+type ResultType = | \`Ok Text | \`Err Text
 const result_type = ResultType
 
-let from_result = (result: result_type) => if let .ok(value) = result {
+let from_result = (result: result_type) => if let \`Ok value = result {
   value
 } else {
   "fallback"
 }
 
 let message = from_result(if input {
-  result_type.ok("Ada")
+  \`Ok ("Ada")
 } else {
-  result_type.err("Grace")
+  \`Err ("Grace")
 })
 
 message == "Ada"
@@ -2076,7 +2088,7 @@ if 3 < limit {
 
   const block_value = compile(`
 {
-  const { struct } = comptime import "duck:prelude" ()
+  const { struct } = import "duck:prelude" ()
   const age_type = struct { .age = Int }
   let age = 41
   let box: age_type = [age]
@@ -2143,11 +2155,11 @@ if let 'a' = token {
   });
 
   const union_pattern = compile(`
-let result = .err(42)
+let result = \`Err (42)
 
-if let .ok(value) = result {
+if let \`Ok value = result {
   value
-} else if let .err(error) = result {
+} else if let \`Err error = result {
   error
 } else {
   0
@@ -2163,16 +2175,16 @@ if let .ok(value) = result {
     Format.fmt(
       Source,
       Source.parse(`
-if let .ok(value) = result {
+if let \`Ok value = result {
   value
-} else if let .err(error) = result {
+} else if let \`Err error = result {
   error
 } else {
   0
 }
 `),
     ),
-    "else if let .err(error)",
+    "else if let `Err error",
   );
 
   const assigned_wat = Source.wat(`
@@ -2356,12 +2368,12 @@ f(input) + 1
   assert_includes(dynamic_text, "+ 1:i32");
 
   const if_let_match = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let f = (option: option_type) => {
   {
-    if let .some(value) = option {
+    if let \`Some value = option {
       return value
     }
   }
@@ -2369,7 +2381,7 @@ let f = (option: option_type) => {
   0
 }
 
-f(option_type.some(41)) + 1
+f(\`Some (41)) + 1
 `);
 
   assert_equals(Ic.reduce(if_let_match), {
@@ -2379,12 +2391,12 @@ f(option_type.some(41)) + 1
   });
 
   const if_let_fallthrough = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let f = (option: option_type) => {
   {
-    if let .some(value) = option {
+    if let \`Some value = option {
       return value
     }
   }
@@ -2392,7 +2404,7 @@ let f = (option: option_type) => {
   0
 }
 
-f(option_type.none()) + 1
+f(\`None ()) + 1
 `);
 
   assert_equals(Ic.reduce(if_let_fallthrough), {
@@ -2402,12 +2414,12 @@ f(option_type.none()) + 1
   });
 
   const dynamic_if_let = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let f = (option: option_type) => {
   {
-    if let .some(value) = option {
+    if let \`Some value = option {
       return value
     }
   }
@@ -2416,9 +2428,9 @@ let f = (option: option_type) => {
 }
 
 f(if input {
-  option_type.some(41)
+  \`Some (41)
 } else {
-  option_type.none()
+  \`None ()
 }) + 1
 `);
   const dynamic_if_let_text = Format.fmt(Ic, Ic.reduce(dynamic_if_let));
@@ -2507,7 +2519,7 @@ if f {
   assert_throws(
     () =>
       compile(`
-let result = .ok(1)
+let result = \`Ok (1)
 
 if result {
   1
@@ -2521,7 +2533,7 @@ if result {
   assert_throws(
     () =>
       compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int
 }

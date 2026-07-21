@@ -1,5 +1,5 @@
-const { struct } = comptime import "duck:prelude" ()
-const { length } = comptime import "duck:prelude/runtime" ()
+const { struct } = import "duck:prelude" ()
+const { length } = import "duck:prelude/runtime" ()
 
 type User = struct { .name = Text, .age = Int }
 

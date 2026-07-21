@@ -277,24 +277,46 @@ function merge_expr_branch_parent_owners(
   const kept_names = new Set<string>();
 
   for (const name of parent_names) {
-    let merged: CoreDropOwner | undefined;
-    let present_in_all_branches = true;
+    const branch_owners: CoreDropOwner[] = [];
 
     for (const branch of branches) {
       const owner = branch.owners.get(name);
       if (owner) {
-        merged = owner;
-      } else {
-        present_in_all_branches = false;
+        branch_owners.push(owner);
       }
     }
 
-    if (present_in_all_branches && merged) {
-      owners.set(name, merged);
-      kept_names.add(name);
-    } else {
+    if (branch_owners.length !== branches.length) {
       owners.delete(name);
+      continue;
     }
+
+    const last = branch_owners[branch_owners.length - 1];
+    if (!last) {
+      owners.delete(name);
+      continue;
+    }
+
+    const merged: CoreDropOwner = {
+      name: last.name,
+      ownership: last.ownership,
+      pointer: last.pointer,
+    };
+    for (const owner of branch_owners) {
+      if (owner.pointer === "temporary") {
+        merged.pointer = "temporary";
+      }
+    }
+    const common_subject = branch_owners[0]?.subject;
+    if (
+      common_subject && branch_owners.every((owner) => {
+        return owner.subject === common_subject;
+      })
+    ) {
+      merged.subject = common_subject;
+    }
+    owners.set(name, merged);
+    kept_names.add(name);
   }
 
   return kept_names;

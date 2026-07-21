@@ -416,6 +416,23 @@ Deno.test("Ic.reduce folds f64 arithmetic and conversion", () => {
     }),
     f64(42),
   );
+  assert_equals(
+    Ic.reduce({
+      tag: "prim",
+      prim: "i32.trunc_f64_s",
+      args: [f64(-17.75)],
+    }),
+    i32(-17),
+  );
+  assert_throws(
+    () =>
+      Ic.reduce({
+        tag: "prim",
+        prim: "i32.trunc_f64_s",
+        args: [f64(Number.POSITIVE_INFINITY)],
+      }),
+    "i32_from_f64 traps for value Infinity",
+  );
 });
 
 Deno.test("Ic.reduce folds integer bitwise operations and masked shifts", () => {

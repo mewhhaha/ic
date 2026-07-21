@@ -8,6 +8,11 @@ import { bundled_source_text } from "./prelude.ts";
 
 export type SourceImportResolver = (uri: string) => string | undefined;
 
+type SourceIncludeExpression = {
+  expr: Extract<FrontExpr, { tag: "app" }>;
+  path: string;
+};
+
 type ImportValidation = {
   cache: Map<string, ReturnType<typeof parse_source_with_diagnostics>>;
   visited: Set<string>;
@@ -32,6 +37,19 @@ export function validate_source_imports(
       uri,
       imported,
       [uri],
+      validation,
+    );
+
+    if (diagnostic !== undefined) {
+      diagnostics.push(diagnostic);
+    }
+  }
+
+  for (const included of source_include_expressions(source)) {
+    const diagnostic = validate_source_include(
+      included,
+      uri,
+      included.expr,
       validation,
     );
 
@@ -132,8 +150,25 @@ export function source_import_expressions(
 ): Extract<FrontExpr, { tag: "import" }>[] {
   const imports: Extract<FrontExpr, { tag: "import" }>[] = [];
 
-  visit_statements(source.statements, (expr) => imports.push(expr));
+  visit_statements(source.statements, (expr) => {
+    if (expr.tag === "import") {
+      imports.push(expr);
+    }
+  });
   return imports;
+}
+
+function source_include_expressions(source: Source): SourceIncludeExpression[] {
+  const includes: SourceIncludeExpression[] = [];
+
+  visit_statements(source.statements, (expr) => {
+    const included = source_include_expression(expr);
+
+    if (included !== undefined) {
+      includes.push(included);
+    }
+  });
+  return includes;
 }
 
 export function validate_source_import_context(
@@ -143,14 +178,26 @@ export function validate_source_import_context(
     bundled_source_text(candidate.path) === undefined
   );
 
-  if (imported === undefined) {
+  if (imported !== undefined) {
+    return [source_diagnostic(
+      "DUCK2500",
+      "Cannot resolve import without a source URI and import resolver",
+      imported,
+    )];
+  }
+
+  const included = source_include_expressions(source).find((candidate) =>
+    bundled_source_text(new URL(candidate.path, "file:///").href) === undefined
+  );
+
+  if (included === undefined) {
     return [];
   }
 
   return [source_diagnostic(
     "DUCK2500",
-    "Cannot resolve import without a source URI and import resolver",
-    imported,
+    "Cannot resolve include without a source URI and import resolver",
+    included.expr,
   )];
 }
 
@@ -229,6 +276,19 @@ function validate_source_import(
   validation.visited.add(dependency_uri);
   const dependency_stack = [...stack, dependency_uri];
 
+  for (const included of source_include_expressions(dependency.source)) {
+    const diagnostic = validate_source_include(
+      included,
+      dependency_uri,
+      root_subject,
+      validation,
+    );
+
+    if (diagnostic !== undefined) {
+      return diagnostic;
+    }
+  }
+
   for (const nested of source_import_expressions(dependency.source)) {
     const diagnostic = validate_source_import(
       nested,
@@ -246,18 +306,77 @@ function validate_source_import(
   return undefined;
 }
 
+function validate_source_include(
+  included: SourceIncludeExpression,
+  uri: string,
+  root_subject: FrontExpr,
+  validation: ImportValidation,
+): SourceDiagnostic | undefined {
+  let dependency_uri: string;
+
+  try {
+    dependency_uri = new URL(included.path, uri).href;
+  } catch (error) {
+    if (!(error instanceof TypeError)) {
+      throw error;
+    }
+
+    return source_diagnostic(
+      "DUCK2505",
+      "Invalid include URI: " + included.path,
+      root_subject,
+    );
+  }
+
+  const bundled = bundled_source_text(dependency_uri);
+
+  if (
+    bundled !== undefined ||
+    validation.resolve_import(dependency_uri) !== undefined
+  ) {
+    return undefined;
+  }
+
+  return source_diagnostic(
+    "DUCK2502",
+    "Include dependency does not exist: " + included.path,
+    root_subject,
+  );
+}
+
+function source_include_expression(
+  expr: FrontExpr,
+): SourceIncludeExpression | undefined {
+  if (
+    expr.tag !== "app" || expr.func.tag !== "var" ||
+    expr.func.name !== "@include" || expr.args.length !== 1
+  ) {
+    return undefined;
+  }
+
+  const path = expr.args[0];
+
+  if (
+    path === undefined || path.tag !== "text" || path.encoding !== undefined
+  ) {
+    return undefined;
+  }
+
+  return { expr, path: path.value };
+}
+
 function visit_statements(
   statements: Stmt[],
-  visit_import: (expr: Extract<FrontExpr, { tag: "import" }>) => void,
+  visit_expr: (expr: FrontExpr) => void,
 ): void {
   for (const stmt of statements) {
-    visit_statement(stmt, visit_import);
+    visit_statement(stmt, visit_expr);
   }
 }
 
 function visit_statement(
   stmt: Stmt,
-  visit_import: (expr: Extract<FrontExpr, { tag: "import" }>) => void,
+  visit_expr: (expr: FrontExpr) => void,
 ): void {
   switch (stmt.tag) {
     case "import":
@@ -273,61 +392,61 @@ function visit_statement(
     case "bind_pattern":
     case "resume_dup":
     case "assign":
-      visit_expression(stmt.value, visit_import);
+      visit_expression(stmt.value, visit_expr);
       return;
 
     case "index_assign":
-      visit_expression(stmt.index, visit_import);
-      visit_expression(stmt.value, visit_import);
+      visit_expression(stmt.index, visit_expr);
+      visit_expression(stmt.value, visit_expr);
       return;
 
     case "for_range":
-      visit_expression(stmt.start, visit_import);
-      visit_expression(stmt.end, visit_import);
-      visit_expression(stmt.step, visit_import);
-      visit_statements(stmt.body, visit_import);
+      visit_expression(stmt.start, visit_expr);
+      visit_expression(stmt.end, visit_expr);
+      visit_expression(stmt.step, visit_expr);
+      visit_statements(stmt.body, visit_expr);
       return;
 
     case "for_collection":
-      visit_expression(stmt.collection, visit_import);
-      visit_statements(stmt.body, visit_import);
+      visit_expression(stmt.collection, visit_expr);
+      visit_statements(stmt.body, visit_expr);
       return;
 
     case "if_stmt":
-      visit_expression(stmt.cond, visit_import);
+      visit_expression(stmt.cond, visit_expr);
 
       if (stmt.cond.tag !== "bool" || stmt.cond.value) {
-        visit_statements(stmt.body, visit_import);
+        visit_statements(stmt.body, visit_expr);
       }
       return;
 
     case "if_let_stmt":
-      visit_expression(stmt.target, visit_import);
+      visit_expression(stmt.target, visit_expr);
 
       if (
         stmt.target.tag !== "union_case" ||
         stmt.target.name === stmt.case_name
       ) {
-        visit_statements(stmt.body, visit_import);
+        visit_statements(stmt.body, visit_expr);
       }
       return;
 
     case "type_check":
-      visit_expression(stmt.target, visit_import);
+      visit_expression(stmt.target, visit_expr);
       return;
 
     case "break":
       if (stmt.value !== undefined) {
-        visit_expression(stmt.value, visit_import);
+        visit_expression(stmt.value, visit_expr);
       }
       return;
 
     case "return":
-      visit_expression(stmt.value, visit_import);
+      visit_expression(stmt.value, visit_expr);
       return;
 
     case "expr":
-      visit_expression(stmt.expr, visit_import);
+      visit_expression(stmt.expr, visit_expr);
       return;
   }
 
@@ -337,11 +456,12 @@ function visit_statement(
 
 function visit_expression(
   expr: FrontExpr,
-  visit_import: (expr: Extract<FrontExpr, { tag: "import" }>) => void,
+  visit_expr: (expr: FrontExpr) => void,
 ): void {
+  visit_expr(expr);
+
   switch (expr.tag) {
     case "import":
-      visit_import(expr);
       return;
 
     case "bool":
@@ -359,180 +479,180 @@ function visit_expression(
       return;
 
     case "prim":
-      visit_expression(expr.left, visit_import);
-      visit_expression(expr.right, visit_import);
+      visit_expression(expr.left, visit_expr);
+      visit_expression(expr.right, visit_expr);
       return;
 
     case "lam":
     case "rec":
-      visit_expression(expr.body, visit_import);
+      visit_expression(expr.body, visit_expr);
       return;
 
     case "app":
-      visit_expression(expr.func, visit_import);
+      visit_expression(expr.func, visit_expr);
 
       for (const arg of expr.args) {
-        visit_expression(arg, visit_import);
+        visit_expression(arg, visit_expr);
       }
 
       if (expr.arg !== undefined) {
-        visit_expression(expr.arg, visit_import);
+        visit_expression(expr.arg, visit_expr);
       }
       return;
 
     case "product":
     case "shape":
       for (const entry of expr.entries) {
-        visit_expression(entry.value, visit_import);
+        visit_expression(entry.value, visit_expr);
       }
       return;
 
     case "array":
       for (const item of expr.items) {
-        visit_expression(item, visit_import);
+        visit_expression(item, visit_expr);
       }
 
       if (expr.rest !== undefined) {
-        visit_expression(expr.rest, visit_import);
+        visit_expression(expr.rest, visit_expr);
       }
       return;
 
     case "array_repeat":
-      visit_expression(expr.value, visit_import);
-      visit_expression(expr.length, visit_import);
+      visit_expression(expr.value, visit_expr);
+      visit_expression(expr.length, visit_expr);
       return;
 
     case "block":
-      visit_statements(expr.statements, visit_import);
+      visit_statements(expr.statements, visit_expr);
       return;
 
     case "comptime":
-      visit_expression(expr.expr, visit_import);
+      visit_expression(expr.expr, visit_expr);
       return;
 
     case "borrow":
     case "freeze":
-      visit_expression(expr.value, visit_import);
+      visit_expression(expr.value, visit_expr);
       return;
 
     case "scratch":
-      visit_expression(expr.body, visit_import);
+      visit_expression(expr.body, visit_expr);
       return;
 
     case "loop":
-      visit_statements(expr.body, visit_import);
+      visit_statements(expr.body, visit_expr);
       return;
 
     case "captured":
-      visit_expression(expr.expr, visit_import);
+      visit_expression(expr.expr, visit_expr);
       return;
 
     case "handler":
       for (const state of expr.state) {
-        visit_expression(state.value, visit_import);
+        visit_expression(state.value, visit_expr);
       }
 
       for (const clause of expr.clauses) {
-        visit_expression(clause.body, visit_import);
+        visit_expression(clause.body, visit_expr);
       }
 
-      visit_expression(expr.return_clause.body, visit_import);
+      visit_expression(expr.return_clause.body, visit_expr);
       return;
 
     case "try_with":
-      visit_expression(expr.body, visit_import);
-      visit_expression(expr.handler, visit_import);
+      visit_expression(expr.body, visit_expr);
+      visit_expression(expr.handler, visit_expr);
       return;
 
     case "with":
-      visit_expression(expr.base, visit_import);
-      visit_fields(expr.fields, visit_import);
+      visit_expression(expr.base, visit_expr);
+      visit_fields(expr.fields, visit_expr);
       return;
 
     case "struct_value":
-      visit_expression(expr.type_expr, visit_import);
-      visit_fields(expr.fields, visit_import);
+      visit_expression(expr.type_expr, visit_expr);
+      visit_fields(expr.fields, visit_expr);
       return;
 
     case "struct_update":
-      visit_expression(expr.base, visit_import);
-      visit_fields(expr.fields, visit_import);
+      visit_expression(expr.base, visit_expr);
+      visit_fields(expr.fields, visit_expr);
       return;
 
     case "type_with":
-      visit_expression(expr.base, visit_import);
+      visit_expression(expr.base, visit_expr);
 
       for (const member of expr.members) {
-        visit_expression(member.name, visit_import);
-        visit_expression(member.value, visit_import);
+        visit_expression(member.name, visit_expr);
+        visit_expression(member.value, visit_expr);
       }
       return;
 
     case "if":
-      visit_expression(expr.cond, visit_import);
+      visit_expression(expr.cond, visit_expr);
 
       if (expr.cond.tag === "bool") {
         if (expr.cond.value) {
-          visit_expression(expr.then_branch, visit_import);
+          visit_expression(expr.then_branch, visit_expr);
         } else {
-          visit_expression(expr.else_branch, visit_import);
+          visit_expression(expr.else_branch, visit_expr);
         }
         return;
       }
 
-      visit_expression(expr.then_branch, visit_import);
-      visit_expression(expr.else_branch, visit_import);
+      visit_expression(expr.then_branch, visit_expr);
+      visit_expression(expr.else_branch, visit_expr);
       return;
 
     case "if_let":
-      visit_expression(expr.target, visit_import);
+      visit_expression(expr.target, visit_expr);
 
       if (expr.target.tag === "union_case") {
         if (expr.target.name === expr.case_name) {
-          visit_expression(expr.then_branch, visit_import);
+          visit_expression(expr.then_branch, visit_expr);
         } else {
-          visit_expression(expr.else_branch, visit_import);
+          visit_expression(expr.else_branch, visit_expr);
         }
         return;
       }
 
-      visit_expression(expr.then_branch, visit_import);
-      visit_expression(expr.else_branch, visit_import);
+      visit_expression(expr.then_branch, visit_expr);
+      visit_expression(expr.else_branch, visit_expr);
       return;
 
     case "field":
-      visit_expression(expr.object, visit_import);
+      visit_expression(expr.object, visit_expr);
       return;
 
     case "index":
-      visit_expression(expr.object, visit_import);
-      visit_expression(expr.index, visit_import);
+      visit_expression(expr.object, visit_expr);
+      visit_expression(expr.index, visit_expr);
       return;
 
     case "is":
     case "as":
-      visit_expression(expr.value, visit_import);
+      visit_expression(expr.value, visit_expr);
       return;
 
     case "match":
-      visit_expression(expr.target, visit_import);
+      visit_expression(expr.target, visit_expr);
 
       for (const arm of expr.arms) {
         if (arm.guard !== undefined) {
-          visit_expression(arm.guard, visit_import);
+          visit_expression(arm.guard, visit_expr);
         }
 
-        visit_expression(arm.body, visit_import);
+        visit_expression(arm.body, visit_expr);
       }
       return;
 
     case "union_case":
       if (expr.value !== undefined) {
-        visit_expression(expr.value, visit_import);
+        visit_expression(expr.value, visit_expr);
       }
 
       if (expr.type_expr !== undefined) {
-        visit_expression(expr.type_expr, visit_import);
+        visit_expression(expr.type_expr, visit_expr);
       }
       return;
   }
@@ -543,9 +663,9 @@ function visit_expression(
 
 function visit_fields(
   fields: import("./ast.ts").Field[],
-  visit_import: (expr: Extract<FrontExpr, { tag: "import" }>) => void,
+  visit_expr: (expr: FrontExpr) => void,
 ): void {
   for (const field of fields) {
-    visit_expression(field.value, visit_import);
+    visit_expression(field.value, visit_expr);
   }
 }

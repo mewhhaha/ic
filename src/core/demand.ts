@@ -31,7 +31,7 @@ export function analyze_core_demand(core: Core): Core {
   const context: DemandContext = {
     called_lambdas: collect_called_lambdas(statements),
     effectful_functions: new Set(Object.keys(core.host_imports || {})),
-    external_type_metadata: core.host_imports,
+    external_type_metadata: [core.host_imports, core.recFunctions],
     next_shared_name: 0,
     specialized_branch_bindings,
   };
@@ -630,6 +630,7 @@ function branch_params_support_demand_specialization(
 
   const scalar_annotations = new Set([
     "Bool",
+    "Char",
     "F32",
     "F64",
     "I32",
@@ -829,7 +830,10 @@ function demanded_expr(expr: CoreExpr, context: DemandContext): CoreExpr {
       }
 
       for (const param of expr.params) {
-        if (param.is_linear) {
+        if (
+          param.is_linear || param.annotation?.startsWith("&") ||
+          param.annotation?.startsWith("^")
+        ) {
           continue;
         }
 
@@ -1090,6 +1094,7 @@ function shared_parameter_wrapper(
     { tag: "var", name: shared_name },
   ]]);
   const shared_body = substitute_core_call_expr(body, replacements);
+
   const binding: CoreStmt = {
     tag: "bind",
     kind: "let",

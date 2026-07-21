@@ -1,10 +1,17 @@
-import type { Core, CoreCleanupEmission } from "./ast.ts";
+import type { Core, CoreCleanupEmission, CoreExpr } from "./ast.ts";
 import type { CoreStmt } from "./ast.ts";
 import type { CoreDropPlan } from "./drop.ts";
+import type { CoreAllocationPlan } from "./model/allocation.ts";
+import {
+  core_allocation_fact_emission_subjects,
+  core_allocation_fact_subject,
+} from "./allocation/metadata.ts";
+import { find_core_diagnostic_subject } from "./source_origin.ts";
 
 export function elaborate_core_cleanup_emission(
   core: Core,
   drops: CoreDropPlan,
+  allocations: CoreAllocationPlan,
 ): CoreCleanupEmission[] {
   const result: CoreCleanupEmission[] = [];
   const anchors = cleanup_anchors(core.statements);
@@ -82,7 +89,22 @@ export function elaborate_core_cleanup_emission(
       layout: step.layout,
       owned_children: step.owned_children || [],
     };
+    const destructor_type_expr = cleanup_destructor_type_expr(
+      allocation_ids,
+      allocations,
+    );
+    if (destructor_type_expr !== undefined) {
+      row.destructor_type_expr = destructor_type_expr;
+    }
     result.push(row);
+    const subject = find_core_diagnostic_subject(step);
+    if (
+      step.owner === undefined && subject && cleanup_subject_is_expr(subject)
+    ) {
+      const rows = expression_cleanup_rows.get(subject) || new Map();
+      rows.set(row.step_id, row);
+      expression_cleanup_rows.set(subject, rows);
+    }
     if (anchor) {
       const rows = statement_cleanup_rows.get(anchor.stmt) || [];
       rows.push(row);
@@ -91,6 +113,84 @@ export function elaborate_core_cleanup_emission(
   }
 
   return result;
+}
+
+function cleanup_destructor_type_expr(
+  allocation_ids: string[],
+  allocations: CoreAllocationPlan,
+): CoreExpr | undefined {
+  let result: CoreExpr | undefined;
+
+  for (const allocation_id of allocation_ids) {
+    const fact = allocations.facts.find((candidate) => {
+      return candidate.allocation_id === allocation_id;
+    });
+    if (!fact) {
+      throw new Error("Missing cleanup allocation fact: " + allocation_id);
+    }
+    if (
+      fact.reason !== "runtime_aggregate" && fact.reason !== "runtime_union"
+    ) {
+      return undefined;
+    }
+
+    const candidates: CoreExpr[] = [];
+    const subject = core_allocation_fact_subject(fact);
+    if (subject !== undefined) {
+      candidates.push(subject);
+    }
+    const emission_subjects = core_allocation_fact_emission_subjects(fact);
+    if (emission_subjects !== undefined) {
+      candidates.push(...emission_subjects);
+    }
+
+    let type_expr: CoreExpr | undefined;
+    for (const candidate of candidates) {
+      type_expr = owned_value_type_expr(candidate, fact.reason);
+      if (type_expr !== undefined) {
+        break;
+      }
+    }
+    if (type_expr === undefined) {
+      return undefined;
+    }
+    if (result === undefined) {
+      result = type_expr;
+      continue;
+    }
+    if (JSON.stringify(result) !== JSON.stringify(type_expr)) {
+      return undefined;
+    }
+  }
+
+  return result;
+}
+
+function owned_value_type_expr(
+  value: CoreExpr,
+  reason: "runtime_aggregate" | "runtime_union",
+): CoreExpr | undefined {
+  if (value.tag === "if") {
+    const then_type = owned_value_type_expr(value.then_branch, reason);
+    const else_type = owned_value_type_expr(value.else_branch, reason);
+    if (
+      then_type !== undefined && else_type !== undefined &&
+      JSON.stringify(then_type) === JSON.stringify(else_type)
+    ) {
+      return then_type;
+    }
+    return undefined;
+  }
+
+  if (reason === "runtime_union" && value.tag === "union_case") {
+    return value.type_expr;
+  }
+
+  if (reason === "runtime_aggregate" && value.tag === "struct_value") {
+    return value.type_expr;
+  }
+
+  return undefined;
 }
 
 function cleanup_pointer_local(
@@ -125,11 +225,49 @@ function replacement_old_local(
 }
 
 const statement_cleanup_rows = new WeakMap<CoreStmt, CoreCleanupEmission[]>();
+const expression_cleanup_rows = new WeakMap<
+  CoreExpr,
+  Map<string, CoreCleanupEmission>
+>();
 
 export function core_statement_cleanup_rows(
   stmt: CoreStmt,
 ): CoreCleanupEmission[] {
   return statement_cleanup_rows.get(stmt) || [];
+}
+
+export function core_expression_cleanup_rows(
+  expr: CoreExpr,
+): CoreCleanupEmission[] {
+  const rows = expression_cleanup_rows.get(expr);
+  if (!rows) {
+    return [];
+  }
+
+  return Array.from(rows.values());
+}
+
+function cleanup_subject_is_expr(
+  subject: import("./source_origin.ts").CoreSourceSubject,
+): subject is CoreExpr {
+  switch (subject.tag) {
+    case "bind":
+    case "assign":
+    case "index_assign":
+    case "range_loop":
+    case "collection_loop":
+    case "if_stmt":
+    case "if_else_stmt":
+    case "if_let_stmt":
+    case "type_check":
+    case "break":
+    case "continue":
+    case "return":
+    case "expr":
+      return false;
+    default:
+      return true;
+  }
 }
 
 type CleanupAnchor = { stmt: CoreStmt; path: number[]; scope: string };

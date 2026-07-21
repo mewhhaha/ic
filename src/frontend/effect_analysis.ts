@@ -12,9 +12,11 @@ import type {
   TypeExpr,
 } from "./ast.ts";
 import { val_type_from_type_name } from "./types.ts";
+import { specialize_effect_operation } from "./effect_operation.ts";
 import { resolve_effect_row } from "./effect_row.ts";
 import { format_type_expr, function_type_expr } from "./type_expr.ts";
-import { prim_returns_bool } from "./numeric.ts";
+import { prim_result_type, prim_returns_bool } from "./numeric.ts";
+import { specialize_prim_for_operands, type ValType } from "../op.ts";
 import {
   const_i32_value,
   expanded_type_product_entries,
@@ -131,6 +133,28 @@ export function analyze_front_effects(source: Source): FrontEffectAnalysis {
   }
 
   return { module_effects: sorted_effects(module_effects), functions };
+}
+
+export function analyze_front_expression_effects(
+  source: Source,
+  expr: FrontExpr,
+): EffectRef[] {
+  const scalar_type_aliases = front_scalar_type_aliases(source);
+  const index = build_effect_index(source, scalar_type_aliases);
+  const bindings = collect_binding_values(source.statements);
+  const analysis: AnalysisContext = {
+    index,
+    bindings,
+    scalar_type_aliases,
+    active_parameter_effects: new Map(),
+    active_parameter_result_types: new Map(),
+    observed_effect_variables: undefined,
+  };
+  const facts = collect_function_facts(source, analysis);
+  infer_transitive_effects(facts);
+  refine_function_effects(facts, analysis);
+  const scan = scan_expr(expr, analysis, facts, false, []);
+  return sorted_effects(effects_with_calls(scan, facts));
 }
 
 function build_effect_index(
@@ -1079,8 +1103,13 @@ function validate_parameter_callback_arguments(
 
   for (let index = 0; index < called.params.length; index += 1) {
     const param = called.params[index];
-    const arg = args[index];
     expect(param, "Missing parameter for " + called.name);
+
+    if (param.is_variadic === true) {
+      continue;
+    }
+
+    const arg = args[index];
     expect(arg, "Missing argument for " + called.name);
     const param_type = param.type_annotation;
 
@@ -1663,6 +1692,16 @@ function scan_expr(
   }
 
   if (expr.tag === "try_with") {
+    if (expr.infer_default_handlers === true) {
+      return scan_expr(
+        expr.body,
+        analysis,
+        facts,
+        false,
+        handlers,
+      );
+    }
+
     merge_scan(
       direct,
       calls,
@@ -2105,11 +2144,6 @@ function validate_handler_shape(
         clause.params.length.toString(),
     );
     const resume = clause.params[clause.params.length - 1];
-    expect(
-      resume && resume.is_linear,
-      "Handler clause " + handler.effect + "." + clause.name +
-        " requires a final affine resumption parameter",
-    );
     expect(resume, "Missing handler resumption parameter");
     if (resume.annotation) {
       expect(
@@ -2593,6 +2627,10 @@ function infer_simple_type(
   }
 
   if (expr.tag === "num") {
+    if (expr.character !== undefined) {
+      return "Char";
+    }
+
     if (expr.type === "i64") {
       return "I64";
     }
@@ -2666,19 +2704,40 @@ function infer_simple_type(
   }
 
   if (expr.tag === "prim") {
-    if (prim_returns_bool(expr.prim)) {
+    const left = infer_simple_type(expr.left, types, scalar_type_aliases);
+    const right = infer_simple_type(expr.right, types, scalar_type_aliases);
+    let left_value: ValType | undefined;
+    let right_value: ValType | undefined;
+    if (left) {
+      left_value = val_type_from_type_name(
+        resolved_scalar_type_name(left, scalar_type_aliases),
+      );
+    }
+    if (right) {
+      right_value = val_type_from_type_name(
+        resolved_scalar_type_name(right, scalar_type_aliases),
+      );
+    }
+    const prim = specialize_prim_for_operands(
+      expr.prim,
+      left_value,
+      right_value,
+    );
+
+    if (prim_returns_bool(prim)) {
       return "Bool";
     }
 
-    if (expr.prim.startsWith("i64.")) {
+    const result = prim_result_type(prim);
+    if (result === "i64") {
       return "I64";
     }
 
-    if (expr.prim.startsWith("f32.")) {
+    if (result === "f32") {
       return "F32";
     }
 
-    if (expr.prim.startsWith("f64.")) {
+    if (result === "f64") {
       return "F64";
     }
 
@@ -2786,7 +2845,8 @@ function infer_effect_bind_result_type(
         declared_operation,
         "Unknown effect operation: " + effect_text(operation),
       );
-      return declared_operation.result.type_name;
+      return specialize_effect_operation(declared_operation, expr).result
+        .type_name;
     }
 
     if (expr.func.tag === "var" && facts) {
@@ -2989,7 +3049,10 @@ function same_simple_type(
     return true;
   }
 
-  if (resolved_left === "Bool" || resolved_right === "Bool") {
+  if (
+    resolved_left === "Bool" || resolved_right === "Bool" ||
+    resolved_left === "Char" || resolved_right === "Char"
+  ) {
     return false;
   }
 
@@ -3028,9 +3091,9 @@ function effect_result_is_discardable_scalar(
     type_name,
     scalar_type_aliases,
   );
-  return resolved === "Unit" || resolved === "Bool" || resolved === "Int" ||
-    resolved === "I32" || resolved === "U32" || resolved === "I64" ||
-    resolved === "F32" || resolved === "F64";
+  return resolved === "Unit" || resolved === "Bool" || resolved === "Char" ||
+    resolved === "Int" || resolved === "I32" || resolved === "U32" ||
+    resolved === "I64" || resolved === "F32" || resolved === "F64";
 }
 
 function resolved_scalar_type_name(

@@ -151,13 +151,18 @@ function scan_borrow_stmt_with_scanner<ctx>(
     case "assign":
       aliases.known.add(stmt.name);
       aliases.assigned.add(stmt.name);
-      check_borrowed_owner_barriers(
-        canonical_owner_names(stmt.name, aliases),
-        "assign",
-        parent,
-        state,
-        stmt,
-      );
+      if (
+        !aliases.views.has(stmt.name) &&
+        !aliases.field_owners.has(stmt.name)
+      ) {
+        check_borrowed_owner_barriers(
+          canonical_owner_names(stmt.name, aliases),
+          "assign",
+          parent,
+          state,
+          stmt,
+        );
+      }
       scan_borrow_binding_value(
         stmt.name,
         undefined,

@@ -185,12 +185,17 @@ export abstract class ParserConditional extends ParserAggregate {
     const parenthesized = this.match_symbol("(");
     expect(this.match_name("let"), "Expected let");
 
-    if (this.match_symbol(".")) {
+    if (this.match_symbol("`")) {
       const case_name = this.expect_name("Expected union case name");
-      expect_snake_case(case_name, "Union case");
+      expect(
+        /^[A-Z][A-Za-z0-9]*$/.test(case_name),
+        "Union case must use PascalCase: " + case_name,
+      );
       let value_name: string | undefined;
 
       if (this.match_symbol("(")) {
+        this.expect_symbol(")");
+      } else {
         value_name = this.expect_binding_name(
           "Expected union case value name",
         );
@@ -198,7 +203,6 @@ export abstract class ParserConditional extends ParserAggregate {
         if (!is_no_demand_name(value_name)) {
           expect_snake_case(value_name, "Union case value");
         }
-        this.expect_symbol(")");
       }
 
       this.expect_symbol("=");

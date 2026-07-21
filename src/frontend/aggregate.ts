@@ -229,8 +229,9 @@ function type_expr_runtime_layout(type: TypeExpr): string | undefined {
     }
 
     if (
-      type.name === "Bool" || type.name === "Int" || type.name === "I32" ||
-      type.name === "U32" || type.name === "Unit" || type.name === "Resume"
+      type.name === "Bool" || type.name === "Char" || type.name === "Int" ||
+      type.name === "I32" || type.name === "U32" || type.name === "Unit" ||
+      type.name === "Resume"
     ) {
       return "i32";
     }
@@ -258,7 +259,10 @@ function type_expr_runtime_layout(type: TypeExpr): string | undefined {
 }
 
 export function constant_repeat_length(expr: FrontExpr): number {
-  if (expr.tag === "num" && expr.type === "i32") {
+  if (
+    expr.tag === "num" && expr.type === "i32" &&
+    expr.character === undefined
+  ) {
     if (typeof expr.value !== "number" || !Number.isInteger(expr.value)) {
       throw new Error("Array repeat length must be an integer i32 constant");
     }

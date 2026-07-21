@@ -582,7 +582,6 @@ function direct_unsupported_codegen_expr_issue(
     case "rec":
     case "comptime":
     case "with":
-    case "struct_update":
       return {
         tag: "unsupported_codegen",
         node: "expr",
@@ -604,6 +603,7 @@ function direct_unsupported_codegen_expr_issue(
     case "scratch":
     case "struct_type":
     case "struct_value":
+    case "struct_update":
     case "union_type":
     case "if":
     case "if_let":

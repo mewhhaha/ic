@@ -1,5 +1,6 @@
 import type {
   ArrayLengthExpr,
+  AttributeGroup,
   Declaration,
   EffectRowExpr,
   FrontExpr,
@@ -209,6 +210,13 @@ export function build_binding_index(
   };
   predeclare(parsed.source, root.id, state);
   visit_statements(parsed.source.statements, root.id, state);
+
+  if (parsed.source.declarations !== undefined) {
+    for (const declaration of parsed.source.declarations) {
+      visit_attribute_groups(declaration.attribute_groups, root.id, state);
+    }
+  }
+
   mark_unvisited_sites(
     parsed.source,
     root.id,
@@ -427,6 +435,7 @@ function visit_statements(
       continue;
     }
     if (statement.tag === "bind") {
+      visit_attribute_groups(statement.attribute_groups, scope, state);
       let entity: EntityId | undefined;
       let kind: BindingEntityKind = "value";
       if (statement.kind === "const") kind = "const";
@@ -704,6 +713,22 @@ function visit_statements(
         visit_expr(statement.value, scope, state);
       }
       continue;
+    }
+  }
+}
+
+function visit_attribute_groups(
+  groups: AttributeGroup[] | undefined,
+  scope: ScopeId,
+  state: State,
+): void {
+  if (groups === undefined) {
+    return;
+  }
+
+  for (const group of groups) {
+    for (const attribute of group.attributes) {
+      visit_expr(attribute, scope, state);
     }
   }
 }
@@ -1145,6 +1170,10 @@ function visit_pattern(
   if (pattern.tag === "product") {
     for (const entry of pattern.entries) {
       visit_pattern(entry.pattern, default_kind, scope, state);
+    }
+
+    if (pattern.rest !== undefined) {
+      visit_pattern(pattern.rest, default_kind, scope, state);
     }
     return;
   }

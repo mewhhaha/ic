@@ -1,12 +1,12 @@
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 
 type User = struct { .id = Int, .score = Int }
-type Result = | .ok = Int | .err = Text
+type Result = | `Ok Int | `Err Text
 
 let user: User = [1, 42]
-let result: Result = Result.ok(user.score)
+let result: Result = `Ok (user.score)
 
-if let .ok(score) = result {
+if let `Ok score = result {
   score
 } else {
   0

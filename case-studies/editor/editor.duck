@@ -1,0 +1,516 @@
+module (!init: Init) where
+
+const { cast, not, struct } = import "duck:prelude" ()
+
+type Piece = Bytes
+type Pieces = List Piece
+type PieceTable = struct { .pieces = Pieces, .length = I32 }
+type PieceSplit = [Pieces, Pieces]
+type Selection = struct { .anchor = I32, .head = I32 }
+type Editor = struct {
+  .document = PieceTable,
+  .selection = Selection,
+  .insert_mode = Bool,
+  .extend = Bool,
+  .save_failed = Bool,
+  .quit = Bool,
+  .save_requested = Bool,
+}
+
+const empty_pieces: () -> Pieces = () => {
+  let pieces: Pieces = `Nil ()
+  pieces
+}
+
+const one_piece: Bytes -> Pieces = bytes => {
+  let pieces: Pieces = `Cons [bytes, `Nil ()]
+  pieces
+}
+
+let reverse_pieces: Pieces -> Pieces = (pieces: Pieces) => {
+  let current: Pieces = pieces
+  let reversed: Pieces = empty_pieces()
+
+  loop {
+    if let `Cons payload = current {
+      let node: ListNode Bytes = payload
+      let [piece, tail] = node
+      let next: ListNode Bytes = [piece, reversed]
+      reversed = `Cons next
+      current = tail
+    } else {
+      break
+    }
+  }
+
+  reversed
+}
+
+let append_pieces: [Pieces, Pieces] -> Pieces = (left: Pieces, right: Pieces) => {
+  let current: Pieces = reverse_pieces(left)
+  let appended: Pieces = right
+
+  loop {
+    if let `Cons payload = current {
+      let node: ListNode Bytes = payload
+      let [piece, tail] = node
+      let next: ListNode Bytes = [piece, appended]
+      appended = `Cons next
+      current = tail
+    } else {
+      break
+    }
+  }
+
+  appended
+}
+
+let piece_table: Bytes -> PieceTable = bytes => {
+  if @len(bytes) == 0 {
+    PieceTable.new { .pieces = empty_pieces(), .length = 0 }
+  } else {
+    PieceTable.new { .pieces = one_piece(bytes), .length = @len(bytes) }
+  }
+}
+
+let byte_at: [&PieceTable, I32] -> I32 = (table: &PieceTable, wanted: I32) => {
+  let current: Pieces = table.pieces
+  let remaining = wanted
+  let found = 0
+
+  loop {
+    if let `Cons payload = current {
+      let node: ListNode Bytes = payload
+      let [piece, tail] = node
+      let piece_bytes: Bytes = piece
+      let piece_length = @len(piece_bytes)
+
+      if remaining < piece_length {
+        found = piece_bytes[remaining]
+        break
+      }
+
+      remaining = remaining - piece_length
+      current = tail
+    } else {
+      break
+    }
+  }
+
+  found
+}
+
+let split_pieces: [Pieces, I32] -> PieceSplit = (pieces: Pieces, position: I32) => {
+  let remaining = position
+  let current: Pieces = pieces
+  let reversed_left: Pieces = empty_pieces()
+  let right: Pieces = empty_pieces()
+
+  loop {
+    if let `Cons payload = current {
+      let node: ListNode Bytes = payload
+      let [piece, tail] = node
+      let piece_bytes: Bytes = piece
+      let piece_length = @len(piece_bytes)
+
+      if remaining == 0 {
+        let right_node: ListNode Bytes = [piece_bytes, tail]
+        right = `Cons right_node
+        break
+      } else if remaining < piece_length {
+        let left_bytes = @slice(&piece_bytes, 0, remaining)
+        let right_bytes = @slice(&piece_bytes, remaining, piece_length)
+        let left_node: ListNode Bytes = [left_bytes, reversed_left]
+        let right_node: ListNode Bytes = [right_bytes, tail]
+        reversed_left = `Cons left_node
+        right = `Cons right_node
+        break
+      } else {
+        remaining = remaining - piece_length
+        let left_node: ListNode Bytes = [piece_bytes, reversed_left]
+        reversed_left = `Cons left_node
+        current = tail
+      }
+    } else {
+      break
+    }
+  }
+
+  [reverse_pieces(reversed_left), right] as PieceSplit
+}
+
+let insert_bytes: [PieceTable, I32, Bytes] -> PieceTable = (table: PieceTable, position: I32, bytes: Bytes) => {
+  if @len(bytes) == 0 {
+    table
+  } else {
+    let [left, right] = split_pieces(table.pieces, position)
+    let inserted: Pieces = one_piece(bytes)
+    let inserted_right: Pieces = append_pieces(inserted, right)
+    let pieces: Pieces = append_pieces(left, inserted_right)
+    PieceTable.new { .pieces = pieces, .length = table.length + @len(bytes) }
+  }
+}
+
+let delete_bytes: [PieceTable, I32, I32] -> PieceTable = (table: PieceTable, start: I32, end: I32) => {
+  if start >= end {
+    table
+  } else {
+    let [prefix, suffix] = split_pieces(table.pieces, end)
+    let [left, removed] = split_pieces(prefix, start)
+    let _ = removed
+    let pieces: Pieces = append_pieces(left, suffix)
+    PieceTable.new { .pieces = pieces, .length = table.length - (end - start) }
+  }
+}
+
+let materialize: &PieceTable -> Bytes = (table: &PieceTable) => {
+  let output: Bytes = @Bytes.generate(table.length, _ => 0)
+  let current: Pieces = table.pieces
+  let output_offset = 0
+
+  loop {
+    if let `Cons payload = current {
+      let node: ListNode Bytes = payload
+      let [piece, tail] = node
+      let piece_bytes: Bytes = piece
+
+      for index in 0..@len(piece_bytes) {
+        output[output_offset + index] = piece_bytes[index]
+      }
+
+      output_offset = output_offset + @len(piece_bytes)
+      current = tail
+    } else {
+      break
+    }
+  }
+
+  output
+}
+
+let selection_start: &Selection -> I32 = (selection: &Selection) => {
+  if selection.anchor < selection.head { selection.anchor } else { selection.head }
+}
+
+let is_utf8_continuation: I32 -> Bool = byte => byte >= 0x80 && byte < 0xc0
+
+let next_character: [&PieceTable, I32] -> I32 = (table: &PieceTable, position: I32) => {
+  let next = position + 1
+  let table_length = table.length
+
+  loop {
+    if next >= table_length { break }
+    let byte = byte_at(table, next)
+    if not(is_utf8_continuation(byte)) { break }
+    next = next + 1
+  }
+
+  next
+}
+
+let previous_character: [&PieceTable, I32] -> I32 = (table: &PieceTable, position: I32) => {
+  let previous = position - 1
+
+  loop {
+    if previous <= 0 { break }
+    let byte = byte_at(table, previous)
+    if not(is_utf8_continuation(byte)) { break }
+    previous = previous - 1
+  }
+
+  previous
+}
+
+let clamp_character: [&PieceTable, I32] -> I32 = (table: &PieceTable, position: I32) => {
+  if table.length == 0 {
+    0
+  } else if position < 0 {
+    0
+  } else if position >= table.length {
+    previous_character(table, table.length)
+  } else {
+    position
+  }
+}
+
+let selection_head_end: [&PieceTable, &Selection] -> I32 = (table: &PieceTable, selection: &Selection) => {
+  if table.length == 0 {
+    0
+  } else {
+    let furthest = if selection.anchor > selection.head { selection.anchor } else { selection.head }
+    next_character(table, furthest)
+  }
+}
+
+let move_head: [Editor, I32] -> Editor = (editor: Editor, position: I32) => {
+  let head = clamp_character(&editor.document, position)
+  let anchor = if editor.extend { editor.selection.anchor } else { head }
+  editor :+ { .selection = Selection.new { .anchor = anchor, .head = head } }
+}
+
+let collapse: [Editor, I32] -> Editor = (editor: Editor, position: I32) => {
+  let cursor = clamp_character(&editor.document, position)
+  editor :+ {
+    .selection = Selection.new { .anchor = cursor, .head = cursor },
+    .extend = false,
+  }
+}
+
+let delete_selection: Editor -> Editor = (editor: Editor) => {
+  let start = selection_start(&editor.selection)
+  let end = selection_head_end(&editor.document, &editor.selection)
+  let document = delete_bytes(editor.document, start, end)
+  let updated = editor :+ { .document = document }
+  collapse(updated, start)
+}
+
+let insert_byte: [Editor, I32] -> Editor = (editor: Editor, byte: I32) => {
+  let bytes: Bytes = @Bytes.generate(1, _ => byte)
+  let position = editor.selection.head
+  let document = insert_bytes(editor.document, position, bytes)
+  let updated = editor :+ { .document = document }
+  collapse(updated, position + 1)
+}
+
+let apply_normal_byte: [Editor, I32] -> Editor = (editor: Editor, byte: I32) => {
+  if byte == cast('h', I32) {
+    move_head(editor, previous_character(&editor.document, editor.selection.head))
+  } else if byte == cast('l', I32) {
+    move_head(editor, next_character(&editor.document, editor.selection.head))
+  } else if byte == cast('v', I32) {
+    editor :+ { .extend = not(editor.extend) }
+  } else if byte == cast('d', I32) {
+    delete_selection(editor)
+  } else if byte == cast('c', I32) {
+    let updated = delete_selection(editor)
+    updated :+ { .insert_mode = true }
+  } else if byte == cast('i', I32) {
+    let updated = collapse(editor, selection_start(&editor.selection))
+    updated :+ { .insert_mode = true }
+  } else if byte == cast('a', I32) {
+    let position = selection_head_end(&editor.document, &editor.selection)
+    let updated = collapse(editor, position)
+    updated :+ { .insert_mode = true }
+  } else if byte == cast('w', I32) {
+    editor :+ { .save_requested = true }
+  } else if byte == cast('q', I32) || byte == 3 {
+    editor :+ { .quit = true }
+  } else {
+    editor
+  }
+}
+
+let apply_insert_byte: [Editor, I32] -> Editor = (editor: Editor, byte: I32) => {
+  if byte == 27 {
+    editor :+ { .insert_mode = false }
+  } else if byte == 8 || byte == 127 {
+    if editor.selection.head == 0 {
+      editor
+    } else {
+      let start = previous_character(&editor.document, editor.selection.head)
+      let document = delete_bytes(editor.document, start, editor.selection.head)
+      let updated = editor :+ { .document = document }
+      collapse(updated, start)
+    }
+  } else if byte == cast('\n', I32) || byte == 13 || byte == cast('\t', I32) || byte >= cast(' ', I32) {
+    insert_byte(editor, if byte == 13 { cast('\n', I32) } else { byte })
+  } else {
+    editor
+  }
+}
+
+let apply_key_byte: [Editor, I32] -> Editor = (editor: Editor, byte: I32) => {
+  if editor.insert_mode {
+    apply_insert_byte(editor, byte)
+  } else {
+    apply_normal_byte(editor, byte)
+  }
+}
+
+let apply_keys: [Editor, Bytes] -> Editor = (editor: Editor, keys: Bytes) => {
+  let updated = editor
+  let index = 0
+
+  loop {
+    if index >= @len(keys) { break }
+    if keys[index] == 27 && index + 2 < @len(keys) && keys[index + 1] == cast('[', I32) {
+      let arrow = keys[index + 2]
+
+      if arrow == cast('D', I32) {
+        updated = move_head(updated, previous_character(&updated.document, updated.selection.head))
+      } else if arrow == cast('C', I32) {
+        updated = move_head(updated, next_character(&updated.document, updated.selection.head))
+      }
+
+      index = index + 3
+    } else {
+      updated = apply_key_byte(updated, keys[index])
+      index = index + 1
+    }
+  }
+
+  updated
+}
+
+let append_escape: [Bytes, I32, I32] -> Bytes = (output: Bytes, used: I32, code: I32) => {
+  output[used] = 27
+  output[used + 1] = 91
+  output[used + 2] = code
+  output
+}
+
+let render: [Bytes, I32, I32, Bool, Bool, Bool, I32, I32] -> Bytes = (
+  document: Bytes,
+  selected_start: I32,
+  selected_end: I32,
+  insert_mode: Bool,
+  extend: Bool,
+  save_failed: Bool,
+  columns: I32,
+  rows: I32) => {
+    let visible_rows = if rows > 2 { rows - 1 } else { 1 }
+    let visible_columns = if columns > 8 { columns } else { 8 }
+    let output: Bytes = @Bytes.generate(@len(document) + visible_rows * 8 + visible_columns + 128, _ => 0)
+    let used = 0
+    output = append_escape(output, used, 72)
+    used = used + 3
+    output = append_escape(output, used, 74)
+    used = used + 3
+    let highlighted = false
+    let position = 0
+    let row = 0
+    let column = 0
+
+    loop {
+      if position >= @len(document) || row >= visible_rows { break }
+      if position == selected_start {
+        output = append_escape(output, used, 55)
+        output[used + 3] = 109
+        used = used + 4
+        highlighted = true
+      }
+
+      if position == selected_end && highlighted {
+        output = append_escape(output, used, 48)
+        output[used + 3] = 109
+        used = used + 4
+        highlighted = false
+      }
+
+      let byte = document[position]
+
+      if byte == 10 {
+        output[used] = 13
+        output[used + 1] = 10
+        used = used + 2
+        row = row + 1
+        column = 0
+      } else if column < visible_columns {
+        output[used] = if byte == 9 { 32 } else { byte }
+        used = used + 1
+
+        if not(is_utf8_continuation(byte)) {
+          column = column + 1
+        }
+      }
+
+      position = position + 1
+    }
+
+    if highlighted {
+      output = append_escape(output, used, 48)
+      output[used + 3] = 109
+      used = used + 4
+    }
+
+    loop {
+      if row >= visible_rows { break }
+      output[used] = 13
+      output[used + 1] = 10
+      used = used + 2
+      row = row + 1
+    }
+
+    output = append_escape(output, used, 55)
+    output[used + 3] = 109
+    used = used + 4
+    let label: Text = if save_failed {
+      " SAVE FAILED  w retry  q quit "
+    } else if insert_mode {
+      " INSERT  esc normal "
+    } else if extend {
+      " EXTEND  h/l move  d delete  i/a insert  w save  q quit "
+    } else {
+      " NORMAL  h/l move  v extend  d delete  i/a insert  w save  q quit "
+    }
+
+    for label_index in 0..@len(label) {
+      if label_index < visible_columns {
+        output[used] = label[label_index]
+        used = used + 1
+      }
+    }
+
+    output = append_escape(output, used, 48)
+    output[used + 3] = 109
+    used = used + 4
+    @slice(&output, 0, used)
+  }
+
+document <- Terminal.load()
+let initial_document = piece_table(document)
+let editor: Editor = Editor.new {
+  .document = initial_document,
+  .selection = Selection.new { .anchor = 0, .head = 0 },
+  .insert_mode = false,
+  .extend = false,
+  .save_failed = false,
+  .quit = false,
+  .save_requested = false,
+}
+let running = true
+
+loop {
+  if not(running) { break }
+  columns <- Terminal.columns()
+  rows <- Terminal.rows()
+  let rendered_document: Bytes = materialize(&editor.document)
+  let rendered_start = selection_start(&editor.selection)
+  let rendered_end = selection_head_end(&editor.document, &editor.selection)
+  let frame: Bytes = render(
+    rendered_document,
+    rendered_start,
+    rendered_end,
+    editor.insert_mode,
+    editor.extend,
+    editor.save_failed,
+    columns,
+    rows
+  )
+  _ <- Terminal.write(&frame)
+  read_result <- Terminal.read()
+
+  if let `Keys keys = read_result {
+    editor = apply_keys(editor, keys)
+
+    if editor.save_requested {
+      let contents: Bytes = materialize(&editor.document)
+      save_result <- Terminal.save(&contents)
+      editor = editor :+ { .save_requested = false }
+
+      if let `Ok () = save_result {
+        editor = editor :+ { .save_failed = false }
+      } else {
+        editor = editor :+ { .save_failed = true }
+      }
+    }
+
+    if editor.quit {
+      running = false
+    }
+  } else {
+    running = false
+  }
+}
+
+return { .code = 0 }

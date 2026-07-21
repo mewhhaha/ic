@@ -23,6 +23,7 @@ import {
 import {
   runtime_aggregate_field_info,
   runtime_aggregate_type_expr,
+  runtime_struct_update_value,
 } from "../runtime_aggregate.ts";
 import { dynamic_if_let_can_match } from "../union_static.ts";
 import { if_let_expr_type } from "./if_let.ts";
@@ -396,6 +397,16 @@ export function expr_type<
     case "struct_value":
       return "i32";
 
+    case "struct_update": {
+      const updated = runtime_struct_update_value(expr, ctx, {
+        check_closure_call_args: hooks.check_closure_call_args,
+        closure_fn_type: hooks.closure_fn_type,
+        static_struct_value: hooks.static_struct_value,
+      });
+      expect(updated, "Cannot update non-struct core value");
+      return "i32";
+    }
+
     case "unsupported":
       if (expr.feature === "missing_capability_method") {
         throw new Error("Missing host capability method: " + expr.text);
@@ -408,7 +419,6 @@ export function expr_type<
     case "comptime":
     case "with":
     case "struct_type":
-    case "struct_update":
     case "union_type":
       throw new Error("Cannot type core " + expr.tag + " expression yet");
 

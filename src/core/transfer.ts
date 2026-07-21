@@ -28,6 +28,7 @@ export function core_transfer_validation<ctx>(
   hooks: CoreTransferHooks<ctx>,
 ): CoreTransferValidation {
   const state: CoreTransferState<ctx> = {
+    collect_local_facts: true,
     next_transfer: 0,
     next_temporary: 0,
     transfers: [],

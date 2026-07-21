@@ -33,6 +33,7 @@ export type CoreOwnershipHooks<ctx> = {
     ctx: ctx,
   ) => DynamicUnionIf | undefined;
   expr_type: (expr: CoreExpr, ctx: ctx) => ValType;
+  borrowed_local?: (name: string, ctx: ctx) => boolean;
   frozen_local?: (name: string, ctx: ctx) => boolean;
   host_import_result_ownership?: (
     expr: CoreExpr,

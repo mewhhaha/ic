@@ -1,4 +1,5 @@
 import type {
+  Declaration,
   FrontExpr,
   ModuleHeader,
   Param,
@@ -7,6 +8,7 @@ import type {
   Source as SourceNode,
   Stmt,
 } from "./ast.ts";
+import { expect } from "../expect.ts";
 import { parse_source } from "./parser.ts";
 import { pattern_bindings } from "./pattern.ts";
 import { bundled_source_text } from "./prelude.ts";
@@ -21,6 +23,9 @@ type ImportResolution = {
   resolve_text: SourceTextResolver;
   require_module: boolean;
   bundled_only: boolean;
+  visible_name_scopes: Set<string>[];
+  type_initializer_bindings: Stmt[];
+  next_type_initializer: number;
 };
 
 const projected_const_module_imports = new WeakSet<FrontExpr>();
@@ -73,10 +78,20 @@ export function resolve_source_imports(
     resolve_text,
     require_module: false,
     bundled_only: false,
+    visible_name_scopes: [],
+    type_initializer_bindings: [],
+    next_type_initializer: 0,
   };
 
   const resolved = resolve_imports(source, base, [base.href], resolution);
-  return { ...resolved, declarations };
+  return {
+    ...resolved,
+    declarations,
+    statements: [
+      ...resolution.type_initializer_bindings,
+      ...resolved.statements,
+    ],
+  };
 }
 
 export function resolve_bundled_source_imports(source: SourceNode): SourceNode {
@@ -88,10 +103,20 @@ export function resolve_bundled_source_imports(source: SourceNode): SourceNode {
     resolve_text: () => undefined,
     require_module: false,
     bundled_only: true,
+    visible_name_scopes: [],
+    type_initializer_bindings: [],
+    next_type_initializer: 0,
   };
   const base = new URL("file:///__duck_source__.duck");
   const resolved = resolve_imports(source, base, [base.href], resolution);
-  return { ...resolved, declarations };
+  return {
+    ...resolved,
+    declarations,
+    statements: [
+      ...resolution.type_initializer_bindings,
+      ...resolved.statements,
+    ],
+  };
 }
 
 function load_source_url(
@@ -116,6 +141,9 @@ function load_source_url(
     resolve_text: (uri) => Deno.readTextFileSync(new URL(uri)),
     require_module,
     bundled_only: false,
+    visible_name_scopes: [],
+    type_initializer_bindings: [],
+    next_type_initializer: 0,
   };
 
   const resolved = resolve_imports(
@@ -124,7 +152,14 @@ function load_source_url(
     [...stack, normalized.href],
     resolution,
   );
-  return { ...resolved, declarations };
+  return {
+    ...resolved,
+    declarations,
+    statements: [
+      ...resolution.type_initializer_bindings,
+      ...resolved.statements,
+    ],
+  };
 }
 
 function validate_file_module(source: SourceNode, url: URL): void {
@@ -159,8 +194,28 @@ function resolve_imports(
   resolution: ImportResolution,
 ): SourceNode {
   const declarations = [...(source.declarations || [])];
-  const statements = source.statements.map((stmt) =>
-    resolve_statement_imports(stmt, base, stack, resolution)
+  const visible_names = new Set<string>();
+
+  for (const declaration of declarations) {
+    if (declaration.tag === "extend" || declaration.tag === "fixity") {
+      continue;
+    }
+
+    visible_names.add(declaration.name);
+  }
+
+  if (source.module !== undefined) {
+    for (const param of source.module.params) {
+      visible_names.add(param.name);
+    }
+  }
+
+  const statements = resolve_statement_list_imports(
+    source.statements,
+    base,
+    stack,
+    resolution,
+    visible_names,
   );
 
   return {
@@ -216,7 +271,30 @@ function resolve_statement_imports_untracked(
         stack,
         resolution,
       );
-      const selected_exports = direct_module_import_exports(stmt);
+
+      if (
+        stmt.kind === "const" && stmt.value.tag !== "comptime" &&
+        direct_module_import_invocation(stmt.value)
+      ) {
+        value = inherit_source_span(
+          { tag: "comptime", expr: value, implicit: true },
+          stmt.value,
+        );
+      }
+
+      let resolved_statement = { ...stmt, value };
+
+      if (
+        stmt.opens_import === true &&
+        !direct_module_import_invocation(resolved_statement.value)
+      ) {
+        resolved_statement = expand_open_import_pattern(resolved_statement);
+      }
+
+      const selected_exports = direct_module_import_exports({
+        ...resolved_statement,
+        value: stmt.value,
+      });
 
       if (selected_exports !== undefined) {
         value = project_module_call(value, selected_exports);
@@ -225,7 +303,11 @@ function resolve_statement_imports_untracked(
         projected_const_module_imports.add(value);
       }
 
-      return { ...stmt, value };
+      if (!has_source_span(value) && has_source_span(stmt.value)) {
+        value = inherit_source_span(value, stmt.value);
+      }
+
+      return { ...resolved_statement, value };
     }
 
     case "state_bind":
@@ -368,10 +450,79 @@ function resolve_statement_list_imports(
   base: URL,
   stack: string[],
   resolution: ImportResolution,
+  visible_names?: ReadonlySet<string>,
 ): Stmt[] {
-  return statements.map((stmt) =>
-    resolve_statement_imports(stmt, base, stack, resolution)
-  );
+  const resolved: Stmt[] = [];
+  const bound_names = new Set<string>();
+  let inherited_names = visible_names;
+
+  if (inherited_names === undefined) {
+    inherited_names = resolution.visible_name_scopes.at(-1);
+  }
+
+  if (inherited_names !== undefined) {
+    for (const name of inherited_names) {
+      bound_names.add(name);
+    }
+  }
+
+  for (const statement of statements) {
+    resolution.visible_name_scopes.push(bound_names);
+    let next: Stmt;
+
+    try {
+      next = resolve_statement_imports(
+        statement,
+        base,
+        stack,
+        resolution,
+      );
+    } finally {
+      resolution.visible_name_scopes.pop();
+    }
+
+    if (next.tag === "bind" && next.opens_import === true) {
+      const pattern = next.pattern;
+
+      if (pattern === undefined || pattern.tag !== "product") {
+        throw new Error("Open import is missing its expanded product pattern");
+      }
+
+      for (const binding of pattern_bindings(pattern)) {
+        if (bound_names.has(binding.name)) {
+          throw new Error(
+            "Open import binding conflicts with existing name: " +
+              binding.name,
+          );
+        }
+      }
+    }
+
+    if (next.tag === "bind") {
+      if (next.pattern === undefined) {
+        bound_names.add(next.name);
+      } else {
+        for (const binding of pattern_bindings(next.pattern)) {
+          bound_names.add(binding.name);
+        }
+      }
+    } else if (next.tag === "state_bind") {
+      if (next.value_name !== undefined) {
+        bound_names.add(next.value_name);
+      }
+    } else if (next.tag === "bind_pattern") {
+      for (const binding of next.items) {
+        bound_names.add(binding.name);
+      }
+    } else if (next.tag === "resume_dup") {
+      bound_names.add(next.left);
+      bound_names.add(next.right);
+    }
+
+    resolved.push(next);
+  }
+
+  return resolved;
 }
 
 function resolve_expression_imports(
@@ -400,6 +551,12 @@ function resolve_expression_imports_untracked(
   stack: string[],
   resolution: ImportResolution,
 ): FrontExpr {
+  const included = resolve_include_expression(expr, base, resolution);
+
+  if (included !== undefined) {
+    return included;
+  }
+
   switch (expr.tag) {
     case "import":
       return resolve_import_expression(expr, base, stack, resolution);
@@ -426,11 +583,34 @@ function resolve_expression_imports_untracked(
       };
 
     case "lam":
-    case "rec":
+    case "rec": {
+      const visible_names = new Set<string>();
+      const outer_names = resolution.visible_name_scopes.at(-1);
+
+      if (outer_names !== undefined) {
+        for (const name of outer_names) {
+          visible_names.add(name);
+        }
+      }
+
+      for (const param of expr.params) {
+        visible_names.add(param.name);
+      }
+
+      resolution.visible_name_scopes.push(visible_names);
+      let body: FrontExpr;
+
+      try {
+        body = resolve_expression_imports(expr.body, base, stack, resolution);
+      } finally {
+        resolution.visible_name_scopes.pop();
+      }
+
       return {
         ...expr,
-        body: resolve_expression_imports(expr.body, base, stack, resolution),
+        body,
       };
+    }
 
     case "app": {
       const args = expr.args.map((arg) =>
@@ -790,6 +970,45 @@ function resolve_expression_imports_untracked(
   throw new Error("@panic");
 }
 
+function resolve_include_expression(
+  expr: FrontExpr,
+  base: URL,
+  resolution: ImportResolution,
+): FrontExpr | undefined {
+  if (
+    expr.tag !== "app" || expr.func.tag !== "var" ||
+    expr.func.name !== "@include"
+  ) {
+    return undefined;
+  }
+
+  const path = expr.args[0];
+
+  if (
+    expr.args.length !== 1 || path === undefined || path.tag !== "text" ||
+    path.encoding !== undefined
+  ) {
+    throw new Error("include expects one text path literal");
+  }
+
+  const url = new URL(path.value, base);
+  let text = bundled_source_text(url.href);
+
+  if (text === undefined && resolution.bundled_only) {
+    return expr;
+  }
+
+  if (text === undefined) {
+    text = resolution.resolve_text(url.href);
+  }
+
+  if (text === undefined) {
+    throw new Error("Include dependency does not exist: " + path.value);
+  }
+
+  return { tag: "text", value: text };
+}
+
 function resolve_fields(
   fields: import("./ast.ts").Field[],
   base: URL,
@@ -841,12 +1060,25 @@ function resolve_import_expression(
       validate_file_module(parsed, url);
     }
 
-    if (!resolution.merged_uris.has(href)) {
+    const merge_declarations = !resolution.merged_uris.has(href);
+
+    if (merge_declarations) {
       resolution.merged_uris.add(href);
-      resolution.declarations.push(...(parsed.declarations || []));
     }
 
     imported = resolve_imports(parsed, url, [...stack, href], resolution);
+
+    if (merge_declarations) {
+      const declarations = carry_imported_type_initializers(
+        imported.declarations || [],
+        imported.statements,
+        href,
+        resolution,
+      );
+      resolution.declarations.push(...declarations);
+      imported = { ...imported, declarations };
+    }
+
     resolution.cache.set(href, imported);
   }
 
@@ -855,6 +1087,141 @@ function resolve_import_expression(
   }
 
   return module_value(imported.module, imported.statements);
+}
+
+function carry_imported_type_initializers(
+  declarations: Declaration[],
+  statements: Stmt[],
+  href: string,
+  resolution: ImportResolution,
+): Declaration[] {
+  const constructor_names = new Map<string, string>();
+  const rewritten: Declaration[] = [];
+
+  for (const declaration of declarations) {
+    if (
+      declaration.tag !== "type" || declaration.body.tag !== "product" ||
+      declaration.body.initializer?.tag !== "app" ||
+      declaration.body.initializer.func.tag !== "var"
+    ) {
+      rewritten.push(declaration);
+      continue;
+    }
+
+    const constructor_name = declaration.body.initializer.func.name;
+    let internal_name = constructor_names.get(constructor_name);
+
+    if (internal_name === undefined) {
+      const binding = statements.find((statement) =>
+        statement_binds_name(statement, constructor_name)
+      );
+
+      if (binding === undefined) {
+        rewritten.push(declaration);
+        continue;
+      }
+
+      internal_name = "__duck_type_initializer_" +
+        resolution.next_type_initializer.toString();
+      resolution.next_type_initializer += 1;
+      constructor_names.set(constructor_name, internal_name);
+      resolution.type_initializer_bindings.push(
+        imported_type_initializer_binding(
+          binding,
+          constructor_name,
+          internal_name,
+          href,
+        ),
+      );
+    }
+
+    rewritten.push({
+      ...declaration,
+      body: {
+        ...declaration.body,
+        initializer: {
+          ...declaration.body.initializer,
+          func: { ...declaration.body.initializer.func, name: internal_name },
+        },
+      },
+    });
+  }
+
+  return rewritten;
+}
+
+function statement_binds_name(statement: Stmt, name: string): boolean {
+  if (statement.tag !== "bind") {
+    return false;
+  }
+
+  if (statement.pattern === undefined) {
+    return statement.name === name;
+  }
+
+  return pattern_bindings(statement.pattern).some((binding) =>
+    binding.name === name
+  );
+}
+
+function imported_type_initializer_binding(
+  statement: Stmt,
+  constructor_name: string,
+  internal_name: string,
+  href: string,
+): Extract<Stmt, { tag: "bind" }> {
+  expect(
+    statement.tag === "bind",
+    "Imported type initializer " + constructor_name + " in " + href +
+      " did not resolve to a binding",
+  );
+
+  if (statement.pattern === undefined) {
+    return inherit_source_span(
+      { ...statement, name: internal_name },
+      statement,
+    );
+  }
+
+  expect(
+    statement.pattern.tag === "product",
+    "Imported type initializer " + constructor_name + " in " + href +
+      " must use a direct or module-product binding",
+  );
+  const required = new Set([constructor_name]);
+  const projected = project_required_pattern_binding(statement, required);
+  expect(
+    projected.pattern?.tag === "product",
+    "Imported type initializer " + constructor_name + " in " + href +
+      " lost its module-product binding",
+  );
+  const entries = projected.pattern.entries.map((entry) => {
+    if (entry.pattern.tag !== "binding") {
+      return entry;
+    }
+
+    if (entry.pattern.name !== constructor_name) {
+      return entry;
+    }
+
+    return {
+      ...entry,
+      pattern: { ...entry.pattern, name: internal_name },
+    };
+  });
+  let value = projected.value;
+
+  if (has_source_span(statement.value)) {
+    value = inherit_source_span(value, statement.value);
+  } else if (has_source_span(statement)) {
+    value = inherit_source_span(value, statement);
+  }
+
+  return inherit_source_span({
+    ...projected,
+    pattern: { ...projected.pattern, entries },
+    value,
+  }, statement);
 }
 
 function module_value(module: ModuleHeader, statements: Stmt[]): FrontExpr {
@@ -876,8 +1243,7 @@ function direct_module_import_exports(
 ): Set<string> | undefined {
   if (
     stmt.kind !== "const" || stmt.pattern?.tag !== "product" ||
-    stmt.value.tag !== "comptime" || stmt.value.expr.tag !== "app" ||
-    stmt.value.expr.func.tag !== "import"
+    !direct_module_import_invocation(stmt.value)
   ) {
     return undefined;
   }
@@ -893,6 +1259,116 @@ function direct_module_import_exports(
   }
 
   return exports;
+}
+
+function direct_module_import_invocation(value: FrontExpr): boolean {
+  if (value.tag === "comptime") {
+    value = value.expr;
+  }
+
+  return value.tag === "app" && value.func.tag === "import";
+}
+
+function expand_open_import_pattern(
+  statement: Extract<Stmt, { tag: "bind" }>,
+): Extract<Stmt, { tag: "bind" }> {
+  const pattern = statement.pattern;
+
+  if (pattern === undefined || pattern.tag !== "product") {
+    throw new Error("Open import requires a named product pattern");
+  }
+
+  let value = statement.value;
+
+  if (value.tag === "comptime") {
+    value = value.expr;
+  }
+
+  if (
+    value.tag !== "app" || value.func.tag !== "lam" ||
+    value.func.body.tag !== "block"
+  ) {
+    throw new Error("Open import did not resolve to a module invocation");
+  }
+
+  const final =
+    value.func.body.statements[value.func.body.statements.length - 1];
+
+  if (final?.tag !== "return" || final.value.tag !== "struct_value") {
+    throw new Error("Open import module does not return an export product");
+  }
+
+  const exceptions = new Map<string, Pattern>();
+
+  for (const entry of pattern.entries) {
+    if (entry.label === undefined) {
+      throw new Error("Open import entries require export labels");
+    }
+
+    if (
+      entry.pattern.tag !== "binding" && entry.pattern.tag !== "wildcard"
+    ) {
+      throw new Error(
+        "Open import override for " + entry.label +
+          " must rename or exclude the export",
+      );
+    }
+
+    exceptions.set(entry.label, entry.pattern);
+  }
+
+  const entries: import("./ast.ts").ProductPatternEntry[] = [];
+  const imported_names = new Set<string>();
+
+  for (const field of final.value.fields) {
+    const exception = exceptions.get(field.name);
+
+    if (exception?.tag === "wildcard") {
+      exceptions.delete(field.name);
+      continue;
+    }
+
+    let binding: Extract<Pattern, { tag: "binding" }>;
+
+    if (exception === undefined) {
+      binding = {
+        tag: "binding",
+        name: field.name,
+        mode: "default",
+        annotation: undefined,
+      };
+    } else {
+      if (exception.tag !== "binding") {
+        throw new Error(
+          "Open import override for " + field.name +
+            " must rename or exclude the export",
+        );
+      }
+
+      binding = exception;
+      exceptions.delete(field.name);
+    }
+
+    if (imported_names.has(binding.name)) {
+      throw new Error(
+        "Open import produces duplicate binding: " + binding.name,
+      );
+    }
+
+    imported_names.add(binding.name);
+    entries.push({ label: field.name, pattern: binding });
+  }
+
+  const missing = exceptions.keys().next().value;
+
+  if (missing !== undefined) {
+    throw new Error("Module dependency does not export " + missing);
+  }
+
+  return {
+    ...statement,
+    pattern: { ...pattern, entries },
+  };
 }
 
 function project_module_call(
@@ -989,6 +1465,11 @@ function project_module_statements(
     }
 
     collect_top_level_references(statement.value, bindings, required);
+    collect_top_level_references(
+      statement.attribute_groups,
+      bindings,
+      required,
+    );
     retained.push(project_required_pattern_binding(statement, required));
   }
 
@@ -1030,6 +1511,7 @@ function collect_top_level_references(
 
       if (binding !== undefined) {
         pending.push(binding.value);
+        pending.push(binding.attribute_groups);
       }
     }
 

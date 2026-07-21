@@ -290,7 +290,7 @@ base
   );
 
   const if_let_payload_linear_source = `
-type ResultType = | .ok = Text | .err = Text
+type ResultType = | \`Ok Text | \`Err Text
 const result_type = ResultType
 
 host_import print from "env.print" (I32, &Text) => I32
@@ -298,11 +298,11 @@ host_import print from "env.print" (I32, &Text) => I32
 let !io: I32 = 1
 let flag = true
 let result: result_type = if flag {
-  result_type.ok("world")
+  \`Ok ("world")
 } else {
-  result_type.err("fallback")
+  \`Err ("fallback")
 }
-let print_once = if let .ok(value) = result {
+let print_once = if let \`Ok value = result {
   () => io.print(&value)
 } else {
   () => io.print("fallback")
@@ -330,7 +330,7 @@ io
   assert_includes(Source.wat(if_let_payload_linear_source), "call $print");
 
   const runtime_if_let_payload_linear_source = `
-type ResultType = | .ok = Text | .err
+type ResultType = | \`Ok Text | \`Err Unit
 const result_type = ResultType
 
 host_import print from "env.print" (I32, &Text) => I32
@@ -338,12 +338,12 @@ host_import print from "env.print" (I32, &Text) => I32
 let !io: I32 = 1
 let flag = true
 let make = if flag {
-  (x: Text) => result_type.ok(x)
+  (x: Text) => \`Ok (x)
 } else {
-  (x: Text) => result_type.err()
+  (x: Text) => \`Err ()
 }
 let result: result_type = make("world")
-let print_once = if let .ok(value) = result {
+let print_once = if let \`Ok value = result {
   () => io.print(&value)
 } else {
   () => io.print("fallback")
@@ -2702,6 +2702,27 @@ if flag {
   );
 });
 
+Deno.test("Core assigns a fresh temporary after a conditional transfer", () => {
+  const core = Source.core(Source.parse(`
+host_import host_take from "env.take" (Text) => I32
+
+let send = (message: Text) => host_take(message)
+let flag = true
+if flag {
+  send(@append("a", "b"))
+}
+send(@append("c", "d"))
+`));
+  const proof = Core.proof(core);
+
+  assert_equals(proof.ok, true);
+  assert_equals(
+    proof.transfers.transfers.map((transfer) => transfer.owner),
+    ["temporary#0", "temporary#1"],
+  );
+  Core.check_proof(core);
+});
+
 Deno.test("Core.proof accepts host-returned owner contracts", () => {
   const host_returned_text: CoreNode = {
     tag: "program",
@@ -2870,16 +2891,16 @@ Deno.test("Core.proof accepts host-returned owner contracts", () => {
 
 Deno.test("Core transfers block-wrapped runtime union payload owners", () => {
   const source = `
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct { .age= Int }
-type ResultType = | .ok = user_type | .err
+type ResultType = | \`Ok user_type | \`Err Unit
 let seed = 41
 let user: user_type = [.age = seed] as user_type
-let result: ResultType = ResultType.ok({
+let result: ResultType = \`Ok ({
   let alias = user
   alias
 })
-if let .ok(found) = result { found.age } else { 0 }
+if let \`Ok found = result { found.age } else { 0 }
 `;
   const core = Source.core(Source.parse(source));
   const proof = Core.proof(core);
@@ -2889,7 +2910,7 @@ if let .ok(found) = result { found.age } else { 0 }
     id: "transfer#0",
     scope: "program#0",
     owner: "user",
-    callee: "union_case.ok",
+    callee: "union_case.Ok",
     argument: 0,
   }]);
   assert_equals(
@@ -2908,7 +2929,7 @@ if let .ok(found) = result { found.age } else { 0 }
         fact.alignment === 4 &&
         fact.ownership.tag === "unique_heap";
     }),
-    false,
+    true,
   );
   assert_equals(
     proof.drops.steps.map((step) => {
@@ -2919,9 +2940,9 @@ if let .ok(found) = result { found.age } else { 0 }
       };
     }),
     [{
-      owner: "user",
-      reason: "runtime_aggregate",
-      allocation_id: "allocation#0",
+      owner: "result",
+      reason: "runtime_union",
+      allocation_id: "allocation#1",
     }],
   );
   const wat = Source.wat(source);
@@ -2932,25 +2953,25 @@ if let .ok(found) = result { found.age } else { 0 }
   assert_throws(
     () =>
       Core.check_proof(Source.core(Source.parse(source.replace(
-        "if let .ok(found) = result { found.age } else { 0 }",
+        "if let `Ok found = result { found.age } else { 0 }",
         "user.age",
       )))),
     "Use of transferred owner user after ownership transfer transfer#0 to " +
-      "union_case.ok",
+      "union_case.Ok",
   );
 });
 
 Deno.test("Core proof resolves locals declared in if-let statement bodies", () => {
   const core = Source.core(Source.parse(`
-type ResultType = | .ok = Text | .err = Text
+type ResultType = | \`Ok Text | \`Err Text
 const result_type = ResultType
 let flag = true
 let result: result_type = if flag {
-  result_type.ok("yes")
+  \`Ok ("yes")
 } else {
-  result_type.err("no")
+  \`Err ("no")
 }
-if let .ok(value) = result {
+if let \`Ok value = result {
   let decorated: Text = @append(value, "!")
   freeze decorated
 }
@@ -3033,20 +3054,20 @@ Deno.test("Core keeps branch-local aggregate union payloads allocated until thei
 host_import choose from "env.choose" () => I32
 host_import seed from "env.seed" () => I32
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct { .name= Text, .age= I32 }
-type ResultType = | .ok = user_type | .err
+type ResultType = | \`Ok user_type | \`Err Unit
 const result_type = ResultType
 
 let result: result_type = if choose() {
   let chosen: user_type = [.name = @append("A", "da"), .age = seed()] as user_type
-  result_type.ok(chosen)
+  \`Ok (chosen)
 } else {
   let fallback: user_type = [.name = @append("Gr", "ace"), .age = seed()] as user_type
-  result_type.ok(fallback)
+  \`Ok (fallback)
 }
 
-if let .ok(user) = result { @len(user.name) + user.age } else { 0 }
+if let \`Ok user = result { @len(user.name) + user.age } else { 0 }
 `));
   const proof = Core.proof(core);
   const aggregate_allocations = proof.allocations.facts.filter((fact) => {
@@ -3071,19 +3092,19 @@ Deno.test("Core materializes generated bindings in scoped static calls", () => {
   const core = Source.core(Source.parse(`
 host_import seed from "env.seed" () => I32
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct { .name= Text, .age= I32 }
-type ResultType = | .ok = user_type | .err
+type ResultType = | \`Ok user_type | \`Err Unit
 const result_type = ResultType
 
 const pack = (user: user_type) => {
   let local: user_type = user
-  result_type.ok(local)
+  \`Ok (local)
 }
 
 let user: user_type = [.name = @append("A", "da"), .age = seed()] as user_type
 let result: result_type = pack(user)
-if let .ok(found) = result { @len(found.name) + found.age } else { 0 }
+if let \`Ok found = result { @len(found.name) + found.age } else { 0 }
 `));
   const proof = Core.proof(core);
   const wat = Emit.emit(Mod, Core.mod(core));

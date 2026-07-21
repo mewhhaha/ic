@@ -40,8 +40,11 @@ function validate_named_recursive_tail_expr(
     case "bool":
     case "num":
     case "text":
+    case "atom":
+    case "unit":
     case "type_name":
     case "linear":
+    case "set_type":
     case "struct_type":
     case "union_type":
     case "import":
@@ -87,6 +90,7 @@ function validate_named_recursive_tail_expr(
       return;
 
     case "product":
+    case "shape":
       for (const entry of expr.entries) {
         validate_named_recursive_tail_expr(
           name,
@@ -139,13 +143,88 @@ function validate_named_recursive_tail_expr(
       validate_named_recursive_tail_expr(name, expr.body, shadowed, false);
       return;
 
+    case "loop":
+      validate_named_recursive_tail_stmts(
+        name,
+        expr.body,
+        new Set(shadowed),
+        false,
+      );
+      return;
+
     case "captured":
       validate_named_recursive_tail_expr(name, expr.expr, shadowed, tail);
+      return;
+
+    case "handler": {
+      const state_shadowed = new Set(shadowed);
+
+      for (const state of expr.state) {
+        validate_named_recursive_tail_expr(
+          name,
+          state.value,
+          state_shadowed,
+          false,
+        );
+        if (state.name === name) {
+          state_shadowed.add(name);
+        }
+      }
+
+      for (const clause of expr.clauses) {
+        const clause_shadowed = new Set(state_shadowed);
+        for (const param of clause.params) {
+          if (param.name === name) {
+            clause_shadowed.add(name);
+          }
+        }
+        validate_named_recursive_tail_expr(
+          name,
+          clause.body,
+          clause_shadowed,
+          false,
+        );
+      }
+
+      const return_shadowed = new Set(state_shadowed);
+      if (expr.return_clause.param.name === name) {
+        return_shadowed.add(name);
+      }
+      validate_named_recursive_tail_expr(
+        name,
+        expr.return_clause.body,
+        return_shadowed,
+        false,
+      );
+      return;
+    }
+
+    case "try_with":
+      validate_named_recursive_tail_expr(name, expr.body, shadowed, false);
+      validate_named_recursive_tail_expr(name, expr.handler, shadowed, false);
       return;
 
     case "with":
       validate_named_recursive_tail_expr(name, expr.base, shadowed, false);
       validate_named_recursive_tail_fields(name, expr.fields, shadowed);
+      return;
+
+    case "type_with":
+      validate_named_recursive_tail_expr(name, expr.base, shadowed, false);
+      for (const member of expr.members) {
+        validate_named_recursive_tail_expr(
+          name,
+          member.name,
+          shadowed,
+          false,
+        );
+        validate_named_recursive_tail_expr(
+          name,
+          member.value,
+          shadowed,
+          false,
+        );
+      }
       return;
 
     case "struct_value":
@@ -210,6 +289,10 @@ function validate_named_recursive_tail_expr(
       validate_named_recursive_tail_expr(name, expr.value, shadowed, false);
       return;
 
+    case "is":
+      validate_named_recursive_tail_expr(name, expr.value, shadowed, false);
+      return;
+
     case "match":
       validate_named_recursive_tail_expr(name, expr.target, shadowed, false);
 
@@ -255,6 +338,8 @@ function validate_named_recursive_tail_expr(
       }
       return;
   }
+
+  expr satisfies never;
 }
 
 function validate_named_recursive_tail_fields(
@@ -301,6 +386,32 @@ function validate_named_recursive_tail_stmts(
       validate_named_recursive_tail_expr(name, stmt.value, shadowed, false);
 
       if (stmt.name === name) {
+        shadowed.add(name);
+      }
+      continue;
+    }
+
+    if (stmt.tag === "state_bind") {
+      validate_named_recursive_tail_expr(name, stmt.value, shadowed, false);
+      if (stmt.value_name === name) {
+        shadowed.add(name);
+      }
+      continue;
+    }
+
+    if (stmt.tag === "bind_pattern") {
+      validate_named_recursive_tail_expr(name, stmt.value, shadowed, false);
+      for (const item of stmt.items) {
+        if (item.name === name) {
+          shadowed.add(name);
+        }
+      }
+      continue;
+    }
+
+    if (stmt.tag === "resume_dup") {
+      validate_named_recursive_tail_expr(name, stmt.value, shadowed, false);
+      if (stmt.left === name || stmt.right === name) {
         shadowed.add(name);
       }
       continue;
@@ -400,7 +511,24 @@ function validate_named_recursive_tail_stmts(
 
     if (stmt.tag === "type_check") {
       validate_named_recursive_tail_expr(name, stmt.target, shadowed, false);
+      continue;
     }
+
+    if (stmt.tag === "break") {
+      if (stmt.value !== undefined) {
+        validate_named_recursive_tail_expr(name, stmt.value, shadowed, false);
+      }
+      continue;
+    }
+
+    if (
+      stmt.tag === "continue" || stmt.tag === "import" ||
+      stmt.tag === "host_import" || stmt.tag === "unsupported"
+    ) {
+      continue;
+    }
+
+    stmt satisfies never;
   }
 }
 

@@ -81,7 +81,7 @@ Deno.test("document highlights distinguish linear consumption", () => {
 });
 
 Deno.test("type definition follows nominal binding facts", () => {
-  const text = "type Pair = [.left = Int]\n" +
+  const text = "type Pair = struct {.left = Int}\n" +
     "let value: Pair = [.left = 1]\nvalue.left\n";
   const { index } = indexed(text);
   assert_equals(
@@ -202,7 +202,7 @@ for (
   const fixture of [
     {
       label: "field",
-      text: "type User = [.name = Text]\n" +
+      text: "type User = struct {.name = Text}\n" +
         "let struct { .name= Text } = User\n" +
         'let value: User = [.name = "Ada"]\nvalue.name\n',
       selected: ".name",
@@ -211,11 +211,11 @@ for (
     },
     {
       label: "union case",
-      text: "type Result = | .ok = Int\n" +
-        "let value = Result.ok(1)\n" +
-        "if let .ok(payload) = value { payload }\n",
-      selected: ".ok",
-      replacement: "success",
+      text: "type Result = `Ok Int\n" +
+        "let value = `Ok (1)\n" +
+        "if let `Ok payload = value { payload }\n",
+      selected: "`Ok",
+      replacement: "Success",
       count: 3,
     },
     {
@@ -295,7 +295,7 @@ Deno.test("rename rejects builtins, unresolved names, and capture", () => {
 });
 
 Deno.test("workspace symbols fuzzy-match declarations and members", () => {
-  const first = "type Account = [.display_name = Text]\n";
+  const first = "type Account = struct {.display_name = Text}\n";
   const second = "let calculate_total = 42\n";
   const first_index = indexed(first).index;
   const second_index = indexed(second).index;

@@ -1,6 +1,6 @@
 module (!init: Init) where
 
-const { get } = comptime import "duck:prelude/runtime" ()
+const { get } = import "duck:prelude/runtime" ()
 
 declare effect Input {
   index: () => I32

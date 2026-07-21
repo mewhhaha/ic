@@ -1,5 +1,5 @@
 import { expect } from "../../expect.ts";
-import type { FrontExpr, Stmt } from "../ast.ts";
+import type { FrontExpr, Pattern, Stmt } from "../ast.ts";
 import { expect_snake_case, is_no_demand_name } from "../names.ts";
 import { ParserHostImport } from "../parser_host_import.ts";
 
@@ -28,63 +28,195 @@ export abstract class ParserStmtControl extends ParserHostImport {
 
   protected parse_for_stmt(): Stmt {
     this.expect_name("Expected for");
-    const first = this.peek();
-    let named_binding = false;
-
-    if (first.kind === "name") {
-      const after = this.peek(1);
-      named_binding = (after.kind === "symbol" && after.text === ",") ||
-        (after.kind === "name" && after.text === "in");
-    }
-
-    if (!named_binding) {
+    if (!this.for_header_has_in()) {
       const index = this.fresh_no_demand_name();
       const start = this.parse_expr_without_postfix_block();
       this.expect_symbol("..");
       return this.parse_range_for_rest(index, start);
     }
 
-    const index = this.expect_binding_name("Expected loop index");
-    if (!is_no_demand_name(index)) {
-      expect_snake_case(index, "Loop index");
-    }
+    let index: string | undefined;
 
-    if (this.match_symbol(",")) {
-      const item = this.expect_binding_name("Expected collection item");
-      if (!is_no_demand_name(item)) {
-        expect_snake_case(item, "Collection item");
+    if (this.for_header_has_index()) {
+      index = this.expect_binding_name("Expected loop index");
+      if (!is_no_demand_name(index)) {
+        expect_snake_case(index, "Loop index");
       }
-      expect(this.match_name("in"), "Expected in");
-      const collection = this.parse_expr_without_postfix_block();
-      const body = this.parse_block();
-      expect(body.tag === "block", "Expected collection for body block");
 
-      return {
-        tag: "for_collection",
-        index,
-        item,
-        collection,
-        body: body.statements,
-      };
+      this.expect_symbol(",");
     }
 
+    const pattern = this.parse_pattern();
     expect(this.match_name("in"), "Expected in");
     const start = this.parse_expr_without_postfix_block();
 
-    if (!this.match_symbol("..")) {
-      const body = this.parse_block();
-      expect(body.tag === "block", "Expected collection for body block");
+    if (this.match_symbol("..")) {
+      expect(index === undefined, "Range loops do not have item patterns");
+      let range_index: string;
 
+      if (
+        pattern.tag === "binding" && pattern.mode === "default" &&
+        pattern.annotation === undefined &&
+        pattern.type_annotation === undefined
+      ) {
+        range_index = pattern.name;
+      } else if (
+        pattern.tag === "wildcard" && pattern.mode === "default"
+      ) {
+        range_index = this.fresh_no_demand_name();
+      } else {
+        throw new Error("Range loop index must be an unannotated binding");
+      }
+
+      return this.parse_range_for_rest(range_index, start);
+    }
+
+    const body = this.parse_block();
+    expect(body.tag === "block", "Expected collection for body block");
+    return this.collection_for_statement(
+      index,
+      pattern,
+      start,
+      body.statements,
+    );
+  }
+
+  private for_header_has_in(): boolean {
+    let parens = 0;
+    let brackets = 0;
+    let braces = 0;
+
+    for (let offset = 0;; offset += 1) {
+      const token = this.peek(offset);
+
+      if (token.kind === "eof" || token.kind === "newline") {
+        return false;
+      }
+
+      if (
+        token.kind === "name" && token.text === "in" && parens === 0 &&
+        brackets === 0 && braces === 0
+      ) {
+        return true;
+      }
+
+      if (
+        token.kind === "symbol" && token.text === ".." && parens === 0 &&
+        brackets === 0 && braces === 0
+      ) {
+        return false;
+      }
+
+      if (token.kind !== "symbol") {
+        continue;
+      }
+
+      if (token.text === "(") parens += 1;
+      if (token.text === ")") parens -= 1;
+      if (token.text === "[") brackets += 1;
+      if (token.text === "]") brackets -= 1;
+      if (token.text === "{") braces += 1;
+      if (token.text === "}") braces -= 1;
+    }
+  }
+
+  private for_header_has_index(): boolean {
+    let parens = 0;
+    let brackets = 0;
+    let braces = 0;
+
+    for (let offset = 0;; offset += 1) {
+      const token = this.peek(offset);
+
+      if (token.kind === "eof" || token.kind === "newline") {
+        return false;
+      }
+
+      if (
+        token.kind === "name" && token.text === "in" && parens === 0 &&
+        brackets === 0 && braces === 0
+      ) {
+        return false;
+      }
+
+      if (
+        token.kind === "symbol" && token.text === "," && parens === 0 &&
+        brackets === 0 && braces === 0
+      ) {
+        return true;
+      }
+
+      if (token.kind !== "symbol") {
+        continue;
+      }
+
+      if (token.text === "(") parens += 1;
+      if (token.text === ")") parens -= 1;
+      if (token.text === "[") brackets += 1;
+      if (token.text === "]") brackets -= 1;
+      if (token.text === "{") braces += 1;
+      if (token.text === "}") braces -= 1;
+    }
+  }
+
+  private collection_for_statement(
+    index: string | undefined,
+    pattern: Pattern,
+    collection: FrontExpr,
+    body: Stmt[],
+  ): Stmt {
+    if (
+      pattern.tag === "binding" && pattern.mode === "default" &&
+      pattern.annotation === undefined && pattern.type_annotation === undefined
+    ) {
       return {
         tag: "for_collection",
-        index: undefined,
-        item: index,
-        collection: start,
-        body: body.statements,
+        index,
+        item: pattern.name,
+        collection,
+        body,
       };
     }
 
-    return this.parse_range_for_rest(index, start);
+    if (pattern.tag === "wildcard" && pattern.mode === "default") {
+      return {
+        tag: "for_collection",
+        index,
+        item: this.fresh_no_demand_name(),
+        collection,
+        body,
+      };
+    }
+
+    const item = this.fresh_internal_name("for_pattern");
+    const matching_body: FrontExpr = {
+      tag: "block",
+      statements: [...body, { tag: "expr", expr: { tag: "unit" } }],
+    };
+    const filtered_body: Stmt[] = [{
+      tag: "expr",
+      expr: {
+        tag: "match",
+        target: { tag: "var", name: item },
+        arms: [
+          { pattern, guard: undefined, body: matching_body },
+          {
+            pattern: { tag: "wildcard", mode: "default" },
+            guard: undefined,
+            body: { tag: "unit" },
+          },
+        ],
+      },
+    }];
+
+    return {
+      tag: "for_collection",
+      index,
+      item,
+      pattern,
+      collection,
+      body: filtered_body,
+    };
   }
 
   private parse_range_for_rest(index: string, start: FrontExpr): Stmt {

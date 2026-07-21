@@ -52,7 +52,9 @@ export function consume_scratch_alloc(
   });
 }
 
-export function runtime_allocator_funcs(): Record<string, Func> {
+export function runtime_allocator_funcs(
+  heap_start: number,
+): Record<string, Func> {
   return {
     [allocator_alloc]: {
       name: allocator_alloc,
@@ -175,6 +177,13 @@ export function runtime_allocator_funcs(): Record<string, Func> {
       body: [
         "local.get $ptr",
         "i32.eqz",
+        "if",
+        "  i32.const 0",
+        "  return",
+        "end",
+        "local.get $ptr",
+        "i32.const " + heap_start.toString(),
+        "i32.lt_u",
         "if",
         "  i32.const 0",
         "  return",

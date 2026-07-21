@@ -60,10 +60,15 @@ export abstract class ParserExpr extends ParserPrimary {
       this.expect_name("Expected rec");
       const pattern = this.parse_pattern();
       this.expect_symbol("=>");
+      const params = pattern_params(pattern, source_offset);
+      expect(
+        params.every((param) => param.is_variadic !== true),
+        "Recursive functions do not support variadic parameters",
+      );
       return {
         tag: "rec",
         pattern,
-        params: pattern_params(pattern, source_offset),
+        params,
         body: this.parse_arrow_body(pattern),
       };
     }
@@ -126,7 +131,35 @@ export abstract class ParserExpr extends ParserPrimary {
     let previous_fixity: InfixFixity | undefined;
 
     while (true) {
-      const token = this.peek();
+      let token = this.peek();
+
+      if (token.kind === "newline" && token.raw !== ";") {
+        let offset = 0;
+
+        while (
+          this.peek(offset).kind === "newline" &&
+          this.peek(offset).raw !== ";"
+        ) {
+          offset += 1;
+        }
+
+        const continuation = this.peek(offset);
+        const continues_with_type_operator = continuation.kind === "name" &&
+          (continuation.text === "is" || continuation.text === "as");
+        const continues_with_infix = continuation.kind === "symbol" &&
+          is_operator_symbol(continuation.text) &&
+          this.infix_fixity(continuation.text) !== undefined;
+
+        if (!continues_with_type_operator && !continues_with_infix) {
+          break;
+        }
+
+        for (let skipped = 0; skipped < offset; skipped += 1) {
+          this.advance();
+        }
+        token = this.peek();
+      }
+
       const type_operator = token.kind === "name" &&
         (token.text === "is" || token.text === "as");
 
@@ -323,7 +356,12 @@ export abstract class ParserExpr extends ParserPrimary {
       }
 
       if (!this.match_name("with")) {
-        throw this.error("Expected with after try expression");
+        return {
+          tag: "try_with",
+          body,
+          handler: { tag: "unit" },
+          infer_default_handlers: true,
+        };
       }
 
       return { tag: "try_with", body, handler: this.parse_expr() };
@@ -481,10 +519,18 @@ export abstract class ParserExpr extends ParserPrimary {
       expr = this.apply_unary_product(expr, arg);
     }
 
+    if (expr.tag === "union_case" && expr.value === undefined) {
+      throw this.error("Union constructor `" + expr.name + " requires a value");
+    }
+
     return expr;
   }
 
   private apply_unary_product(func: FrontExpr, arg: FrontExpr): FrontExpr {
+    if (func.tag === "union_case" && func.value === undefined) {
+      return { ...func, value: arg };
+    }
+
     if (func.tag !== "var" || !func.name.startsWith("@wasm.")) {
       if (arg.tag === "unit") {
         return { tag: "app", func, arg, args: [] };
@@ -533,7 +579,8 @@ export abstract class ParserExpr extends ParserPrimary {
     }
 
     return token.kind === "symbol" &&
-      (token.text === "(" || token.text === "[" || token.text === "." ||
+      (token.text === "(" || token.text === "[" || token.text === "`" ||
+        token.text === "." || token.text === "!" ||
         token.text === "#" || token.text === "@" ||
         (token.text === "{" && this.is_shape_literal()));
   }
@@ -549,6 +596,17 @@ export abstract class ParserExpr extends ParserPrimary {
 
     while (true) {
       if (this.match_symbol("(")) {
+        if (expr.tag === "union_case" && expr.value === undefined) {
+          if (this.has_whitespace_before_previous_token()) {
+            this.index -= 1;
+            break;
+          }
+
+          throw this.error(
+            "Union constructor application uses `" + expr.name + " value",
+          );
+        }
+
         const call = this.parse_parenthesized_call();
         expr = { tag: "app", func: expr, arg: call.arg, args: call.args };
       } else if (this.match_symbol(".")) {
@@ -556,8 +614,6 @@ export abstract class ParserExpr extends ParserPrimary {
         const name = this.expect_name("Expected field name");
 
         if (!/^[A-Z][A-Za-z0-9]*$/.test(name)) {
-          expect_snake_case(name, "Field");
-        } else if (expr.tag !== "var" || !/^[A-Z]/.test(expr.name)) {
           expect_snake_case(name, "Field");
         }
 
@@ -638,6 +694,17 @@ export abstract class ParserExpr extends ParserPrimary {
     }
 
     return previous.span.end < this.peek().span.start;
+  }
+
+  private has_whitespace_before_previous_token(): boolean {
+    const previous = this.tokens[this.index - 2];
+    const current = this.tokens[this.index - 1];
+
+    if (previous === undefined || current === undefined) {
+      return false;
+    }
+
+    return previous.span.end < current.span.start;
   }
 }
 
@@ -741,6 +808,10 @@ function pattern_params(pattern: Pattern, source_offset: number): Param[] {
         annotation: binding.annotation,
       };
 
+      if (binding.is_variadic === true) {
+        param.is_variadic = true;
+      }
+
       if (binding.type_annotation) {
         param.type_annotation = binding.type_annotation;
       }
@@ -784,6 +855,10 @@ function product_pattern_params(
   source_offset: number,
   ignored: { next: number },
 ): Param[] {
+  expect(
+    pattern.rest === undefined,
+    "Value-pack rest patterns are not supported as function parameters; use match",
+  );
   const params: Param[] = [];
 
   for (const entry of pattern.entries) {
@@ -794,6 +869,10 @@ function product_pattern_params(
         is_linear: entry.pattern.mode === "linear",
         annotation: entry.pattern.annotation,
       };
+
+      if (entry.pattern.is_variadic === true) {
+        param.is_variadic = true;
+      }
 
       if (entry.pattern.type_annotation !== undefined) {
         param.type_annotation = entry.pattern.type_annotation;

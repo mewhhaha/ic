@@ -1,6 +1,6 @@
 import { expect } from "../expect.ts";
 import type { FrontExpr, Token } from "./ast.ts";
-import { i32_expr, parse_number_expr } from "./numeric.ts";
+import { parse_number_expr } from "./numeric.ts";
 
 export function front_literal_expr(token: Token): FrontExpr | undefined {
   if (token.kind === "number") {
@@ -14,7 +14,12 @@ export function front_literal_expr(token: Token): FrontExpr | undefined {
   if (token.kind === "character") {
     const code_point = token.text.codePointAt(0);
     expect(code_point !== undefined, "Missing character literal code point");
-    return i32_expr(code_point);
+    return {
+      tag: "num",
+      type: "i32",
+      value: code_point,
+      character: token.text,
+    };
   }
 
   if (token.kind === "name" && token.text === "true") {
@@ -26,4 +31,22 @@ export function front_literal_expr(token: Token): FrontExpr | undefined {
   }
 
   return undefined;
+}
+
+export function format_character_literal(value: string): string {
+  let escaped = value;
+
+  if (value === "\n") {
+    escaped = "\\n";
+  } else if (value === "\t") {
+    escaped = "\\t";
+  } else if (value === "\r") {
+    escaped = "\\r";
+  } else if (value === "'") {
+    escaped = "\\'";
+  } else if (value === "\\") {
+    escaped = "\\\\";
+  }
+
+  return "'" + escaped + "'";
 }

@@ -85,6 +85,7 @@ Deno.test("Bool uses four-byte layouts and scalar host contracts", () => {
     params: [],
     operations: [{
       name: "choose",
+      type_params: [],
       params: [{ type_name: "Bool", ownership: "scalar" }],
       result: { type_name: "Bool", ownership: "scalar" },
     }],
@@ -141,9 +142,10 @@ identity(true)
 
 Deno.test("direct and chained Bool aliases type aggregate fields", () => {
   const wat = Source.wat(`
+const { struct } = import "duck:prelude" ()
 type Flag = Bool
 type Ready = Flag
-type Box = [.direct = Flag, .chained = Ready]
+type Box = struct {.direct = Flag, .chained = Ready}
 let box: Box = [.direct = true, .chained = false]
 box.direct
 `);
@@ -154,9 +156,10 @@ box.direct
 
 Deno.test("direct and chained I32 aliases type aggregate fields", () => {
   const wat = Source.wat(`
+const { struct } = import "duck:prelude" ()
 type Count = I32
 type Total = Count
-type Box = [.direct = Count, .chained = Total]
+type Box = struct {.direct = Count, .chained = Total}
 let box: Box = [.direct = 40, .chained = 2]
 box.direct + box.chained
 `);
@@ -167,9 +170,10 @@ box.direct + box.chained
 
 Deno.test("direct and chained I64 aliases type aggregate fields", () => {
   const wat = Source.wat(`
+const { struct } = import "duck:prelude" ()
 type Wide = I64
 type Wider = Wide
-type Box = [.direct = Wide, .chained = Wider]
+type Box = struct {.direct = Wide, .chained = Wider}
 let box: Box = [.direct = 40i64, .chained = 2i64]
 box.direct + box.chained
 `);
@@ -180,9 +184,10 @@ box.direct + box.chained
 
 Deno.test("Bool aliases resolve in aggregate type patterns", () => {
   const wat = Source.wat(`
+const { struct } = import "duck:prelude" ()
 type Flag = Bool
 type Ready = Flag
-type Box = [.direct = Flag, .chained = Ready]
+type Box = struct {.direct = Flag, .chained = Ready}
 let struct { .direct= Flag, .chained= Ready } = Box
 0
 `);
@@ -208,9 +213,11 @@ Deno.test("managed ABI resolves Bool aliases to i32", () => {
   const artifact = Source.artifact(`
 module (!init: Init) where
 
+const { struct } = import "duck:prelude" ()
+
 type Flag = Bool
 type Ready = Flag
-type Result = [.flag = Ready]
+type Result = struct {.flag = Ready}
 declare effect Host { get: () => Result }
 declare Init { host: Host }
 
@@ -232,10 +239,12 @@ Deno.test("managed effects use scalar ownership for Bool aliases", () => {
   const artifact = Source.artifact(`
 module (!init: Init) where
 
+const { struct } = import "duck:prelude" ()
+
 type Flag = Bool
 type Ready = Flag
 declare effect Gate { choose: (Ready) => Flag }
-type Init = [.gate = Gate]
+type Init = struct {.gate = Gate}
 
 value <- Gate.choose true
 return { .value = value }
@@ -257,10 +266,12 @@ Deno.test("managed Bool alias parameters reject I32 arguments", () => {
       Source.artifact(`
 module (!init: Init) where
 
+const { struct } = import "duck:prelude" ()
+
 type Flag = Bool
 type Ready = Flag
 declare effect Gate { choose: (Ready) => Flag }
-type Init = [.gate = Gate]
+type Init = struct {.gate = Gate}
 
 value <- Gate.choose 1
 return { .value = value }

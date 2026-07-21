@@ -56,8 +56,10 @@ export function ensure_lifted_closure<ctx extends CoreClosureEmitCtx>(
     frozen_locals: clone_optional_set(ctx.frozen_locals),
     materialized_bindings: clone_optional_set(ctx.materialized_bindings),
     host_imports: clone_core_host_imports(ctx.host_imports),
+    allocation_permits: ctx.allocation_permits,
   };
 
+  closures.allocation_permit_states.add(ctx.allocation_permits);
   closures.by_lam.set(expr, lift);
   closures.lifts.push(lift);
   closures.table_elements.push(func_name);
@@ -177,6 +179,8 @@ function same_closure_fn_type(left: CoreFnType, right: CoreFnType): boolean {
     const right_struct = right.param_structs?.[index];
     const left_union = left.param_unions?.[index];
     const right_union = right.param_unions?.[index];
+    const left_fn = left.param_fns?.[index];
+    const right_fn = right.param_fns?.[index];
 
     if (left_param !== right_param) {
       return false;
@@ -196,6 +200,16 @@ function same_closure_fn_type(left: CoreFnType, right: CoreFnType): boolean {
 
     if (!same_runtime_union_type_expr(left_union, right_union)) {
       return false;
+    }
+
+    if (left_fn || right_fn) {
+      if (!left_fn || !right_fn) {
+        return false;
+      }
+
+      if (!same_closure_fn_type(left_fn, right_fn)) {
+        return false;
+      }
     }
   }
 

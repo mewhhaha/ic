@@ -1,9 +1,9 @@
-const { struct } = comptime import "duck:prelude" ()
-const { length } = comptime import "duck:prelude/runtime" ()
+const { struct } = import "duck:prelude" ()
+const { length } = import "duck:prelude/runtime" ()
 
 type Point = struct { .x = Int, .y = Int }
 type Pixels = [Int; 2]
-type Shape = | .point = Point | .code = Int
+type Shape = | `Point Point | `Code Int
 
 const fold = rec (values, index, state, next) => {
   if index == length(values) {
@@ -89,8 +89,8 @@ const derive_equal = rec (const target) => {
 const equal_shape = comptime derive_equal(Shape)
 const equal_pixels = comptime derive_equal(Pixels)
 
-let left: Shape = Shape.point [20, 22]
-let right: Shape = Shape.point [20, 22]
+let left: Shape = `Point [.x = 20, .y = 22]
+let right: Shape = `Point [.x = 20, .y = 22]
 let pixel_left: Pixels = [20, 22]
 let pixel_right: Pixels = [20, 22]
 

@@ -33,6 +33,7 @@ export function create_core_backend_closure_emit(
   const closure_emit_hooks = {
     check_closure_call_args: closure_type.check_closure_call_args,
     closure_fn_type: closure_type.closure_fn_type,
+    closure_fn_type_with_expected: closure_type.closure_fn_type_with_expected,
     collect_expr_locals: api.collect_expr_locals,
     core_lam_capture_names: capture.core_lam_capture_names,
     create_lifted_body_ctx: api.create_lifted_body_ctx,

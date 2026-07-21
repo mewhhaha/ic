@@ -1,6 +1,33 @@
-import type { Field, Param, Pattern, TypeField, TypePattern } from "../ast.ts";
+import type {
+  AttributeGroup,
+  Field,
+  FrontExpr,
+  Param,
+  Pattern,
+  TypeField,
+  TypePattern,
+} from "../ast.ts";
+import { format_character_literal } from "../literal.ts";
 import { format_binding_name } from "../names.ts";
 import { format_type_expr } from "../type_expr.ts";
+
+export function format_attribute_groups(
+  groups: AttributeGroup[] | undefined,
+  format_expr: (expr: FrontExpr) => string,
+): string {
+  if (groups === undefined) {
+    return "";
+  }
+
+  return groups.map((group) => {
+    if (group.multiline === true) {
+      return "@[\n  " + group.attributes.map(format_expr).join(",\n  ") +
+        ",\n]";
+    }
+
+    return "@[" + group.attributes.map(format_expr).join(", ") + "]";
+  }).join("\n") + "\n";
+}
 
 export function format_field(
   field: Field,
@@ -35,6 +62,10 @@ export function format_params(params: Param[]): string {
       text += "!";
     }
 
+    if (param.is_variadic === true) {
+      text += "...";
+    }
+
     text += format_binding_name(param.name);
 
     if (param.type_annotation) {
@@ -55,6 +86,10 @@ export function format_pattern(pattern: Pattern): string {
       text += "const ";
     } else if (pattern.mode === "linear") {
       text += "!";
+    }
+
+    if (pattern.is_variadic === true) {
+      text += "...";
     }
 
     text += format_binding_name(pattern.name);
@@ -87,6 +122,12 @@ export function format_pattern(pattern: Pattern): string {
 
     if (pattern.value.tag === "atom") {
       return "#" + pattern.value.name;
+    }
+
+    if (
+      pattern.value.tag === "num" && pattern.value.character !== undefined
+    ) {
+      return format_character_literal(pattern.value.character);
     }
 
     if (pattern.value.tag === "num" && pattern.value.type === "i64") {
@@ -123,10 +164,12 @@ export function format_pattern(pattern: Pattern): string {
   }
 
   if (pattern.tag === "union_case") {
-    let text = "." + pattern.name;
+    let text = "`" + pattern.name;
 
     if (pattern.value) {
       text += " " + format_pattern(pattern.value);
+    } else {
+      text += " ()";
     }
 
     return text;
@@ -150,6 +193,11 @@ export function format_pattern(pattern: Pattern): string {
 
       return text;
     });
+
+    if (pattern.rest !== undefined) {
+      entries.push("..." + format_pattern(pattern.rest));
+    }
+
     if (
       pattern.entries.length > 0 &&
       pattern.entries.every((entry) => entry.label !== undefined)

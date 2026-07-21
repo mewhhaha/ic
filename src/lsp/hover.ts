@@ -442,6 +442,10 @@ function editor_expr_type_name(
   }
 
   if (expr.tag === "num") {
+    if (expr.character !== undefined) {
+      return "Char";
+    }
+
     if (expr.type === "i64") {
       return "I64";
     }

@@ -1,4 +1,4 @@
-const { identity } = comptime import "duck:prelude/functional" ()
+const { identity } = import "duck:prelude/functional" ()
 
 const apply_identity: (forall value.value -> value) -> I32 =
   (const identity) => if identity(true) {

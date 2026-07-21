@@ -4,6 +4,7 @@ import type {
   ResumeSignature,
   TypeExpr,
   TypeField,
+  TypeLiteral,
   TypePattern,
 } from "../type_syntax.ts";
 
@@ -14,6 +15,7 @@ export type {
   ResumeSignature,
   TypeExpr,
   TypeField,
+  TypeLiteral,
   TypePattern,
   TypeProductEntry,
 } from "../type_syntax.ts";
@@ -29,13 +31,21 @@ export type ModuleHeader = {
   params: Param[];
 };
 
+export type AttributeGroup = {
+  attributes: FrontExpr[];
+  multiline?: true;
+};
+
 export type Declaration =
-  | EffectDeclaration
-  | RecordDeclaration
-  | TypeDeclaration
-  | DuckDeclaration
-  | ExtensionDeclaration
-  | FixityDeclaration;
+  & (
+    | EffectDeclaration
+    | RecordDeclaration
+    | TypeDeclaration
+    | DuckDeclaration
+    | ExtensionDeclaration
+    | FixityDeclaration
+  )
+  & { attribute_groups?: AttributeGroup[] };
 
 export type DuckDeclaration = {
   tag: "duck";
@@ -80,11 +90,13 @@ export type EffectDeclaration = {
   implementation: "host" | "duck";
   name: string;
   params: string[];
+  type_arguments?: { name: string; type_name: string }[];
   operations: EffectOperation[];
 };
 
 export type EffectOperation = {
   name: string;
+  type_params: string[];
   execution?: "synchronous" | "suspending";
   params: EffectParam[];
   result: EffectResult;
@@ -138,22 +150,14 @@ export type EffectRef = {
 
 export type PatternMode = "default" | "const" | "linear";
 
-export type PatternLiteral =
-  | { tag: "bool"; value: boolean }
-  | {
-    tag: "num";
-    type: NumType;
-    value: number | bigint;
-    integer?: IntegerType;
-  }
-  | { tag: "text"; value: string }
-  | { tag: "atom"; name: string };
+export type PatternLiteral = TypeLiteral | { tag: "atom"; name: string };
 
 export type Pattern =
   | {
     tag: "binding";
     name: string;
     mode: PatternMode;
+    is_variadic?: true;
     annotation: string | undefined;
     type_annotation?: TypeExpr;
   }
@@ -165,7 +169,12 @@ export type Pattern =
   | { tag: "type"; pattern: TypePattern }
   | { tag: "or"; alternatives: Pattern[] }
   | { tag: "union_case"; name: string; value: Pattern | undefined }
-  | { tag: "product"; entries: ProductPatternEntry[]; value_pack?: true }
+  | {
+    tag: "product";
+    entries: ProductPatternEntry[];
+    rest?: Pattern;
+    value_pack?: true;
+  }
   | { tag: "record"; fields: RecordPatternField[]; rest: Pattern | undefined }
   | { tag: "array"; items: Pattern[]; rest: Pattern | undefined };
 
@@ -216,6 +225,7 @@ export type Stmt =
   | {
     tag: "bind";
     kind: "let" | "const";
+    opens_import?: true;
     pattern?: Pattern;
     name: string;
     is_recursive?: boolean;
@@ -225,6 +235,7 @@ export type Stmt =
     type_annotation?: TypeExpr;
     effectful?: boolean;
     mutual?: RecursiveBinding[];
+    attribute_groups?: AttributeGroup[];
     value: FrontExpr;
   }
   | {
@@ -258,6 +269,7 @@ export type Stmt =
     tag: "for_collection";
     index: string | undefined;
     item: string;
+    pattern?: Pattern;
     collection: FrontExpr;
     body: Stmt[];
   }
@@ -282,6 +294,7 @@ export type FrontExpr =
     tag: "num";
     type: NumType;
     value: number | bigint;
+    character?: string;
     integer?: IntegerType;
   }
   | { tag: "atom"; name: string }
@@ -290,7 +303,12 @@ export type FrontExpr =
   | { tag: "type_name"; name: string }
   | { tag: "var"; name: string; resume_signature?: ResumeSignature }
   | { tag: "prim"; prim: Prim; left: FrontExpr; right: FrontExpr }
-  | { tag: "lam"; pattern?: Pattern; params: Param[]; body: FrontExpr }
+  | {
+    tag: "lam";
+    pattern?: Pattern;
+    params: Param[];
+    body: FrontExpr;
+  }
   | { tag: "rec"; pattern?: Pattern; params: Param[]; body: FrontExpr }
   | {
     tag: "app";
@@ -299,6 +317,7 @@ export type FrontExpr =
     args: FrontExpr[];
     resume_payload?: boolean;
     operator_syntax?: OperatorSyntax;
+    effect_type_arguments?: { name: string; type_name: string }[];
   }
   | { tag: "product"; entries: ProductExprEntry[]; value_pack?: true }
   | { tag: "shape"; entries: ProductExprEntry[] }
@@ -324,7 +343,13 @@ export type FrontExpr =
     clauses: HandlerClause[];
     return_clause: HandlerReturnClause;
   }
-  | { tag: "try_with"; body: FrontExpr; handler: FrontExpr }
+  | {
+    tag: "try_with";
+    body: FrontExpr;
+    handler: FrontExpr;
+    handler_output_type?: string;
+    infer_default_handlers?: true;
+  }
   | { tag: "with"; base: FrontExpr; fields: Field[] }
   | { tag: "type_with"; base: FrontExpr; members: ComputedTypeMember[] }
   | { tag: "set_type"; type_expr: TypeExpr }
@@ -357,9 +382,10 @@ export type FrontExpr =
     tag: "field";
     object: FrontExpr;
     name: string;
+    move?: true;
     resume_signature?: ResumeSignature;
   }
-  | { tag: "index"; object: FrontExpr; index: FrontExpr }
+  | { tag: "index"; object: FrontExpr; index: FrontExpr; move?: true }
   | { tag: "is"; value: FrontExpr; type_expr: TypeExpr }
   | { tag: "as"; value: FrontExpr; type_expr: TypeExpr }
   | { tag: "match"; target: FrontExpr; arms: MatchArm[] }
@@ -396,6 +422,7 @@ export type Param = {
   name: string;
   is_const: boolean;
   is_linear: boolean;
+  is_variadic?: true;
   annotation: string | undefined;
   type_annotation?: TypeExpr;
 };
@@ -445,6 +472,7 @@ export type FrontHostImport = {
 export type FrontType =
   | { tag: "never" }
   | { tag: "bool" }
+  | { tag: "char" }
   | { tag: "int"; type: NumType | undefined; integer?: IntegerType }
   | { tag: "wide_int"; integer: IntegerType }
   | { tag: "f32x4" }

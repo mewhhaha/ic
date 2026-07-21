@@ -14,7 +14,7 @@ let run = () => {
 `;
 
 const stored_resume_source = `
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const resume_box_type = struct {
   .resume= Resume
 }

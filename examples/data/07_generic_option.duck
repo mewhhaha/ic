@@ -1,9 +1,9 @@
-type Option t = | .some = t | .none
+type Option t = | `Some t | `None Unit
 
 type IntOption = Option Int
-let value = IntOption.some(41)
+let value = `Some (41)
 
-if let .some(found) = value {
+if let `Some found = value {
   found + 1
 } else {
   0

@@ -184,9 +184,15 @@ function field_owner_result_for_block<ctx>(
   aliases: CoreBorrowAliases,
 ): CoreFieldBorrowOwner | undefined {
   const block_aliases = clone_borrow_aliases(aliases);
+  let block_ctx = ctx;
+
+  if (hooks.block_ctx && hooks.collect_stmt_locals) {
+    block_ctx = hooks.block_ctx(ctx);
+  }
+
   const result = update_block_field_aliases_for_result(
     value.statements,
-    ctx,
+    block_ctx,
     hooks,
     block_aliases,
   );
@@ -195,7 +201,7 @@ function field_owner_result_for_block<ctx>(
     return undefined;
   }
 
-  return field_owner_result_for_value(result, ctx, hooks, block_aliases);
+  return field_owner_result_for_value(result, block_ctx, hooks, block_aliases);
 }
 
 function update_block_field_aliases_for_result<ctx>(
@@ -216,6 +222,14 @@ function update_block_field_aliases_for_result<ctx>(
     }
 
     update_field_aliases_for_stmt(stmt, ctx, hooks, aliases);
+
+    if (core_stmt_definitely_exits_sequence(stmt)) {
+      return undefined;
+    }
+
+    if (hooks.collect_stmt_locals) {
+      hooks.collect_stmt_locals(stmt, ctx);
+    }
   }
 
   const final_stmt = statements[statements.length - 1];

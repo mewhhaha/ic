@@ -432,7 +432,13 @@ export abstract class ParserAggregate extends ParserParams {
       const name_token = this.peek();
       const name = this.expect_name("Expected type pattern field name");
       const field_start = this.index - 2;
-      expect_snake_case(name, "Type pattern field");
+      if (kind === "union") {
+        if (!/^[A-Z][A-Za-z0-9]*$/.test(name)) {
+          throw new Error("Union case must use PascalCase: " + name);
+        }
+      } else {
+        expect_snake_case(name, "Type pattern field");
+      }
       this.expect_symbol("=");
       const annotation = this.consume_type_field_annotation();
       const field = { name, type_name: annotation.text };
@@ -474,7 +480,7 @@ export abstract class ParserAggregate extends ParserParams {
         if (token.text === ")") parens -= 1;
       }
 
-      if (token.kind === "name") {
+      if (token.kind === "name" && token.text !== "_") {
         this.expect_type_reference_name(token.text, "Field type annotation");
       }
 

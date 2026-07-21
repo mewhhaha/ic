@@ -1,4 +1,4 @@
-const { length } = comptime import "duck:prelude/runtime" ()
+const { length } = import "duck:prelude/runtime" ()
 
 let total = scratch {
   let message = "temporary"

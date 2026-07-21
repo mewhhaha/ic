@@ -33,6 +33,7 @@ export function core_ownership_hooks(
     core_expr_is_text: backend.text.core_expr_is_text,
     dynamic_union_if: backend.union.dynamic_union_if,
     expr_type: backend.expr_type.expr_type,
+    borrowed_local: core_borrowed_local,
     frozen_local: core_frozen_local,
     host_import_result_ownership: core_host_import_result_ownership,
     if_let_branch_ctx: create_child_core_ctx,
@@ -238,6 +239,14 @@ function core_frozen_local(name: string, ctx: CoreCtx): boolean {
   return ctx.frozen_locals.has(name);
 }
 
+function core_borrowed_local(name: string, ctx: CoreCtx): boolean {
+  if (!ctx.borrowed_locals) {
+    return false;
+  }
+
+  return ctx.borrowed_locals.has(name);
+}
+
 function core_cleanup_closure_body_ctx(
   backend: CoreBackendGraph,
   expr: Extract<CoreExpr, { tag: "lam" | "rec" }>,
@@ -278,6 +287,15 @@ function core_runtime_aggregate_ownership_probe_error(
   if (
     error.message.startsWith(
       "Core first-class closure parameter must use a scalar annotation:",
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    error.message.startsWith(
+      "First-class closure ownership-qualified parameter annotations are " +
+        "not supported yet:",
     )
   ) {
     return true;

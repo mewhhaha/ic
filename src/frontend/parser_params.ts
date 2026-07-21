@@ -135,9 +135,28 @@ export class ParserParams extends ParserCursor {
     }
 
     if (mode !== "default") {
-      return this.parse_binding_pattern(mode);
+      const is_variadic = this.match_rest_prefix();
+      expect(
+        !is_variadic || mode === "const",
+        "Variadic parameters must be const",
+      );
+      const pattern = this.parse_binding_pattern(mode);
+
+      if (is_variadic) {
+        expect(
+          pattern.tag === "binding",
+          "Variadic parameter requires a binding name",
+        );
+        pattern.is_variadic = true;
+      }
+
+      return pattern;
     }
 
+    expect(
+      !this.match_rest_prefix(),
+      "Variadic parameters must be const",
+    );
     const token = this.peek();
     const literal = front_literal_expr(token);
 
@@ -179,14 +198,17 @@ export class ParserParams extends ParserCursor {
       return { tag: "literal", value: { tag: "atom", name } };
     }
 
-    if (this.match_symbol(".")) {
+    if (this.match_symbol("`")) {
       const name = this.expect_name("Expected union case pattern name");
-      expect_snake_case(name, "Union case pattern");
-      let value: Pattern | undefined;
-
-      if (this.starts_union_pattern_payload()) {
-        value = this.parse_pattern_inner();
-      }
+      expect(
+        /^[A-Z][A-Za-z0-9]*$/.test(name),
+        "Union case pattern must use PascalCase: " + name,
+      );
+      expect(
+        this.starts_union_pattern_payload(),
+        "Union case pattern `" + name + " requires a value",
+      );
+      const value = this.parse_pattern_inner();
 
       return { tag: "union_case", name, value };
     }
@@ -242,7 +264,7 @@ export class ParserParams extends ParserCursor {
     }
 
     return token.kind === "symbol" &&
-      (token.text === "!" || token.text === "." || token.text === "(" ||
+      (token.text === "!" || token.text === "`" || token.text === "(" ||
         token.text === "[" || token.text === "{" || token.text === "#");
   }
 
@@ -305,16 +327,40 @@ export class ParserParams extends ParserCursor {
       return first.pattern;
     }
 
+    expect(
+      first.pattern.tag !== "binding" ||
+        first.pattern.is_variadic !== true,
+      "Variadic parameter must be the only parameter",
+    );
+
     this.expect_symbol(",");
     this.skip_newlines();
+    let rest: Pattern | undefined;
 
     while (true) {
+      if (this.match_rest_prefix()) {
+        expect(
+          entries.length === 1,
+          "Value-pack split pattern accepts one leading entry",
+        );
+        rest = this.parse_pattern();
+        this.skip_newlines();
+        this.expect_symbol(")");
+        break;
+      }
+
       const entry = this.parse_product_pattern_entry();
       expect(
         entry.label === undefined,
         "Product patterns use `[...]`; parentheses only group named entries",
       );
       entries.push(entry);
+
+      expect(
+        entry.pattern.tag !== "binding" ||
+          entry.pattern.is_variadic !== true,
+        "Variadic parameter must be the only parameter",
+      );
 
       if (this.match_symbol(")")) {
         break;
@@ -324,7 +370,7 @@ export class ParserParams extends ParserCursor {
       this.skip_newlines();
     }
 
-    return { tag: "product", entries, value_pack: true };
+    return { tag: "product", entries, rest, value_pack: true };
   }
 
   private parse_product_pattern_entry(): import("./ast.ts").ProductPatternEntry {
@@ -456,6 +502,11 @@ export class ParserParams extends ParserCursor {
   protected parse_param(): Param {
     const start = this.index;
     const is_const = this.match_name("const");
+    const is_variadic = this.match_rest_prefix();
+    expect(
+      !is_variadic || is_const,
+      "Variadic parameters must be const",
+    );
     const is_linear = this.match_symbol("!");
     const name = this.expect_binding_name("Expected parameter name");
     let param_label = "Parameter";
@@ -488,6 +539,10 @@ export class ParserParams extends ParserCursor {
     }
 
     const param: Param = { name, is_const, is_linear, annotation };
+
+    if (is_variadic) {
+      param.is_variadic = true;
+    }
 
     if (type_annotation) {
       param.type_annotation = type_annotation;

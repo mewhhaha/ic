@@ -1,11 +1,17 @@
 import { expect } from "../expect.ts";
 import type { CoreExpr, CoreFnType } from "./ast.ts";
+import {
+  format_type_expr,
+  parse_type_expr,
+  tokenize,
+} from "./from_source/type_contract.ts";
 
 export type CoreLocalFactCtx = {
   fn_types: Map<string, CoreFnType>;
   text_locals: Set<string>;
   struct_locals: Map<string, CoreExpr>;
   union_locals: Map<string, CoreExpr>;
+  borrowed_locals?: Set<string>;
   frozen_locals?: Set<string>;
 };
 
@@ -37,6 +43,43 @@ export type CoreLocalFactHooks<ctx extends CoreLocalFactCtx> = {
     ctx: ctx,
   ) => CoreExpr | undefined;
 };
+
+export function core_expr_is_borrowed(
+  value: CoreExpr,
+  ctx: Pick<CoreLocalFactCtx, "borrowed_locals">,
+): boolean {
+  if (value.tag === "borrow") {
+    return true;
+  }
+
+  if (value.tag === "var" || value.tag === "linear") {
+    return ctx.borrowed_locals?.has(value.name) === true;
+  }
+
+  if (value.tag === "field" || value.tag === "index") {
+    return core_expr_is_borrowed(value.object, ctx);
+  }
+
+  return false;
+}
+
+export function bind_core_borrowed_fact(
+  name: string,
+  annotation: string | undefined,
+  value: CoreExpr,
+  ctx: Pick<CoreLocalFactCtx, "borrowed_locals">,
+): void {
+  if (!ctx.borrowed_locals) {
+    return;
+  }
+
+  if (annotation?.startsWith("&") || core_expr_is_borrowed(value, ctx)) {
+    ctx.borrowed_locals.add(name);
+    return;
+  }
+
+  ctx.borrowed_locals.delete(name);
+}
 
 export function bind_core_fn_type<ctx extends CoreLocalFactCtx>(
   name: string,
@@ -220,6 +263,42 @@ export function core_annotation_struct_type_expr<
     return undefined;
   }
 
+  const parsed = parse_type_expr(tokenize(annotation));
+
+  if (parsed.tag === "product" || parsed.tag === "tuple") {
+    const fields: Extract<CoreExpr, { tag: "struct_type" }>["fields"] = [];
+
+    if (parsed.tag === "product") {
+      for (let index = 0; index < parsed.entries.length; index += 1) {
+        const entry = parsed.entries[index];
+        expect(entry, "Missing inline Core struct annotation entry");
+        let name = entry.label;
+
+        if (name === undefined) {
+          name = "item_" + index.toString();
+        }
+
+        fields.push({
+          name,
+          type_name: format_type_expr(entry.type_expr),
+          set_member: entry.type_expr,
+        });
+      }
+    } else {
+      for (let index = 0; index < parsed.items.length; index += 1) {
+        const item = parsed.items[index];
+        expect(item, "Missing inline Core tuple annotation item");
+        fields.push({
+          name: "item_" + index.toString(),
+          type_name: format_type_expr(item),
+          set_member: item,
+        });
+      }
+    }
+
+    return { tag: "struct_type", fields };
+  }
+
   const type_value = hooks.static_type_value(
     { tag: "var", name: annotation },
     ctx,
@@ -240,6 +319,9 @@ export function clear_core_local_facts<ctx extends CoreLocalFactCtx>(
   ctx.text_locals.delete(name);
   ctx.struct_locals.delete(name);
   ctx.union_locals.delete(name);
+  if (ctx.borrowed_locals) {
+    ctx.borrowed_locals.delete(name);
+  }
   if (ctx.frozen_locals) {
     ctx.frozen_locals.delete(name);
   }

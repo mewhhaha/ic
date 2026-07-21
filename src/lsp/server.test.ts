@@ -56,8 +56,8 @@ Deno.test("parse diagnostics are empty for valid programs", () => {
 Deno.test("document symbols cover top-level introductions", () => {
   const text = [
     "type Option t =",
-    "  | .some = t",
-    "  | .none",
+    "  | `Some t",
+    "  | `None Unit",
     "",
     "const factor = 2",
     "let scale = value => value * factor",
@@ -86,7 +86,7 @@ Deno.test("document symbols cover top-level introductions", () => {
 
 Deno.test("document symbols nest declaration members through broken syntax", () => {
   const prefix = "effect Counter {\n  get: () => I32\n}\n" +
-    "type Result = | .ok = Int | .error = Text\n";
+    "type Result = | `Ok Int | `Error Text\n";
   const valid = parse_source_with_diagnostics(prefix + "let value = 1\n");
   const broken = parse_source_with_diagnostics(prefix + "let = broken\n");
   const valid_symbols = document_symbols(
@@ -107,7 +107,7 @@ Deno.test("document symbols nest declaration members through broken syntax", () 
     })),
     [{ name: "Counter", children: ["get"] }, {
       name: "Result",
-      children: ["ok", "error"],
+      children: ["Ok", "Error"],
     }],
   );
   assert_equals(
@@ -117,7 +117,7 @@ Deno.test("document symbols nest declaration members through broken syntax", () 
     })),
     [{ name: "Counter", children: ["get"] }, {
       name: "Result",
-      children: ["ok", "error"],
+      children: ["Ok", "Error"],
     }],
   );
 });
@@ -750,6 +750,29 @@ Deno.test("server publishes compiler semantic diagnostics with code and version"
   }]);
 });
 
+Deno.test("server analyzes source tests with test import metadata", () => {
+  const state = create_state();
+  const uri = "file:///attribute-test.duck";
+  const messages = handle_message(state, {
+    method: "textDocument/didOpen",
+    params: {
+      textDocument: {
+        uri,
+        version: 1,
+        text: 'const { test } = import "duck:prelude/attributes" ()\n' +
+          "@[test]\n" +
+          "const checked: I32 -> I32 = value => 40i64 + 2i32\n" +
+          "0\n",
+      },
+    },
+  }) as [{ params: { diagnostics: Array<{ code: string }> } }];
+
+  assert_equals(
+    messages[0]?.params.diagnostics.map((diagnostic) => diagnostic.code),
+    ["DUCK2302"],
+  );
+});
+
 Deno.test("dependency edits invalidate and republish open importers", () => {
   let now = 0;
   const state = create_state({ debounce_ms: 25, now: () => now });
@@ -1008,7 +1031,7 @@ Deno.test("server serves type, import, and workspace symbol navigation", () => {
       textDocument: {
         uri: main,
         version: 1,
-        text: "type Pair = [.left = Int]\n" +
+        text: "type Pair = struct {.left = Int}\n" +
           "let value: Pair = [.left = 1]\nvalue.left\n",
       },
     },
@@ -1098,7 +1121,7 @@ Deno.test("server completes members, import paths, and resolved docs", () => {
     },
   });
   const text = "/// A user record.\n" +
-    "type User = [.name = Text]\n" +
+    "type User = struct {.name = Text}\n" +
     'let user: User = [.name = "Ada"]\nuser.';
   handle_message(state, {
     method: "textDocument/didOpen",
@@ -1141,7 +1164,7 @@ Deno.test("server completes members, import paths, and resolved docs", () => {
     params: {
       textDocument: { uri, version: 3 },
       contentChanges: [{
-        text: "/// A user record.\ntype User = [.name = Text]\nUs",
+        text: "/// A user record.\ntype User = struct {.name = Text}\nUs",
       }],
     },
   });

@@ -1,4 +1,5 @@
 import { expect } from "../expect.ts";
+import { specialize_effect_operation } from "./effect_operation.ts";
 import type { ValType } from "../op.ts";
 import type {
   EffectDeclaration,
@@ -381,6 +382,10 @@ function infer_result_type(
   }
 
   if (expr.tag === "num") {
+    if (expr.character !== undefined) {
+      return "Char";
+    }
+
     if (expr.type === "i64") {
       return "I64";
     }
@@ -795,11 +800,21 @@ function rewrite_statements(
 
         if (operation_ref) {
           const effect = elaboration.effects.get(operation_ref.effect);
-          const operation = effect?.operations.find((item) => {
+          const declared_operation = effect?.operations.find((item) => {
             return item.name === operation_ref.operation;
           });
+          let operation;
 
-          if (operation && operation.result.type_name !== "Unit") {
+          if (declared_operation !== undefined) {
+            operation = specialize_effect_operation(
+              declared_operation,
+              stmt.value,
+            );
+          }
+
+          if (
+            operation !== undefined && operation.result.type_name !== "Unit"
+          ) {
             annotation = operation.result.type_name;
           }
         }
@@ -1148,6 +1163,7 @@ function rewrite_statements(
       }
 
       let annotation = stmt.annotation;
+      let type_annotation: TypeExpr | undefined;
 
       if (function_type_expr(stmt.type_annotation)) {
         expect(
@@ -1155,6 +1171,7 @@ function rewrite_statements(
           "Function type annotation requires a function value: " + stmt.name,
         );
         annotation = undefined;
+        type_annotation = stmt.type_annotation;
       } else if (
         stmt.type_annotation?.tag === "apply" &&
         !elaboration.type_names.has(
@@ -1176,7 +1193,7 @@ function rewrite_statements(
       result.push({
         ...stmt,
         annotation,
-        type_annotation: undefined,
+        type_annotation,
         effectful: undefined,
         value: rewrite_expr(
           apply_binding_function_type(
@@ -1744,6 +1761,10 @@ function rewrite_expr(
   }
 
   if (expr.tag === "union_case" && expr.value) {
+    if (expr.value.tag === "unit") {
+      return expr;
+    }
+
     return {
       ...expr,
       value: rewrite_expr(expr.value, providers, elaboration),

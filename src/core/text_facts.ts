@@ -31,6 +31,10 @@ export function core_expr_is_text<ctx extends CoreTextFactCtx>(
   ctx: ctx,
   hooks: CoreTextFactHooks<ctx>,
 ): boolean {
+  if (named_rec_call_returns_text(value)) {
+    return true;
+  }
+
   if (hooks.static_text_value(value, ctx)) {
     return true;
   }
@@ -167,6 +171,15 @@ export function core_expr_is_text<ctx extends CoreTextFactCtx>(
     return true;
   }
 
+  if (value.tag === "app") {
+    const target = hooks.static_core_call_target(value.func, ctx);
+
+    if (target && hooks.static_core_call_requires_scope(target)) {
+      const scoped = hooks.scoped_static_core_call_value(value, target, ctx);
+      return core_expr_is_text(scoped.value, scoped.ctx, hooks);
+    }
+  }
+
   const inlined = hooks.static_core_call_value(value, ctx);
 
   if (inlined) {
@@ -192,6 +205,10 @@ export function core_expr_has_runtime_text_fact<
   ctx: ctx,
   hooks: CoreTextFactHooks<ctx>,
 ): boolean {
+  if (named_rec_call_returns_text(value)) {
+    return true;
+  }
+
   if (value.tag === "var") {
     return ctx.text_locals.has(value.name);
   }
@@ -202,6 +219,15 @@ export function core_expr_has_runtime_text_fact<
 
   if (value.tag === "scratch") {
     return core_expr_has_runtime_text_fact(value.body, ctx, hooks);
+  }
+
+  if (value.tag === "app") {
+    const target = hooks.static_core_call_target(value.func, ctx);
+
+    if (target && hooks.static_core_call_requires_scope(target)) {
+      const scoped = hooks.scoped_static_core_call_value(value, target, ctx);
+      return core_expr_has_runtime_text_fact(scoped.value, scoped.ctx, hooks);
+    }
   }
 
   const block_text = core_text_block_fact(
@@ -332,6 +358,15 @@ export function core_expr_has_runtime_text_fact<
   }
 
   return false;
+}
+
+function named_rec_call_returns_text(value: CoreExpr): boolean {
+  if (value.tag !== "app" || value.func.tag !== "rec_ref") {
+    return false;
+  }
+
+  return value.func.result_annotation === "Text" ||
+    value.func.result_annotation === "Bytes";
 }
 
 function core_host_import_result_is_text<ctx extends CoreTextFactCtx>(

@@ -18,6 +18,7 @@ import {
   consume_host_transfer_args,
   consume_runtime_aggregate_resume_field_owners,
   consume_runtime_union_payload_owner,
+  moved_expr_owner,
   unique_heap_ownership,
 } from "./ownership.ts";
 import { emit_drop } from "./emit.ts";
@@ -118,6 +119,7 @@ export function scan_drop_expr_children_impl<ctx>(
           return false;
         }
       }
+      drop_temporary_prim_args(expr, scope, ctx, hooks, state);
       return true;
 
     case "app": {
@@ -158,6 +160,57 @@ export function scan_drop_expr_children_impl<ctx>(
         hooks,
         state,
       );
+      if (expr.func.tag === "rec_ref") {
+        if (expr.func.params.length !== expr.args.length) {
+          throw new Error(
+            "Named function " + expr.func.name + " expects " +
+              expr.func.params.length.toString() + " arguments, got " +
+              expr.args.length.toString(),
+          );
+        }
+
+        for (let index = 0; index < expr.func.params.length; index += 1) {
+          const param = expr.func.params[index];
+          const arg = expr.args[index];
+          if (!param || !arg) {
+            throw new Error("Missing named function ownership argument");
+          }
+          if (
+            param.is_const || param.annotation?.startsWith("&") ||
+            param.annotation?.startsWith("^") || arg.tag === "borrow" ||
+            arg.tag === "freeze"
+          ) {
+            continue;
+          }
+          if (
+            param.annotation === "Bool" || param.annotation === "Char" ||
+            param.annotation === "Int" || param.annotation === "I32" ||
+            param.annotation === "U32" || param.annotation === "I64" ||
+            param.annotation === "F32" || param.annotation === "F64" ||
+            param.annotation === "F32x4" || param.annotation === "Unit" ||
+            param.annotation === "Type" || param.annotation === "Resume"
+          ) {
+            continue;
+          }
+
+          const owner = moved_expr_owner(arg, owners, state);
+          if (owner) {
+            if (owner.name.length > 0) {
+              owners.delete(owner.name);
+            }
+            state.consumed_temporary_subjects.add(arg);
+            state.consumed_temporary_subjects.add(canonical_core_expr(arg));
+            continue;
+          }
+
+          if (unique_heap_ownership(arg, ctx, hooks)) {
+            state.consumed_temporary_subjects.add(arg);
+            state.consumed_temporary_subjects.add(
+              canonical_core_expr(arg),
+            );
+          }
+        }
+      }
       consume_runtime_union_payload_owner(expr, owners, ctx, hooks, state);
       drop_temporary_app_args(
         expr,
@@ -548,6 +601,68 @@ function drop_temporary_app_args<ctx>(
       })
     ) {
       continue;
+    }
+
+    const ownership = unique_heap_ownership(arg, ctx, hooks);
+    if (!ownership) {
+      continue;
+    }
+    emit_drop(
+      "discarded_expr",
+      scope,
+      undefined,
+      { name: "", ownership, pointer: "temporary", subject: arg },
+      state,
+      arg,
+    );
+  }
+}
+
+function drop_temporary_prim_args<ctx>(
+  expr: Extract<CoreExpr, { tag: "prim" }>,
+  scope: string,
+  ctx: ctx,
+  hooks: CoreDropHooks<ctx>,
+  state: CoreDropState,
+): void {
+  for (let index = 0; index < expr.args.length; index += 1) {
+    const arg = expr.args[index];
+    if (!arg) {
+      throw new Error("Missing temporary primitive argument " + index);
+    }
+    if (arg.tag === "var" || arg.tag === "linear") {
+      continue;
+    }
+    if (arg.tag === "borrow" || arg.tag === "freeze") {
+      continue;
+    }
+    if (
+      state.consumed_temporary_subjects.has(arg) ||
+      state.consumed_temporary_subjects.has(canonical_core_expr(arg))
+    ) {
+      continue;
+    }
+    const aggregate_access = static_aggregate_text_access(arg);
+    if (aggregate_access) {
+      if (state.frozen_aggregate_owners.has(aggregate_access.owner)) {
+        continue;
+      }
+      const fields = state.static_aggregate_fields.get(aggregate_access.owner);
+      if (fields && fields.static_texts.has(aggregate_access.path)) {
+        continue;
+      }
+    }
+    if (hooks.static_text_value(arg, ctx)) {
+      continue;
+    }
+    const static_value = hooks.static_value(arg, ctx);
+    if (static_value) {
+      if (static_value.tag === "text") {
+        continue;
+      }
+      if (hooks.static_text_value(static_value, ctx)) {
+        continue;
+      }
     }
 
     const ownership = unique_heap_ownership(arg, ctx, hooks);

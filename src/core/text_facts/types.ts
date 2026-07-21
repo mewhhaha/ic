@@ -27,9 +27,38 @@ export type CoreTextFactCtx = {
 export type CoreTextFactHooks<ctx extends CoreTextFactCtx> =
   & RuntimeAggregateTypeHooks<ctx>
   & {
+    bind_core_assignment_struct_type: (
+      name: string,
+      value: CoreExpr,
+      mode: "same" | "change",
+      ctx: ctx,
+    ) => void;
+    bind_core_assignment_union_type: (
+      name: string,
+      value: CoreExpr,
+      mode: "same" | "change",
+      ctx: ctx,
+    ) => void;
+    bind_core_fn_type: (name: string, value: CoreExpr, ctx: ctx) => void;
+    bind_core_struct_type: (
+      name: string,
+      value: CoreExpr,
+      annotation: string | undefined,
+      ctx: ctx,
+    ) => void;
+    bind_core_union_type: (
+      name: string,
+      value: CoreExpr,
+      annotation: string | undefined,
+      ctx: ctx,
+    ) => void;
     expr_type: (expr: CoreExpr, ctx: ctx) => ValType;
     core_binding_value: (
       stmt: Extract<CoreStmt, { tag: "bind" }>,
+      ctx: ctx,
+    ) => CoreExpr;
+    core_assignment_value: (
+      stmt: Extract<CoreStmt, { tag: "assign" }>,
       ctx: ctx,
     ) => CoreExpr;
     bind_core_if_let_payload_fact: (
@@ -69,6 +98,18 @@ export type CoreTextFactHooks<ctx extends CoreTextFactCtx> =
       expr: CoreExpr,
       ctx: ctx,
     ) => CoreExpr | undefined;
+    scoped_static_core_call_value: (
+      expr: Extract<CoreExpr, { tag: "app" }>,
+      target: Extract<CoreExpr, { tag: "lam" }>,
+      ctx: ctx,
+    ) => { value: CoreExpr; ctx: ctx };
+    static_core_call_requires_scope: (
+      target: Extract<CoreExpr, { tag: "lam" }>,
+    ) => boolean;
+    static_core_call_target: (
+      expr: CoreExpr,
+      ctx: ctx,
+    ) => Extract<CoreExpr, { tag: "lam" }> | undefined;
     static_text_value: (expr: CoreExpr, ctx: ctx) => CoreExpr | undefined;
     static_runtime_union_match_branch_ctx: (
       value_name: string | undefined,

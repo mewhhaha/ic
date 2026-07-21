@@ -1,8 +1,10 @@
 import { expect } from "../../expect.ts";
-import type { FrontExpr, RecursiveBinding, Stmt } from "../ast.ts";
+import type { FrontExpr, RecursiveBinding, Stmt, TypeExpr } from "../ast.ts";
 import { expect_snake_case } from "../names.ts";
 import { module_value } from "../parser_support.ts";
 import { pattern_bindings } from "../pattern.ts";
+import { has_source_span, inherit_source_span } from "../syntax.ts";
+import { format_type_expr } from "../type_expr.ts";
 import { ParserStmtControl } from "./control.ts";
 
 export abstract class ParserStmtBinding extends ParserStmtControl {
@@ -45,12 +47,25 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
     }
 
     let is_recursive = false;
+    let opens_import = false;
 
     if (kind === "let" && this.match_name("rec")) {
       is_recursive = true;
     }
 
+    if (kind === "const" && this.match_name("open")) {
+      opens_import = true;
+    }
+
     const pattern = this.parse_pattern();
+
+    if (opens_import) {
+      expect(
+        pattern.tag === "product" &&
+          pattern.entries.every((entry) => entry.label !== undefined),
+        "Open imports require a named product pattern",
+      );
+    }
 
     if (pattern.tag === "value") {
       expect_snake_case(pattern.name, "Parameter");
@@ -71,7 +86,18 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
 
     this.expect_symbol("=");
     this.skip_newlines();
-    const value = this.parse_expr();
+    let value = this.parse_expr();
+
+    if (pattern.tag === "binding" && pattern.type_annotation !== undefined) {
+      value = apply_function_result_context(value, pattern.type_annotation);
+    }
+
+    if (opens_import) {
+      expect(
+        value.tag === "app" && value.func.tag === "import",
+        "Open bindings require a direct module import invocation",
+      );
+    }
     const mutual: RecursiveBinding[] = [];
     const recursive_names = new Set([name]);
 
@@ -97,7 +123,10 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
           name: member_pattern.name,
           is_linear: member_pattern.mode === "linear",
           annotation: member_pattern.annotation,
-          value: this.parse_expr(),
+          value: apply_function_result_context(
+            this.parse_expr(),
+            member_pattern.type_annotation,
+          ),
         };
 
         if (member_pattern.type_annotation !== undefined) {
@@ -130,6 +159,10 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
       annotation,
       value,
     };
+
+    if (opens_import) {
+      stmt.opens_import = true;
+    }
 
     if (pattern.tag === "binding" && pattern.type_annotation) {
       stmt.type_annotation = pattern.type_annotation;
@@ -251,4 +284,131 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
     const text = this.consume_until_boundary();
     return { tag: "unsupported", feature, text };
   }
+}
+
+function apply_function_result_context(
+  value: FrontExpr,
+  annotation: TypeExpr | undefined,
+): FrontExpr {
+  if (annotation === undefined) {
+    return value;
+  }
+
+  let callable = annotation;
+
+  while (callable.tag === "forall") {
+    callable = callable.body;
+  }
+
+  if (
+    callable.tag !== "arrow" ||
+    (value.tag !== "lam" && value.tag !== "rec")
+  ) {
+    return value;
+  }
+
+  return preserve_source_span({
+    ...value,
+    body: apply_result_context(value.body, callable.result),
+  }, value);
+}
+
+function apply_result_context(
+  expr: FrontExpr,
+  result_type: TypeExpr,
+): FrontExpr {
+  if (expr.tag === "union_case") {
+    if (expr.type_expr !== undefined) {
+      return expr;
+    }
+
+    const type_expr = preserve_source_span<FrontExpr>(
+      type_value_expr(result_type),
+      expr,
+    );
+    return preserve_source_span({ ...expr, type_expr }, expr);
+  }
+
+  if (expr.tag === "if") {
+    return preserve_source_span({
+      ...expr,
+      then_branch: apply_result_context(expr.then_branch, result_type),
+      else_branch: apply_result_context(expr.else_branch, result_type),
+    }, expr);
+  }
+
+  if (expr.tag === "if_let") {
+    return preserve_source_span({
+      ...expr,
+      then_branch: apply_result_context(expr.then_branch, result_type),
+      else_branch: apply_result_context(expr.else_branch, result_type),
+    }, expr);
+  }
+
+  if (expr.tag === "match") {
+    return preserve_source_span({
+      ...expr,
+      arms: expr.arms.map((arm) =>
+        preserve_source_span({
+          ...arm,
+          body: apply_result_context(arm.body, result_type),
+        }, arm)
+      ),
+    }, expr);
+  }
+
+  if (expr.tag === "captured") {
+    return preserve_source_span({
+      ...expr,
+      expr: apply_result_context(expr.expr, result_type),
+    }, expr);
+  }
+
+  if (expr.tag !== "block") {
+    return expr;
+  }
+
+  const statements = expr.statements.map((stmt, index) => {
+    if (stmt.tag === "return") {
+      return preserve_source_span({
+        ...stmt,
+        value: apply_result_context(stmt.value, result_type),
+      }, stmt);
+    }
+
+    if (index !== expr.statements.length - 1 || stmt.tag !== "expr") {
+      return stmt;
+    }
+
+    return preserve_source_span({
+      ...stmt,
+      expr: apply_result_context(stmt.expr, result_type),
+    }, stmt);
+  });
+  return preserve_source_span({ ...expr, statements }, expr);
+}
+
+function type_value_expr(type: TypeExpr): FrontExpr {
+  if (type.tag === "name") {
+    return { tag: "var", name: type.name };
+  }
+
+  if (type.tag === "apply") {
+    const func = type_value_expr(type.func);
+    const arg = type_value_expr(type.arg);
+    return { tag: "app", func, arg, args: [arg] };
+  }
+
+  return { tag: "var", name: format_type_expr(type) };
+}
+
+function preserve_source_span<value extends object>(
+  result: value,
+  source: object,
+): value {
+  if (!has_source_span(source)) {
+    return result;
+  }
+
+  return inherit_source_span(result, source);
 }

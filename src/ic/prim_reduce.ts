@@ -24,6 +24,7 @@ type BinaryPrim = Exclude<
   | "f32.convert_i32_s"
   | "f64.convert_i32_s"
   | "i32.trunc_f32_s"
+  | "i32.trunc_f64_s"
   | "i32.wrap_i64"
   | "i64.extend_i32_s"
   | "i64.extend_i32_u"
@@ -35,6 +36,7 @@ type UnaryPrim =
   | "f32.convert_i32_s"
   | "f64.convert_i32_s"
   | "i32.trunc_f32_s"
+  | "i32.trunc_f64_s"
   | "i32.wrap_i64"
   | "i64.extend_i32_s"
   | "i64.extend_i32_u"
@@ -66,7 +68,8 @@ export function is_binary_prim(prim: Prim): prim is BinaryPrim {
 export function is_unary_prim(prim: Prim): prim is UnaryPrim {
   return prim === "f32.sqrt" || prim === "f32.convert_i32_s" ||
     prim === "f64.convert_i32_s" ||
-    prim === "i32.trunc_f32_s" || prim === "i32.wrap_i64" ||
+    prim === "i32.trunc_f32_s" || prim === "i32.trunc_f64_s" ||
+    prim === "i32.wrap_i64" ||
     prim === "i64.extend_i32_s" || prim === "i64.extend_i32_u" ||
     prim === "i32.reinterpret_f32" || prim === "f32.reinterpret_i32";
 }
@@ -117,6 +120,20 @@ export function fold_unary_prim(prim: UnaryPrim, value: Num): Ic {
     expect(value.type === "i32", "f64_from_i32 expects an i32 operand");
     expect(typeof value.value === "number", "Expected i32 number");
     return f64(value.value);
+  }
+
+  if (prim === "i32.trunc_f64_s") {
+    expect(value.type === "f64", "i32_from_f64 expects an f64 operand");
+    expect(typeof value.value === "number", "Expected f64 number");
+    if (
+      !Number.isFinite(value.value) || value.value < -2147483648 ||
+      value.value >= 2147483648
+    ) {
+      throw new Error(
+        "i32_from_f64 traps for value " + value.value.toString(),
+      );
+    }
+    return i32(Math.trunc(value.value));
   }
 
   expect(value.type === "f32", prim + " expects an f32 operand");

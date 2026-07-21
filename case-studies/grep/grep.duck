@@ -1,20 +1,20 @@
 module (!init: Init) where
 
-const { append, get, length, slice } = comptime import "duck:prelude/runtime" ()
+const { append, get, length, slice } = import "duck:prelude/runtime" ()
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 
 type IoError = struct { .code = I32, .path = Text, .message = Text }
 
-type OpenResult = | .ok | .err = IoError
+type OpenResult = | `Ok Unit | `Err IoError
 
-type ReadResult = | .chunk = Bytes | .eof | .err = IoError
+type ReadResult = | `Chunk Bytes | `Eof Unit | `Err IoError
 
 type WalkEntry = struct { .path = Text, .name = Text, .depth = I32, .size = I64 }
 
-type WalkEvent = | .enter = WalkEntry | .leave = WalkEntry | .file = WalkEntry | .symlink = WalkEntry | .other = WalkEntry | .err = IoError | .done
+type WalkEvent = | `Enter WalkEntry | `Leave WalkEntry | `File WalkEntry | `Symlink WalkEntry | `Other WalkEntry | `Err IoError | `Done Unit
 
-type WriteResult = | .ok | .closed | .err = IoError
+type WriteResult = | `Ok Unit | `Closed Unit | `Err IoError
 
 let scan = (first_bytes, pattern) => {
   let pending = first_bytes
@@ -35,12 +35,12 @@ let scan = (first_bytes, pattern) => {
     if step < 0 {
       read_result <- FileReader.read(65536)
 
-      if let .chunk(bytes) = read_result {
+      if let `Chunk bytes = read_result {
         let tail = slice(pending, line_start, length(pending))
         pending = append(tail, bytes)
         line_start = 0
         continue
-      } else if let .eof = read_result {
+      } else if let `Eof () = read_result {
         reached_eof = true
       } else {
         break 2
@@ -87,7 +87,7 @@ let scan = (first_bytes, pattern) => {
     let line = slice(pending, line_start, line_end)
     write_result <- Stdout.write(&line)
 
-    if let .ok = write_result {
+    if let `Ok () = write_result {
       line_start = line_end
       code = 0
 
@@ -96,7 +96,7 @@ let scan = (first_bytes, pattern) => {
       }
 
       continue
-    } else if let .closed = write_result {
+    } else if let `Closed () = write_result {
       break 0
     } else {
       break 2
@@ -113,13 +113,13 @@ if arg_count == 2 {
   path <- Process.arg(1)
   open_result <- FileReader.open(&path)
 
-  if let .ok = open_result {
+  if let `Ok () = open_result {
     first_result <- FileReader.read(65536)
 
-    if let .chunk(first_bytes) = first_result {
+    if let `Chunk first_bytes = first_result {
       scan_code <- scan(first_bytes, pattern)
       code = scan_code
-    } else if let .eof = first_result {
+    } else if let `Eof () = first_result {
       code = 1
     }
 

@@ -51,7 +51,12 @@ import {
   source_effects,
   source_for_core_route,
   source_for_ic_route,
+  source_with_expanded_attributes,
 } from "./pipeline.ts";
+import {
+  source_with_import_meta,
+  type SourceImportMeta,
+} from "./import_meta.ts";
 
 export type Source = SourceNode;
 
@@ -62,17 +67,20 @@ export type SourceArtifact = {
 };
 
 export type SourceArtifactOptions = {
+  import_meta?: SourceImportMeta;
   name?: string;
   host_interface?: SourceNode;
 };
 
 export type SourceArtifactFileOptions = {
+  import_meta?: SourceImportMeta;
   name?: string;
   host_interface?: string;
 };
 
 export type SourceAnalyzeOptions = {
   host_interface?: SourceNode;
+  import_meta?: SourceImportMeta;
   route?: "ic" | "core" | "managed";
   uri?: string;
   resolve_import?: SourceImportResolver;
@@ -90,6 +98,7 @@ export function Source() {}
 
 Source.parse = parse_source;
 Source.parse_with_diagnostics = parse_source_with_diagnostics;
+Source.with_import_meta = source_with_import_meta;
 
 Source.analyze = function analyze(
   text: string,
@@ -105,7 +114,7 @@ Source.analyze_parsed = function analyze_parsed(
   let source = parsed.source;
 
   if (options.host_interface !== undefined) {
-    source = merge_host_interface(source, options.host_interface);
+    source = source_with_host_interface(source, options.host_interface);
   }
 
   const analysis = analyze_frontend(parsed, source, options);
@@ -215,6 +224,7 @@ function artifact_from_source(
   allow_internal_imports: boolean,
 ): SourceArtifact {
   let name = "main";
+  let import_meta: SourceImportMeta = {};
 
   if (typeof options === "string") {
     name = options;
@@ -223,8 +233,12 @@ function artifact_from_source(
       name = options.name;
     }
 
+    if (options.import_meta !== undefined) {
+      import_meta = options.import_meta;
+    }
+
     if (options.host_interface) {
-      source = merge_host_interface(source, options.host_interface);
+      source = source_with_host_interface(source, options.host_interface);
     }
   }
 
@@ -232,6 +246,7 @@ function artifact_from_source(
     reject_public_host_imports(source);
   }
 
+  source = source_with_expanded_attributes(source, import_meta);
   source = source_with_managed_callable_exports(source);
   const compiled_source = source_for_core_route(source);
   const abi = build_abi_manifest(source, compiled_source);
@@ -412,17 +427,24 @@ Source.artifact_file = function artifact_file(
     }
 
     if (options.host_interface) {
-      source = merge_host_interface(
+      source = source_with_host_interface(
         source,
         Source.load(options.host_interface),
       );
     }
   }
 
-  return Source.artifact(source, name);
+  if (typeof options === "string") {
+    return Source.artifact(source, name);
+  }
+
+  return Source.artifact(source, {
+    import_meta: options.import_meta,
+    name,
+  });
 };
 
-function merge_host_interface(
+export function source_with_host_interface(
   source: SourceNode,
   host_interface: SourceNode,
 ): SourceNode {

@@ -1,4 +1,4 @@
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 
 type Pair = struct { .first = Int, .second = Int }
 

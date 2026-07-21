@@ -67,7 +67,8 @@ export function core_from_source(source: SourceNode): Core {
 
       if (
         stmt.tag === "bind" && stmt.kind === "const" &&
-        ctx.type_set_aliases.has(stmt.name)
+        (ctx.type_set_aliases.has(stmt.name) ||
+          ctx.scalar_annotation_aliases.has(stmt.name))
       ) {
         continue;
       }
@@ -129,7 +130,11 @@ export function core_from_source(source: SourceNode): Core {
 
     for (const [name, value] of ctx.namedRecs) {
       expect(value.body, "Missing named recursive body: " + name);
-      recs[name] = { params: value.params, body: value.body };
+      recs[name] = {
+        params: value.params,
+        body: value.body,
+        result_annotation: value.result_annotation,
+      };
     }
 
     core.recFunctions = recs;

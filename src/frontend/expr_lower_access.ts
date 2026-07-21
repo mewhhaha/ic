@@ -6,6 +6,7 @@ import { format_expr } from "./format.ts";
 import { lower_expr_as_front_type } from "./typed_lower.ts";
 import { compiler_builtin_args } from "./call_args.ts";
 import { expect } from "../expect.ts";
+import { compiler_intrinsic_for_operator_target } from "./fixity.ts";
 
 export function lower_app_expr(
   expr: Extract<FrontExpr, { tag: "app" }>,
@@ -13,9 +14,26 @@ export function lower_app_expr(
   hooks: ExprLowerHooks,
   lower_expr: LowerExprFn,
 ): IcNode {
+  const operator_intrinsic = compiler_intrinsic_for_operator_target(
+    expr.operator_syntax?.target,
+  );
+
+  if (operator_intrinsic !== undefined) {
+    return lower_app_expr(
+      {
+        ...expr,
+        func: { tag: "var", name: operator_intrinsic },
+        operator_syntax: undefined,
+      },
+      env,
+      hooks,
+      lower_expr,
+    );
+  }
+
   if (
     expr.func.tag === "var" &&
-    (expr.func.name === "@as" || expr.func.name === "@seal" ||
+    (expr.func.name === "@cast" || expr.func.name === "@seal" ||
       expr.func.name === "@representation")
   ) {
     const cast_name = expr.func.name;

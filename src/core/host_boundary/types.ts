@@ -49,6 +49,15 @@ export type CoreHostBoundaryHooks<
       expr: Extract<CoreExpr, { tag: "lam" | "rec" }>,
       ctx: ctx,
     ) => CoreHostBoundaryClosureCtx<ctx>;
+    if_let_stmt_branch_ctx: (
+      case_name: string,
+      value_name: string | undefined,
+      target: CoreExpr,
+      ctx: ctx,
+    ) =>
+      | { tag: "scan"; ctx: ctx }
+      | { tag: "skip" }
+      | { tag: "unknown" };
     static_core_call_target: (
       expr: CoreExpr,
       ctx: ctx,

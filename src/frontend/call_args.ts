@@ -38,6 +38,49 @@ export type RuntimeSpecializedArg = {
   type: FrontType;
 };
 
+export type ParameterArgument = {
+  param: Param;
+  arg: FrontExpr;
+};
+
+export function parameter_arguments(
+  params: Param[],
+  args: FrontExpr[],
+): ParameterArgument[] | undefined {
+  const variadic = params.find((param) => param.is_variadic === true);
+
+  if (variadic !== undefined) {
+    if (params.length !== 1 || !variadic.is_const || variadic.is_linear) {
+      throw new Error(
+        "A variadic parameter must be the sole const parameter",
+      );
+    }
+
+    return [{
+      param: variadic,
+      arg: {
+        tag: "product",
+        entries: args.map((arg) => ({ value: arg })),
+        value_pack: true,
+      },
+    }];
+  }
+
+  if (params.length !== args.length) {
+    return undefined;
+  }
+
+  return params.map((param, index) => {
+    const arg = args[index];
+
+    if (arg === undefined) {
+      throw new Error("Missing call argument " + index.toString());
+    }
+
+    return { param, arg };
+  });
+}
+
 export function has_const_param(
   expr: Extract<FrontExpr, { tag: "lam" }>,
 ): boolean {

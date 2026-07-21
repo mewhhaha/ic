@@ -4,10 +4,12 @@ import {
   duck_abi_version,
   DuckHost,
   DuckRunner,
+  run_duck_tests,
   Source,
 } from "./frontend.ts";
 import type {
   AbiManifest,
+  DuckTestResult,
   DuckValue,
   SourceAnalysis,
   SourceArtifact,
@@ -18,18 +20,21 @@ Deno.test("product frontend exposes the supported compiler and host surface", ()
   const analysis: SourceAnalysis = Source.analyze("1");
   const diagnostic: SourceDiagnostic | undefined = analysis.diagnostics[0];
   const value: DuckValue = 1;
+  const test_result: DuckTestResult = { name: "answer", status: "passed" };
   const manifest: AbiManifest | undefined = undefined;
   const artifact: SourceArtifact | undefined = undefined;
 
   assert_equals(analysis.diagnostics, []);
   assert_equals(diagnostic, undefined);
   assert_equals(value, 1);
+  assert_equals(test_result, { name: "answer", status: "passed" });
   assert_equals(manifest, undefined);
   assert_equals(artifact, undefined);
   assert_equals(diagnostic_codes.syntax_error, "DUCK1001");
   assert_equals(duck_abi_version, "duck-js-1");
   assert_equals(typeof DuckHost.instantiate, "function");
   assert_equals(typeof DuckRunner, "function");
+  assert_equals(typeof run_duck_tests, "function");
 });
 
 Deno.test("product frontend does not export compiler internals", async () => {

@@ -51,6 +51,10 @@ let separate = x
       "let separate = x",
   );
   assert_equals(parse_source(formatted), source);
+  assert_throws(
+    () => parse_source("type X = | `X I32\n"),
+    "Single-case sums omit the leading `|`",
+  );
 });
 
 Deno.test("prelude operators retain their source operand order", () => {
@@ -64,12 +68,26 @@ Deno.test("prelude operators retain their source operand order", () => {
   assert_equals(format_source(parse_source(text)), text);
 });
 
+Deno.test("infix pipelines continue when the next line starts with an operator", () => {
+  const source = parse_source(
+    "let piped = value\n" +
+      "  |> first\n" +
+      "  |> second\n" +
+      "let separate = next\n",
+  );
+
+  assert_equals(
+    format_source(source),
+    "let piped = value |> first |> second\nlet separate = next",
+  );
+});
+
 Deno.test("bindings and unary functions share recursive patterns", () => {
   const source = parse_source(`
 const { add, .subtract = subtract_numbers } = import "./math.duck"
 let { .left = left, .right = right } = pair
 let [head, ...tail] = values
-let choose = rec .some value => value
+let choose = rec \`Some value => value
 `);
   const record = source.statements[0];
   const product = source.statements[1];
@@ -92,13 +110,105 @@ let choose = rec .some value => value
     throw new Error("Expected recursive union-pattern function");
   }
 
-  assert_equals(choose.pattern.name, "some");
+  assert_equals(choose.pattern.name, "Some");
   assert_equals(
     format_source(source),
     'const { add, .subtract = subtract_numbers } = import "./math.duck"\n' +
       "let { left, right } = pair\n" +
       "let [head, ...tail] = values\n" +
-      "let choose = rec .some value => value",
+      "let choose = rec `Some value => value",
+  );
+});
+
+Deno.test("const variadic parameters capture an argument pack", () => {
+  const source = parse_source(
+    "const collect = (const ...values) => values\n",
+  );
+  const collect = binding_value(source.statements[0]);
+
+  if (collect.tag !== "lam") {
+    throw new Error("Expected variadic function");
+  }
+
+  assert_equals(collect.params, [{
+    name: "values",
+    is_const: true,
+    is_linear: false,
+    is_variadic: true,
+    annotation: undefined,
+  }]);
+  assert_equals(
+    format_source(source),
+    "const collect = const ...values => values",
+  );
+  assert_throws(
+    () => parse_source("const collect = (const ...values, other) => values"),
+    "Variadic parameter must be the only parameter",
+  );
+  assert_throws(
+    () => parse_source("const collect = (...values) => values"),
+    "Variadic parameters must be const",
+  );
+  assert_throws(
+    () => parse_source("const collect = rec (const ...values) => values"),
+    "Recursive functions do not support variadic parameters",
+  );
+});
+
+Deno.test("value-pack patterns retain a final rest binding", () => {
+  const source = parse_source(`
+const first = (const ...values) => comptime match values {
+  | () => 0
+  | (value, ...remaining) => value
+}
+`);
+  const first = binding_value(source.statements[0]);
+
+  if (first.tag !== "lam" || first.body.tag !== "comptime") {
+    throw new Error("Expected compile-time value-pack function");
+  }
+
+  const matched = first.body.expr;
+
+  if (matched.tag !== "match") {
+    throw new Error("Expected value-pack match");
+  }
+
+  const split = matched.arms[1]?.pattern;
+
+  if (split?.tag !== "product") {
+    throw new Error("Expected product rest pattern");
+  }
+
+  assert_equals(split.value_pack, true);
+  assert_equals(split.rest, {
+    tag: "binding",
+    name: "remaining",
+    mode: "default",
+    annotation: undefined,
+  });
+  assert_equals(
+    format_source(source),
+    "const first = const ...values => comptime " +
+      "(match values { | () => 0 | (value, ...remaining) => value })",
+  );
+});
+
+Deno.test("const open bindings retain import overrides", () => {
+  const source = parse_source(`
+const open { .compose = _, .pipe = pipe2 } = import "duck:prelude/functional" ()
+`);
+  const statement = source.statements[0];
+
+  if (statement?.tag !== "bind") {
+    throw new Error("Expected open import binding");
+  }
+
+  assert_equals(statement.opens_import, true);
+  assert_equals(
+    format_source(source),
+    "const open { .compose = _, .pipe = pipe2 } = " +
+      'import "duck:prelude/functional" ()',
   );
 });
 
@@ -166,6 +276,32 @@ let values = [1, 2, ...tail]
   assert_equals(positional_declaration.body.tag, "product");
 });
 
+Deno.test("single-case sums omit the leading pipe", () => {
+  const source = parse_source(`
+type X = \`X I32
+let wrapped: X = \`X 42
+match wrapped { | \`X value => value }
+`);
+  const declaration = source.declarations?.[0];
+
+  if (declaration === undefined || declaration.tag !== "type") {
+    throw new Error("Missing single-case sum declaration");
+  }
+
+  assert_equals(declaration.body, {
+    tag: "sum",
+    cases: [{ name: "X", type_name: "I32" }],
+  });
+  const formatted = format_source(source);
+  assert_equals(
+    formatted,
+    "type X = `X I32\n" +
+      "let wrapped: X = `X 42\n" +
+      "match wrapped { | `X value => value }",
+  );
+  assert_equals(parse_source(formatted), source);
+});
+
 Deno.test("imports casts and updates have one canonical expression form", () => {
   const source = parse_source(`
 let dependency = import "./dependency.duck"
@@ -188,6 +324,50 @@ let changed = value :+ { .count = 1 }
   assert_throws(
     () => parse_source("let changed = value { count: 1 }\n"),
     "Runtime products use contextual `[...]` values",
+  );
+});
+
+Deno.test("include is a canonical text expression", () => {
+  const source = parse_source(
+    'const config = include "./config.json"\nconfig',
+  );
+  const value = binding_value(source.statements[0]);
+
+  if (value.tag !== "app" || value.func.tag !== "var") {
+    throw new Error("Expected include intrinsic application");
+  }
+
+  assert_equals(value.func.name, "@include");
+  assert_equals(
+    format_source(source),
+    'const config = include "./config.json"\nconfig',
+  );
+  assert_equals(parse_source(format_source(source)), source);
+});
+
+Deno.test("collection loop union patterns retain their surface form", () => {
+  const source = parse_source(
+    "for index, `Some value in values { total = total + value }",
+  );
+  const statement = source.statements[0];
+
+  if (statement?.tag !== "for_collection") {
+    throw new Error("Expected collection loop");
+  }
+
+  assert_equals(statement.pattern, {
+    tag: "union_case",
+    name: "Some",
+    value: {
+      tag: "binding",
+      name: "value",
+      mode: "default",
+      annotation: undefined,
+    },
+  });
+  assert_equals(
+    format_source(source),
+    "for index, `Some value in values { total = total + value }",
   );
 });
 
@@ -234,17 +414,18 @@ Deno.test("compiler functions retain their intrinsic prefix", () => {
   );
 });
 
-Deno.test("source type member intrinsic round trips with product spreads", () => {
+Deno.test("source type extension operator accepts computed members", () => {
   const source = parse_source(`
 let accumulated = [...product_type, field.value]
-let enriched = @type.member [product_type, field.name, value => value[index]]
+let enriched = product_type :+ (field.name, value => value[index])
 `);
   const accumulated = binding_value(source.statements[0]);
   const enriched = binding_value(source.statements[1]);
 
   if (
     accumulated.tag !== "array" || enriched.tag !== "app" ||
-    enriched.func.tag !== "var" || enriched.func.name !== "@type.member"
+    enriched.func.tag !== "var" || enriched.func.name !== "@type.extend" ||
+    enriched.operator_syntax?.operator !== ":+"
   ) {
     throw new Error("Expected compile-time product type construction");
   }
@@ -252,6 +433,13 @@ let enriched = @type.member [product_type, field.name, value => value[index]]
   assert_equals(accumulated.leading_rest, true);
   assert_equals(accumulated.rest, { tag: "var", name: "product_type" });
   assert_equals(parse_source(format_source(source)), source);
+});
+
+Deno.test("removed computed member operator is undeclared", () => {
+  assert_throws(
+    () => parse_source('let enriched = product_type :. ("name", I32)'),
+    "Undeclared infix operator: :.",
+  );
 });
 
 Deno.test("noncanonical aggregate spellings are rejected", () => {
@@ -264,8 +452,8 @@ Deno.test("noncanonical aggregate spellings are rejected", () => {
     "Product types use `[...]`",
   );
   assert_throws(
-    () => parse_source("type Maybe = .some = I32 | .none"),
-    "Sum types require a leading `|`",
+    () => parse_source("type Maybe = `Some I32 | `None Unit"),
+    "Multiple-case sums require a leading `|`",
   );
   assert_throws(
     () => parse_source("const maybe_type = union { .some = I32 }"),
@@ -287,8 +475,8 @@ Deno.test("noncanonical aggregate spellings are rejected", () => {
 Deno.test("match arms require leading pipes and preserve optional guards", () => {
   const source = parse_source(`
 let picked = match choice {
-  | .some value if value > 0 => value
-  | .none => 0
+  | \`Some value if value > 0 => value
+  | \`None () => 0
 }
 `);
   const picked = binding_value(source.statements[0]);
@@ -304,8 +492,8 @@ let picked = match choice {
   const formatted = format_source(source);
   assert_equals(
     formatted,
-    "let picked = match choice { | .some value if value > 0 => value " +
-      "| .none => 0 }",
+    "let picked = match choice { | `Some value if value > 0 => value " +
+      "| `None () => 0 }",
   );
   assert_equals(parse_source(formatted), source);
 

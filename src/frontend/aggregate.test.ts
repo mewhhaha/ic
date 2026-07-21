@@ -54,7 +54,8 @@ Deno.test("fixed arrays elaborate to positional object fields", () => {
 
 Deno.test("named products retain named update behavior", () => {
   const wat = Source.wat(`
-type Pair = [.left = I32, .right = I32]
+const { struct } = import "duck:prelude" ()
+type Pair = struct {.left = I32, .right = I32}
 let pair: Pair = [.left = 1, .right = 2]
 let changed = pair :+ { .left = 3 }
 changed.left
@@ -201,11 +202,11 @@ Deno.test("match coverage rejects duplicate and missing arms", () => {
   assert_throws(
     () =>
       Source.core(`
-type Result = | .ok = I32 | .err
-let result: Result = Result.ok(7)
-match result { | .ok value => value }
+type Result = | \`Ok I32 | \`Err Unit
+let result: Result = \`Ok (7)
+match result { | \`Ok value => value }
 `),
-    "Non-exhaustive match, missing .err",
+    "Non-exhaustive match, missing `Err ()",
   );
 });
 
@@ -216,13 +217,13 @@ Deno.test("match alternatives share one arm body", () => {
   );
 
   const union = `
-type Choice = | .first = I32 | .second = I32
-let value: Choice = Choice.second(42)
-match value { | .first(x) | .second(x) => x }
+type Choice = | \`First I32 | \`Second I32
+let value: Choice = \`Second (42)
+match value { | \`First (x) | \`Second x => x }
 `;
   assert_includes(Source.wat(union), "i32.const 42");
   assert_throws(
-    () => Source.parse("match x { | .first(a) | .second(b) => a }"),
+    () => Source.parse("match x { | `First (a) | `Second b => a }"),
     "Pattern alternatives must bind the same names, modes, and annotations",
   );
   assert_equals(
@@ -245,8 +246,8 @@ first + second
   );
 });
 
-Deno.test("shorthand union application becomes a payload constructor", () => {
-  const core = Source.core(".some 7");
+Deno.test("unary union application becomes a payload constructor", () => {
+  const core = Source.core("`Some 7");
   const statement = core.statements[0];
 
   if (statement?.tag !== "expr") {
@@ -255,7 +256,7 @@ Deno.test("shorthand union application becomes a payload constructor", () => {
 
   assert_equals(statement.expr, {
     tag: "union_case",
-    name: "some",
+    name: "Some",
     value: { tag: "num", type: "i32", value: 7 },
     type_expr: undefined,
   });
@@ -321,7 +322,8 @@ head + tail[1]
 
 Deno.test("labeled product patterns support selected fields", () => {
   const wat = Source.wat(`
-type Pair = [.left = I32, .right = I32]
+const { struct } = import "duck:prelude" ()
+type Pair = struct {.left = I32, .right = I32}
 let pair: Pair = [.left = 20, .right = 22]
 let { .left = left } = pair
 left + pair.right
@@ -331,7 +333,8 @@ left + pair.right
 
 Deno.test("labeled products bind through recursive patterns", () => {
   const wat = Source.wat(`
-type Exports = [.add = I32, .ignored = I32]
+const { struct } = import "duck:prelude" ()
+type Exports = struct {.add = I32, .ignored = I32}
 let exports: Exports = [40, 2]
 const { .add = add } = exports
 add
@@ -358,7 +361,8 @@ sum(20, 22)
 
 Deno.test("functions accept structural annotated patterns", () => {
   const source = `
-type Box = [.a = I32]
+const { struct } = import "duck:prelude" ()
+type Box = struct {.a = I32}
 let increment = { a: I32 } => a + 1
 increment([.a = 41] as Box)
 `;
@@ -369,8 +373,9 @@ increment([.a = 41] as Box)
 
 Deno.test("functions accept nested structural and array patterns", () => {
   const structural = `
-type Inner = [.value = I32]
-type Outer = [.inner = Inner]
+const { struct } = import "duck:prelude" ()
+type Inner = struct {.value = I32}
+type Outer = struct {.inner = Inner}
 let read = { .inner = { value: I32 } } => value
 read([.inner = [.value = 42]] as Outer)
 `;
@@ -387,9 +392,9 @@ first([42, 0])
 
 Deno.test("functions accept union and wildcard patterns", () => {
   const union = `
-type Option = | .some = I32 | .none
-let unwrap = .some(value) => value
-unwrap(Option.some(42))
+type Option = | \`Some I32 | \`None Unit
+let unwrap = \`Some (value) => value
+unwrap(\`Some (42))
 `;
 
   assert_equals(Source.analyze(union).diagnostics, []);

@@ -31,7 +31,7 @@ function item_shape(item: LspCompletionItem) {
 
 Deno.test("completion lists exactly the known typed struct fields", () => {
   const result = complete(
-    "type User = [.name = Text, .age = Int]\n" +
+    "type User = struct {.name = Text, .age = Int}\n" +
       'let user: User = [.name = "Ada", .age = 42]\nuser.',
   );
 
@@ -100,22 +100,22 @@ Deno.test("completion ranks local scope before outer scope and keywords", () => 
   assert_equals(keyword?.sortText.startsWith("9000"), true);
 });
 
-Deno.test("completion lists shorthand union cases with payload details", () => {
+Deno.test("completion lists union constructors with payload details", () => {
   const result = complete(
-    "type Result = | .ok = Int | .error = Text\n" +
-      "let value: Result = .",
+    "type Result = | `Ok Int | `Error Text\n" +
+      "let value: Result = `",
   );
 
   assert_equals(result.items.map(item_shape), [{
-    label: "error",
+    label: "Error",
     kind: 20,
     detail: "case: Text",
-    sortText: "0000_0_error",
+    sortText: "0000_0_Error",
   }, {
-    label: "ok",
+    label: "Ok",
     kind: 20,
     detail: "case: Int",
-    sortText: "0000_0_ok",
+    sortText: "0000_0_Ok",
   }]);
 });
 
@@ -169,7 +169,7 @@ Deno.test("completion lists paths inside import expressions", () => {
 
 Deno.test("completion resolve attaches doc comments and type layout", () => {
   const text = "/// Two-dimensional point.\n" +
-    "type Point = [.x = I32, .y = I32]\nPo";
+    "type Point = struct {.x = I32, .y = I32}\nPo";
   const parsed = parse_source_with_diagnostics(text);
   const index = build_binding_index(parsed);
   const result = completions(
@@ -238,5 +238,14 @@ Deno.test("completion offers Bool in type positions", () => {
     kind: 7,
     detail: "builtin type",
     sortText: "9000_0_Bool",
+  }]);
+});
+
+Deno.test("completion offers Char in type positions", () => {
+  assert_equals(complete("let value: Ch").items.map(item_shape), [{
+    label: "Char",
+    kind: 7,
+    detail: "builtin type",
+    sortText: "9000_0_Char",
   }]);
 });

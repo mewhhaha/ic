@@ -51,6 +51,27 @@ for 0..2 {
           (unit_pattern))))))
 
 ==================
+Refutable collection loop pattern
+==================
+for index, `Some value in values {
+  ()
+}
+---
+
+(source_file
+  (for_statement
+    (identifier)
+    (union_pattern
+      (constructor_identifier)
+      (identifier))
+    (condition_expression
+      (identifier))
+    (block
+      (expression_statement
+        (postfix_expression
+          (unit_pattern))))))
+
+==================
 Break without a value
 ==================
 loop {
@@ -66,6 +87,26 @@ loop {
       (postfix_expression
         (block
           (break_statement))))))
+
+==================
+Inline break without a value
+==================
+loop { if done { break } }
+---
+
+(source_file
+  (expression_statement
+    (application_expression
+      (postfix_expression
+        (identifier))
+      (postfix_expression
+        (block
+          (expression_statement
+            (if_expression
+              (condition_expression
+                (identifier))
+              (block
+                (break_statement)))))))))
 
 ==================
 Bare break does not consume the next line
@@ -94,7 +135,7 @@ No-demand binding positions
 let _ = 1
 let ignore = (_, const _) => 2
 const { .ignored = _, value } = pair
-let selected = if let .ok(_) = result { 1 } else { 0 }
+let selected = if let `Ok _ = result { 1 } else { 0 }
 ---
 
 (source_file
@@ -125,7 +166,7 @@ let selected = if let .ok(_) = result { 1 } else { 0 }
     (identifier)
     (if_expression
       (union_pattern
-        (identifier)
+        (constructor_identifier)
         (wildcard))
       (condition_expression
         (identifier))

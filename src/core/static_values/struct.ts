@@ -48,6 +48,14 @@ export function plan_static_struct_value<
       }
       continue;
     }
+    const union_case = hooks.static_union_case(field.value, ctx);
+    if (
+      union_case &&
+      (!union_case.value || hooks.is_stable_static_expr(union_case.value))
+    ) {
+      fields.push({ name: field.name, value: union_case });
+      continue;
+    }
     const planned = plan_static_capture_expr(
       "field_" + field.name,
       field.value,

@@ -11,12 +11,15 @@
 
 [
   "import"
+  "include"
 ] @keyword.control.import
 
 [
   "let"
   "const"
 ] @keyword.storage
+
+"open" @keyword.storage.modifier
 
 [
   "declare"
@@ -33,6 +36,9 @@
 "forall" @keyword
 
 (forall_type
+  parameter: (identifier) @type.parameter)
+
+(effect_operation_forall
   parameter: (identifier) @type.parameter)
 
 [
@@ -82,6 +88,7 @@
 ] @keyword.operator
 
 "comptime" @keyword.directive
+"do" @keyword.operator
 
 [
   "scalar"
@@ -92,6 +99,7 @@
   "="
   ":="
   "=>"
+  "..."
   "->"
   ".."
   "<-"
@@ -117,6 +125,7 @@
   ":"
   "."
   "#"
+  "@"
 ] @punctuation.delimiter
 
 ; Literals and comments
@@ -182,7 +191,7 @@
   target: (fixity_target) @function)
 
 (type_case
-  name: (identifier) @constructor)
+  name: (constructor_identifier) @constructor)
 
 (named_type_field
   name: (identifier) @variable.other.member)
@@ -256,6 +265,11 @@
 (import_expression
   path: (string) @string.special.path)
 
+(import_meta_expression "meta" @variable.builtin)
+
+(include_expression
+  path: (string) @string.special.path)
+
 (intrinsic_identifier) @function.builtin
 
 (module_binding_statement
@@ -316,10 +330,10 @@
   name: (identifier) @variable.other.member)
 
 (union_case
-  case: (identifier) @constructor)
+  case: (constructor_identifier) @constructor)
 
 (union_pattern
-  case: (identifier) @constructor)
+  case: (constructor_identifier) @constructor)
 
 ; A member in call position is a method. Keep these after the general member
 ; patterns so they win for the same identifier span.

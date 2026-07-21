@@ -38,8 +38,18 @@ import {
 } from "./source_facts.ts";
 import { derive_missing_source_spans } from "./syntax.ts";
 import { elaborate_front_type_sets } from "./type_set_elaborate.ts";
+import { expand_source_attributes } from "./attribute.ts";
+import {
+  infer_default_effect_handlers,
+  source_has_implicit_try,
+} from "./default_handler.ts";
+import {
+  source_with_import_meta,
+  type SourceImportMeta,
+} from "./import_meta.ts";
 
 export type FrontendAnalysisOptions = {
+  import_meta?: SourceImportMeta;
   resolve_import?: SourceImportResolver;
   uri?: string;
   warnings?: boolean;
@@ -58,10 +68,34 @@ export function analyze_frontend(
 ): FrontendAnalysis {
   const diagnostics = syntax_diagnostics(parsed);
   diagnostics.push(...name_and_scope_diagnostics(parsed, source, options));
-  let analyzed_source = resolve_bundled_source_imports(source);
+  let analyzed_source = source;
+
+  try {
+    analyzed_source = source_with_expanded_attributes(
+      source,
+      options.import_meta,
+    );
+    derive_missing_source_spans(analyzed_source, { start: 0, end: 0 });
+  } catch (error) {
+    if (error instanceof SourceDiagnosticError) {
+      diagnostics.push(error.diagnostic);
+      return {
+        source: analyzed_source,
+        facts: source_facts(analyzed_source),
+        diagnostics,
+      };
+    }
+
+    throw error;
+  }
 
   try {
     analyzed_source = instantiate_named_effects(analyzed_source);
+
+    if (source_has_implicit_try(analyzed_source)) {
+      analyzed_source = specialize_front_effects(analyzed_source);
+      analyzed_source = infer_default_effect_handlers(analyzed_source);
+    }
   } catch (error) {
     if (error instanceof SourceDiagnosticError) {
       diagnostics.push(error.diagnostic);
@@ -91,10 +125,10 @@ export function analyze_frontend(
 }
 
 export function source_for_ic_route(source: Source): Source {
-  source = resolve_bundled_source_imports(source);
-  source = specialize_const_module_imports(source);
+  source = source_with_expanded_attributes(source);
   derive_missing_source_spans(source, { start: 0, end: 0 });
   source = specialize_front_effects(source);
+  source = infer_default_effect_handlers(source);
   require_rank_n_types(source);
   require_condition_types(source);
   validate_atom_identities(source);
@@ -103,10 +137,10 @@ export function source_for_ic_route(source: Source): Source {
 }
 
 export function source_for_core_route(source: Source): Source {
-  source = resolve_bundled_source_imports(source);
-  source = specialize_const_module_imports(source);
+  source = source_with_expanded_attributes(source);
   derive_missing_source_spans(source, { start: 0, end: 0 });
   source = specialize_front_effects(source);
+  source = infer_default_effect_handlers(source);
   require_rank_n_types(source);
   require_core_representation(source);
   source = erase_undemanded_front_bindings(elaborate_source(source));
@@ -116,9 +150,21 @@ export function source_for_core_route(source: Source): Source {
 }
 
 export function source_effects(source: Source): FrontEffectAnalysis {
+  source = source_with_expanded_attributes(source);
+  source = specialize_front_effects(source);
+  source = infer_default_effect_handlers(source);
+  return analyze_front_effects(source);
+}
+
+export function source_with_expanded_attributes(
+  source: Source,
+  import_meta: SourceImportMeta = {},
+): Source {
+  source = source_with_import_meta(source, import_meta);
   source = resolve_bundled_source_imports(source);
   source = specialize_const_module_imports(source);
-  return analyze_front_effects(specialize_front_effects(source));
+  derive_missing_source_spans(source, { start: 0, end: 0 });
+  return expand_source_attributes(source);
 }
 
 function syntax_diagnostics(parsed: ParseSourceResult): SourceDiagnostic[] {

@@ -2,14 +2,14 @@
 Aggregate constructors and canonical products
 ==================
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 
 type Point = struct {
   .x = I32,
   .y = I32,
 }
 
-type MaybeI32 = | .some = I32 | .none
+type MaybeI32 = | `Some I32 | `None Unit
 
 type Pixels = [Rgb; 640 * 480]
 let point: Point = [20, 22]
@@ -23,13 +23,12 @@ let { .x = x } = moved
     (named_shape_pattern
       (shorthand_shape_pattern_field
         (identifier)))
-    (unary_expression
-      (application_expression
-        (postfix_expression
-          (import_expression
-            (string)))
-        (postfix_expression
-          (unit_pattern)))))
+    (application_expression
+      (postfix_expression
+        (import_expression
+          (string)))
+      (postfix_expression
+        (unit_pattern))))
   (type_declaration_statement
     (identifier)
     (struct_type
@@ -52,12 +51,15 @@ let { .x = x } = moved
     (identifier)
     (type_sum
       (type_case
-        (identifier)
+        (constructor_identifier)
         (type_reference
           (type_difference
             (identifier))))
       (type_case
-        (identifier))))
+        (constructor_identifier)
+        (type_reference
+          (type_difference
+            (identifier))))))
   (type_declaration_statement
     (identifier)
     (type_reference
@@ -108,6 +110,39 @@ let { .x = x } = moved
         (identifier)))
     (postfix_expression
       (identifier))))
+
+==================
+Open import overrides
+==================
+
+const open { .compose = _, .pipe = pipe2 } = import "duck:prelude/functional" ()
+const open {} = import "duck:prelude/numeric" ()
+
+---
+
+(source_file
+  (binding_statement
+    (named_shape_pattern
+      (named_shape_pattern_field
+        (identifier)
+        (wildcard))
+      (named_shape_pattern_field
+        (identifier)
+        (identifier)))
+    (application_expression
+      (postfix_expression
+        (import_expression
+          (string)))
+      (postfix_expression
+        (unit_pattern))))
+  (binding_statement
+    (named_shape_pattern)
+    (application_expression
+      (postfix_expression
+        (import_expression
+          (string)))
+      (postfix_expression
+        (unit_pattern)))))
 
 ==================
 Colon type algebra and newtypes
@@ -271,11 +306,7 @@ Source-defined struct product namespaces
 ==================
 
 let product_type = [...product_type, field.value]
-let product_type = @type.member [
-  product_type,
-  field.name,
-  value => value[index]
-]
+let product_type = product_type :+ (field.name, value => value[index])
 
 ---
 
@@ -294,13 +325,12 @@ let product_type = @type.member [
             (identifier))))))
   (binding_statement
     (identifier)
-    (application_expression
+    (binary_expression
       (postfix_expression
-        (intrinsic_identifier))
+        (identifier))
+      (operator_symbol)
       (postfix_expression
-        (array_expression
-          (postfix_expression
-            (identifier))
+        (positional_product
           (postfix_expression
             (field_expression
               (postfix_expression

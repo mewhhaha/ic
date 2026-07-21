@@ -73,7 +73,7 @@ export function is_static_value_expr<ctx extends StaticValueAliasCtx>(
   }
 
   if (value.tag === "struct_update") {
-    return true;
+    return false;
   }
 
   if (value.tag === "scratch") {

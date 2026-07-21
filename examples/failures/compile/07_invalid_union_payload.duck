@@ -1,7 +1,7 @@
-type Result = | .ok = Int | .err = Text
-let result = Result.ok("wrong")
+type Result = | `Ok Int | `Err Text
+let result = `Ok ("wrong")
 
-if let .ok(value) = result {
+if let `Ok value = result {
   value
 } else {
   0

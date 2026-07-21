@@ -4,10 +4,12 @@ import type {
   EffectRowExpr,
   Token,
   TypeExpr,
+  TypeLiteral,
   TypeProductEntry,
 } from "./ast.ts";
 import { is_snake_case } from "./names.ts";
 import { format_effect_row } from "./effect_row.ts";
+import { format_character_literal, front_literal_expr } from "./literal.ts";
 
 export function parse_type_expr(tokens: Token[]): TypeExpr {
   const parser = new TypeExprParser(tokens);
@@ -276,7 +278,23 @@ class TypeExprParser {
     }
 
     const token = this.peek();
-    expect(token && token.kind === "name", "Expected type name");
+    expect(token, "Expected type");
+    const literal = front_literal_expr(token);
+
+    if (
+      literal?.tag === "bool" || literal?.tag === "num" ||
+      literal?.tag === "text"
+    ) {
+      expect(
+        literal.tag !== "num" ||
+          (literal.type !== "f32" && literal.type !== "f64"),
+        "Floating-point literal types are not supported",
+      );
+      this.index += 1;
+      return { tag: "literal", value: literal };
+    }
+
+    expect(token.kind === "name", "Expected type name");
     this.index += 1;
     if (token.text === "Never") {
       return { tag: "never" };
@@ -461,7 +479,8 @@ class TypeExprParser {
     const token = this.peek();
 
     return token !== undefined &&
-      (token.kind === "name" ||
+      (token.kind === "name" || token.kind === "number" ||
+        token.kind === "string" || token.kind === "character" ||
         (token.kind === "symbol" &&
           (token.text === "(" || token.text === "#" || token.text === "[")));
   }
@@ -503,6 +522,10 @@ function format(type: TypeExpr, parent_precedence: number): string {
 
   if (type.tag === "atom") {
     return "#" + type.name;
+  }
+
+  if (type.tag === "literal") {
+    return format_literal_type(type.value);
   }
 
   if (type.tag === "top") {
@@ -601,6 +624,32 @@ function format(type: TypeExpr, parent_precedence: number): string {
 
   text += " " + format(type.result, precedence);
   return parenthesize(text, precedence, parent_precedence);
+}
+
+function format_literal_type(literal: TypeLiteral): string {
+  if (literal.tag === "bool") {
+    return literal.value.toString();
+  }
+
+  if (literal.tag === "text") {
+    return Deno.inspect(literal.value);
+  }
+
+  if (literal.character !== undefined) {
+    return format_character_literal(literal.character);
+  }
+
+  if (literal.integer !== undefined) {
+    return literal.value.toString() +
+      (literal.integer.signed ? "i" : "u") +
+      literal.integer.width.toString();
+  }
+
+  if (literal.type === "i64") {
+    return literal.value.toString() + "i64";
+  }
+
+  return literal.value.toString();
 }
 
 function array_length_precedence(op: string): number {

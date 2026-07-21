@@ -14,12 +14,18 @@ import type {
 
 export type CoreClosureTypeCtx = {
   locals: Map<string, ValType>;
+  static_capture_values?: Map<string, CoreExpr>;
   statics: Map<string, CoreExpr>;
   fn_types: Map<string, CoreFnType>;
   text_locals: Set<string>;
   struct_locals: Map<string, CoreExpr>;
   union_locals: Map<string, CoreExpr>;
+  borrowed_locals?: Set<string>;
+  frozen_locals?: Set<string>;
   host_imports?: Map<string, CoreHostImport>;
+  scratch_depth?: number;
+  mutable_bindings?: Set<string>;
+  materialized_bindings?: Set<string>;
 };
 
 export type CoreClosureTypeBlockCtx = CoreClosureTypeCtx & {
@@ -103,4 +109,5 @@ export type ClosureParamInfo = {
   constraint?: string;
   struct_type?: CoreExpr;
   union_type?: CoreExpr;
+  fn_type?: CoreFnType;
 };

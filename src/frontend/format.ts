@@ -7,7 +7,7 @@ import type {
   Stmt,
   TypeDeclaration,
 } from "./ast.ts";
-import { format_params } from "./format/common.ts";
+import { format_attribute_groups, format_params } from "./format/common.ts";
 import { format_expr_with_stmt } from "./format/expr.ts";
 import { format_stmt_with_expr } from "./format/stmt.ts";
 import { format_type_expr, parse_type_expr } from "./type_expr.ts";
@@ -31,6 +31,13 @@ export function format_source(source: SourceNode): string {
 }
 
 function format_declaration(declaration: Declaration): string {
+  return format_attribute_groups(declaration.attribute_groups, format_expr) +
+    format_declaration_without_attributes(declaration);
+}
+
+function format_declaration_without_attributes(
+  declaration: Declaration,
+): string {
   if (declaration.tag === "duck") {
     const members = declaration.types.map((member) => {
       let text = "type " + member.name;
@@ -79,10 +86,15 @@ function format_declaration(declaration: Declaration): string {
   const operations = declaration.operations.map((operation) => {
     const params = operation.params.map(format_effect_param).join(", ");
     let execution = "";
+    let type_params = "";
     if (operation.execution === "suspending") {
       execution = "suspending ";
     }
-    return execution + operation.name + ": (" + params + ") => " +
+    if (operation.type_params.length > 0) {
+      type_params = "forall " + operation.type_params.join(" ") + ". ";
+    }
+    return execution + operation.name + ": " + type_params + "(" + params +
+      ") => " +
       format_effect_result(operation.result);
   });
   let prefix = "effect ";
@@ -155,14 +167,20 @@ function format_type_declaration(declaration: TypeDeclaration): string {
   }
 
   const cases = declaration.body.cases.map((item) => {
-    let text = "  | ." + item.name;
+    return "  | `" + item.name + " " + format_type_text(item.type_name);
+  });
 
-    if (item.type_name !== "Unit") {
-      text += " = " + format_type_text(item.type_name);
+  if (cases.length === 1) {
+    const single = declaration.body.cases[0];
+
+    if (single === undefined) {
+      throw new Error("Missing single sum case");
     }
 
-    return text;
-  });
+    return head + " = `" + single.name + " " +
+      format_type_text(single.type_name);
+  }
+
   return head + " =\n" + cases.join("\n");
 }
 

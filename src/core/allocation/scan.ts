@@ -284,7 +284,10 @@ function scan_allocation_stmt<ctx>(
         }
         if (
           (state.mutable_bindings.has(stmt.name) ||
-            hooks.mutable_binding(stmt.name, ctx) || dynamic_runtime_union) &&
+            hooks.mutable_binding(stmt.name, ctx) ||
+            state.materialized_bindings.has(stmt.name) ||
+            hooks.materialized_binding(stmt.name, ctx) ||
+            dynamic_runtime_union) &&
           value.tag !== "scratch" &&
           static_setup?.tag !== "union_case" &&
           !state.nonmaterialized_union_values.has(value)
@@ -470,7 +473,10 @@ function scan_allocation_stmt<ctx>(
         }
         if (
           (state.mutable_bindings.has(stmt.name) ||
-            hooks.mutable_binding(stmt.name, ctx) || dynamic_runtime_union) &&
+            hooks.mutable_binding(stmt.name, ctx) ||
+            state.materialized_bindings.has(stmt.name) ||
+            hooks.materialized_binding(stmt.name, ctx) ||
+            dynamic_runtime_union) &&
           value.tag !== "scratch" &&
           static_setup?.tag !== "union_case" &&
           !state.nonmaterialized_union_values.has(value)
@@ -1345,7 +1351,15 @@ function copy_value_allocation_facts(
   source: CoreExpr,
   state: CoreAllocationState,
 ): void {
-  const facts = state.value_allocations.get(source);
+  let facts = state.value_allocations.get(source);
+
+  if (
+    facts === undefined &&
+    (source.tag === "var" || source.tag === "linear")
+  ) {
+    facts = state.binding_allocations.get(source.name);
+  }
+
   if (!facts) {
     return;
   }
@@ -2345,6 +2359,42 @@ function scan_allocation_expr<ctx>(
       }
       set_closure_call_result_allocations(expr, state);
 
+      if (expr.func.tag === "rec_ref") {
+        const ownership = core_expr_ownership(expr, ctx, hooks);
+
+        if (ownership.tag === "unique_heap") {
+          let reason:
+            | "closure"
+            | "runtime_aggregate"
+            | "runtime_bytes"
+            | "runtime_text"
+            | "runtime_union";
+
+          if (ownership.reason === "closure") {
+            reason = "closure";
+          } else if (ownership.reason === "runtime_aggregate") {
+            reason = "runtime_aggregate";
+          } else if (ownership.reason === "runtime_union") {
+            reason = "runtime_union";
+          } else if (ownership.reason === "bytes") {
+            reason = "runtime_bytes";
+          } else {
+            reason = "runtime_text";
+          }
+
+          const fact = record_allocation(
+            expr,
+            reason,
+            scope,
+            state,
+            state.current_allocation_instance,
+          );
+          if (fact) {
+            set_core_allocation_fact_external(fact);
+          }
+        }
+      }
+
       if (hooks.host_import_result_ownership) {
         const result = hooks.host_import_result_ownership(expr, ctx);
 
@@ -2708,10 +2758,51 @@ function scan_allocation_expr<ctx>(
       return;
     }
 
-    case "struct_update":
+    case "struct_update": {
+      const parent = record_allocation(
+        expr,
+        "runtime_aggregate",
+        scope,
+        state,
+        state.current_allocation_instance,
+      );
       scan_allocation_expr(expr.base, scope, ctx, hooks, state);
-      scan_allocation_fields(expr.fields, scope, ctx, hooks, state);
+      const updated = hooks.static_struct_value(expr, ctx);
+      if (updated) {
+        scan_runtime_aggregate_fields(
+          parent,
+          updated,
+          scope,
+          ctx,
+          hooks,
+          state,
+        );
+        return;
+      }
+      if (!hooks.runtime_aggregate_type_expr) {
+        throw new Error("Struct update allocation requires an aggregate type");
+      }
+      const type_expr = hooks.runtime_aggregate_type_expr(expr.base, ctx);
+      if (!type_expr) {
+        throw new Error(
+          "Struct update allocation cannot resolve its base aggregate type",
+        );
+      }
+      const layout = runtime_aggregate_layout_for_type(
+        type_expr,
+        ctx as ctx & TypeStaticCtx,
+      );
+      scan_runtime_aggregate_field_values(
+        parent,
+        expr.fields,
+        layout.fields,
+        scope,
+        ctx,
+        hooks,
+        state,
+      );
       return;
+    }
 
     case "if": {
       const allocation_start = state.facts.length;

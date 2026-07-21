@@ -29,6 +29,7 @@ type DuckRoleBinding = {
 function source_with_extension_values(
   source: Source,
   selected?: Set<string>,
+  expected_types?: Map<FrontExpr, TypeExpr>,
 ): Source {
   const statements = [];
   let next_extension_value = 0;
@@ -52,6 +53,7 @@ function source_with_extension_values(
         name,
         is_linear: false,
         annotation: undefined,
+        type_annotation: expected_types?.get(field.value),
         value: field.value,
       });
     }
@@ -303,6 +305,7 @@ function resolve_duck_member_call(
   }
 
   const role_types = new Map<string, DuckRoleBinding>();
+  let deferred_argument = false;
 
   for (let index = 0; index < param_types.length; index += 1) {
     const param_type = param_types[index];
@@ -314,11 +317,22 @@ function resolve_duck_member_call(
     expect(arg, "Missing duck member argument " + index.toString());
     const fact = facts.editor_type_of.get(arg);
 
+    if (fact === undefined) {
+      continue;
+    }
+
     if (
-      fact === undefined || concrete_fact_name(fact) === undefined ||
-      (param_type.tag === "arrow" &&
-        (fact.call_params === undefined || fact.call_result === undefined))
+      concrete_fact_name(fact) === undefined &&
+      (fact.inference_variable || fact.name === "" || fact.name === "unknown")
     ) {
+      continue;
+    }
+
+    if (
+      param_type.tag === "arrow" &&
+      (fact.call_params === undefined || fact.call_result === undefined)
+    ) {
+      deferred_argument = true;
       continue;
     }
 
@@ -332,7 +346,14 @@ function resolve_duck_member_call(
     );
   }
 
-  const contextual_result = facts.editor_type_of.get(expr);
+  const inferred_result = facts.editor_type_of.get(expr);
+  const expected_result = facts.expected_type_of.get(expr);
+  let contextual_result = expected_result;
+
+  if (contextual_result === undefined) {
+    contextual_result = inferred_result;
+  }
+
   let resolved_contextual_result: SourceTypeFact | undefined;
 
   if (
@@ -406,9 +427,19 @@ function resolve_duck_member_call(
   const owner = role_types.get(owner_role);
 
   if (owner === undefined) {
+    const argument_types = member_args.map((arg) => {
+      const fact = facts.editor_type_of.get(arg);
+
+      if (fact === undefined) {
+        return "unknown";
+      }
+
+      return fact.name;
+    }).join(", ");
     throw new Error(
       "Duck obligation escapes without a statically known role: " +
-        target.declaration.name + "." + target.member.name + " " + owner_role,
+        target.declaration.name + "." + target.member.name + " " + owner_role +
+        " from arguments [" + argument_types + "]",
     );
   }
 
@@ -427,27 +458,166 @@ function resolve_duck_member_call(
 
   bind_duck_type_members(target.declaration, implementation, role_types);
 
-  const result_type = validate_extension_signature(
-    target.declaration,
-    target.member,
-    implementation.value,
-    role_types,
-    facts,
-    types,
-    source,
-    resolved_contextual_result,
-  );
+  let result_type = resolved_contextual_result;
+
+  if (
+    !deferred_argument ||
+    duck_type_roles_known(
+      target.member.type_expr,
+      target.declaration.roles,
+      role_types,
+    )
+  ) {
+    result_type = validate_extension_signature(
+      target.declaration,
+      target.member,
+      implementation.value,
+      role_types,
+      facts,
+      types,
+      source,
+      resolved_contextual_result,
+    );
+  }
   const extension_binding = extension_bindings.get(implementation.value);
   expect(
     extension_binding,
     "Missing lexical extension binding for " + implementation.type_name +
       "." + target.member.name,
   );
-  used_extension_bindings.add(extension_binding);
-  expr.func = { tag: "var", name: extension_binding };
+  const specialized_implementation = specialize_duck_extension_value(
+    implementation.value,
+    target.declaration.roles,
+    role_types,
+  );
+
+  if (specialized_implementation === undefined) {
+    used_extension_bindings.add(extension_binding);
+    expr.func = { tag: "var", name: extension_binding };
+  } else {
+    expr.func = specialized_implementation;
+  }
   expr.args = member_args;
-  facts.editor_type_of.set(expr, result_type);
+
+  if (result_type !== undefined) {
+    facts.editor_type_of.set(expr, result_type);
+  }
+
   return true;
+}
+
+function specialize_duck_extension_value(
+  value: FrontExpr,
+  roles: string[],
+  role_types: Map<string, DuckRoleBinding>,
+): FrontExpr | undefined {
+  const referenced_roles = roles.filter((role) => {
+    return front_value_mentions_type_role(value, role);
+  });
+
+  if (referenced_roles.length === 0) {
+    return undefined;
+  }
+
+  for (const role of referenced_roles) {
+    if (!role_types.has(role)) {
+      return undefined;
+    }
+  }
+
+  const specialized = structuredClone(value);
+
+  const visit = (candidate: unknown): void => {
+    if (candidate === null || typeof candidate !== "object") {
+      return;
+    }
+
+    if (Array.isArray(candidate)) {
+      for (const entry of candidate) {
+        visit(entry);
+      }
+      return;
+    }
+
+    const object = candidate as Record<string, unknown>;
+
+    if (
+      (object.tag === "type_name" || object.tag === "var" ||
+        object.tag === "name") &&
+      typeof object.name === "string" && role_types.has(object.name)
+    ) {
+      const role = role_types.get(object.name);
+      expect(role, "Missing specialized Duck role " + object.name);
+      if (object.tag !== "name") {
+        object.tag = "type_name";
+      }
+      object.name = role.name;
+    }
+
+    if (typeof object.annotation === "string") {
+      const annotation = parse_type_expr(tokenize(object.annotation));
+      const instantiated = instantiate_duck_type(annotation, role_types);
+
+      if (instantiated !== undefined) {
+        object.annotation = format_type_expr(instantiated);
+      }
+    }
+
+    if (
+      object.type_annotation !== undefined &&
+      typeof object.type_annotation === "object"
+    ) {
+      const instantiated = instantiate_duck_type(
+        object.type_annotation as TypeExpr,
+        role_types,
+      );
+
+      if (instantiated !== undefined) {
+        object.type_annotation = instantiated;
+      }
+    }
+
+    for (const child of Object.values(object)) {
+      visit(child);
+    }
+  };
+
+  visit(specialized);
+  return specialized;
+}
+
+function front_value_mentions_type_role(
+  value: unknown,
+  role: string,
+): boolean {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((entry) => front_value_mentions_type_role(entry, role));
+  }
+
+  const object = value as Record<string, unknown>;
+
+  if (
+    (object.tag === "type_name" || object.tag === "var" ||
+      object.tag === "name") &&
+    object.name === role
+  ) {
+    return true;
+  }
+
+  if (
+    typeof object.annotation === "string" &&
+    new RegExp("\\b" + role + "\\b").test(object.annotation)
+  ) {
+    return true;
+  }
+
+  return Object.values(object).some((child) => {
+    return front_value_mentions_type_role(child, role);
+  });
 }
 
 function resolve_extension_receiver_call(
@@ -688,10 +858,32 @@ function validate_extension_signature(
     }
   }
 
-  const implementation_facts = source_facts(
-    source_with_extension_values(source),
-  );
-  const implementation_type = implementation_facts.editor_type_of.get(value);
+  const expected_types = new Map<FrontExpr, TypeExpr>();
+
+  if (
+    duck_type_roles_known(
+      member.type_expr,
+      declaration.roles,
+      role_types,
+    )
+  ) {
+    const expected_type = instantiate_duck_type(member.type_expr, role_types);
+    expect(expected_type, "Missing instantiated duck member type");
+    expected_types.set(value, expected_type);
+  }
+
+  let implementation_facts = source_facts(source_with_extension_values(source));
+  let implementation_type = implementation_facts.editor_type_of.get(value);
+
+  if (
+    implementation_type?.call_result === undefined &&
+    expected_types.size !== 0
+  ) {
+    implementation_facts = source_facts(
+      source_with_extension_values(source, undefined, expected_types),
+    );
+    implementation_type = implementation_facts.editor_type_of.get(value);
+  }
 
   if (
     implementation_type?.call_params === undefined ||
@@ -747,6 +939,10 @@ function bind_duck_fact(
   role_types: Map<string, DuckRoleBinding>,
   types: Map<string, TypeDeclaration>,
 ): void {
+  if (pattern.tag === "top") {
+    return;
+  }
+
   if (pattern.tag === "name") {
     if (declaration.roles.includes(pattern.name)) {
       bind_duck_role(
@@ -778,6 +974,13 @@ function bind_duck_fact(
   }
 
   if (pattern.tag === "arrow") {
+    if (
+      (actual.call_params === undefined || actual.call_result === undefined) &&
+      (actual.inference_variable || actual.name === "function")
+    ) {
+      return;
+    }
+
     expect(
       actual.call_params !== undefined && actual.call_result !== undefined,
       "Duck member " + declaration.name + "." + member.name +
@@ -873,7 +1076,26 @@ function duck_type_expr_matches_fact(
   expected: TypeExpr,
   actual: SourceTypeFact,
   types: Map<string, TypeDeclaration>,
+  seen: WeakMap<SourceTypeFact, Set<string>> = new WeakMap(),
 ): boolean {
+  const expected_name = format_type_expr(expected);
+  let expected_types = seen.get(actual);
+
+  if (expected_types?.has(expected_name)) {
+    return true;
+  }
+
+  if (expected_types === undefined) {
+    expected_types = new Set();
+    seen.set(actual, expected_types);
+  }
+
+  expected_types.add(expected_name);
+
+  if (expected.tag === "top") {
+    return true;
+  }
+
   if (expected.tag === "name") {
     const actual_name = concrete_fact_name(actual);
     return actual_name !== undefined &&
@@ -898,7 +1120,7 @@ function duck_type_expr_matches_fact(
 
       if (
         param === undefined || received === undefined ||
-        !duck_type_expr_matches_fact(param, received, types)
+        !duck_type_expr_matches_fact(param, received, types, seen)
       ) {
         return false;
       }
@@ -908,6 +1130,7 @@ function duck_type_expr_matches_fact(
       expected.result,
       actual.call_result,
       types,
+      seen,
     );
   }
 
@@ -944,7 +1167,7 @@ function duck_type_expr_matches_fact(
         substitutions,
       );
       expect(target, "Missing instantiated duck alias target");
-      return duck_type_expr_matches_fact(target, actual, types);
+      return duck_type_expr_matches_fact(target, actual, types, seen);
     }
 
     let fields;
@@ -979,7 +1202,7 @@ function duck_type_expr_matches_fact(
 
       if (
         field_type === undefined ||
-        !duck_type_expr_matches_fact(field_type, received, types)
+        !duck_type_expr_matches_fact(field_type, received, types, seen)
       ) {
         return false;
       }
@@ -1001,7 +1224,7 @@ function duck_type_expr_matches_fact(
 
       if (
         entry === undefined || received === undefined ||
-        !duck_type_expr_matches_fact(entry.type_expr, received, types)
+        !duck_type_expr_matches_fact(entry.type_expr, received, types, seen)
       ) {
         return false;
       }

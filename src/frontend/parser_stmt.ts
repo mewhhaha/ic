@@ -1,9 +1,11 @@
 import type {
+  AttributeGroup,
   Declaration,
   EffectDeclaration,
   EffectOperation,
   EffectParam,
   EffectResult,
+  FrontExpr,
   ModuleHeader,
   Source as SourceNode,
   Stmt,
@@ -53,42 +55,74 @@ export class ParserStmt extends ParserTypeDeclaration {
     }
 
     while (!this.is("eof")) {
+      const start = this.index;
+      const attribute_groups = this.parse_attribute_groups();
+
+      if (attribute_groups.length > 0) {
+        this.skip_newlines();
+      }
+
       if (this.peek().kind === "name" && this.peek().text === "declare") {
-        const start = this.index;
-        declarations.push(this.concrete_node(start, this.parse_declaration()));
+        declarations.push(this.concrete_node(
+          start,
+          this.attach_declaration_attributes(
+            this.parse_declaration(),
+            attribute_groups,
+          ),
+        ));
         this.skip_newlines();
         continue;
       }
 
       if (this.peek().kind === "name" && this.peek().text === "effect") {
-        const start = this.index;
         this.expect_name("Expected effect");
         declarations.push(
-          this.concrete_node(start, this.parse_effect_declaration("duck")),
+          this.concrete_node(
+            start,
+            this.attach_declaration_attributes(
+              this.parse_effect_declaration("duck"),
+              attribute_groups,
+            ),
+          ),
         );
         this.skip_newlines();
         continue;
       }
 
       if (this.peek().kind === "name" && this.peek().text === "type") {
-        const start = this.index;
         declarations.push(
-          this.concrete_node(start, this.parse_type_declaration()),
+          this.concrete_node(
+            start,
+            this.attach_declaration_attributes(
+              this.parse_type_declaration(),
+              attribute_groups,
+            ),
+          ),
         );
         this.skip_newlines();
         continue;
       }
 
       if (this.peek().kind === "name" && this.peek().text === "duck") {
-        const start = this.index;
-        declarations.push(this.concrete_node(start, this.parse_duck()));
+        declarations.push(this.concrete_node(
+          start,
+          this.attach_declaration_attributes(
+            this.parse_duck(),
+            attribute_groups,
+          ),
+        ));
         this.skip_newlines();
         continue;
       }
 
       if (this.peek().kind === "name" && this.peek().text === "extend") {
-        const start = this.index;
-        declarations.push(this.concrete_node(start, this.parse_extension()));
+        declarations.push(this.concrete_node(
+          start,
+          this.attach_declaration_attributes(
+            this.parse_extension(),
+            attribute_groups,
+          ),
+        ));
         this.skip_newlines();
         continue;
       }
@@ -97,13 +131,20 @@ export class ParserStmt extends ParserTypeDeclaration {
         this.peek().kind === "name" &&
         is_fixity_keyword(this.peek().text)
       ) {
-        const start = this.index;
-        declarations.push(this.concrete_node(start, this.parse_fixity()));
+        declarations.push(this.concrete_node(
+          start,
+          this.attach_declaration_attributes(
+            this.parse_fixity(),
+            attribute_groups,
+          ),
+        ));
         this.skip_newlines();
         continue;
       }
 
-      statements.push(this.parse_stmt());
+      statements.push(
+        this.parse_stmt_after_attributes(start, attribute_groups),
+      );
       this.skip_newlines();
     }
 
@@ -128,18 +169,31 @@ export class ParserStmt extends ParserTypeDeclaration {
       const start = this.index;
 
       try {
+        const attribute_groups = this.parse_attribute_groups();
+
+        if (attribute_groups.length > 0) {
+          this.skip_newlines();
+        }
+
         if (
           module === undefined && this.peek().kind === "name" &&
           this.peek().text === "module" && this.peek(1).kind === "symbol" &&
           this.peek(1).text === "("
         ) {
+          expect(
+            attribute_groups.length === 0,
+            "Module headers do not accept attributes",
+          );
           module = this.concrete_node(start, this.parse_module_header());
         } else if (
           this.peek().kind === "name" && this.peek().text === "declare"
         ) {
           const declaration = this.concrete_node(
             start,
-            this.parse_declaration(),
+            this.attach_declaration_attributes(
+              this.parse_declaration(),
+              attribute_groups,
+            ),
           );
           declarations.push(declaration);
         } else if (
@@ -148,30 +202,57 @@ export class ParserStmt extends ParserTypeDeclaration {
           this.expect_name("Expected effect");
           const declaration = this.concrete_node(
             start,
-            this.parse_effect_declaration("duck"),
+            this.attach_declaration_attributes(
+              this.parse_effect_declaration("duck"),
+              attribute_groups,
+            ),
           );
           declarations.push(declaration);
         } else if (this.peek().kind === "name" && this.peek().text === "type") {
           const declaration = this.concrete_node(
             start,
-            this.parse_type_declaration(),
+            this.attach_declaration_attributes(
+              this.parse_type_declaration(),
+              attribute_groups,
+            ),
           );
           declarations.push(declaration);
         } else if (
           this.peek().kind === "name" && this.peek().text === "duck"
         ) {
-          declarations.push(this.concrete_node(start, this.parse_duck()));
+          declarations.push(this.concrete_node(
+            start,
+            this.attach_declaration_attributes(
+              this.parse_duck(),
+              attribute_groups,
+            ),
+          ));
         } else if (
           this.peek().kind === "name" && this.peek().text === "extend"
         ) {
-          declarations.push(this.concrete_node(start, this.parse_extension()));
+          declarations.push(this.concrete_node(
+            start,
+            this.attach_declaration_attributes(
+              this.parse_extension(),
+              attribute_groups,
+            ),
+          ));
         } else if (
           this.peek().kind === "name" &&
           is_fixity_keyword(this.peek().text)
         ) {
-          declarations.push(this.concrete_node(start, this.parse_fixity()));
+          declarations.push(this.concrete_node(
+            start,
+            this.attach_declaration_attributes(
+              this.parse_fixity(),
+              attribute_groups,
+            ),
+          ));
         } else {
-          const statement = this.parse_stmt();
+          const statement = this.parse_stmt_after_attributes(
+            start,
+            attribute_groups,
+          );
           statements.push(statement);
         }
       } catch (error) {
@@ -344,27 +425,32 @@ export class ParserStmt extends ParserTypeDeclaration {
     const types: Extract<Declaration, { tag: "extend" }>["types"] = [];
     const fields: Extract<Declaration, { tag: "extend" }>["fields"] = [];
     const names = new Set<string>();
+    this.allow_pascal_type_names += 1;
 
-    while (!this.match_symbol("}")) {
-      if (this.match_name("type")) {
-        const name = this.expect_declaration_name("Extension type member");
-        expect(!names.has(name), "Duplicate extension member: " + name);
-        names.add(name);
-        this.expect_symbol("=");
-        const annotation = this.consume_type_field_annotation();
-        types.push({ name, type_expr: parse_type_expr(annotation.tokens) });
-      } else {
-        this.expect_symbol(".");
-        const name = this.expect_name("Expected extension member name");
-        expect_snake_case(name, "Extension member");
-        expect(!names.has(name), "Duplicate extension member: " + name);
-        names.add(name);
-        this.expect_symbol("=");
-        fields.push({ name, value: this.parse_expr() });
+    try {
+      while (!this.match_symbol("}")) {
+        if (this.match_name("type")) {
+          const name = this.expect_declaration_name("Extension type member");
+          expect(!names.has(name), "Duplicate extension member: " + name);
+          names.add(name);
+          this.expect_symbol("=");
+          const annotation = this.consume_type_field_annotation();
+          types.push({ name, type_expr: parse_type_expr(annotation.tokens) });
+        } else {
+          this.expect_symbol(".");
+          const name = this.expect_name("Expected extension member name");
+          expect_snake_case(name, "Extension member");
+          expect(!names.has(name), "Duplicate extension member: " + name);
+          names.add(name);
+          this.expect_symbol("=");
+          fields.push({ name, value: this.parse_expr() });
+        }
+
+        this.match_symbol(",");
+        this.skip_newlines();
       }
-
-      this.match_symbol(",");
-      this.skip_newlines();
+    } finally {
+      this.allow_pascal_type_names -= 1;
     }
 
     return { tag: "extend", type_name, types, fields };
@@ -455,8 +541,38 @@ export class ParserStmt extends ParserTypeDeclaration {
       const operation = this.expect_name("Expected effect operation name");
       expect_snake_case(operation, "Effect operation");
       this.expect_symbol(":");
+      const type_params: string[] = [];
+
+      if (this.match_name("forall")) {
+        while (!this.match_symbol(".")) {
+          const param = this.expect_name(
+            "Expected effect operation type parameter or `.`",
+          );
+          expect_snake_case(param, "Effect operation type parameter");
+          expect(
+            !type_params.includes(param),
+            "Duplicate effect operation type parameter: " + param,
+          );
+          expect(
+            !params.includes(param),
+            "Effect operation type parameter shadows effect parameter: " +
+              param,
+          );
+          type_params.push(param);
+        }
+
+        expect(
+          type_params.length > 0,
+          "Effect operation forall requires at least one type parameter",
+        );
+        expect(
+          implementation === "duck",
+          "Host effect operations require concrete ABI types",
+        );
+      }
+
       this.expect_symbol("(");
-      const params = this.parse_effect_params();
+      const operation_params = this.parse_effect_params();
       this.expect_symbol("=>");
       const result_start = this.index;
       const result = this.concrete_node(
@@ -467,12 +583,18 @@ export class ParserStmt extends ParserTypeDeclaration {
       if (execution === "suspending") {
         parsed_operation = {
           name: operation,
+          type_params,
           execution,
-          params,
+          params: operation_params,
           result,
         };
       } else {
-        parsed_operation = { name: operation, params, result };
+        parsed_operation = {
+          name: operation,
+          type_params,
+          params: operation_params,
+          result,
+        };
       }
       operations.push(
         this.concrete_node(operation_start, parsed_operation),
@@ -511,12 +633,18 @@ export class ParserStmt extends ParserTypeDeclaration {
   private parse_effect_param(text: string): EffectParam {
     const parts = text.split(/\s+/);
 
-    if (parts.length === 1) {
-      if (is_effect_scalar_type(text)) {
-        return { type_name: text, ownership: "scalar" };
+    if (parts[0] !== "&" && parts[0] !== "#") {
+      if (is_legacy_effect_ownership(parts[0])) {
+        throw new Error("Unknown effect parameter ownership: " + parts[0]);
       }
 
-      return { type_name: text, ownership: "ownership_transfer" };
+      let ownership: EffectParam["ownership"] = "ownership_transfer";
+
+      if (is_effect_scalar_type(text)) {
+        ownership = "scalar";
+      }
+
+      return { type_name: text, ownership };
     }
 
     const ownership_symbol = parts[0];
@@ -539,18 +667,24 @@ export class ParserStmt extends ParserTypeDeclaration {
 
     if (parts.length > 1) {
       const ownership_symbol = parts[0];
-      const type_name = parts.slice(1).join("");
-      expect(type_name.length > 0, "Expected effect result type");
 
       if (ownership_symbol === "&") {
         throw new Error("Effect results cannot use bounded borrow ownership");
       }
 
       if (ownership_symbol === "#") {
+        const type_name = parts.slice(1).join("");
+        expect(type_name.length > 0, "Expected effect result type");
         return { type_name, ownership: "frozen_shareable" };
       }
 
-      throw new Error("Unknown effect result ownership: " + ownership_symbol);
+      if (is_legacy_effect_ownership(ownership_symbol)) {
+        throw new Error(
+          "Unknown effect result ownership: " + ownership_symbol,
+        );
+      }
+
+      return { type_name: text, ownership: "unique_heap" };
     }
 
     if (is_effect_scalar_type(text)) {
@@ -594,10 +728,85 @@ export class ParserStmt extends ParserTypeDeclaration {
     return name;
   }
 
+  private parse_attribute_groups(): AttributeGroup[] {
+    const groups: AttributeGroup[] = [];
+
+    while (
+      this.peek().kind === "symbol" && this.peek().text === "@" &&
+      this.peek(1).kind === "symbol" && this.peek(1).text === "["
+    ) {
+      const start = this.index;
+      const start_line = this.peek().line;
+      this.expect_symbol("@");
+      this.expect_symbol("[");
+      this.skip_newlines();
+      const attributes: FrontExpr[] = [];
+
+      while (!this.match_symbol("]")) {
+        attributes.push(this.parse_expr());
+        this.skip_newlines();
+
+        if (this.match_symbol("]")) {
+          break;
+        }
+
+        this.expect_symbol(",");
+        this.skip_newlines();
+      }
+
+      expect(attributes.length > 0, "Attribute groups cannot be empty");
+      const group: AttributeGroup = { attributes };
+      const end = this.tokens[this.index - 1];
+      expect(end, "Missing attribute group closing token");
+
+      if (end.line > start_line) {
+        group.multiline = true;
+      }
+
+      groups.push(this.concrete_node(start, group));
+      this.skip_newlines();
+    }
+
+    return groups;
+  }
+
+  private attach_declaration_attributes(
+    declaration: Declaration,
+    groups: AttributeGroup[],
+  ): Declaration {
+    if (groups.length > 0) {
+      declaration.attribute_groups = groups;
+    }
+
+    return declaration;
+  }
+
+  private parse_stmt_after_attributes(
+    start: number,
+    groups: AttributeGroup[],
+  ): Stmt {
+    const statement = this.parse_stmt_inner();
+
+    if (groups.length > 0) {
+      expect(
+        statement.tag === "bind" && statement.effectful !== true,
+        "Attributes can only annotate named bindings and declarations",
+      );
+      statement.attribute_groups = groups;
+    }
+
+    return this.concrete_node(start, statement);
+  }
+
   protected parse_stmt(): Stmt {
     const start = this.index;
-    const statement = this.parse_stmt_inner();
-    return this.concrete_node(start, statement);
+    const attribute_groups = this.parse_attribute_groups();
+
+    if (attribute_groups.length > 0) {
+      this.skip_newlines();
+    }
+
+    return this.parse_stmt_after_attributes(start, attribute_groups);
   }
 
   private parse_stmt_inner(): Stmt {
@@ -755,8 +964,14 @@ export class ParserStmt extends ParserTypeDeclaration {
   }
 }
 
+function is_legacy_effect_ownership(name: string | undefined): boolean {
+  return name === "bounded_borrow" || name === "frozen_shareable" ||
+    name === "ownership_transfer" || name === "unique_heap" ||
+    name === "scalar";
+}
+
 function is_effect_scalar_type(type_name: string): boolean {
-  return type_name === "Unit" || type_name === "Bool" ||
+  return type_name === "Unit" || type_name === "Bool" || type_name === "Char" ||
     type_name === "Int" || type_name === "I32" || type_name === "U32" ||
     type_name === "I64" || type_name === "F32" || type_name === "F64";
 }

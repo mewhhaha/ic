@@ -101,6 +101,75 @@ Deno.test("duck check accepts a semantically valid source file", async () => {
   assert_equals(new TextDecoder().decode(output.stderr), "");
 });
 
+Deno.test("duck test runs exported source tests", async () => {
+  const command = new Deno.Command(Deno.execPath(), {
+    args: [
+      "run",
+      "--no-check",
+      "--allow-read",
+      "--allow-run=wat2wasm",
+      entry,
+      "test",
+      "examples/testing/01_inline_tests.duck",
+    ],
+    stdout: "piped",
+    stderr: "piped",
+  });
+  const output = await command.output();
+
+  assert_equals(output.success, true);
+  assert_equals(
+    new TextDecoder().decode(output.stdout),
+    "pass addition_returns_the_sum\n" +
+      "pass unequal_values_are_detected\n" +
+      "2 tests, 2 passed, 0 failed\n",
+  );
+  assert_equals(new TextDecoder().decode(output.stderr), "");
+});
+
+Deno.test("duck test reports a failing source assertion", async () => {
+  const directory = await Deno.makeTempDir({ prefix: "ducklang-cli-test-" });
+  const source_path = directory + "/failure.duck";
+  await Deno.writeTextFile(
+    source_path,
+    "module () where\n" +
+      'const { test } = import "duck:prelude/attributes" ()\n' +
+      'const { assert } = import "duck:prelude/testing" ()\n' +
+      "@[test]\n" +
+      "const equality_holds: () -> Unit = () => assert(1 == 2)\n" +
+      "return {}\n",
+  );
+
+  try {
+    const command = new Deno.Command(Deno.execPath(), {
+      args: [
+        "run",
+        "--no-check",
+        "--allow-read",
+        "--allow-run=wat2wasm",
+        entry,
+        "test",
+        source_path,
+      ],
+      stdout: "piped",
+      stderr: "piped",
+    });
+    const output = await command.output();
+
+    assert_equals(output.success, false);
+    assert_equals(
+      new TextDecoder().decode(output.stdout),
+      "1 test, 0 passed, 1 failed\n",
+    );
+    assert_includes(
+      new TextDecoder().decode(output.stderr),
+      "fail equality_holds: unreachable",
+    );
+  } finally {
+    await Deno.remove(directory, { recursive: true });
+  }
+});
+
 Deno.test("duck check reports semantic diagnostics with locations", async () => {
   const command = new Deno.Command(Deno.execPath(), {
     args: [

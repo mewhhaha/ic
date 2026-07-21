@@ -52,7 +52,7 @@ export function infer_builtin_call_type(
   }
 
   if (
-    (expr.func.name === "@as" || expr.func.name === "@seal" ||
+    (expr.func.name === "@cast" || expr.func.name === "@seal" ||
       expr.func.name === "@representation" ||
       expr.func.name === "@integer.wrap") &&
     !lookup(env, expr.func.name)
@@ -151,6 +151,10 @@ export function infer_builtin_call_type(
 
   if (expr.func.name === "@len" && expr.args.length === 1) {
     return { tag: "int", type: "i32" };
+  }
+
+  if (expr.func.name === "@type_of" && expr.args.length === 1) {
+    return { tag: "type" };
   }
 
   if (expr.func.name === "@Bytes.generate" && expr.args.length === 2) {

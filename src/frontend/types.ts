@@ -13,7 +13,8 @@ export function is_builtin_type_name(name: string): boolean {
     return true;
   }
 
-  return name === "Bool" || name === "Unit" || name === "Int" ||
+  return name === "Bool" || name === "Char" || name === "Unit" ||
+    name === "Int" ||
     name === "I32" ||
     name === "U32" || name === "I64" || name === "F32" || name === "F64" ||
     name === "F32x4" ||
@@ -46,6 +47,10 @@ export function front_type_from_type_name(name: string): FrontType {
 
   if (name === "Bool") {
     return { tag: "bool" };
+  }
+
+  if (name === "Char") {
+    return { tag: "char" };
   }
 
   if (name === "F32") {
@@ -99,8 +104,8 @@ export function val_type_from_type_name(name: string): ValType | undefined {
   }
 
   if (
-    name === "Bool" || name === "Int" || name === "I32" || name === "U32" ||
-    name === "Resume"
+    name === "Bool" || name === "Char" || name === "Int" ||
+    name === "I32" || name === "U32" || name === "Resume"
   ) {
     return "i32";
   }
@@ -115,6 +120,9 @@ export function front_type_name(type: FrontType): string {
 
     case "bool":
       return "Bool";
+
+    case "char":
+      return "Char";
 
     case "f32x4":
       return "F32x4";
@@ -183,6 +191,10 @@ export function type_name_from_front_type(
 ): string | undefined {
   if (type.tag === "bool") {
     return "Bool";
+  }
+
+  if (type.tag === "char") {
+    return "Char";
   }
 
   if (type.tag === "f32x4") {
@@ -446,7 +458,10 @@ function same_type_name(left: string, right: string): boolean {
     return true;
   }
 
-  if (left === "Bool" || right === "Bool") {
+  if (
+    left === "Bool" || right === "Bool" || left === "Char" ||
+    right === "Char"
+  ) {
     return false;
   }
 

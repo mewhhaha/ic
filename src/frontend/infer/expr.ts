@@ -30,6 +30,10 @@ export function infer_front_expr(
       return { tag: "atom", name: expr.name };
 
     case "num":
+      if (expr.character !== undefined) {
+        return { tag: "char" };
+      }
+
       return { tag: "int", type: expr.type, integer: expr.integer };
 
     case "unit":

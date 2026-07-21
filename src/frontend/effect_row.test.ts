@@ -268,19 +268,19 @@ declare effect FileReader {
   close: () => Unit
 }
 
-type OpenResult = | .ok | .err
+type OpenResult = | \`Ok Unit | \`Err Unit
 
 let with_file: [Text, () -> <e> I32] -> <FileReader.open :| FileReader.close :| e> I32 =
   (path, const action) => {
     open_result <- FileReader.open(&path)
 
     match open_result {
-      | .ok => {
+      | \`Ok () => {
         code <- action()
         _ <- FileReader.close()
         code
       }
-      | .err => 2
+      | \`Err () => 2
     }
   }
 `);

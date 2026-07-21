@@ -1,6 +1,7 @@
 import { expect } from "../expect.ts";
 import type { Field, FrontExpr, TypeField } from "./ast.ts";
 import { i32_expr } from "./numeric.ts";
+import { integer_type_name } from "../integer.ts";
 
 type LayoutInfo = {
   size: number;
@@ -60,6 +61,29 @@ export function layout_type(value: FrontExpr): LayoutInfo {
 
   if (value.tag === "union_type") {
     return layout_union(value.cases);
+  }
+
+  if (value.tag === "set_type" && value.type_expr.tag === "literal") {
+    const literal = value.type_expr.value;
+    let name = "I32";
+
+    if (literal.tag === "bool") {
+      name = "Bool";
+    } else if (literal.tag === "text") {
+      name = "Text";
+    } else if (literal.character !== undefined) {
+      name = "Char";
+    } else if (literal.integer !== undefined) {
+      name = integer_type_name(literal.integer);
+    } else if (literal.type === "i64") {
+      name = "I64";
+    } else if (literal.type === "f32") {
+      name = "F32";
+    } else if (literal.type === "f64") {
+      name = "F64";
+    }
+
+    return layout_type({ tag: "type_name", name });
   }
 
   throw new Error("Expected struct or union type value for layout");
@@ -128,8 +152,8 @@ function layout_type_name(name: string): { size: number; align: number } {
   }
 
   if (
-    name === "Bool" || name === "Int" || name === "I32" || name === "U32" ||
-    name === "Resume" || name === "F32"
+    name === "Bool" || name === "Char" || name === "Int" ||
+    name === "I32" || name === "U32" || name === "Resume" || name === "F32"
   ) {
     return { size: 4, align: 4 };
   }

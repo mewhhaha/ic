@@ -1,6 +1,6 @@
 module (!init: Init) where
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 
 declare effect Input {
   flag: () => Bool

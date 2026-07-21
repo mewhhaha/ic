@@ -222,12 +222,15 @@ function scan_static_transfer_target<ctx>(
 ): void {
   if (target.tag === "lam" || target.tag === "rec") {
     const previous_ctx = state.ctx;
+    const previous_collect_local_facts = state.collect_local_facts;
 
     if (state.hooks.closure_body_ctx) {
       const scoped_ctx = state.hooks.closure_body_ctx(target.value, state.ctx);
 
       if (scoped_ctx) {
         state.ctx = scoped_ctx;
+      } else {
+        state.collect_local_facts = false;
       }
     }
 
@@ -240,6 +243,7 @@ function scan_static_transfer_target<ctx>(
       );
     } finally {
       state.ctx = previous_ctx;
+      state.collect_local_facts = previous_collect_local_facts;
     }
     return;
   }

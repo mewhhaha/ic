@@ -160,7 +160,7 @@ Deno.test("code actions widen mixed integer operands", () => {
 });
 
 Deno.test("code actions complete concrete struct fields and union payloads", () => {
-  const struct_before = "type User = [.name = Text, .age = Int]\n" +
+  const struct_before = "type User = struct {.name = Text, .age = Int}\n" +
     'let user: User = [.name = "Ada"]\nuser.age\n';
   const struct_action = actions(struct_before).actions.find((candidate) =>
     candidate.title === "Add missing field age"
@@ -168,19 +168,19 @@ Deno.test("code actions complete concrete struct fields and union payloads", () 
   expect(struct_action !== undefined, "Expected missing-field quick fix");
   assert_equals(
     apply(struct_before, struct_action),
-    "type User = [.name = Text, .age = Int]\n" +
+    "type User = struct {.name = Text, .age = Int}\n" +
       'let user: User = [.name = "Ada", .age = 0]\nuser.age\n',
   );
-  const union_before = "type Result = | .ok = Int | .err = Text\n" +
-    'let result = Result.ok("wrong")\n';
+  const union_before = "type Result = | `Ok Int | `Err Text\n" +
+    'let result = `Ok ("wrong")\n';
   const union_action = actions(union_before).actions.find((candidate) =>
     candidate.title === "Replace union payload with I32 value"
   );
   expect(union_action !== undefined, "Expected union payload quick fix");
   assert_equals(
     apply(union_before, union_action),
-    "type Result = | .ok = Int | .err = Text\n" +
-      "let result = Result.ok(0)\n",
+    "type Result = | `Ok Int | `Err Text\n" +
+      "let result = `Ok (0)\n",
   );
   assert_equals(
     Source.analyze(apply(struct_before, struct_action)).diagnostics,
@@ -193,8 +193,8 @@ Deno.test("code actions complete concrete struct fields and union payloads", () 
 });
 
 Deno.test("code actions use false for a missing Bool union payload", () => {
-  const before = "type Result = | .ok = Bool | .err = Text\n" +
-    "let result = Result.ok(1)\n";
+  const before = "type Result = | `Ok Bool | `Err Text\n" +
+    "let result = `Ok (1)\n";
   const result = actions(before);
   const replacement = result.actions.find((candidate) =>
     candidate.title === "Replace union payload with Bool value"
@@ -204,8 +204,8 @@ Deno.test("code actions use false for a missing Bool union payload", () => {
   const after = apply(before, replacement);
   assert_equals(
     after,
-    "type Result = | .ok = Bool | .err = Text\n" +
-      "let result = Result.ok(false)\n",
+    "type Result = | `Ok Bool | `Err Text\n" +
+      "let result = `Ok (false)\n",
   );
   assert_equals(Source.analyze(after).diagnostics, []);
 });
@@ -318,20 +318,20 @@ Deno.test("code actions use false for a missing Bool handler result", () => {
 });
 
 Deno.test("code actions add an explicit missing if-let case", () => {
-  const before = "type Result = | .ok = Int | .err = Text\n" +
-    "let result = Result.ok(1)\n" +
-    "if let .ok(value) = result { value } else { 0 }\n";
+  const before = "type Result = | `Ok Int | `Err Text\n" +
+    "let result = `Ok (1)\n" +
+    "if let `Ok value = result { value } else { 0 }\n";
   const result = actions(before);
   const branch = result.actions.find((candidate) =>
-    candidate.title === "Add explicit .err branch"
+    candidate.title === "Add explicit `Err branch"
   );
   expect(branch !== undefined, "Expected missing-case assist");
   const after = apply(before, branch);
   assert_equals(
     after,
-    "type Result = | .ok = Int | .err = Text\n" +
-      "let result = Result.ok(1)\n" +
-      "if let .ok(value) = result { value } else if let .err(value) = result { 0 } else { 0 }\n",
+    "type Result = | `Ok Int | `Err Text\n" +
+      "let result = `Ok (1)\n" +
+      "if let `Ok value = result { value } else if let `Err value = result { 0 } else { 0 }\n",
   );
   assert_equals(Source.analyze(after).diagnostics, []);
 });

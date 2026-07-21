@@ -42,11 +42,22 @@ export function runtime_union_case_info<ctx extends RuntimeUnionCtx>(
   hooks: RuntimeUnionHooks<ctx>,
 ): RuntimeUnionInfo {
   const type_expr = value.type_expr;
-  expect(type_expr, "Core runtime union case requires a union type");
+  let case_subject = value.name;
+  const payload_value = value.value;
+  if (
+    payload_value &&
+    (payload_value.tag === "var" || payload_value.tag === "linear")
+  ) {
+    case_subject += "(" + payload_value.name + ")";
+  }
+  expect(
+    type_expr,
+    "Core runtime union case requires a union type: " + case_subject,
+  );
   const type_value = static_type_value(type_expr, ctx);
   expect(
     type_value && type_value.tag === "union_type",
-    "Core runtime union case requires a union type",
+    "Core runtime union case requires a union type: " + case_subject,
   );
 
   let declared: CoreTypeField | undefined;

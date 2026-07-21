@@ -1,0 +1,51 @@
+==================
+Stacked source attributes
+==================
+
+@[test]
+@[
+  derive(I32, Text),
+  #slow,
+]
+const answer = 42
+
+---
+
+(source_file
+  (binding_statement
+    attribute: (attribute_group
+      (postfix_expression
+        (identifier)))
+    attribute: (attribute_group
+      (application_expression
+        function: (postfix_expression
+          (identifier))
+        argument: (parenthesized_or_product
+          (positional_product
+            (postfix_expression
+              (identifier))
+            (postfix_expression
+              (identifier)))))
+      (postfix_expression
+        (atom_expression
+          name: (identifier))))
+    name: (identifier)
+    value: (postfix_expression
+      (number))))
+
+==================
+Import metadata expression
+==================
+
+const mode = import.meta.mode
+
+---
+
+(source_file
+  (binding_statement
+    name: (identifier)
+    value: (postfix_expression
+      (field_expression
+        object: (postfix_expression
+          (import_meta_expression))
+        field: (identifier)))))

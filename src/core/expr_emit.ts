@@ -13,18 +13,49 @@ import { indent_lines } from "./emit/format.ts";
 import { maybe_static_i32 } from "./analysis/static_i32.ts";
 import {
   emit_runtime_aggregate_field_load,
+  emit_runtime_aggregate_field_move,
   emit_runtime_aggregate_field_pointer,
   emit_runtime_aggregate_value,
   runtime_aggregate_field_info,
+  runtime_struct_update_value,
 } from "./runtime_aggregate.ts";
 import { emit_core_freeze_expr } from "./expr_emit/freeze.ts";
 import { emit_core_scratch_block_expr } from "./expr_emit/scratch.ts";
 import { emit_core_loop_expr } from "./loop.ts";
 import type { CoreExprEmitCtx, CoreExprEmitHooks } from "./expr_emit/types.ts";
+import { core_expression_cleanup_rows } from "./cleanup_emission.ts";
+import { core_expr_is_borrowed } from "./local_facts.ts";
 
 export type { CoreExprEmitCtx, CoreExprEmitHooks } from "./expr_emit/types.ts";
 
 export function emit_core_expr<ctx extends CoreExprEmitCtx>(
+  expr: CoreExpr,
+  ctx: ctx,
+  hooks: CoreExprEmitHooks<ctx>,
+): Wat {
+  const emitted = emit_core_expr_unwrapped(expr, ctx, hooks);
+  const cleanup_rows = core_expression_cleanup_rows(expr);
+
+  if (cleanup_rows.length === 0) {
+    return emitted;
+  }
+
+  const lines = [emitted];
+  for (const row of cleanup_rows) {
+    expect(
+      row.pointer_local,
+      "Expression cleanup requires a pointer local: " + row.step_id,
+    );
+    expect(
+      ctx.locals.has(row.pointer_local),
+      "Missing expression cleanup pointer local: " + row.pointer_local,
+    );
+    lines.push("local.tee $" + row.pointer_local);
+  }
+  return lines.join("\n");
+}
+
+function emit_core_expr_unwrapped<ctx extends CoreExprEmitCtx>(
   expr: CoreExpr,
   ctx: ctx,
   hooks: CoreExprEmitHooks<ctx>,
@@ -303,6 +334,19 @@ export function emit_core_expr<ctx extends CoreExprEmitCtx>(
           throw new Error("Cannot emit core field expression yet");
         }
 
+        if (expr.move && !core_expr_is_borrowed(expr.object, ctx)) {
+          return emit_runtime_aggregate_field_move(
+            expr.object,
+            expr.name,
+            ctx,
+            {
+              check_closure_call_args: hooks.check_closure_call_args,
+              closure_fn_type: hooks.closure_fn_type,
+              emit_expr: emit_core_expr_with_hooks,
+            },
+          );
+        }
+
         if (field_info.tag === "struct") {
           return emit_runtime_aggregate_field_pointer(
             expr.object,
@@ -355,7 +399,16 @@ export function emit_core_expr<ctx extends CoreExprEmitCtx>(
 
       if (index !== undefined) {
         const field = static_indexed_field(fields, index);
-        return emit_core_expr(field.value, ctx, hooks);
+        let value = field.value;
+
+        if (
+          expr.move && value.tag === "field" &&
+          !core_expr_is_borrowed(expr.object, ctx)
+        ) {
+          value = { ...value, move: true };
+        }
+
+        return emit_core_expr(value, ctx, hooks);
       }
 
       return hooks.emit_dynamic_index_expr(fields, expr.index, ctx);
@@ -374,6 +427,26 @@ export function emit_core_expr<ctx extends CoreExprEmitCtx>(
         static_struct_value: hooks.static_struct_value,
       });
 
+    case "struct_update": {
+      const updated = runtime_struct_update_value(expr, ctx, {
+        check_closure_call_args: hooks.check_closure_call_args,
+        closure_fn_type: hooks.closure_fn_type,
+        static_struct_value: hooks.static_struct_value,
+      });
+      expect(updated, "Cannot update non-struct core value");
+      return emit_runtime_aggregate_value(expr, updated, ctx, {
+        core_expr_is_text: hooks.core_expr_is_text,
+        emit_expr: emit_core_expr_with_hooks,
+        expr_type: hooks.expr_type,
+        runtime_aggregate_type_expr: hooks.runtime_aggregate_type_expr,
+        runtime_union_type_expr: hooks.runtime_union_type_expr,
+        same_runtime_aggregate_type_expr:
+          hooks.same_runtime_aggregate_type_expr,
+        same_runtime_union_type_expr: hooks.same_runtime_union_type_expr,
+        static_struct_value: hooks.static_struct_value,
+      });
+    }
+
     case "union_case":
       return hooks.emit_runtime_union_value(expr, ctx);
 
@@ -389,7 +462,6 @@ export function emit_core_expr<ctx extends CoreExprEmitCtx>(
     case "comptime":
     case "with":
     case "struct_type":
-    case "struct_update":
     case "union_type":
       throw new Error("Cannot emit core " + expr.tag + " expression yet");
   }

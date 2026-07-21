@@ -5,6 +5,7 @@ import {
   type FunctionalComptimeExecutionOptions,
   type FunctionalComptimeExecutionResult,
   type FunctionalComptimeModuleArtifact,
+  type FunctionalStoragePlan,
   type FunctionalWasmAsyncInit,
   type FunctionalWasmAsyncRunOptions,
   type FunctionalWasmExecution,
@@ -14,22 +15,38 @@ import {
   GpuFunctionalCompiler,
   GpuFunctionalComptimeExecutor,
   type GpuFunctionalModule,
+  planFunctionalModuleStorage,
   requestWebGpuDevice,
   runFunctionalWasmModule,
   runFunctionalWasmModuleAsync,
 } from "../../../gpufuck/functional.ts";
 import { Source } from "../../src/frontend.ts";
 import type { Source as SourceNode } from "../../src/frontend/ast.ts";
+import { source_with_host_interface } from "../../src/frontend/source.ts";
 import {
   lower_duck_source_to_gpufuck,
   type LoweredDuckGpufuckModule,
 } from "./core_lowering.ts";
+
+const maximum_gpufuck_compilation_steps = 10_000_000;
 
 export type ExperimentalDuckRunOptions =
   & Omit<FunctionalWasmRunOptions, "init">
   & {
     init?: FunctionalWasmInit;
   };
+
+export type ExperimentalDuckFileOptions = {
+  host_interface?: string;
+};
+
+export type ExperimentalDuckRunFileOptions =
+  & ExperimentalDuckRunOptions
+  & ExperimentalDuckFileOptions;
+
+export type ExperimentalDuckAsyncRunFileOptions =
+  & ExperimentalDuckAsyncRunOptions
+  & ExperimentalDuckFileOptions;
 
 export type ExperimentalDuckAsyncRunOptions =
   & Omit<
@@ -44,6 +61,72 @@ export type ExperimentalDuckComptimeOptions =
   FunctionalComptimeExecutionOptions;
 
 export type ExperimentalDuckComptimeResult = FunctionalComptimeExecutionResult;
+
+export interface ExperimentalDuckProgram {
+  run(
+    options?: ExperimentalDuckRunOptions,
+  ): Promise<FunctionalWasmExecution>;
+  run_async(
+    options?: ExperimentalDuckAsyncRunOptions,
+  ): Promise<FunctionalWasmExecution>;
+  destroy(): void;
+}
+
+class PreparedExperimentalDuckProgram implements ExperimentalDuckProgram {
+  readonly #path: string;
+  readonly #module: GpuFunctionalModule;
+  readonly #automatic_init: FunctionalWasmInit;
+  #destroyed = false;
+
+  constructor(
+    path: string,
+    module: GpuFunctionalModule,
+    automatic_init: FunctionalWasmInit,
+  ) {
+    this.#path = path;
+    this.#module = module;
+    this.#automatic_init = automatic_init;
+  }
+
+  async run(
+    options: ExperimentalDuckRunOptions = {},
+  ): Promise<FunctionalWasmExecution> {
+    if (this.#destroyed) {
+      throw new Error(
+        "Prepared Duck program has been destroyed: " + this.#path,
+      );
+    }
+
+    return await runFunctionalWasmModule(this.#module, {
+      ...options,
+      init: merge_init(this.#automatic_init, options.init),
+    });
+  }
+
+  async run_async(
+    options: ExperimentalDuckAsyncRunOptions = {},
+  ): Promise<FunctionalWasmExecution> {
+    if (this.#destroyed) {
+      throw new Error(
+        "Prepared Duck program has been destroyed: " + this.#path,
+      );
+    }
+
+    return await runFunctionalWasmModuleAsync(this.#module, {
+      ...options,
+      init: merge_async_init(this.#automatic_init, options.init),
+    });
+  }
+
+  destroy(): void {
+    if (this.#destroyed) {
+      return;
+    }
+
+    this.#destroyed = true;
+    this.#module.destroy();
+  }
+}
 
 export class ExperimentalDuckCompiler {
   readonly #device: GPUDevice;
@@ -85,9 +168,12 @@ export class ExperimentalDuckCompiler {
     return await this.#compile_lowered_batch(lowered_modules);
   }
 
-  async compile_file(path: string): Promise<Uint8Array<ArrayBuffer>> {
+  async compile_file(
+    path: string,
+    options: ExperimentalDuckFileOptions = {},
+  ): Promise<Uint8Array<ArrayBuffer>> {
     const modules = await this.#compile_lowered_batch([
-      lower_gpufuck_file(path),
+      lower_gpufuck_file(path, options.host_interface),
     ]);
     const module = modules[0];
 
@@ -98,6 +184,29 @@ export class ExperimentalDuckCompiler {
     }
 
     return module;
+  }
+
+  async prepare_file(
+    path: string,
+    options: ExperimentalDuckFileOptions = {},
+  ): Promise<ExperimentalDuckProgram> {
+    const lowered = lower_gpufuck_file(path, options.host_interface);
+    const module = await this.#compile_module(lowered.encoded);
+    return new PreparedExperimentalDuckProgram(
+      path,
+      module,
+      lowered.automatic_init,
+    );
+  }
+
+  async plan_storage(source: string): Promise<FunctionalStoragePlan> {
+    const lowered = lower_gpufuck_text(source);
+    const module = await this.#compile_module(lowered.encoded);
+    try {
+      return await planFunctionalModuleStorage(module);
+    } finally {
+      module.destroy();
+    }
   }
 
   async evaluate_comptime(
@@ -138,14 +247,15 @@ export class ExperimentalDuckCompiler {
 
   async run_file(
     path: string,
-    options: ExperimentalDuckRunOptions = {},
+    options: ExperimentalDuckRunFileOptions = {},
   ): Promise<FunctionalWasmExecution> {
-    const lowered = lower_gpufuck_file(path);
+    const lowered = lower_gpufuck_file(path, options.host_interface);
+    const { host_interface: _host_interface, ...run_options } = options;
     const module = await this.#compile_module(lowered.encoded);
     try {
       return await runFunctionalWasmModule(module, {
-        ...options,
-        init: merge_init(lowered.automatic_init, options.init),
+        ...run_options,
+        init: merge_init(lowered.automatic_init, run_options.init),
       });
     } finally {
       module.destroy();
@@ -168,11 +278,29 @@ export class ExperimentalDuckCompiler {
     }
   }
 
+  async run_async_file(
+    path: string,
+    options: ExperimentalDuckAsyncRunFileOptions,
+  ): Promise<FunctionalWasmExecution> {
+    const lowered = lower_gpufuck_file(path, options.host_interface);
+    const { host_interface: _host_interface, ...run_options } = options;
+    const module = await this.#compile_module(lowered.encoded);
+    try {
+      return await runFunctionalWasmModuleAsync(module, {
+        ...run_options,
+        init: merge_async_init(lowered.automatic_init, run_options.init),
+      });
+    } finally {
+      module.destroy();
+    }
+  }
+
   async #compile_lowered_batch(
     lowered_modules: readonly LoweredDuckGpufuckModule[],
   ): Promise<readonly Uint8Array<ArrayBuffer>[]> {
     const results = await this.#compiler.compileBatch(
       lowered_modules.map((lowered) => lowered.encoded),
+      { maximumSteps: maximum_gpufuck_compilation_steps },
     );
     const compiled_modules = successful_modules(
       results,
@@ -181,7 +309,9 @@ export class ExperimentalDuckCompiler {
 
     try {
       return await Promise.all(
-        compiled_modules.map(compileFunctionalModuleToWasm),
+        compiled_modules.map((module) => {
+          return compileFunctionalModuleToWasm(module);
+        }),
       );
     } finally {
       for (const module of compiled_modules) {
@@ -193,7 +323,9 @@ export class ExperimentalDuckCompiler {
   async #compile_module(
     encoded: EncodedFunctionalModule,
   ): Promise<GpuFunctionalModule> {
-    const result = await this.#compiler.compileModule(encoded);
+    const result = await this.#compiler.compileModule(encoded, {
+      maximumSteps: maximum_gpufuck_compilation_steps,
+    });
     if (!result.ok) {
       throw compilation_error(result, 0);
     }
@@ -210,7 +342,12 @@ export class ExperimentalDuckCompiler {
       definitions: lowered_artifact.definitions,
       typeDeclarations: lowered_artifact.typeDeclarations,
       imports: lowered_artifact.imports,
-      exports: lowered_artifact.exports,
+      exports: lowered_artifact.exports.flatMap((exported) => {
+        if (exported.type === undefined) {
+          return [];
+        }
+        return [{ ...exported, type: exported.type }];
+      }),
       sourceByteLength: lowered_artifact.sourceByteLength,
     };
     if (lowered_artifact.options.evaluationProfile !== undefined) {
@@ -251,8 +388,17 @@ function lower_gpufuck_text(source_text: string): LoweredDuckGpufuckModule {
   return lower_gpufuck_source(source, source_byte_length);
 }
 
-function lower_gpufuck_file(path: string): LoweredDuckGpufuckModule {
-  const source = Source.load_fragment_file(path);
+function lower_gpufuck_file(
+  path: string,
+  host_interface?: string,
+): LoweredDuckGpufuckModule {
+  let source = Source.load_fragment_file(path);
+  if (host_interface !== undefined) {
+    source = source_with_host_interface(
+      source,
+      Source.load_fragment_file(host_interface),
+    );
+  }
   const linked_source = Source.fmt(source);
   const source_byte_length = new TextEncoder().encode(linked_source).byteLength;
   return lower_gpufuck_source(source, source_byte_length);

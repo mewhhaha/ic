@@ -19,8 +19,41 @@ import type { RuntimeTextEq } from "../../text_facts.ts";
 import type { CoreRuntimeBufferBuiltin } from "../../runtime_buffer.ts";
 
 export type CoreBackendTextApi = {
+  bind_core_assignment_struct_type: (
+    name: string,
+    value: CoreExpr,
+    mode: "same" | "change",
+    ctx: StaticCtx,
+  ) => void;
+  bind_core_assignment_union_type: (
+    name: string,
+    value: CoreExpr,
+    mode: "same" | "change",
+    ctx: StaticCtx,
+  ) => void;
+  bind_core_fn_type: (
+    name: string,
+    value: CoreExpr,
+    ctx: StaticCtx,
+  ) => void;
+  bind_core_struct_type: (
+    name: string,
+    value: CoreExpr,
+    annotation: string | undefined,
+    ctx: StaticCtx,
+  ) => void;
+  bind_core_union_type: (
+    name: string,
+    value: CoreExpr,
+    annotation: string | undefined,
+    ctx: StaticCtx,
+  ) => void;
   core_binding_value: (
     stmt: Extract<CoreStmt, { tag: "bind" }>,
+    ctx: StaticCtx,
+  ) => CoreExpr;
+  core_assignment_value: (
+    stmt: Extract<CoreStmt, { tag: "assign" }>,
     ctx: StaticCtx,
   ) => CoreExpr;
   core_type_const_value: (
@@ -84,6 +117,14 @@ export type CoreBackendTextApi = {
     expr: CoreExpr,
     ctx: StaticCtx,
   ) => CoreExpr | undefined;
+  scoped_static_core_call_value: (
+    expr: Extract<CoreExpr, { tag: "app" }>,
+    target: Extract<CoreExpr, { tag: "lam" }>,
+    ctx: StaticCtx,
+  ) => { value: CoreExpr; ctx: StaticCtx };
+  static_core_call_requires_scope: (
+    target: Extract<CoreExpr, { tag: "lam" }>,
+  ) => boolean;
   static_core_call_target: (
     expr: CoreExpr,
     ctx: StaticCtx,

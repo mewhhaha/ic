@@ -39,16 +39,34 @@ Deno.test("binding index keeps recursive self visible and linear repeats consuma
   assert_equals(xs[0]?.entity, xs[2]?.entity);
 });
 
+Deno.test("binding index resolves value-pack rest bindings", () => {
+  const indexed = occurrences(
+    "const first = (const ...values) => comptime match values {\n" +
+      "  | () => 0\n" +
+      "  | (value, ...remaining) => value + @len(remaining)\n" +
+      "}\n",
+  );
+  const remaining = indexed.filter((occurrence) =>
+    occurrence.name === "remaining"
+  );
+
+  assert_equals(remaining.map((occurrence) => occurrence.role), [
+    "definition",
+    "reference",
+  ]);
+  assert_equals(remaining[0]?.entity, remaining[1]?.entity);
+});
+
 Deno.test("binding index records members and dynamic receivers explicitly", () => {
   const indexed = build_binding_index(parse_source_with_diagnostics(
-    "type Result = | .ok\n" +
-      "let value = Result.ok\nlet field = value.name\n",
+    "type Result = `Ok Unit\n" +
+      "let value = `Ok ()\nlet field = value.name\n",
   ));
   const result = [...indexed.entities.values()].find((entity) =>
     entity.name === "Result"
   );
   if (result === undefined) throw new Error("Expected Result entity");
-  assert_equals(indexed.member_lookup(result.id, "ok")?.name, "ok");
+  assert_equals(indexed.member_lookup(result.id, "Ok")?.name, "Ok");
   const names = [...indexed.occurrences.values()].filter((occurrence) =>
     occurrence.name === "name"
   );
@@ -66,7 +84,7 @@ Deno.test("binding index is deterministic and preserves recovered later names", 
 
 Deno.test("binding index keeps declaration type parameters local to their declaration", () => {
   const indexed = build_binding_index(parse_source_with_diagnostics(
-    "type Maybe a = | .just = a | .nothing\n" +
+    "type Maybe a = | `Just a | `Nothing Unit\n" +
       "type Other = a\n0\n",
   ));
   const params = [...indexed.entities.values()].filter((entity) =>
@@ -106,7 +124,7 @@ Deno.test("binding index scopes effect parameters across operation signatures", 
 
 Deno.test("binding index uses nested annotation facts for statically known members", () => {
   const indexed = build_binding_index(parse_source_with_diagnostics(
-    "type Vec = [.x = Int]\nif true { let point: Vec = [.x = 1]\npoint.x }\n",
+    "type Vec = struct {.x = Int}\nif true { let point: Vec = [.x = 1]\npoint.x }\n",
   ));
   const member = [...indexed.occurrences.values()].find((occurrence) =>
     occurrence.name === "x" && occurrence.role === "member" &&
@@ -118,9 +136,9 @@ Deno.test("binding index uses nested annotation facts for statically known membe
 });
 
 Deno.test("binding index resolves cases and reports the current lexical generation", () => {
-  const text = "type Result = | .ok = Int\nlet x = 0\n" +
-    "{ let x = 1\nx }\nx\nlet result = .ok(1)\n" +
-    "if let .ok(value) = result { value }\n";
+  const text = "type Result = `Ok Int\nlet x = 0\n" +
+    "{ let x = 1\nx }\nx\nlet result = `Ok (1)\n" +
+    "if let `Ok value = result { value }\n";
   const indexed = build_binding_index(parse_source_with_diagnostics(text));
   const occurrences = [...indexed.occurrences.values()];
   const xs = occurrences.filter((occurrence) => occurrence.name === "x");
@@ -195,7 +213,7 @@ Deno.test("binding index visibility selects the generation active at the offset"
 });
 
 Deno.test("binding index keeps owner members out of lexical visibility", () => {
-  const text = "type Pair = [.left = Int]\nleft\n";
+  const text = "type Pair = struct {.left = Int}\nleft\n";
   const indexed = build_binding_index(parse_source_with_diagnostics(text));
   const reference = [...indexed.occurrences.values()].find((occurrence) =>
     occurrence.name === "left" && occurrence.role === "reference"
@@ -210,7 +228,7 @@ Deno.test("binding index keeps owner members out of lexical visibility", () => {
 
 Deno.test("binding index resolves component annotation sites", () => {
   const indexed = build_binding_index(parse_source_with_diagnostics(
-    "type Pair = [.left = Int]\nlet value: Pair = [.left = 1]\nvalue.left\n",
+    "type Pair = struct {.left = Int}\nlet value: Pair = [.left = 1]\nvalue.left\n",
   ));
   const pair = [...indexed.entities.values()].find((entity) =>
     entity.name === "Pair"

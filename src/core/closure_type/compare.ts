@@ -39,6 +39,8 @@ export function same_core_fn_type(
     const right_struct = right.param_structs?.[index];
     const left_union = left.param_unions?.[index];
     const right_union = right.param_unions?.[index];
+    const left_fn = left.param_fns?.[index];
+    const right_fn = right.param_fns?.[index];
 
     if (left_param !== right_param) {
       return false;
@@ -58,6 +60,16 @@ export function same_core_fn_type(
 
     if (!same_runtime_union_type_expr(left_union, right_union)) {
       return false;
+    }
+
+    if (left_fn || right_fn) {
+      if (!left_fn || !right_fn) {
+        return false;
+      }
+
+      if (!same_core_fn_type(left_fn, right_fn)) {
+        return false;
+      }
     }
   }
 

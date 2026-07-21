@@ -114,8 +114,8 @@ const failure_goldens = [
   },
   {
     code: "DUCK2305",
-    message: "Union case ok expects Int, got Text",
-    span: { start: 53, end: 71 },
+    message: "Union case Ok expects Int, got Text",
+    span: { start: 49, end: 62 },
   },
   {
     code: "DUCK2401",

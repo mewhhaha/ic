@@ -406,7 +406,7 @@ Deno.test("handler state annotations suppress only their type token", () => {
 });
 
 Deno.test("hover preserves nominal parameter annotations", () => {
-  const text = "type Point = [.x = I32]\n" +
+  const text = "type Point = struct {.x = I32}\n" +
     "let f = (point: Point) => point\n";
   const { parsed, index } = analyzed(text);
 
@@ -421,7 +421,7 @@ Deno.test("hover preserves nominal parameter annotations", () => {
   }
 
   const module_text = "module (point: Point) where\n" +
-    "type Point = [.x = I32]\n" +
+    "type Point = struct {.x = I32}\n" +
     "point\n";
   const module_analysis = analyzed(module_text);
 
@@ -531,13 +531,12 @@ Deno.test("hover infers primitive result types from operands", () => {
 });
 
 Deno.test("hover infers results of known calls and declared fields", () => {
-  const text = "type Flags = [.ready = Bool]\n" +
+  const text = "type Flags = struct {.ready = Bool}\n" +
     "declare effect Choice { decide: (I32) => Bool }\n" +
     "let predicate: (I32) -> Bool = x => true\n" +
     "let choose = Choice.decide\n" +
     "predicate(1)\n" +
     "((x: I32) => true)(1)\n" +
-    "Flags.ready\n" +
     "choose(1)\n";
   const { parsed, index } = analyzed(text);
 
@@ -548,7 +547,6 @@ Deno.test("hover infers results of known calls and declared fields", () => {
         type: "Bool",
       },
       { offset: text.indexOf(")(1)") + 1, type: "Bool" },
-      { offset: text.indexOf("Flags.ready") + "Flags".length, type: "Bool" },
       { offset: text.indexOf("choose ="), type: "(I32) -> Bool" },
       { offset: text.lastIndexOf("choose(1)") + "choose".length, type: "Bool" },
     ]
@@ -656,7 +654,7 @@ Deno.test("hover folds boolean const values without losing their type", () => {
 });
 
 Deno.test("hover shows one honest type presentation for every value entity", () => {
-  const text = "type Result = | .ok = Bool | .err = Text\n" +
+  const text = "type Result = | `Ok Bool | `Err Text\n" +
     "declare effect Choice { decide: (I32) => Bool }\n" +
     "let identity = value => value\n" +
     "let unresolved = missing\n";
@@ -664,8 +662,8 @@ Deno.test("hover shows one honest type presentation for every value entity", () 
 
   for (
     const expected of [
-      { name: "ok", type: "(Bool) -> Result" },
-      { name: "err", type: "(Text) -> Result" },
+      { name: "Ok", type: "(Bool) -> Result" },
+      { name: "Err", type: "(Text) -> Result" },
       { name: "decide", type: "(I32) -> Bool" },
       { name: "identity", type: "function" },
       { name: "value", type: "unknown" },
@@ -714,17 +712,17 @@ Deno.test("hover preserves finite type-set annotations", () => {
 });
 
 Deno.test("hover reports union case constructor types", () => {
-  const text = "type Result = | .ok = Bool | .err\n" +
-    "let constructor = Result.ok\n" +
-    "let value = Result.err\n";
+  const text = "type Result = | `Ok Bool | `Err Unit\n" +
+    "let ok = `Ok true\n" +
+    "let err = `Err ()\n";
   const analysis = analyzed(text);
 
-  assert_hover_type(text, analysis, text.lastIndexOf("ok"), "(Bool) -> Result");
+  assert_hover_type(text, analysis, text.lastIndexOf("ok"), "Result");
   assert_hover_type(text, analysis, text.lastIndexOf("err"), "Result");
 });
 
 Deno.test("hover keeps invalid recovered values unknown", () => {
-  const text = "type Pair = [.ready = Bool]\n" +
+  const text = "type Pair = struct {.ready = Bool}\n" +
     "effect Check { test: () => Bool }\n" +
     "let checker = Check { test: (!resume) => !resume(true), " +
     "return: (value: Bool) => value }\n" +
@@ -754,7 +752,7 @@ Deno.test("hover keeps invalid recovered values unknown", () => {
 
 Deno.test("hover exposes unresolved declarations and invalid arities as unknown", () => {
   const text = "type Alias = missing_type\n" +
-    "type Broken = [.value = missing_type]\n" +
+    "type Broken = struct {.value = missing_type}\n" +
     "effect Bad { run: (missing_type) => Bool }\n" +
     "effect Check { test: (I32) => Bool }\n" +
     "let identity = (value: Alias) => value\n" +
@@ -785,12 +783,11 @@ Deno.test("hover exposes unresolved declarations and invalid arities as unknown"
 
 Deno.test("hover preserves source struct and declared sum types", () => {
   const text = "const flags_type = struct { .ready= Bool }\n" +
-    "type ResultType = | .ok = Int | .err = Int\n" +
+    "type ResultType = | `Ok Int | `Err Int\n" +
     "let flags = [.ready = true] as flags_type\n" +
-    "let constructor = ResultType.ok\n" +
-    "let qualified = constructor(40)\n" +
-    "let result: ResultType = .ok(41)\n" +
-    "if let .ok(value) = result { value } else { 0 }\n" +
+    "let qualified = `Ok 40\n" +
+    "let result: ResultType = `Ok 41\n" +
+    "if let `Ok value = result { value } else { 0 }\n" +
     "flags.ready\n";
   const analysis = analyzed(text);
 
@@ -802,13 +799,16 @@ Deno.test("hover preserves source struct and declared sum types", () => {
         type: "Bool",
       },
       {
-        offset: text.indexOf("ResultType.ok") + "ResultType.".length,
-        type: "(Int) -> ResultType",
+        offset: text.indexOf("`Ok 40") + 1,
+        type: "ResultType",
       },
       { offset: text.indexOf("qualified ="), type: "ResultType" },
       { offset: text.indexOf("result: ResultType"), type: "ResultType" },
-      { offset: text.indexOf(".ok(41)"), type: "ResultType" },
-      { offset: text.indexOf("value)"), type: "Int" },
+      { offset: text.indexOf("`Ok 41"), type: "ResultType" },
+      {
+        offset: text.indexOf("`Ok value") + "`Ok ".length,
+        type: "Int",
+      },
       { offset: text.lastIndexOf("value"), type: "Int" },
       {
         offset: text.lastIndexOf("flags.ready") + "flags.".length,
@@ -881,7 +881,7 @@ Deno.test("hover resolves typed parameters and higher-order calls", () => {
 });
 
 Deno.test("hover derives resumption call results from the handler return", () => {
-  const text = "type Result = | .done = Bool\n" +
+  const text = "type Result = `Done Bool\n" +
     "effect Check { test: () => Bool }\n" +
     "let checker = Check {\n" +
     "  test: (!resume) => {\n" +
@@ -889,7 +889,7 @@ Deno.test("hover derives resumption call results from the handler return", () =>
     "    let completed = !later(true)\n" +
     "    completed\n" +
     "  },\n" +
-    "  return: value => Result.done(value),\n" +
+    "  return: value => `Done (value),\n" +
     "}\n";
   const analysis = analyzed(text);
 
@@ -910,7 +910,7 @@ Deno.test("hover derives resumption call results from the handler return", () =>
 });
 
 Deno.test("hover resolves struct fields and indexes through product aliases", () => {
-  const text = "type Pair = [.ready = Bool, .other = Bool]\n" +
+  const text = "type Pair = struct {.ready = Bool, .other = Bool}\n" +
     "type Alias = Pair\n" +
     "type Again = Alias\n" +
     "let declared: Again = [.ready = true, .other = false]\n" +
@@ -933,7 +933,7 @@ Deno.test("hover resolves struct fields and indexes through product aliases", ()
     assert_hover_type(text, analysis, offset, "Bool");
   }
 
-  const mixed = "type Pair = [.ready = Bool, .wide = I64]\n" +
+  const mixed = "type Pair = struct {.ready = Bool, .wide = I64}\n" +
     "let pair: Pair = [.ready = true, .wide = 1i64]\n" +
     "pair[0]\n" +
     "pair[1]\n" +
@@ -972,27 +972,26 @@ Deno.test("hover resolves struct fields and indexes through product aliases", ()
 });
 
 Deno.test("hover preserves nominal unions and if-let payload types", () => {
-  const text = "type Result = | .ok = Bool | .err\n" +
-    "let qualified = Result.ok(true)\n" +
-    "let constructor = Result.ok\n" +
-    "let alias = constructor\n" +
-    "let through_alias = alias(false)\n" +
-    "let unqualified = .ok(true)\n" +
-    "if let .ok(payload) = through_alias { payload } else { false }\n";
+  const text = "type Result = | `Ok Bool | `Err Unit\n" +
+    "let qualified = `Ok true\n" +
+    "let through_value = `Ok false\n" +
+    "let unqualified = `Ok true\n" +
+    "if let `Ok payload = through_value { payload } else { false }\n";
   const analysis = analyzed(text);
 
   for (
     const expected of [
       { offset: text.indexOf("qualified ="), type: "Result" },
       {
-        offset: text.indexOf("Result.ok(true)") + "Result.ok".length,
+        offset: text.indexOf("`Ok true") + 1,
         type: "Result",
       },
-      { offset: text.indexOf("constructor ="), type: "(Bool) -> Result" },
-      { offset: text.indexOf("alias ="), type: "(Bool) -> Result" },
-      { offset: text.indexOf("through_alias ="), type: "Result" },
+      { offset: text.indexOf("through_value ="), type: "Result" },
       { offset: text.indexOf("unqualified ="), type: "Result" },
-      { offset: text.indexOf("payload)"), type: "Bool" },
+      {
+        offset: text.indexOf("`Ok payload") + "`Ok ".length,
+        type: "Bool",
+      },
       { offset: text.lastIndexOf("payload"), type: "Bool" },
       { offset: text.indexOf("if let"), type: "Bool" },
     ]
@@ -1201,7 +1200,7 @@ Deno.test("signature help follows nested calls and effect operations", () => {
 });
 
 Deno.test("hover follows compile-time descriptors through construction", () => {
-  const text = "type Player = [.name = Int, .score = Int]\n" +
+  const text = "type Player = struct {.name = Int, .score = Int}\n" +
     "const score_field = @describe_fields(Player)[1]\n" +
     "let player = @construct(Player, { name: 20, score: 40 })\n" +
     "let score = @project(player, score_field)\n";
@@ -1228,7 +1227,7 @@ Deno.test("hover follows compile-time descriptors through construction", () => {
 });
 
 Deno.test("hover follows case descriptors through union operations", () => {
-  const text = "type Result = | .ok = Int | .err = Text\n" +
+  const text = "type Result = | `Ok Int | `Err Text\n" +
     "const ok_case = @describe_cases(Result)[0]\n" +
     "let result = @construct(ok_case, 42)\n" +
     "let matches = @is_case(result, ok_case)\n" +

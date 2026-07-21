@@ -1,5 +1,6 @@
 import { assert_equals, assert_includes, assert_throws } from "../assert.ts";
 import { Source } from "../frontend.ts";
+import { specialize_front_effects } from "./effect_specialize.ts";
 
 Deno.test("effect parameters parse and format as lexical type parameters", () => {
   const source = Source.parse(`
@@ -20,6 +21,83 @@ effect State value {
     Source.fmt(source),
     "effect State value { get: () => value, put: (value) => Unit }\n0",
   );
+});
+
+Deno.test("effect operations parse and format local forall parameters", () => {
+  const source = Source.parse(`
+effect Do monad {
+  unwrap: forall value. (monad value) => value
+}
+0
+`);
+  const declaration = source.declarations?.[0];
+
+  if (declaration === undefined || declaration.tag !== "effect") {
+    throw new Error("Missing Do effect declaration");
+  }
+
+  assert_equals(declaration.operations[0]?.type_params, ["value"]);
+  assert_equals(
+    Source.fmt(source),
+    "effect Do monad { unwrap: forall value. (monad value) => value }\n0",
+  );
+});
+
+Deno.test("effect operation forall parameters specialize independently", () => {
+  const source = specialize_front_effects(Source.parse(`
+effect Do monad {
+  unwrap: forall value. (monad value) => value
+}
+type Maybe value =
+  | \`Some value
+  | \`None Unit
+type IntMaybe = Maybe I32
+type TextMaybe = Maybe Text
+let number: IntMaybe = \`Some 42
+let text: TextMaybe = \`Some "forty-two"
+let run = () => {
+  value <- do number
+  label <- do text
+  value
+}
+0
+`));
+  const run = source.statements.find((statement) => {
+    return statement.tag === "bind" && statement.name === "run";
+  });
+
+  if (run?.tag !== "bind" || run.value.tag !== "lam") {
+    throw new Error("Missing polymorphic Do test function");
+  }
+
+  if (run.value.body.tag !== "block") {
+    throw new Error("Polymorphic Do test function requires a block");
+  }
+
+  const declaration = source.declarations?.find((candidate) => {
+    return candidate.tag === "effect" && candidate.name === "Do";
+  });
+
+  if (declaration === undefined || declaration.tag !== "effect") {
+    throw new Error("Missing specialized Do declaration");
+  }
+
+  assert_equals(declaration.type_arguments, [{
+    name: "monad",
+    type_name: "Maybe",
+  }]);
+
+  const calls = run.value.body.statements.flatMap((statement) => {
+    if (statement.tag !== "state_bind" || statement.value.tag !== "app") {
+      return [];
+    }
+
+    return [statement.value.effect_type_arguments];
+  });
+  assert_equals(calls, [
+    [{ name: "value", type_name: "I32" }],
+    [{ name: "value", type_name: "Text" }],
+  ]);
 });
 
 Deno.test("effect parameters specialize from operation arguments", () => {
@@ -70,6 +148,14 @@ Deno.test("host effect declarations keep concrete ABI signatures", () => {
   assert_throws(
     () => Source.parse("declare effect Input value { read: () => value }\n0"),
     "Host effects require concrete ABI types",
+  );
+
+  assert_throws(
+    () =>
+      Source.parse(
+        "declare effect Input { read: forall value. () => value }\n0",
+      ),
+    "Host effect operations require concrete ABI types",
   );
 });
 
@@ -157,7 +243,7 @@ let run = () => {
 
 Deno.test("named effects accept multiple concrete type arguments", () => {
   const analysis = Source.effects(`
-const _ = comptime import "duck:prelude/effects" ()
+const _ = import "duck:prelude/effects" ()
 const jobs = Async [I32, I64]
 let run = () => {
   task <- jobs.spawn(42)

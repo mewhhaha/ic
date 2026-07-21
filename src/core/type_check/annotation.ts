@@ -1,4 +1,4 @@
-import type { TypeExpr } from "../../type_syntax.ts";
+import type { TypeExpr, TypeLiteral } from "../../type_syntax.ts";
 import {
   fixed_array_length,
   format_type_expr,
@@ -8,7 +8,11 @@ import {
   tokenize,
 } from "../from_source/type_contract.ts";
 import { expect } from "../../expect.ts";
-import { integer_type_from_name, integer_val_type } from "../../integer.ts";
+import {
+  integer_type_from_name,
+  integer_type_name,
+  integer_val_type,
+} from "../../integer.ts";
 import type { CoreExpr, CoreParam, CoreStmt, CoreTypeField } from "../ast.ts";
 import { record_core_expr_provenance } from "../subject_provenance.ts";
 import { is_type_level_expr, static_block_result } from "../type_static.ts";
@@ -181,13 +185,43 @@ export function apply_core_direct_type_annotation<
       );
 
       if (scratch_struct_value) {
-        check_core_struct_fields(
+        const annotated_result = apply_core_direct_type_annotation(
+          annotation,
           type_value,
-          scratch_struct_value.fields,
+          scratch_result,
           ctx,
           hooks,
+          annotation_type_expr,
         );
-        return value;
+        expect(
+          value.tag === "scratch",
+          "Missing core scratch annotation value",
+        );
+        expect(
+          value.body.tag === "block",
+          "Core scratch annotation requires a block body",
+        );
+        const statement = value.body.statements[0];
+        expect(statement, "Missing core scratch annotation result");
+        let annotated_statement: CoreStmt;
+
+        if (statement.tag === "expr") {
+          annotated_statement = { ...statement, expr: annotated_result };
+        } else {
+          expect(
+            statement.tag === "return",
+            "Core scratch annotation requires an expression or return result",
+          );
+          annotated_statement = { ...statement, value: annotated_result };
+        }
+
+        return record_core_expr_provenance({
+          tag: "scratch",
+          body: record_core_expr_provenance({
+            tag: "block",
+            statements: [annotated_statement],
+          }, value.body),
+        }, value);
       }
     }
 
@@ -223,10 +257,25 @@ export function apply_core_direct_type_annotation<
     }
 
     check_core_struct_fields(type_value, struct_value.fields, ctx, hooks);
+    const fields = struct_value.fields.map((field) => {
+      const declared = find_core_type_field(type_value.fields, field.name);
+      expect(declared, "Missing core struct field: " + field.name);
+
+      return {
+        ...field,
+        value: apply_core_value_annotation(
+          "binding",
+          declared.type_name,
+          field.value,
+          ctx,
+          hooks,
+        ),
+      };
+    });
     const annotated_struct: CoreExpr = record_core_expr_provenance({
       tag: "struct_value",
       type_expr: annotation_type_expr,
-      fields: struct_value.fields,
+      fields,
     }, value);
 
     if (frozen_struct_value) {
@@ -438,6 +487,18 @@ function apply_core_value_annotation<ctx extends CoreTypeCheckCtx>(
     return value;
   }
 
+  if (annotation === "Char") {
+    const actual = core_binding_value_type_name(value, ctx, hooks);
+
+    if (actual !== "Char") {
+      throw new Error(
+        "Core " + label + " annotation expects Char, got " + actual,
+      );
+    }
+
+    return value;
+  }
+
   if (annotation === "Int" || annotation === "I32" || annotation === "U32") {
     const actual = core_binding_value_type_name(value, ctx, hooks);
 
@@ -503,9 +564,13 @@ function apply_core_value_annotation<ctx extends CoreTypeCheckCtx>(
     const actual = core_binding_value_type_name(value, ctx, hooks);
 
     if (actual !== "Text") {
+      let subject = "";
+      if (value.tag === "var" || value.tag === "linear") {
+        subject = " for " + value.name;
+      }
       throw new Error(
         "Core " + label + " annotation expects " + annotation + ", got " +
-          actual,
+          actual + subject,
       );
     }
 
@@ -571,6 +636,23 @@ function apply_core_semantic_annotation<ctx extends CoreTypeCheckCtx>(
     );
   }
 
+  if (type.tag === "literal") {
+    if (!core_value_matches_literal(value, type.value, ctx, hooks)) {
+      throw new Error(
+        "Core " + label + " annotation expects " + format_type_expr(type) +
+          ", got " + core_binding_value_type_name(value, ctx, hooks),
+      );
+    }
+
+    return apply_core_value_annotation(
+      label,
+      core_literal_base_annotation(type.value),
+      value,
+      ctx,
+      hooks,
+    );
+  }
+
   if (type.tag === "frozen") {
     if (value.tag === "freeze") {
       const annotation = core_semantic_member_annotation(type.value);
@@ -592,17 +674,80 @@ function apply_core_semantic_annotation<ctx extends CoreTypeCheckCtx>(
   }
 
   if (type.tag === "borrow") {
-    if (value.tag !== "borrow") {
-      throw new Error("Core " + label + " annotation expects borrowed value");
-    }
-
     const annotation = core_semantic_member_annotation(type.value);
 
-    if (annotation) {
-      apply_core_value_annotation(label, annotation, value.value, ctx, hooks);
+    if (value.tag === "borrow") {
+      if (annotation) {
+        apply_core_value_annotation(label, annotation, value.value, ctx, hooks);
+      }
+
+      return value;
     }
 
-    return value;
+    if (
+      (value.tag === "var" || value.tag === "linear") &&
+      ctx.borrowed_locals?.has(value.name) === true
+    ) {
+      if (annotation) {
+        apply_core_value_annotation(label, annotation, value, ctx, hooks);
+      }
+
+      return value;
+    }
+
+    let subject = "";
+    if (value.tag === "var" || value.tag === "linear") {
+      subject = " for " + value.name;
+    }
+    throw new Error(
+      "Core " + label + " annotation expects borrowed value, got " +
+        core_binding_value_type_name(value, ctx, hooks) + subject,
+    );
+  }
+
+  if (type.tag === "product" || type.tag === "tuple") {
+    const fields: CoreTypeField[] = [];
+
+    if (type.tag === "product") {
+      for (let index = 0; index < type.entries.length; index += 1) {
+        const entry = type.entries[index];
+        expect(entry, "Missing inline product annotation entry");
+        let name = entry.label;
+
+        if (name === undefined) {
+          name = "item_" + index.toString();
+        }
+
+        fields.push({
+          name,
+          type_name: format_type_expr(entry.type_expr),
+          set_member: entry.type_expr,
+        });
+      }
+    } else {
+      for (let index = 0; index < type.items.length; index += 1) {
+        const item = type.items[index];
+        expect(item, "Missing inline tuple annotation item");
+        fields.push({
+          name: "item_" + index.toString(),
+          type_name: format_type_expr(item),
+          set_member: item,
+        });
+      }
+    }
+
+    const inline_type: Extract<CoreExpr, { tag: "struct_type" }> = {
+      tag: "struct_type",
+      fields,
+    };
+    return apply_core_direct_type_annotation(
+      format_type_expr(type),
+      inline_type,
+      value,
+      ctx,
+      hooks,
+      inline_type,
+    );
   }
 
   if (type.tag === "array") {
@@ -769,6 +914,10 @@ function core_semantic_member_annotation(type: TypeExpr): string | undefined {
     return "#" + type.name;
   }
 
+  if (type.tag === "literal") {
+    return core_literal_base_annotation(type.value);
+  }
+
   return undefined;
 }
 
@@ -799,6 +948,10 @@ function core_value_matches_set_member<ctx extends CoreTypeCheckCtx>(
   ctx: ctx,
   hooks: CoreTypeCheckHooks<ctx>,
 ): boolean {
+  if (type.tag === "literal") {
+    return core_value_matches_literal(value, type.value, ctx, hooks);
+  }
+
   if (type.tag === "atom") {
     return static_core_atom(value, ctx) === type.name;
   }
@@ -843,6 +996,10 @@ function core_value_matches_set_member<ctx extends CoreTypeCheckCtx>(
     return actual === "I32" && static_core_atom(value, ctx) === undefined;
   }
 
+  if (type.name === "Char") {
+    return actual === "Char";
+  }
+
   if (type.name === "I64") {
     return actual === "I64";
   }
@@ -860,6 +1017,92 @@ function core_value_matches_set_member<ctx extends CoreTypeCheckCtx>(
   }
 
   return false;
+}
+
+function core_literal_base_annotation(literal: TypeLiteral): string {
+  if (literal.tag === "bool") {
+    return "Bool";
+  }
+
+  if (literal.tag === "text") {
+    return "Text";
+  }
+
+  if (literal.character !== undefined) {
+    return "Char";
+  }
+
+  if (literal.integer !== undefined) {
+    return integer_type_name(literal.integer);
+  }
+
+  if (literal.type === "i64") {
+    return "I64";
+  }
+
+  if (literal.type === "f32") {
+    return "F32";
+  }
+
+  if (literal.type === "f64") {
+    return "F64";
+  }
+
+  return "I32";
+}
+
+function core_value_matches_literal<ctx extends CoreTypeCheckCtx>(
+  value: CoreExpr,
+  literal: TypeLiteral,
+  ctx: ctx,
+  hooks: CoreTypeCheckHooks<ctx>,
+): boolean {
+  if (value.tag === "var") {
+    const static_value = ctx.statics.get(value.name);
+
+    if (static_value && static_value !== value) {
+      return core_value_matches_literal(static_value, literal, ctx, hooks);
+    }
+  }
+
+  if (literal.tag === "text") {
+    const static_text = hooks.static_text_value(value, ctx);
+    return static_text?.tag === "text" && static_text.value === literal.value;
+  }
+
+  if (value.tag !== "num") {
+    return false;
+  }
+
+  if (literal.tag === "bool") {
+    let expected = 0;
+
+    if (literal.value) {
+      expected = 1;
+    }
+
+    return value.type === "i32" && value.value === expected;
+  }
+
+  if (literal.character !== undefined) {
+    return value.character === literal.character &&
+      value.value === literal.value;
+  }
+
+  if (value.type !== literal.type || value.value !== literal.value) {
+    return false;
+  }
+
+  if (literal.integer === undefined) {
+    return value.integer === undefined;
+  }
+
+  if (value.integer === undefined) {
+    return false;
+  }
+
+  return integer_type_name(value.integer) ===
+    integer_type_name(literal.integer);
 }
 
 function static_core_atom<ctx extends CoreTypeCheckCtx>(

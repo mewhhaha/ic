@@ -11,6 +11,7 @@ import {
 } from "./runtime_union.ts";
 import { core_runtime_union_match_branch_ctx } from "./runtime_union_match.ts";
 import { dynamic_if_let_can_match } from "./union_static.ts";
+import { core_expr_is_borrowed } from "./local_facts.ts";
 
 export type CoreIfLetLocalCollectApi = {
   collect_expr_locals: (
@@ -139,6 +140,12 @@ export function collect_core_if_let_stmt_locals(
     info,
     ctx,
   );
+  bind_borrowed_payload(
+    stmt.value_name,
+    runtime_target.target,
+    ctx,
+    branch_ctx,
+  );
 
   for (const item of stmt.body) {
     api.collect_stmt_locals(item, branch_ctx, hooks);
@@ -235,6 +242,12 @@ export function collect_core_if_let_expr_locals(
     info,
     ctx,
   );
+  bind_borrowed_payload(
+    expr.value_name,
+    runtime_target.target,
+    ctx,
+    branch_ctx,
+  );
 
   api.collect_expr_locals(expr.then_branch, branch_ctx, hooks);
   ctx.next_loop = branch_ctx.next_loop;
@@ -243,6 +256,21 @@ export function collect_core_if_let_expr_locals(
 
   if (!expr.implicit_else) {
     api.collect_expr_locals(expr.else_branch, ctx, hooks);
+  }
+}
+
+function bind_borrowed_payload(
+  value_name: string | undefined,
+  target: CoreExpr,
+  source_ctx: CoreCtx,
+  branch_ctx: CoreCtx,
+): void {
+  if (!value_name || !branch_ctx.borrowed_locals) {
+    return;
+  }
+
+  if (core_expr_is_borrowed(target, source_ctx)) {
+    branch_ctx.borrowed_locals.add(value_name);
   }
 }
 
@@ -340,6 +368,7 @@ function create_if_let_branch_ctx(ctx: CoreCtx): CoreCtx {
     text_locals: new Set(ctx.text_locals),
     struct_locals: new Map(ctx.struct_locals),
     union_locals: new Map(ctx.union_locals),
+    borrowed_locals: clone_optional_set(ctx.borrowed_locals),
     frozen_locals: clone_optional_set(ctx.frozen_locals),
     host_imports: clone_core_host_imports(ctx.host_imports),
     scratch_depth: ctx.scratch_depth,

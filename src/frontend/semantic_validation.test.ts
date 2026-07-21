@@ -1,10 +1,12 @@
 import { assert_equals } from "../assert.ts";
 import { parse_source } from "./parser.ts";
 import {
+  ducklang_attributes_prelude_text,
   ducklang_effects_prelude_text,
   ducklang_functional_prelude_text,
   ducklang_prelude_text,
   ducklang_runtime_prelude_text,
+  ducklang_testing_prelude_text,
 } from "./prelude.ts";
 import { validate_frontend_semantics } from "./semantic_validation.ts";
 
@@ -50,8 +52,8 @@ const failures = [
     diagnostic: {
       code: "DUCK2305",
       severity: "error",
-      message: "Union case ok expects Int, got Text",
-      span: { start: 53, end: 71 },
+      message: "Union case Ok expects Int, got Text",
+      span: { start: 49, end: 62 },
     },
   },
 ];
@@ -128,13 +130,29 @@ Deno.test("semantic validation reuses constness checks with source spans", () =>
   }]);
 });
 
+Deno.test("semantic validation preserves compile-time locals in generated functions", () => {
+  const source = parse_source(`
+const cast = (value, const target) => @cast(value, target)
+const build = (const target) => {
+  let captured = target
+  let generated = value => cast(value, captured)
+  generated
+}
+build(I32)
+`);
+
+  assert_equals(validate_frontend_semantics(source), []);
+});
+
 Deno.test("semantic validation accepts every bundled source prelude", () => {
   for (
     const text of [
       ducklang_prelude_text,
+      ducklang_attributes_prelude_text,
       ducklang_functional_prelude_text,
       ducklang_effects_prelude_text,
       ducklang_runtime_prelude_text,
+      ducklang_testing_prelude_text,
     ]
   ) {
     assert_equals(validate_frontend_semantics(parse_source(text)), []);
@@ -149,6 +167,23 @@ Deno.test("semantic validation reports basic binding annotations", () => {
     message: "Binding annotation expects Text, got I32",
     span: { start: 18, end: 19 },
   }]);
+});
+
+Deno.test("semantic validation reports mismatched literal singleton annotations", () => {
+  const source = parse_source(`
+type One = 1
+const integer: One = 2
+const boolean: true = false
+const text: "GET" = "POST"
+integer
+`);
+  const diagnostics = validate_frontend_semantics(source);
+
+  assert_equals(diagnostics.map((diagnostic) => diagnostic.message), [
+    "Binding annotation expects One, got 2",
+    "Binding annotation expects true, got false",
+    'Binding annotation expects "GET", got "POST"',
+  ]);
 });
 
 Deno.test("semantic validation scopes the Core gate to Bool representation errors", () => {
@@ -183,6 +218,25 @@ Deno.test("semantic validation optionally reports unused binding warnings", () =
     message: "Unused runtime binding value",
     span: { start: 0, end: 13 },
   }]);
+});
+
+Deno.test("semantic validation counts cast operands as binding uses", () => {
+  const source = parse_source("let value = 1\nvalue as I32");
+  assert_equals(validate_frontend_semantics(source, { warnings: true }), []);
+});
+
+Deno.test("semantic validation counts shorthand shape members as binding uses", () => {
+  const source = parse_source(
+    "let shape = 1\n" +
+      "let new = 2\n" +
+      "let namespace = { shape, new }\n" +
+      "namespace",
+  );
+
+  assert_equals(
+    validate_frontend_semantics(source, { warnings: true }),
+    [],
+  );
 });
 
 Deno.test("semantic validation scopes lambda binders and const parameters", () => {

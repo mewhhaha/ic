@@ -263,6 +263,14 @@ function scoped_static_core_call_ctx<
         body_ctx.text_locals.delete(param.name);
       }
     }
+
+    if (body_ctx.borrowed_locals) {
+      if (param.annotation?.startsWith("&")) {
+        body_ctx.borrowed_locals.add(param.name);
+      } else {
+        body_ctx.borrowed_locals.delete(param.name);
+      }
+    }
   }
 
   return body_ctx;
@@ -429,6 +437,14 @@ function scoped_static_core_call_plan<
     const name = fresh_temp_local(ctx, "arg_" + param.name);
     ctx.statics.delete(name);
     set_local(ctx.locals, name, type);
+
+    if (ctx.borrowed_locals) {
+      if (param.annotation?.startsWith("&")) {
+        ctx.borrowed_locals.add(name);
+      } else {
+        ctx.borrowed_locals.delete(name);
+      }
+    }
 
     if (param.annotation === "Text" || param.annotation === "Bytes") {
       ctx.text_locals.add(name);

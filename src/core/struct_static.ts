@@ -8,7 +8,7 @@ import {
 } from "./runtime_aggregate.ts";
 import { record_core_expr_provenance } from "./subject_provenance.ts";
 import { static_core_call_branch_app } from "./static_call.ts";
-import { static_block_result } from "./type_static.ts";
+import { static_block_result, static_type_value } from "./type_static.ts";
 import type { StaticStructIfBranches } from "./model/static_value.ts";
 
 export type { StaticStructIfBranches } from "./model/static_value.ts";
@@ -126,14 +126,15 @@ export function static_struct_update_value<ctx extends StaticStructCtx>(
     return undefined;
   }
 
-  const fields: CoreField[] = [];
+  const fields: CoreField[] = target.fields.map((field) => {
+    let value = field.value;
 
-  for (const field of target.fields) {
-    fields.push({
-      name: field.name,
-      value: field.value,
-    });
-  }
+    if (value.tag === "field" || value.tag === "index") {
+      value = { ...value, move: true };
+    }
+
+    return { name: field.name, value };
+  });
 
   for (const update of expr.fields) {
     const existing = find_core_field(fields, update.name);
@@ -267,6 +268,12 @@ function runtime_aggregate_collection_fields<ctx extends StaticStructCtx>(
   const type_expr = hooks.runtime_aggregate_type_expr(expr, ctx);
 
   if (!type_expr) {
+    return undefined;
+  }
+
+  const type_value = static_type_value(type_expr, ctx);
+
+  if (type_value?.tag !== "struct_type") {
     return undefined;
   }
 

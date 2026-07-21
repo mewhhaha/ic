@@ -831,12 +831,18 @@ function child_closure_type_ctx(
 ): CoreClosureTypeCtx {
   return {
     locals: new Map(ctx.locals),
+    static_capture_values: clone_optional_map(ctx.static_capture_values),
     statics: new Map(ctx.statics),
     fn_types: new Map(ctx.fn_types),
     text_locals: new Set(ctx.text_locals),
     struct_locals: new Map(ctx.struct_locals),
     union_locals: new Map(ctx.union_locals),
+    borrowed_locals: clone_optional_set(ctx.borrowed_locals),
+    frozen_locals: clone_optional_set(ctx.frozen_locals),
     host_imports: clone_core_host_imports(ctx.host_imports),
+    scratch_depth: ctx.scratch_depth,
+    materialized_bindings: clone_optional_set(ctx.materialized_bindings),
+    mutable_bindings: clone_optional_set(ctx.mutable_bindings),
   };
 }
 
@@ -852,12 +858,18 @@ function closure_block_ctx(
   expect(final_stmt, "Core closure block has no result statement");
   const block_ctx: CoreClosureTypeBlockCtx = {
     locals: new Map(ctx.locals),
+    static_capture_values: clone_optional_map(ctx.static_capture_values),
     statics: new Map(ctx.statics),
     fn_types: new Map(ctx.fn_types),
     text_locals: new Set(ctx.text_locals),
     struct_locals: new Map(ctx.struct_locals),
     union_locals: new Map(ctx.union_locals),
+    borrowed_locals: clone_optional_set(ctx.borrowed_locals),
+    frozen_locals: clone_optional_set(ctx.frozen_locals),
     host_imports: clone_core_host_imports(ctx.host_imports),
+    scratch_depth: ctx.scratch_depth,
+    materialized_bindings: clone_optional_set(ctx.materialized_bindings),
+    mutable_bindings: clone_optional_set(ctx.mutable_bindings),
     next_loop: 0,
     next_temp: 0,
   };
@@ -883,6 +895,26 @@ function closure_block_ctx(
     final_stmt,
     ctx: block_ctx,
   };
+}
+
+function clone_optional_map<key, value>(
+  source: Map<key, value> | undefined,
+): Map<key, value> | undefined {
+  if (!source) {
+    return undefined;
+  }
+
+  return new Map(source);
+}
+
+function clone_optional_set<value>(
+  source: Set<value> | undefined,
+): Set<value> | undefined {
+  if (!source) {
+    return undefined;
+  }
+
+  return new Set(source);
 }
 
 function closure_block_probe_error(error: unknown): boolean {

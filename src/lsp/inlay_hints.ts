@@ -746,6 +746,10 @@ function infer_expr_type(
   }
 
   if (expr.tag === "num") {
+    if (expr.character !== undefined) {
+      return "Char";
+    }
+
     if (expr.type === "i64") {
       return "I64";
     }

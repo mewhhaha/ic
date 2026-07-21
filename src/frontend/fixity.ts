@@ -33,6 +33,27 @@ export type FixityTable = {
   prefix: Map<string, PrefixFixity>;
 };
 
+export function compiler_intrinsic_for_operator_target(
+  target: string | undefined,
+): string | undefined {
+  switch (target) {
+    case "Semigroup.append":
+      return "@append";
+    case "Bits.bit_and":
+      return "@bit_and";
+    case "Bits.bit_or":
+      return "@bit_or";
+    case "Bits.bit_xor":
+      return "@bit_xor";
+    case "Bits.shift_left":
+      return "@shift_left";
+    case "Bits.shift_right_unsigned":
+      return "@shift_right_u";
+    default:
+      return undefined;
+  }
+}
+
 const prelude_fixities = [
   prelude_text,
   runtime_prelude_text,
@@ -292,7 +313,7 @@ function validate_precedence(precedence: number): void {
 }
 
 export function is_operator_symbol(value: string): boolean {
-  return /^[:!$%&*+\/<=>?^|~\\-]+$/.test(value) &&
+  return /^[:!$%&*+\/<=>?^|~\\-][.:!$%&*+\/<=>?^|~\\-]*$/.test(value) &&
     value !== "=" && value !== "=>" && value !== "->" && value !== "<-" &&
     value !== "|" && value !== ":";
 }

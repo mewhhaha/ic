@@ -1,9 +1,9 @@
-type Result error value = | .ok = value | .err = error
+type Result error value = | `Ok value | `Err error
 
 type ParseResult = Result Text Int
-let result = ParseResult.ok(42)
+let result = `Ok (42)
 
-if let .ok(value) = result {
+if let `Ok value = result {
   value
 } else {
   0

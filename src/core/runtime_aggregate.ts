@@ -11,6 +11,7 @@ export {
   runtime_aggregate_field_access,
   runtime_aggregate_field_info,
   runtime_aggregate_type_expr,
+  runtime_struct_update_value,
   type RuntimeAggregateFieldAccess,
   type RuntimeAggregateTypeCtx,
   type RuntimeAggregateTypeHooks,
@@ -33,8 +34,10 @@ export {
 
 export {
   emit_runtime_aggregate_field_load,
+  emit_runtime_aggregate_field_move,
   emit_runtime_aggregate_field_pointer,
   emit_runtime_aggregate_value,
+  runtime_aggregate_move_pointer_local,
 } from "./runtime_aggregate/emit.ts";
 
 export {

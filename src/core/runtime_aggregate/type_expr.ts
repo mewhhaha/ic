@@ -1,5 +1,5 @@
 import { expect } from "../../expect.ts";
-import type { CoreExpr, CoreFnType, CoreStmt } from "../ast.ts";
+import type { CoreExpr, CoreField, CoreFnType, CoreStmt } from "../ast.ts";
 import {
   find_runtime_aggregate_field,
   runtime_aggregate_layout_for_type,
@@ -49,6 +49,10 @@ export function runtime_aggregate_type_expr<
     return value.type_expr;
   }
 
+  if (value.tag === "struct_update") {
+    return runtime_aggregate_type_expr(value.base, ctx, hooks);
+  }
+
   if (value.tag === "var" || value.tag === "linear") {
     const local_type = ctx.struct_locals.get(value.name);
 
@@ -64,6 +68,20 @@ export function runtime_aggregate_type_expr<
   }
 
   if (value.tag === "app") {
+    if (
+      value.func.tag === "rec_ref" &&
+      value.func.result_annotation !== undefined
+    ) {
+      const result_type: CoreExpr = {
+        tag: "var",
+        name: value.func.result_annotation,
+      };
+      const result_value = static_type_value(result_type, ctx);
+      if (result_value?.tag === "struct_type") {
+        return result_type;
+      }
+    }
+
     const host_type = core_host_import_result_type_expr(value, ctx);
 
     if (host_type) {
@@ -103,6 +121,33 @@ export function runtime_aggregate_type_expr<
     }
   }
 
+  if (
+    value.tag === "index" && value.index.tag === "num" &&
+    value.index.type === "i32" && typeof value.index.value === "number" &&
+    Number.isInteger(value.index.value) && value.index.value >= 0
+  ) {
+    const object_type = runtime_aggregate_type_expr(
+      value.object,
+      ctx,
+      hooks,
+    );
+
+    if (object_type) {
+      const object_type_value = static_type_value(object_type, ctx);
+
+      if (object_type_value?.tag !== "struct_type") {
+        return undefined;
+      }
+
+      const layout = runtime_aggregate_layout_for_type(object_type, ctx);
+      const field = layout.fields[value.index.value];
+
+      if (field?.tag === "struct") {
+        return field.type_expr;
+      }
+    }
+  }
+
   if (value.tag === "borrow" || value.tag === "freeze") {
     return runtime_aggregate_type_expr(value.value, ctx, hooks);
   }
@@ -134,6 +179,50 @@ export function runtime_aggregate_type_expr<
   }
 
   return undefined;
+}
+
+export function runtime_struct_update_value<
+  ctx extends RuntimeAggregateTypeCtx,
+>(
+  expr: Extract<CoreExpr, { tag: "struct_update" }>,
+  ctx: ctx,
+  hooks: RuntimeAggregateTypeHooks<ctx> & {
+    static_struct_value: (
+      expr: CoreExpr,
+      ctx: ctx,
+    ) => Extract<CoreExpr, { tag: "struct_value" }> | undefined;
+  },
+): Extract<CoreExpr, { tag: "struct_value" }> | undefined {
+  const static_value = hooks.static_struct_value(expr, ctx);
+
+  if (static_value) {
+    return static_value;
+  }
+
+  const type_expr = runtime_aggregate_type_expr(expr.base, ctx, hooks);
+
+  if (!type_expr) {
+    return undefined;
+  }
+
+  const layout = runtime_aggregate_layout_for_type(type_expr, ctx);
+  const fields: CoreField[] = layout.fields.map((field) => ({
+    name: field.name,
+    value: {
+      tag: "field",
+      object: expr.base,
+      name: field.name,
+      move: true,
+    },
+  }));
+
+  for (const update of expr.fields) {
+    const field = fields.find((candidate) => candidate.name === update.name);
+    expect(field, "Missing runtime aggregate field: " + update.name);
+    field.value = update.value;
+  }
+
+  return { tag: "struct_value", type_expr, fields };
 }
 
 function runtime_aggregate_branch_call_type_expr<
@@ -284,6 +373,10 @@ function runtime_aggregate_result_alias(expr: CoreExpr): string | undefined {
 
   if (expr.tag === "borrow" || expr.tag === "freeze") {
     return runtime_aggregate_result_alias(expr.value);
+  }
+
+  if (expr.tag === "struct_update") {
+    return runtime_aggregate_result_alias(expr.base);
   }
 
   if (expr.tag === "var") {

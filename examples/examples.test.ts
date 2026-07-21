@@ -3,6 +3,7 @@ import {
   DuckHost,
   DuckRunner,
   type DuckValue,
+  run_duck_tests,
   Source,
 } from "../src/frontend.ts";
 import {
@@ -10,6 +11,7 @@ import {
   dependency_paths,
   success_examples,
   type SuccessExample,
+  test_example_paths,
   trap_examples,
 } from "./manifest.ts";
 
@@ -89,6 +91,21 @@ for (const example of trap_examples) {
   });
 }
 
+for (const path of test_example_paths) {
+  Deno.test("source tests pass: " + path, async () => {
+    const artifact = Source.artifact_file(path, {
+      import_meta: { mode: { atom: "test" } },
+    });
+    const wasm = await wasm_from_wat(artifact.wat);
+    const results = await run_duck_tests(wasm, artifact.abi);
+
+    assert_equals(results, [
+      { name: "addition_returns_the_sum", status: "passed" },
+      { name: "unequal_values_are_detected", status: "passed" },
+    ]);
+  });
+}
+
 Deno.test("example manifest accounts for every .duck file", () => {
   const expected = new Set<string>();
 
@@ -108,11 +125,16 @@ Deno.test("example manifest accounts for every .duck file", () => {
     expected.add(path);
   }
 
+  for (const path of test_example_paths) {
+    expected.add(path);
+  }
+
   const actual = new Set(collect_duck_files("examples"));
   assert_equals([...actual].sort(), [...expected].sort());
-  assert_equals(success_examples.length, 75);
+  assert_equals(success_examples.length, 78);
   assert_equals(compile_failure_examples.length, 12);
   assert_equals(trap_examples.length, 4);
+  assert_equals(test_example_paths.length, 1);
 });
 
 function compile_example(example: SuccessExample): string {

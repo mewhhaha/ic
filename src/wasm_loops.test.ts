@@ -418,21 +418,21 @@ total
   }
 
   const union_wat = wat_from_core_source(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 let n = 4
 let total = 0
 
 for i in 0..n {
   let option: option_type = if i == 2 {
-    option_type.some(i)
+    \`Some (i)
   } else {
-    option_type.none()
+    \`None ()
   }
 
   match option {
-    | .some(value) => { break }
-    | .none => { total = total + 1 }
+    | \`Some value => { break }
+    | \`None () => { total = total + 1 }
   }
 }
 
@@ -823,7 +823,7 @@ f(10) + f(20) + factor
 
 Deno.test("core static-call block collection loop compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int

@@ -436,6 +436,7 @@ function rename_linear_closure_stmt(
         tag: "for_collection",
         index: stmt.index,
         item: stmt.item,
+        pattern: stmt.pattern,
         collection: rename_linear_closure_expr(stmt.collection, renames),
         body: rename_linear_closure_block(stmt.body, body_renames),
       }, stmt);

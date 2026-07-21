@@ -8,6 +8,7 @@ import {
   unsupported_reserved_feature,
 } from "./parser_support.ts";
 import { integer_literal_fits, integer_type_name } from "../integer.ts";
+import { import_meta_binding_name } from "./import_meta.ts";
 
 export abstract class ParserPrimary extends ParserBlock {
   protected allow_signed_minimum_literal = 0;
@@ -66,11 +67,42 @@ export abstract class ParserPrimary extends ParserBlock {
       return { tag: "comptime", expr: this.parse_expr() };
     }
 
+    if (this.match_name("do")) {
+      const value = this.parse_expr();
+      return {
+        tag: "app",
+        func: {
+          tag: "field",
+          object: { tag: "var", name: "Do" },
+          name: "unwrap",
+        },
+        args: [value],
+      };
+    }
+
     if (this.match_name("import")) {
+      if (this.match_symbol(".")) {
+        expect(this.match_name("meta"), "Expected import.meta");
+        return { tag: "var", name: import_meta_binding_name };
+      }
+
       const path = this.peek();
       expect(path.kind === "string", "Expected import path literal");
       this.advance();
       return { tag: "import", path: path.text };
+    }
+
+    if (this.match_name("include")) {
+      const path = this.peek();
+      expect(path.kind === "string", "Expected include path literal");
+      this.advance();
+      const path_expr: FrontExpr = { tag: "text", value: path.text };
+      return {
+        tag: "app",
+        func: { tag: "var", name: "@include" },
+        arg: path_expr,
+        args: [path_expr],
+      };
     }
 
     if (this.match_name("if")) {
@@ -110,17 +142,18 @@ export abstract class ParserPrimary extends ParserBlock {
       return { tag: "linear", name };
     }
 
-    if (this.match_symbol(".")) {
+    if (this.match_symbol("`")) {
       const name = this.expect_name("Expected union case name");
-      expect_snake_case(name, "Union case");
-      let value: FrontExpr | undefined;
-
-      if (this.match_symbol("(")) {
-        value = this.parse_expr();
-        this.expect_symbol(")");
-      }
-
-      return { tag: "union_case", name, value, type_expr: undefined };
+      expect(
+        /^[A-Z][A-Za-z0-9]*$/.test(name),
+        "Union case must use PascalCase: " + name,
+      );
+      return {
+        tag: "union_case",
+        name,
+        value: undefined,
+        type_expr: undefined,
+      };
     }
 
     if (this.match_symbol("#")) {
@@ -198,6 +231,7 @@ export abstract class ParserPrimary extends ParserBlock {
         !this.effect_names.has(token.text) &&
         !uppercase_application &&
         !effect_literal &&
+        !/^[A-Z][A-Za-z0-9]*$/.test(token.text) &&
         !(
           /^[A-Z][A-Za-z0-9]*$/.test(token.text) &&
           this.peek().kind === "symbol" && this.peek().text === "."

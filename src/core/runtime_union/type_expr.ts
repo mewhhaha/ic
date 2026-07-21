@@ -12,6 +12,9 @@ import type { RuntimeUnionCtx, RuntimeUnionHooks } from "./types.ts";
 import { core_runtime_union_value } from "./value.ts";
 import { core_host_import_result_type_expr } from "../host_import.ts";
 import { static_core_call_branch_app } from "../static_call.ts";
+import { maybe_static_i32 } from "../analysis/static_i32.ts";
+import { static_runtime_union_match_branch_ctx } from "../runtime_union_match.ts";
+import { runtime_union_match_info } from "./match.ts";
 
 export function runtime_union_type_expr<ctx extends RuntimeUnionCtx>(
   value: CoreExpr,
@@ -29,6 +32,51 @@ export function runtime_union_type_expr<ctx extends RuntimeUnionCtx>(
     expect(
       same_runtime_union_type_expr(then_type, else_type, ctx),
       "Core runtime union if branch type mismatch",
+    );
+    return then_type;
+  }
+
+  if (value.tag === "if_let") {
+    let then_ctx = ctx;
+    const target_type = runtime_union_type_expr(value.target, ctx, hooks);
+
+    if (target_type) {
+      const target_value = static_type_value(target_type, ctx);
+      expect(
+        target_value && target_value.tag === "union_type",
+        "Core runtime union if-let target requires a union type",
+      );
+      const target = {
+        target: value.target,
+        type_expr: target_type,
+        type_value: target_value,
+      };
+      const info = runtime_union_match_info(value.case_name, target, ctx);
+      then_ctx = static_runtime_union_match_branch_ctx(
+        value.value_name,
+        info,
+        ctx,
+      ) as ctx;
+    }
+
+    const then_type = runtime_union_type_expr(
+      value.then_branch,
+      then_ctx,
+      hooks,
+    );
+    const else_type = runtime_union_type_expr(
+      value.else_branch,
+      ctx,
+      hooks,
+    );
+
+    if (!then_type && !else_type) {
+      return undefined;
+    }
+
+    expect(
+      same_runtime_union_type_expr(then_type, else_type, ctx),
+      "Core runtime union if-let branch type mismatch",
     );
     return then_type;
   }
@@ -60,6 +108,20 @@ export function runtime_union_type_expr<ctx extends RuntimeUnionCtx>(
   }
 
   if (value.tag === "app") {
+    if (
+      value.func.tag === "rec_ref" &&
+      value.func.result_annotation !== undefined
+    ) {
+      const result_type: CoreExpr = {
+        tag: "var",
+        name: value.func.result_annotation,
+      };
+      const result_value = static_type_value(result_type, ctx);
+      if (result_value?.tag === "union_type") {
+        return result_type;
+      }
+    }
+
     const host_type = core_host_import_result_type_expr(value, ctx);
 
     if (host_type) {
@@ -172,6 +234,27 @@ function runtime_union_collection_item_type_expr<
     return undefined;
   }
 
+  let index: number | undefined;
+
+  if (value.tag === "index") {
+    index = maybe_static_i32(value.index);
+  } else if (value.tag === "app") {
+    const index_expr = value.args[1];
+
+    if (index_expr !== undefined) {
+      index = maybe_static_i32(index_expr);
+    }
+  }
+
+  if (index !== undefined) {
+    const field = fields[index];
+    expect(
+      field,
+      "Core collection index is out of bounds: " + index.toString(),
+    );
+    return runtime_union_type_expr(field.value, ctx, hooks);
+  }
+
   let result: CoreExpr | undefined;
   let saw_non_union = false;
 
@@ -219,7 +302,19 @@ function runtime_union_block_result_type_expr<ctx extends RuntimeUnionCtx>(
   for (let index = 0; index + 1 < value.statements.length; index += 1) {
     const stmt = value.statements[index];
     expect(stmt, "Missing core runtime union block statement");
-    hooks.collect_stmt_locals(stmt, block_ctx);
+    try {
+      hooks.collect_stmt_locals(stmt, block_ctx);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith(
+          "Cannot index-assign unbound core local: ",
+        )
+      ) {
+        continue;
+      }
+      throw error;
+    }
   }
 
   const final_expr = runtime_union_block_final_expr(final_stmt);
@@ -403,7 +498,15 @@ function runtime_union_value_type_expr<ctx extends TypeStaticCtx>(
     "Core runtime union value requires a union case",
   );
   const type_expr = value.type_expr;
-  expect(type_expr, "Core runtime union case requires a union type");
+  let case_subject = value.name;
+  const payload = value.value;
+  if (payload && (payload.tag === "var" || payload.tag === "linear")) {
+    case_subject += "(" + payload.name + ")";
+  }
+  expect(
+    type_expr,
+    "Core runtime union case requires a union type: " + case_subject,
+  );
   return type_expr;
 }
 

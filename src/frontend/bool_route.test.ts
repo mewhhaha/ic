@@ -222,18 +222,18 @@ Deno.test("if-let expression payloads retain Bool semantics", () => {
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Option = | .some = Bool | .none
-let option: Option = Option.some(true)
-if let .some(flag) = option { flag + 1 } else { 0 }
+type Option = | \`Some Bool | \`None Unit
+let option: Option = \`Some (true)
+if let \`Some flag = option { flag + 1 } else { 0 }
 `),
     "DUCK2302",
     "Primitive i32.add expects numeric operands, got Bool",
   );
 
   Source.wat(`
-type Option = | .some = Bool | .none
-let option: Option = Option.some(true)
-if let .some(flag) = option { if flag { 1 } else { 0 } } else { 0 }
+type Option = | \`Some Bool | \`None Unit
+let option: Option = \`Some (true)
+if let \`Some flag = option { if flag { 1 } else { 0 } } else { 0 }
 `);
 });
 
@@ -241,9 +241,9 @@ Deno.test("if-let statement payloads retain Bool semantics", () => {
   assert_source_diagnostic(
     () =>
       Source.wat(`
-type Option = | .some = Bool | .none
-let option: Option = Option.some(true)
-if let .some(flag) = option { flag + 1 }
+type Option = | \`Some Bool | \`None Unit
+let option: Option = \`Some (true)
+if let \`Some flag = option { flag + 1 }
 0
 `),
     "DUCK2302",
@@ -255,7 +255,8 @@ Deno.test("destructured declared fields retain their named types", () => {
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Pair = [.flag = Bool, .number = I32]
+const { struct } = import "duck:prelude" ()
+type Pair = struct {.flag = Bool, .number = I32}
 let pair: Pair = [.flag = true, .number = 1]
 let { .flag = flag, .number = number } = pair
 flag + number
@@ -265,7 +266,8 @@ flag + number
   );
 
   Source.wat(`
-type Pair = [.flag = Bool, .number = I32]
+const { struct } = import "duck:prelude" ()
+type Pair = struct {.flag = Bool, .number = I32}
 let pair: Pair = [.flag = true, .number = 1]
 let { .flag = flag, .number = number } = pair
 if flag { number } else { 0 }
@@ -390,10 +392,10 @@ Deno.test("generic union aliases retain Bool payloads", () => {
   assert_source_diagnostic(
     () =>
       Source.wat(`
-type Maybe a = | .some = a | .none
+type Maybe a = | \`Some a | \`None Unit
 type MaybeBool = Maybe Bool
-let result: MaybeBool = .some(true)
-if let .some(flag) = result { flag + 1 } else { 0 }
+let result: MaybeBool = \`Some (true)
+if let \`Some flag = result { flag + 1 } else { 0 }
 `),
     "DUCK2302",
     "Primitive i32.add expects numeric operands, got Bool",
@@ -401,9 +403,9 @@ if let .some(flag) = result { flag + 1 } else { 0 }
 });
 
 Deno.test("unannotated qualified union constructors retain Bool payloads", () => {
-  const source = `type Result = | .ok = Bool | .err
-let result = Result.ok(true)
-if let .ok(value) = result { value + 1 } else { 0 }`;
+  const source = `type Result = | \`Ok Bool | \`Err Unit
+let result = \`Ok (true)
+if let \`Ok value = result { value + 1 } else { 0 }`;
 
   assert_analysis_diagnostic(
     source,
@@ -417,9 +419,9 @@ Deno.test("unambiguous unqualified union constructors retain Bool payloads", () 
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Result = | .ok = Bool | .err
-let result = .ok(true)
-if let .ok(value) = result { value + 1 } else { 0 }
+type Result = | \`Ok Bool | \`Err Unit
+let result = \`Ok (true)
+if let \`Ok value = result { value + 1 } else { 0 }
 `),
     "DUCK2302",
     "Primitive i32.add expects numeric operands, got Bool",
@@ -430,10 +432,10 @@ Deno.test("named generic union specializations retain Bool payloads", () => {
   assert_source_diagnostic(
     () =>
       Source.wat(`
-type Maybe a = | .some = a | .none
+type Maybe a = | \`Some a | \`None Unit
 type MaybeBool = Maybe Bool
-let result = MaybeBool.some(true)
-if let .some(value) = result { value + 1 } else { 0 }
+let result = \`Some (true)
+if let \`Some value = result { value + 1 } else { 0 }
 `),
     "DUCK2302",
     "Primitive i32.add expects numeric operands, got Bool",
@@ -716,7 +718,7 @@ Deno.test("selected closures cannot mix Bool and I32 parameters", () => {
 module (!init: Init) where
 
 declare effect Input { flag: () => Bool }
-type Init = [.input = Input]
+type Init = struct {.input = Input}
 
 cond <- Input.flag()
 let selected = if cond { (value: Bool) => value } else { (value: I32) => value }
@@ -735,7 +737,7 @@ Deno.test("selected closures cannot mix Bool and I32 results", () => {
 module (!init: Init) where
 
 declare effect Input { flag: () => Bool }
-type Init = [.input = Input]
+type Init = struct {.input = Input}
 
 cond <- Input.flag()
 let selected = if cond { () => true } else { () => 2 }
@@ -790,7 +792,7 @@ Deno.test("nested loop breaks cannot mix Bool and I32", () => {
 module (!init: Init) where
 
 declare effect Input { flag: () => Bool }
-type Init = [.input = Input]
+type Init = struct {.input = Input}
 
 cond <- Input.flag()
 let value: Bool = loop {
@@ -818,10 +820,15 @@ Deno.test("expression conditional loop breaks cannot mix Bool and I32", () => {
 });
 
 Deno.test("if-let loop breaks retain payload types", () => {
-  const source = "type O = | .some = Bool | .none; " +
-    "let o:O=.some(true); " +
-    "let x=loop { if let .some(v)=o { break v }; break 2 }; " +
-    "x+1";
+  const source = `
+type Option = | \`Some Bool | \`None Unit
+let option: Option = \`Some true
+let value = loop {
+  if let \`Some payload = option { break payload }
+  break 2
+}
+value + 1
+`;
 
   assert_analysis_diagnostic(
     source,
@@ -832,11 +839,17 @@ Deno.test("if-let loop breaks retain payload types", () => {
 });
 
 Deno.test("match loop breaks retain payload types", () => {
-  const source = "type O = | .some = Bool | .none; " +
-    "let o:O=.some(true); " +
-    "let x=loop { match o { " +
-    "| .some(v) => { break v } | .none => { break 2 } } }; " +
-    "x+1";
+  const source = `
+type Option = | \`Some Bool | \`None Unit
+let option: Option = \`Some true
+let value = loop {
+  match option {
+    | \`Some payload => { break payload }
+    | \`None () => { break 2 }
+  }
+}
+value + 1
+`;
 
   assert_analysis_diagnostic(
     source,
@@ -909,7 +922,7 @@ Deno.test("declared Bool struct fields reject I32 payloads", () => {
   assert_source_diagnostic(
     () =>
       Source.wat(`
-type Status = [.ready = Bool]
+type Status = struct {.ready = Bool}
 let status: Status = [.ready = 1]
 status.ready
 `),
@@ -922,7 +935,7 @@ Deno.test("declared Bool fields reject Unit and atom payloads", () => {
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Status = [.ready = Bool]
+type Status = struct {.ready = Bool}
 let status: Status = [.ready = ()]
 status.ready
 `),
@@ -932,7 +945,7 @@ status.ready
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Status = [.ready = Bool]
+type Status = struct {.ready = Bool}
 let status: Status = [.ready = #yes]
 status.ready
 `),
@@ -945,7 +958,7 @@ Deno.test("declared I32 struct fields reject Bool payloads", () => {
   assert_source_diagnostic(
     () =>
       Source.wat(`
-type Status = [.ready = I32]
+type Status = struct {.ready = I32}
 let status: Status = [.ready = true]
 status.ready
 `),
@@ -958,11 +971,11 @@ Deno.test("declared Bool union cases keep DUCK2305 payload validation", () => {
   assert_source_diagnostic(
     () =>
       Source.wat(`
-type Status = | .ready = Bool | .waiting
-Status.ready(1)
+type Status = | \`Ready Bool | \`Waiting Unit
+\`Ready (1)
 `),
     "DUCK2305",
-    "Union case ready expects Bool, got I32",
+    "Union case Ready expects Bool, got I32",
   );
 });
 
@@ -970,20 +983,21 @@ Deno.test("declared Bool union cases reject Unit and atom payloads", () => {
   assert_source_diagnostic(
     () =>
       Source.core(
-        "type Status = | .ready = Bool | .waiting\n" +
-          "let nothing: Unit = ()\nStatus.ready(nothing)",
+        "type Status = | `Ready Bool | `Waiting Unit\n" +
+          "let nothing: Unit = ()\n" +
+          "let ready: Status = `Ready nothing\nready",
       ),
     "DUCK2305",
-    "Union case ready expects Bool, got Unit",
+    "Union case Ready expects Bool, got Unit",
   );
   assert_source_diagnostic(
     () =>
       Source.core(
-        "type Status = | .ready = Bool | .waiting\n" +
-          "Status.ready(#yes)",
+        "type Status = | `Ready Bool | `Waiting Unit\n" +
+          "`Ready (#yes)",
       ),
     "DUCK2305",
-    "Union case ready expects Bool, got #yes",
+    "Union case Ready expects Bool, got #yes",
   );
 });
 
@@ -991,7 +1005,7 @@ Deno.test("Bool aggregate call arguments validate nested fields", () => {
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Box = [.value = Bool]
+type Box = struct {.value = Bool}
 let accept: Box -> Bool = box => box.value
 let box = [.value = 1]
 accept(box)
@@ -1002,7 +1016,7 @@ accept(box)
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Box a = [.value = a]
+type Box a = struct {.value = a}
 let accept: Box Bool -> Bool = box => box.value
 let box = [.value = 1]
 accept(box)
@@ -1013,8 +1027,8 @@ accept(box)
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Box = [.value = Bool]
-type Wrapper = [.box = Box]
+type Box = struct {.value = Bool}
+type Wrapper = struct {.box = Box}
 let accept: Wrapper -> Bool = wrapper => wrapper.box.value
 let wrapper = [.box = [.value = 1]]
 accept(wrapper)
@@ -1028,8 +1042,8 @@ Deno.test("Bool aggregate fields and cases validate nested values", () => {
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Box = [.value = Bool]
-type Wrapper = [.box = Box]
+type Box = struct {.value = Bool}
+type Wrapper = struct {.box = Box}
 let wrapper: Wrapper = [.box = [.value = 1]]
 wrapper.box.value
 `),
@@ -1039,12 +1053,12 @@ wrapper.box.value
   assert_source_diagnostic(
     () =>
       Source.core(`
-type Box = [.value = Bool]
-type Result = | .ok = Box | .none
-Result.ok [.value = 1]
+type Box = struct {.value = Bool}
+type Result = | \`Ok Box | \`None Unit
+\`Ok [.value = 1]
 `),
     "DUCK2305",
-    "Union case ok expects struct, got struct",
+    "Union case Ok expects struct, got struct",
   );
 });
 
@@ -1115,8 +1129,10 @@ Deno.test("managed effects reject I32 passed to Bool operations", () => {
       Source.artifact(`
 module (!init: Init) where
 
+const { struct } = import "duck:prelude" ()
+
 declare effect Input { choose: (Bool) => Bool }
-type Init = [.input = Input]
+type Init = struct {.input = Input}
 
 value <- Input.choose(1)
 return { .value = value }
@@ -1130,8 +1146,10 @@ Deno.test("managed effects accept Bool arguments and results", () => {
   const artifact = Source.artifact(`
 module (!init: Init) where
 
+const { struct } = import "duck:prelude" ()
+
 declare effect Input { choose: (Bool) => Bool }
-type Init = [.input = Input]
+type Init = struct {.input = Input}
 
 value <- Input.choose(true)
 return { .value = value }
@@ -1147,7 +1165,7 @@ Deno.test("managed effects reject Bool passed to I32 operations", () => {
 module (!init: Init) where
 
 declare effect Input { choose: (I32) => Bool }
-type Init = [.input = Input]
+type Init = struct {.input = Input}
 
 value <- Input.choose(true)
 return { .value = value }
@@ -1164,7 +1182,7 @@ Deno.test("managed Bool effect results cannot enter arithmetic", () => {
 module (!init: Init) where
 
 declare effect Input { ready: () => Bool }
-type Init = [.input = Input]
+type Init = struct {.input = Input}
 
 ready <- Input.ready()
 let result = ready + 1

@@ -1,4 +1,5 @@
 import { merge_if_else_branch_owners } from "./branch.ts";
+import { drop_if_let_branch_ctx } from "./conditional_expr.ts";
 import { consume_host_transfer_args } from "./ownership.ts";
 import { moved_expr_owner } from "./ownership.ts";
 import { canonical_core_expr } from "../subject_provenance.ts";
@@ -218,6 +219,7 @@ function scan_static_drop_transfer_stmt<ctx>(
         state,
       );
       bind_static_drop_function(stmt.name, stmt.value, state);
+      hooks.collect_stmt_locals(stmt, ctx);
       return;
 
     case "assign":
@@ -230,6 +232,7 @@ function scan_static_drop_transfer_stmt<ctx>(
         state,
       );
       bind_static_drop_function(stmt.name, stmt.value, state);
+      hooks.collect_stmt_locals(stmt, ctx);
       return;
 
     case "index_assign":
@@ -360,14 +363,27 @@ function scan_static_drop_transfer_stmt<ctx>(
         hooks,
         state,
       );
-      scan_static_drop_transfer_stmts(
-        stmt.body,
-        scope,
-        owners,
-        ctx,
-        hooks,
-        state,
-      );
+      {
+        const branch_ctx = drop_if_let_branch_ctx(
+          stmt.case_name,
+          stmt.value_name,
+          stmt.target,
+          ctx,
+          hooks,
+        );
+        if (branch_ctx.tag === "skip") {
+          return;
+        }
+
+        scan_static_drop_transfer_stmts(
+          stmt.body,
+          scope,
+          owners,
+          branch_ctx.ctx,
+          hooks,
+          state,
+        );
+      }
       return;
 
     case "type_check":
@@ -628,14 +644,25 @@ function scan_static_drop_transfer_expr<ctx>(
         hooks,
         state,
       );
-      scan_static_drop_transfer_expr(
-        expr.then_branch,
-        scope,
-        owners,
-        ctx,
-        hooks,
-        state,
-      );
+      {
+        const branch_ctx = drop_if_let_branch_ctx(
+          expr.case_name,
+          expr.value_name,
+          expr.target,
+          ctx,
+          hooks,
+        );
+        if (branch_ctx.tag === "scan") {
+          scan_static_drop_transfer_expr(
+            expr.then_branch,
+            scope,
+            owners,
+            branch_ctx.ctx,
+            hooks,
+            state,
+          );
+        }
+      }
       scan_static_drop_transfer_expr(
         expr.else_branch,
         scope,

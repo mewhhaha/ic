@@ -45,8 +45,8 @@ Deno.test("Bool and I32 annotations reject values of the other type", () => {
 });
 
 Deno.test("explicit checked casts convert i32-family numbers to Bool", () => {
-  const truthy = "if @as(2, Bool) { 1 } else { 0 }";
-  const falsy = "if @as(0, Bool) { 1 } else { 0 }";
+  const truthy = "if @cast(2, Bool) { 1 } else { 0 }";
+  const falsy = "if @cast(0, Bool) { 1 } else { 0 }";
 
   assert_equals(Source.analyze(truthy).diagnostics, []);
   assert_equals(Source.analyze(falsy).diagnostics, []);
@@ -60,6 +60,13 @@ Deno.test("explicit checked casts convert i32-family numbers to Bool", () => {
     type: "i32",
     value: 0,
   });
+});
+
+Deno.test("the removed @as intrinsic does not compile", () => {
+  assert_throws(
+    () => Source.wat("@as(1, I32)"),
+    "Unbound core value: @as",
+  );
 });
 
 Deno.test("Bool values cannot enter arithmetic or mixed equality", () => {

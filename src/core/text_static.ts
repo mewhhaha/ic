@@ -16,6 +16,8 @@ export type StaticTextCtx = {
   text_locals: Set<string>;
   struct_locals: Map<string, CoreExpr>;
   union_locals: Map<string, CoreExpr>;
+  borrowed_locals?: Set<string>;
+  mutable_bindings?: Set<string>;
 };
 
 export type StaticTextHooks = {

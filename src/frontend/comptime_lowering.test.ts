@@ -54,6 +54,64 @@ apply_const(21, double)
 `),
     "Const parameter f requires compile-time argument: double",
   );
+
+  assert_throws(
+    () =>
+      compile(`
+const count = (const ...values) => comptime @len(values)
+let runtime = 1
+count(runtime)
+`),
+    "Const parameter values requires compile-time argument",
+  );
+});
+
+Deno.test("Source evaluates const variadic parameters as value packs", () => {
+  const ic = compile(`
+const count = (const ...values) => comptime @len(values)
+count(10, 20, 12) + 39
+`);
+
+  assert_equals(Ic.reduce(ic), { tag: "num", type: "i32", value: 42 });
+
+  const empty = compile(`
+const count = (const ...values) => comptime @len(values)
+count()
+`);
+
+  assert_equals(Ic.reduce(empty), { tag: "num", type: "i32", value: 0 });
+});
+
+Deno.test("Source iterates over const variadic value packs", () => {
+  const ic = compile(`
+const sum = (const ...values) => comptime {
+  let total = 0
+
+  for value in values {
+    total = total + value
+  }
+
+  total
+}
+
+sum(20, 21, 1)
+`);
+
+  assert_equals(Ic.reduce(ic), { tag: "num", type: "i32", value: 42 });
+});
+
+Deno.test("Source recursively splits const value packs with rest patterns", () => {
+  const ic = compile(`
+const sum_all = rec (const values, const total) => comptime match values {
+  | () => total
+  | (value, ...remaining) => rec(remaining, total + value)
+}
+
+const sum = (const ...values) => comptime sum_all(values, 0)
+sum(20, 21, 1)
+`);
+
+  assert_equals(Ic.reduce(ic), { tag: "num", type: "i32", value: 42 });
 });
 
 Deno.test("Source checks scalar runtime parameter annotations", () => {
@@ -368,7 +426,7 @@ choose(scratch { input })
   );
 
   const bound_wrapped_struct_arg = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int,
   .name= Text
@@ -390,11 +448,11 @@ choose(&input)
   );
 
   const bound_wrapped_union_arg = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let choose = if flag {
-  (option: option_type) => if let .some(value) = option {
+  (option: option_type) => if let \`Some value = option {
     value
   } else {
     0
@@ -408,7 +466,7 @@ choose(&input)
 
   assert_equals(
     Format.fmt(Ic, Ic.reduce(bound_wrapped_union_arg)),
-    "if flag then ((input)(λpayload_some#0. payload_some#0))(λpayload_none#0. 0:i32) else 1:i32",
+    "if flag then ((input)(λpayload_Some#0. payload_Some#0))(λpayload_None#0. 0:i32) else 1:i32",
   );
 
   const branch_wrapped_arg = compile(`
@@ -454,7 +512,7 @@ choose(if pick {
   const struct_branch_wrapped_arg = Format.fmt(
     Ic,
     Ic.reduce(compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int,
   .name= Text
@@ -479,11 +537,11 @@ choose(if pick {
   assert_includes(struct_branch_wrapped_arg, "else load");
 
   const union_branch_wrapped_arg = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let choose = if flag {
-  (option: option_type) => if let .some(value) = option {
+  (option: option_type) => if let \`Some value = option {
     value
   } else {
     0
@@ -501,15 +559,15 @@ choose(if pick {
 
   assert_equals(
     Format.fmt(Ic, Ic.reduce(union_branch_wrapped_arg)),
-    "if flag then if pick then ((input)(λ_payload_some#01. _payload_some#01))(λ_payload_none#04. 0:i32) else ((other)(λ_payload_some#02. _payload_some#02))(λ_payload_none#05. 0:i32) else 1:i32",
+    "if flag then if pick then ((input)(λ_payload_Some#01. _payload_Some#01))(λ_payload_None#04. 0:i32) else ((other)(λ_payload_Some#02. _payload_Some#02))(λ_payload_None#05. 0:i32) else 1:i32",
   );
 
   const frozen_wrapped_union_arg = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let choose = if flag {
-  (option: option_type) => if let .some(value) = option {
+  (option: option_type) => if let \`Some value = option {
     value
   } else {
     0
@@ -523,15 +581,15 @@ choose(freeze input)
 
   assert_equals(
     Format.fmt(Ic, Ic.reduce(frozen_wrapped_union_arg)),
-    "if flag then ((input)(λpayload_some#0. payload_some#0))(λpayload_none#0. 0:i32) else 1:i32",
+    "if flag then ((input)(λpayload_Some#0. payload_Some#0))(λpayload_None#0. 0:i32) else 1:i32",
   );
 
   const scratch_wrapped_union_arg = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let choose = if flag {
-  (option: option_type) => if let .some(value) = option {
+  (option: option_type) => if let \`Some value = option {
     value
   } else {
     0
@@ -545,7 +603,7 @@ choose(scratch { input })
 
   assert_equals(
     Format.fmt(Ic, Ic.reduce(scratch_wrapped_union_arg)),
-    "if flag then ((input)(λpayload_some#0. payload_some#0))(λpayload_none#0. 0:i32) else 1:i32",
+    "if flag then ((input)(λpayload_Some#0. payload_Some#0))(λpayload_None#0. 0:i32) else 1:i32",
   );
 
   const text = compile(`
@@ -772,7 +830,7 @@ choose(message)
   );
 
   const annotated_struct_param = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int,
   .name= Text
@@ -817,7 +875,7 @@ choose(message)
   );
 
   const one_sided_struct_param = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int,
   .name= Text
@@ -846,11 +904,11 @@ choose(person)
   );
 
   const annotated_union_param = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let choose = if input {
-  (option: option_type) => if let .some(value) = option {
+  (option: option_type) => if let \`Some value = option {
     value
   } else {
     0
@@ -864,7 +922,7 @@ choose(result)
 
   assert_equals(
     Format.fmt(Ic, Ic.reduce(annotated_union_param)),
-    "if input then ((result)(λpayload_some#0. payload_some#0))(λpayload_none#0. 0:i32) else 1:i32",
+    "if input then ((result)(λpayload_Some#0. payload_Some#0))(λpayload_None#0. 0:i32) else 1:i32",
   );
 
   assert_throws(
@@ -932,14 +990,14 @@ pair.first + pair.second
 
   const union_result = compile(`
 let choose = if input {
-  x => .ok(x)
+  x => \`Ok (x)
 } else {
-  x => .err(x + 1)
+  x => \`Err (x + 1)
 }
 
 let result = choose(40)
 
-if let .ok(value) = result {
+if let \`Ok value = result {
   value
 } else {
   0
@@ -953,12 +1011,12 @@ if let .ok(value) = result {
 
   const if_let_function_result = compile(`
 let result = if flag {
-  .ok(input)
+  \`Ok (input)
 } else {
-  .err(other)
+  \`Err (other)
 }
 
-let choose = if let .ok(value) = result {
+let choose = if let \`Ok value = result {
   x => x + value
 } else {
   x => x + 1
@@ -974,12 +1032,12 @@ choose(2)
 
   const if_let_text_function_result = compile(`
 let result = if flag {
-  .ok(input)
+  \`Ok (input)
 } else {
-  .err(other)
+  \`Err (other)
 }
 
-let choose = if let .ok(value) = result {
+let choose = if let \`Ok value = result {
   (x: Text) => @len(x) + value
 } else {
   (x: Text) => @len(x) + 1
@@ -998,12 +1056,12 @@ choose(message)
     () =>
       compile(`
 let result = if flag {
-  .ok(input)
+  \`Ok (input)
 } else {
-  .err(other)
+  \`Err (other)
 }
 
-let choose = if let .ok(value) = result {
+let choose = if let \`Ok value = result {
   (x: Int) => x + value
 } else {
   (x: Text) => @len(x) + 1
@@ -1018,12 +1076,12 @@ choose(message)
     () =>
       compile(`
 let result = if flag {
-  .ok(input)
+  \`Ok (input)
 } else {
-  .err(other)
+  \`Err (other)
 }
 
-let choose = if let .ok(value) = result {
+let choose = if let \`Ok value = result {
   (x: Int) => x + value
 } else {
   (x: Text) => @len(x) + 1
@@ -1079,9 +1137,9 @@ value
   assert_equals(Emit.emit(Expr, Emit.emit(Ic, panic)), "unreachable");
 
   const ic = compile(`
-let result = .err(42)
+let result = \`Err (42)
 
-if let .ok(value) = result {
+if let \`Ok value = result {
   value
 } else {
   7
@@ -1093,7 +1151,7 @@ if let .ok(value) = result {
 
 Deno.test("Source lowers compile-time struct layout facts", () => {
   const ic = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int,
   .big= I64
@@ -1109,7 +1167,7 @@ const user_layout = @layout(user_type)
 
 Deno.test("Source lowers compile-time union layout facts", () => {
   const ic = compile(`
-type ResultType = | .ok = Int | .err = I64
+type ResultType = | \`Ok Int | \`Err I64
 const result_type = ResultType
 
 const result_layout = @layout(result_type)
@@ -1122,16 +1180,16 @@ const result_layout = @layout(result_type)
 
 Deno.test("Source lowers structural fact helper builtins", () => {
   const ic = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= Text,
   .age= Int
 }
 
-type ResultType = | .ok = Int | .err = Text
+type ResultType = | \`Ok Int | \`Err Text
 const result_type = ResultType
 
-@size_of(Int) + @align_of(Text) + @has(user_type.name) + @has(user_type.missing) + @size_of(@fields_of(user_type).age) + @align_of(@fields_of(user_type).name) + @size_of(@cases_of(result_type).ok) + @align_of(@cases_of(result_type).err)
+@size_of(Int) + @align_of(Text) + @has(user_type.name) + @has(user_type.missing) + @size_of(@fields_of(user_type).age) + @align_of(@fields_of(user_type).name) + @size_of(@cases_of(result_type).Ok) + @align_of(@cases_of(result_type).Err)
 `);
 
   assert_equals(Ic.reduce(ic), { tag: "num", type: "i32", value: 25 });
@@ -1147,7 +1205,7 @@ const has_name = t => {
   t
 }
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= Text
 }
@@ -1172,7 +1230,7 @@ const has_name = t => {
   t
 }
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const age_only_type = struct {
   .age= Int
 }
@@ -1215,7 +1273,7 @@ const field_bytes = t => {
   total
 }
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= Text,
   .age= Int,
@@ -1232,7 +1290,7 @@ Deno.test("Source rejects missing layout information", () => {
   assert_throws(
     () =>
       compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const bad_type = struct {
   .nested= missing_type
 }
@@ -1245,7 +1303,7 @@ const bad_type = struct {
 
 Deno.test("Source enforces semantic casing", () => {
   const ic = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int
 }
@@ -1354,8 +1412,8 @@ user_layout.size
   );
 
   assert_throws(
-    () => Source.parse(".BadName(1)"),
-    "Union case must use snake_case: BadName",
+    () => Source.parse("`bad_name 1"),
+    "Union case must use PascalCase: bad_name",
   );
 
   assert_throws(
@@ -1374,8 +1432,8 @@ user_layout.size
   );
 
   assert_throws(
-    () => Source.parse("let value = [.field = 1]\nvalue.BadName"),
-    "Field must use snake_case: BadName",
+    () => Source.parse("let value = [.field = 1]\nvalue.badName"),
+    "Field must use snake_case: badName",
   );
 
   assert_throws(
@@ -1419,12 +1477,12 @@ user_layout.size
   );
 
   assert_throws(
-    () => Source.parse("if let .ok(BadName) = .ok(1) { BadName }\n0"),
+    () => Source.parse("if let `Ok BadName = `Ok (1) { BadName }\n0"),
     "Union case value must use snake_case: BadName",
   );
 
   assert_throws(
-    () => Source.parse("let value = if let .ok(badName) = .ok(1) { badName }"),
+    () => Source.parse("let value = if let `Ok badName = `Ok (1) { badName }"),
     "Union case value must use snake_case: badName",
   );
 });
@@ -1488,7 +1546,7 @@ Deno.test("Source parses every Task 11 MVP grammar include", () => {
     { feature: "if", text: "if true { 2 } else { 3 }" },
     {
       feature: "if let",
-      text: "if let .ok(value) = .ok(1) { value } else { 0 }",
+      text: "if let `Ok value = `Ok (1) { value } else { 0 }",
     },
     { feature: "rec", text: "let f = rec n => n\nf" },
     { feature: "for", text: "for i in 0..3 { i }\n0" },
@@ -1507,7 +1565,7 @@ Deno.test("Source parses every Task 11 MVP grammar include", () => {
     },
     {
       feature: "union",
-      text: "type OptionType = | .none | .some = Int\n" +
+      text: "type OptionType = | `None Unit | `Some Int\n" +
         "const option_type = OptionType\noption_type",
     },
     { feature: "type-values", text: "Int" },

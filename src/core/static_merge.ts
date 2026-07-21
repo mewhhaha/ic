@@ -195,7 +195,8 @@ function same_static_core_expr(left: CoreExpr, right: CoreExpr): boolean {
     case "num":
       return right.tag === "num" &&
         left.type === right.type &&
-        left.value === right.value;
+        left.value === right.value &&
+        left.character === right.character;
 
     case "text":
       return right.tag === "text" && left.value === right.value;

@@ -1,5 +1,6 @@
 import type { CoreExpr, CoreField, CoreStmt } from "../ast.ts";
 import type { CoreFnType } from "../ast.ts";
+import { expect } from "../../expect.ts";
 import { find_core_field, static_indexed_field } from "../analysis/field.ts";
 import { fresh_temp_local } from "../emit/name.ts";
 import { maybe_static_i32 } from "../analysis/static_i32.ts";
@@ -12,6 +13,7 @@ import {
   collect_runtime_closure_locals,
 } from "../local_collect_closure.ts";
 import { collect_core_if_let_expr_locals } from "../local_collect_if_let.ts";
+import { collect_if_expr_branch_locals } from "../local_collect_if_else.ts";
 import { collect_core_rec_call_locals } from "../local_collect_rec.ts";
 import {
   core_bytes_generate_args,
@@ -44,6 +46,7 @@ import {
   declare_runtime_aggregate_locals,
   runtime_aggregate_freeze_copy_supported,
   runtime_aggregate_layout_for_type,
+  runtime_aggregate_move_pointer_local,
   runtime_aggregate_plan,
   type RuntimeAggregateField,
 } from "../runtime_aggregate.ts";
@@ -55,6 +58,7 @@ import {
 } from "../static_call.ts";
 import type { CoreCtx, CoreLocalCollectHooks } from "./types.ts";
 import { clone_core_host_imports } from "../host_import.ts";
+import { core_expression_cleanup_rows } from "../cleanup_emission.ts";
 
 export type CoreExprLocalCollectApi = {
   collect_expr_locals: (
@@ -75,6 +79,14 @@ export function collect_core_expr_locals(
   hooks: CoreLocalCollectHooks,
   api: CoreExprLocalCollectApi,
 ): void {
+  for (const row of core_expression_cleanup_rows(expr)) {
+    expect(
+      row.pointer_local,
+      "Expression cleanup requires a pointer local: " + row.step_id,
+    );
+    set_local(ctx.locals, row.pointer_local, "i32");
+  }
+
   switch (expr.tag) {
     case "num":
     case "text":
@@ -287,6 +299,7 @@ export function collect_core_expr_locals(
         text_locals: new Set(ctx.text_locals),
         struct_locals: new Map(ctx.struct_locals),
         union_locals: new Map(ctx.union_locals),
+        borrowed_locals: clone_loop_borrowed_locals(ctx.borrowed_locals),
         frozen_locals: clone_loop_frozen_locals(ctx.frozen_locals),
         host_imports: clone_core_host_imports(ctx.host_imports),
         scratch_depth: ctx.scratch_depth,
@@ -360,6 +373,10 @@ export function collect_core_expr_locals(
       return;
 
     case "struct_update":
+      {
+        const plan = runtime_aggregate_plan(ctx);
+        declare_runtime_aggregate_locals(plan, ctx);
+      }
       api.collect_expr_locals(expr.base, ctx, hooks);
       collect_core_fields_expr_locals(expr.fields, ctx, hooks, api);
       return;
@@ -398,8 +415,12 @@ export function collect_core_expr_locals(
         }
       }
 
-      api.collect_expr_locals(expr.then_branch, ctx, hooks);
-      api.collect_expr_locals(expr.else_branch, ctx, hooks);
+      collect_if_expr_branch_locals(
+        expr,
+        ctx,
+        hooks,
+        { collect_expr_locals: api.collect_expr_locals },
+      );
       return;
 
     case "if_let":
@@ -428,6 +449,9 @@ export function collect_core_expr_locals(
       return;
 
     case "field":
+      if (expr.move) {
+        set_local(ctx.locals, runtime_aggregate_move_pointer_local, "i32");
+      }
       {
         const struct_value = hooks.static_struct_value(expr.object, ctx);
 
@@ -444,6 +468,9 @@ export function collect_core_expr_locals(
       return;
 
     case "index":
+      if (expr.move) {
+        set_local(ctx.locals, runtime_aggregate_move_pointer_local, "i32");
+      }
       {
         const fields = hooks.static_collection_fields(expr.object, ctx);
 
@@ -480,6 +507,16 @@ function clone_loop_frozen_locals(
   }
 
   return new Set(frozen_locals);
+}
+
+function clone_loop_borrowed_locals(
+  borrowed_locals: Set<string> | undefined,
+): Set<string> | undefined {
+  if (!borrowed_locals) {
+    return undefined;
+  }
+
+  return new Set(borrowed_locals);
 }
 
 function local_collect_closure_fn_type(

@@ -65,6 +65,7 @@ export function const_i32_value(
 ): number | undefined {
   if (
     expr.tag === "num" && expr.type === "i32" &&
+    expr.character === undefined &&
     typeof expr.value === "number"
   ) {
     return expr.value;
@@ -133,6 +134,7 @@ export function normalize_fixed_array_type_lengths(
 
     case "name":
     case "atom":
+    case "literal":
     case "top":
     case "never":
       return type;

@@ -11,15 +11,23 @@ import {
   diagnostic_codes,
   DuckHost,
   DuckRunner,
+  run_duck_tests,
   Source,
 } from "./src/frontend.ts";
 import type {
   AbiManifest,
+  DuckTestResult,
   DuckValue,
   SourceAnalysis,
   SourceDiagnostic,
 } from "./src/frontend.ts";
 ```
+
+`run_duck_tests` executes the zero-argument `Unit` callables exported by a
+test-mode artifact and returns one `DuckTestResult` for each test. The
+`duck
+test` command performs the source compilation and WAT conversion around
+that host API.
 
 Individual AST nodes, source facts, binding-index state, compile-time values,
 canonical type-engine state, and Core types are no longer product exports.

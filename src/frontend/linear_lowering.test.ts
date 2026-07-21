@@ -607,7 +607,7 @@ main(40, false)
   });
 
   const captured_dynamic_if_type_alias_param_annotations = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct { .age= Int }
 const user_alias = user_type
 
@@ -633,9 +633,9 @@ main(40, false)
   assert_throws(
     () =>
       compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct { .age= Int }
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const other_type = struct { .score= Int }
 
 let main = (!x, flag) => {
@@ -654,12 +654,12 @@ main(40, false)
   );
 
   const captured_static_if_let = compile(`
-type ResultType = | .ok = Int | .err = Int
+type ResultType = | \`Ok Int | \`Err Int
 const result_type = ResultType
 
 let main = (!x) => {
-  const result = result_type.ok(0)
-  let f = if let .ok(value) = result {
+  const result = \`Ok (0)
+  let f = if let \`Ok value = result {
     () => !x + value
   } else {
     () => !x + 1
@@ -678,11 +678,11 @@ main(42)
   });
 
   const captured_dynamic_if_let = compile(`
-type ResultType = | .ok = Int | .err = Int
+type ResultType = | \`Ok Int | \`Err Int
 const result_type = ResultType
 
 let main = (!x: Int, result: result_type) => {
-  let f = if let .ok(value) = result {
+  let f = if let \`Ok value = result {
     () => !x + value
   } else {
     () => !x + 1
@@ -701,9 +701,9 @@ main(input, result)
 
   assert_includes(
     captured_dynamic_if_let_text,
-    "λresult#0. ((result#0)(λpayload_ok#0.",
+    "λresult#0. ((result#0)(λpayload_Ok#0.",
   );
-  assert_includes(captured_dynamic_if_let_text, " + payload_ok#0");
+  assert_includes(captured_dynamic_if_let_text, " + payload_Ok#0");
   assert_includes(captured_dynamic_if_let_text, " + 1:i32");
 
   const captured_return_fallthrough = compile(`
@@ -1177,7 +1177,7 @@ let sum = 0
 
 for i in 0..4 {
   sum = sum + 1
-  if let .some(value) = .some(i) {
+  if let \`Some value = \`Some (i) {
     continue
   }
   sum = sum + 100
@@ -1197,7 +1197,7 @@ let sum = 0
 
 for i in 0..4 {
   sum = sum + 1
-  if let .some(value) = .some(i) {
+  if let \`Some value = \`Some (i) {
     if value == 2 {
       break
     }
@@ -1218,7 +1218,7 @@ let sum = 0
 
 for i in 0..4 {
   sum = sum + 1
-  if let .none = .some(i) {
+  if let \`None () = \`Some (i) {
     break
   }
   sum = sum + 100
@@ -1256,8 +1256,8 @@ sum
 let sum = 0
 
 for i in 0..4 {
-  match .some(i) {
-    | .some(value) => {
+  match \`Some (i) {
+    | \`Some value => {
       if value == 2 {
         continue
       }
@@ -1323,32 +1323,6 @@ main(${flag.toString()})
     value: 0,
   });
   assert_equals(Ic.reduce(dynamic_match_continue(0)), {
-    tag: "num",
-    type: "i32",
-    value: 2,
-  });
-
-  const dynamic_union_match_break = (flag: number) =>
-    compile(`
-let main = flag => {
-  let sum = 0
-  for i in 0..2 {
-    match if flag { .some(i) } else { .none } {
-      | .some(value) => { break }
-      | _ => { sum = sum + 1 }
-    }
-  }
-  sum
-}
-main(${flag.toString()})
-`);
-
-  assert_equals(Ic.reduce(dynamic_union_match_break(1)), {
-    tag: "num",
-    type: "i32",
-    value: 0,
-  });
-  assert_equals(Ic.reduce(dynamic_union_match_break(0)), {
     tag: "num",
     type: "i32",
     value: 2,
@@ -1421,7 +1395,7 @@ main()
   const if_let_return_ic = compile(`
 let main = () => {
   for i in 0..4 {
-    if let .some(value) = .some(i) {
+    if let \`Some value = \`Some i {
       return value
     }
   }
@@ -1796,15 +1770,15 @@ main(flag)
   );
 
   const dynamic_deferred_text_if_let_binding_after_break_ic = compile(`
-type OptionType = | .some = Text | .none
+type OptionType = | \`Some Text | \`None Unit
 const option_type = OptionType
 
 let main = flag => {
   let total = 0
-  let maybe = if choose {
-    option_type.some(input)
+  let maybe: option_type = if choose {
+    \`Some (input)
   } else {
-    option_type.none()
+    \`None ()
   }
 
   for i in 0..2 {
@@ -1812,7 +1786,7 @@ let main = flag => {
       break
     }
 
-    let value = if let .some(message) = maybe {
+    let value = if let \`Some message = maybe {
       message
     } else {
       other
@@ -1844,15 +1818,15 @@ main(flag)
   );
 
   const dynamic_deferred_no_else_text_binding_after_break_ic = compile(`
-type OptionType = | .some = Text | .none
+type OptionType = | \`Some Text | \`None Unit
 const option_type = OptionType
 
 let main = flag => {
   let total = 0
-  let maybe = if choose {
-    option_type.some(input)
+  let maybe: option_type = if choose {
+    \`Some (input)
   } else {
-    option_type.none()
+    \`None ()
   }
 
   for i in 0..2 {
@@ -1860,7 +1834,7 @@ let main = flag => {
       break
     }
 
-    let value = if let .some(message) = maybe {
+    let value = if let \`Some message = maybe {
       message
     }
     total = @len(value)
@@ -2041,7 +2015,7 @@ main(flag)
   );
 
   const dynamic_function_branch_struct_after_binding_ic = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .label= Text
@@ -2088,15 +2062,15 @@ main(flag)
   );
 
   const dynamic_if_let_function_branch_after_binding_ic = compile(`
-type MaybeType = | .some = Text | .none
+type MaybeType = | \`Some Text | \`None Unit
 const maybe_type = MaybeType
 
 let main = flag => {
   let total = 0
-  let maybe = if choose {
-    maybe_type.some(input)
+  let maybe: maybe_type = if choose {
+    \`Some (input)
   } else {
-    maybe_type.none()
+    \`None ()
   }
 
   for i in 0..2 {
@@ -2104,7 +2078,7 @@ let main = flag => {
       break
     }
 
-    let id = if let .some(saved) = maybe {
+    let id = if let \`Some saved = maybe {
       (text: Text) => saved
     } else {
       (other: Text) => other
@@ -2137,7 +2111,7 @@ main(flag)
   );
 
   const dynamic_struct_break_after_top_level_binding_ic = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .label= Text
@@ -2175,7 +2149,7 @@ main(flag)
   );
 
   const dynamic_union_break_after_top_level_binding_ic = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let main = flag => {
@@ -2186,8 +2160,8 @@ let main = flag => {
       break
     }
 
-    let option = option_type.some(i + 1)
-    if let .some(value) = option {
+    let option = \`Some (i + 1)
+    if let \`Some value = option {
       total = total + value
     }
   }
@@ -2212,21 +2186,21 @@ main(flag)
   );
 
   const dynamic_union_assignment_after_break_ic = compile(`
-type OptionType = | .some = Text | .none
+type OptionType = | \`Some Text | \`None Unit
 const option_type = OptionType
 
 let main = flag => {
-  let option: option_type = option_type.none()
+  let option: option_type = \`None ()
 
   for i in 0..2 {
     if flag {
       break
     }
 
-    option = option_type.some(input)
+    option = \`Some (input)
   }
 
-  if let .some(value) = option {
+  if let \`Some value = option {
     @len(value)
   }
 }
@@ -2248,11 +2222,11 @@ main(flag)
   );
 
   const dynamic_union_no_else_assignment_after_break_ic = compile(`
-type OptionType = | .some = Text | .none
+type OptionType = | \`Some Text | \`None Unit
 const option_type = OptionType
 
 let main = flag => {
-  let option: option_type = option_type.none()
+  let option: option_type = \`None ()
 
   for i in 0..2 {
     if flag {
@@ -2260,11 +2234,11 @@ let main = flag => {
     }
 
     option = if choose {
-      option_type.some(input)
+      \`Some (input)
     }
   }
 
-  if let .some(value) = option {
+  if let \`Some value = option {
     @len(value)
   }
 }
@@ -2290,21 +2264,21 @@ main(flag)
   );
 
   const dynamic_union_change_assignment_after_break_ic = compile(`
-type OptionType = | .some = Text | .none
+type OptionType = | \`Some Text | \`None Unit
 const option_type = OptionType
 
 let main = flag => {
-  let option: option_type = option_type.none()
+  let option: option_type = \`None ()
 
   for i in 0..2 {
     if flag {
       break
     }
 
-    option := option_type.some(input)
+    option := \`Some (input)
   }
 
-  if let .some(value) = option {
+  if let \`Some value = option {
     @len(value)
   }
 }
@@ -2326,11 +2300,11 @@ main(flag)
   );
 
   const dynamic_union_no_else_change_assignment_after_break_ic = compile(`
-type OptionType = | .some = Text | .none
+type OptionType = | \`Some Text | \`None Unit
 const option_type = OptionType
 
 let main = flag => {
-  let option: option_type = option_type.none()
+  let option: option_type = \`None ()
 
   for i in 0..2 {
     if flag {
@@ -2338,11 +2312,11 @@ let main = flag => {
     }
 
     option := if choose {
-      option_type.some(input)
+      \`Some (input)
     }
   }
 
-  if let .some(value) = option {
+  if let \`Some value = option {
     @len(value)
   }
 }
@@ -2368,7 +2342,7 @@ main(flag)
   );
 
   const dynamic_final_if_let_after_break_ic = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let main = (flag, option: option_type) => {
@@ -2378,7 +2352,7 @@ let main = (flag, option: option_type) => {
     }
   }
 
-  if let .some(value) = option {
+  if let \`Some value = option {
     value + 1
   }
 }
@@ -2391,7 +2365,7 @@ main(flag, option)
   );
 
   assert_includes(dynamic_final_if_let_after_break_text, "then");
-  assert_includes(dynamic_final_if_let_after_break_text, "payload_some");
+  assert_includes(dynamic_final_if_let_after_break_text, "payload_Some");
   assert_includes(dynamic_final_if_let_after_break_text, "0:i32");
 
   const nested_dynamic_break_ic = compile(`
@@ -2451,7 +2425,7 @@ main(flag, other)
   assert_includes(nested_dynamic_continue_text, "33:i32");
 
   const nested_dynamic_if_let_break_ic = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let main = (flag, option: option_type) => {
@@ -2460,7 +2434,7 @@ let main = (flag, option: option_type) => {
   for i in 0..3 {
     total = total + 1
     if flag {
-      if let .some(value) = option {
+      if let \`Some value = option {
         break
       }
     }
@@ -2477,12 +2451,12 @@ main(flag, option)
     Ic.reduce(nested_dynamic_if_let_break_ic),
   );
 
-  assert_includes(nested_dynamic_if_let_break_text, "payload_some");
+  assert_includes(nested_dynamic_if_let_break_text, "payload_Some");
   assert_includes(nested_dynamic_if_let_break_text, "1:i32");
   assert_includes(nested_dynamic_if_let_break_text, "33:i32");
 
   const nested_dynamic_if_let_continue_ic = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let main = (flag, option: option_type) => {
@@ -2491,7 +2465,7 @@ let main = (flag, option: option_type) => {
   for i in 0..3 {
     total = total + 1
     if flag {
-      if let .some(value) = option {
+      if let \`Some value = option {
         continue
       }
     }
@@ -2508,7 +2482,7 @@ main(flag, option)
     Ic.reduce(nested_dynamic_if_let_continue_ic),
   );
 
-  assert_includes(nested_dynamic_if_let_continue_text, "payload_some");
+  assert_includes(nested_dynamic_if_let_continue_text, "payload_Some");
   assert_includes(nested_dynamic_if_let_continue_text, "3:i32");
   assert_includes(nested_dynamic_if_let_continue_text, "33:i32");
 
@@ -2540,14 +2514,14 @@ main(flag, other)
   assert_includes(nested_dynamic_break_before_trailing_stmt_text, "2:i32");
 
   const dynamic_if_let_nested_break_before_payload_use_ic = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let main = (flag, option: option_type) => {
   let total = 0
 
   for i in 0..2 {
-    if let .some(value) = option {
+    if let \`Some value = option {
       if flag {
         break
       }
@@ -2568,15 +2542,15 @@ main(flag, option)
 
   assert_includes(
     dynamic_if_let_nested_break_before_payload_use_text,
-    "payload_some",
+    "payload_Some",
   );
   assert_includes(
     dynamic_if_let_nested_break_before_payload_use_text,
-    "+ payload_some",
+    "+ payload_Some",
   );
 
   const dynamic_if_let_break_ic = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let main = (option: option_type) => {
@@ -2584,7 +2558,7 @@ let main = (option: option_type) => {
 
   for i in 0..3 {
     total = total + 1
-    if let .some(value) = option {
+    if let \`Some value = option {
       break
     }
     total = total + 10
@@ -2604,7 +2578,7 @@ main(option)
   assert_includes(dynamic_if_let_break_text, "33:i32");
 
   const dynamic_if_let_continue_ic = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let main = (option: option_type) => {
@@ -2612,7 +2586,7 @@ let main = (option: option_type) => {
 
   for i in 0..3 {
     total = total + 1
-    if let .some(value) = option {
+    if let \`Some value = option {
       continue
     }
     total = total + 10
@@ -2632,14 +2606,14 @@ main(option)
   assert_includes(dynamic_if_let_continue_text, "33:i32");
 
   const dynamic_if_let_break_after_assignment_ic = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 let main = (option: option_type) => {
   let total = 0
 
   for i in 0..2 {
-    if let .some(value) = option {
+    if let \`Some value = option {
       let next = total + value
       total = next
       break
@@ -2656,7 +2630,7 @@ main(option)
     Ic.reduce(dynamic_if_let_break_after_assignment_ic),
   );
 
-  assert_includes(dynamic_if_let_break_after_assignment_text, "payload_some");
+  assert_includes(dynamic_if_let_break_after_assignment_text, "payload_Some");
   assert_includes(dynamic_if_let_break_after_assignment_text, "0:i32");
 
   assert_throws(
@@ -2791,7 +2765,7 @@ main(flag)
   assert_includes(dynamic_continue_text, "else 63:i32");
 
   const dynamic_if_let_break = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 const xs = [10, 20, 30]
@@ -2801,7 +2775,7 @@ let main = (option: option_type) => {
 
   for x in xs {
     total = total + 1
-    if let .some(value) = option {
+    if let \`Some value = option {
       break
     }
     total = total + x
@@ -2952,7 +2926,7 @@ main(flag)
   );
 
   const dynamic_collection_struct_break_after_top_level_binding = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .label= Text
@@ -2993,7 +2967,7 @@ main(flag)
   );
 
   const dynamic_collection_union_break_after_top_level_binding = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 const xs = [10, 20]
@@ -3006,8 +2980,8 @@ let main = (flag: Bool) => {
       break
     }
 
-    let option = option_type.some(x)
-    if let .some(value) = option {
+    let option = \`Some (x)
+    if let \`Some value = option {
       total = total + value
     }
   }
@@ -3098,7 +3072,7 @@ main(flag, other)
   );
 
   const dynamic_collection_nested_if_let_break = compile(`
-type OptionType = | .some = Int | .none
+type OptionType = | \`Some Int | \`None Unit
 const option_type = OptionType
 
 const xs = [10, 20, 30]
@@ -3109,7 +3083,7 @@ let main = (flag: Bool, option: option_type) => {
   for x in xs {
     total = total + 1
     if flag {
-      if let .some(value) = option {
+      if let \`Some value = option {
         break
       }
     }
@@ -3126,7 +3100,7 @@ main(flag, option)
     Ic.reduce(dynamic_collection_nested_if_let_break),
   );
 
-  assert_includes(dynamic_collection_nested_if_let_break_text, "payload_some");
+  assert_includes(dynamic_collection_nested_if_let_break_text, "payload_Some");
   assert_includes(dynamic_collection_nested_if_let_break_text, "1:i32");
   assert_includes(dynamic_collection_nested_if_let_break_text, "63:i32");
 });
@@ -3447,7 +3421,7 @@ const messages = [.first = "Ada", .second = "Grace"]
 
 Deno.test("Source lowers typed runtime struct indexing to Ic", () => {
   const field_projection = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -3471,7 +3445,7 @@ first_plus_one(pair)
   });
 
   const static_index = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -3493,7 +3467,7 @@ second_plus_one(pair)
   });
 
   const dynamic_index = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -3515,7 +3489,7 @@ choose(pair, i)
   assert_includes(dynamic_text, "else trap");
 
   const dynamic_runtime_fields = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -3539,7 +3513,7 @@ choose(pair, i)
   assert_includes(dynamic_runtime_fields_text, "else trap");
 
   const dynamic_get = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -3560,7 +3534,7 @@ choose(pair, i)
   assert_includes(dynamic_get_text, "if i#0_share00 == 1:i32 then 20:i32");
 
   const wide = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const wide_type = struct {
   .first= I64,
   .second= I64
@@ -3581,7 +3555,7 @@ choose(pair, i)
   assert_includes(wide_text, "if i#0_share00 == 1:i32 then 7:i64");
 
   const length = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -3603,7 +3577,7 @@ count(pair) + 40
   });
 
   const collection_loop = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -3631,7 +3605,7 @@ sum(pair)
   });
 
   const indexed_loop = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -3659,7 +3633,7 @@ sum(pair)
   });
 
   const dynamic_runtime_struct_loop = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const triple_type = struct {
   .first= Int,
   .second= Int,
@@ -3855,7 +3829,7 @@ byte_at("Ada")
   });
 
   const range_len_loop = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -3883,7 +3857,7 @@ sum(pair)
   });
 
   const text_index = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const messages_type = struct {
   .first= Text,
   .second= Text
@@ -3906,7 +3880,7 @@ choose(messages, i)
   assert_includes(text_index_text, "else trap");
 
   const typed_text_index_len = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const messages_type = struct {
   .first= Text,
   .second= Text
@@ -3928,7 +3902,7 @@ let messages = [.first = "Ada", .second = "Grace"] as messages_type
   assert_includes(typed_text_index_len_text, "else trap");
 
   const runtime_text_index_len = compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const messages_type = struct {
   .first= Text,
   .second= Text
@@ -3955,7 +3929,7 @@ byte_len(messages, i)
   assert_throws(
     () =>
       compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int
 }
@@ -3974,7 +3948,7 @@ bad(pair)
   assert_throws(
     () =>
       compile(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= Text,
   .age= Int
@@ -4284,7 +4258,7 @@ total
   );
 
   const dynamic_control_annotated_struct_binding_source = `
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .label= Text
@@ -4317,7 +4291,7 @@ total
   );
 
   const dynamic_control_annotated_union_binding_source = `
-type ResultType = | .ok = Int | .err = Text
+type ResultType = | \`Ok Int | \`Err Text
 const result_type = ResultType
 
 let total = 0
@@ -4328,7 +4302,7 @@ for i in 0..2 {
   }
 
   let result: result_type = source
-  if let .ok(value) = result {
+  if let \`Ok value = result {
     total = total + value
   }
 }
@@ -4340,7 +4314,7 @@ total
     Ic,
     Ic.reduce(compile(dynamic_control_annotated_union_binding_source)),
   );
-  assert_includes(dynamic_control_annotated_union_binding_ic, "payload_ok");
+  assert_includes(dynamic_control_annotated_union_binding_ic, "payload_Ok");
   assert_includes(dynamic_control_annotated_union_binding_ic, "source_share");
   assert_includes(
     dynamic_control_annotated_union_binding_ic,
@@ -4348,12 +4322,12 @@ total
   );
 
   const dynamic_control_annotated_nested_struct_binding_source = `
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const name_type = struct {
   .first= Text
 }
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= name_type,
   .age= Int
@@ -4395,10 +4369,10 @@ total
   );
 
   const dynamic_control_annotated_struct_block_if_let_binding_source = `
-type MaybeType = | .some = Int | .none
+type MaybeType = | \`Some Int | \`None Unit
 const maybe_type = MaybeType
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int
 }
@@ -4412,7 +4386,7 @@ for i in 0..2 {
   }
 
   let user: user_type = {
-    let selected = if let .some(found) = maybe {
+    let selected = if let \`Some found = maybe {
       (&input_user)    } else {
       scratch { other_user }
     }
@@ -4446,10 +4420,10 @@ total
   );
 
   const dynamic_control_annotated_union_block_if_let_binding_source = `
-type MaybeType = | .some = Int | .none
+type MaybeType = | \`Some Int | \`None Unit
 const maybe_type = MaybeType
 
-type OptionType = | .ok = Int | .err
+type OptionType = | \`Ok Int | \`Err Unit
 const option_type = OptionType
 
 let maybe: maybe_type = source
@@ -4461,7 +4435,7 @@ for i in 0..2 {
   }
 
   let option: option_type = {
-    let selected = if let .some(found) = maybe {
+    let selected = if let \`Some found = maybe {
       (&input_option)    } else {
       scratch { other_option }
     }
@@ -4469,7 +4443,7 @@ for i in 0..2 {
     return selected
   }
 
-  if let .ok(value) = option {
+  if let \`Ok value = option {
     total = value
   }
 }
@@ -4485,7 +4459,7 @@ total
   );
   assert_includes(
     dynamic_control_annotated_union_block_if_let_binding_ic,
-    "payload_ok",
+    "payload_Ok",
   );
   assert_includes(
     dynamic_control_annotated_union_block_if_let_binding_ic,
@@ -4523,7 +4497,7 @@ if input_share01 then 0:i32 else if input_share00 then 1:i32 else 3:i32`,
   );
 
   const dynamic_control_struct_call_binding_source = `
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .label= Text
@@ -4558,7 +4532,7 @@ if input_share01 then 0:i32 else if input_share00 then 3:i32 else 7:i32`,
   );
 
   const dynamic_control_struct_block_call_binding_source = `
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .label= Text
@@ -4596,11 +4570,11 @@ if input_share01 then 0:i32 else if input_share00 then 3:i32 else 7:i32`,
   );
 
   const dynamic_control_union_block_call_binding_source = `
-type ResultType = | .ok = Int | .err = Text
+type ResultType = | \`Ok Int | \`Err Text
 const result_type = ResultType
 
 const make = x => {
-  result_type.ok(x + 1)
+  \`Ok (x + 1)
 }
 
 let total = 0
@@ -4615,7 +4589,7 @@ for i in 0..2 {
     made
   }
 
-  if let .ok(value) = result {
+  if let \`Ok value = result {
     total = total + value
   }
 }
@@ -4634,7 +4608,7 @@ if input_share01 then 0:i32 else if input_share00 then 1:i32 else 3:i32`,
   );
 
   const dynamic_control_no_else_union_binding_source = `
-type ResultType = | .ok = Int | .err = Text
+type ResultType = | \`Ok Int | \`Err Text
 const result_type = ResultType
 
 let total = 0
@@ -4645,10 +4619,10 @@ for i in 0..2 {
   }
 
   let result = if flag {
-    result_type.ok(i + 1)
+    \`Ok (i + 1)
   }
 
-  if let .ok(value) = result {
+  if let \`Ok value = result {
     total = total + value
   }
 }
@@ -4669,10 +4643,10 @@ if input_share00 then total#1_share00 else total#1_share01 + if flag_share01 the
   );
 
   const dynamic_control_no_else_if_let_union_binding_source = `
-type ResultType = | .ok = Int | .err
+type ResultType = | \`Ok Int | \`Err Unit
 const result_type = ResultType
 
-type MaybeType = | .some = Int | .none
+type MaybeType = | \`Some Int | \`None Unit
 const maybe_type = MaybeType
 
 let total = 0
@@ -4683,16 +4657,16 @@ for i in 0..1 {
   }
 
   let maybe = if flag {
-    maybe_type.some(1)
+    \`Some (1)
   } else {
-    maybe_type.none()
+    \`None ()
   }
 
-  let result = if let .some(value) = maybe {
-    result_type.ok(value + 1)
+  let result = if let \`Some value = maybe {
+    \`Ok (value + 1)
   }
 
-  if let .ok(amount) = result {
+  if let \`Ok amount = result {
     total = total + amount
   }
 }
@@ -4710,7 +4684,7 @@ total
   );
 
   const dynamic_control_no_else_if_let_text_binding_source = `
-type MaybeType = | .some = Text | .none
+type MaybeType = | \`Some Text | \`None Unit
 const maybe_type = MaybeType
 
 let maybe: maybe_type = source
@@ -4721,7 +4695,7 @@ for i in 0..1 {
     break
   }
 
-  let text = if let .some(value) = maybe {
+  let text = if let \`Some value = maybe {
     value
   }
 
@@ -4737,16 +4711,16 @@ total
   );
   assert_equals(
     dynamic_control_no_else_if_let_text_binding_ic,
-    'if input then 0:i32 else 0:i32 + load(((source)(λpayload_some#0. payload_some#0))(λpayload_none#0. ""))',
+    'if input then 0:i32 else 0:i32 + load(((source)(λpayload_Some#0. payload_Some#0))(λpayload_None#0. ""))',
   );
 
   const dynamic_control_no_else_if_let_struct_binding_source = `
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int
 }
 
-type MaybeType = | .some = user_type | .none
+type MaybeType = | \`Some user_type | \`None Unit
 const maybe_type = MaybeType
 
 let maybe: maybe_type = source
@@ -4757,7 +4731,7 @@ for i in 0..1 {
     break
   }
 
-  let user = if let .some(value) = maybe {
+  let user = if let \`Some value = maybe {
     value
   }
 
@@ -4773,11 +4747,11 @@ total
   );
   assert_equals(
     dynamic_control_no_else_if_let_struct_binding_ic,
-    "if input then 0:i32 else 0:i32 + (((source)(λpayload_some#0. payload_some#0))(λpayload_none#0. λpick#0. (pick#0)(0:i32)))(λfield_age#0. field_age#0)",
+    "if input then 0:i32 else 0:i32 + (((source)(λpayload_Some#0. payload_Some#0))(λpayload_None#0. λpick#0. (pick#0)(0:i32)))(λfield_age#0. field_age#0)",
   );
 
   const dynamic_control_shorthand_if_let_union_binding_source = `
-type MaybeType = | .some = Int | .none
+type MaybeType = | \`Some Int | \`None Unit
 const maybe_type = MaybeType
 
 let maybe: maybe_type = source
@@ -4788,11 +4762,11 @@ for i in 0..1 {
     break
   }
 
-  let result = if let .some(value) = maybe {
-    .ok(value)
+  let result = if let \`Some value = maybe {
+    \`Ok (value)
   }
 
-  if let .ok(amount) = result {
+  if let \`Ok amount = result {
     total = amount
   }
 }
@@ -4810,11 +4784,11 @@ total
   );
   assert_includes(
     dynamic_control_shorthand_if_let_union_binding_ic,
-    "λcase_ok",
+    "λcase_Ok",
   );
   assert_includes(
     dynamic_control_shorthand_if_let_union_binding_ic,
-    "λpayload_ok",
+    "λpayload_Ok",
   );
 
   const dynamic_control_const_binding_source = `

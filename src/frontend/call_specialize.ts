@@ -7,6 +7,7 @@ import {
 import { contains_unresolved_linear_effect } from "./call_linear_effect.ts";
 import { is_deferred_frontend_value } from "./call_deferred.ts";
 import {
+  parameter_arguments,
   push_const_specialized_arg,
   push_runtime_specialized_arg,
   type RuntimeSpecializedArg,
@@ -70,7 +71,9 @@ export function lower_specialized_app(
     return undefined;
   }
 
-  if (expr.args.length !== target.expr.params.length) {
+  const bindings = parameter_arguments(target.expr.params, expr.args);
+
+  if (bindings === undefined) {
     throw new Error(
       "Specialized call expected " +
         target.expr.params.length.toString() +
@@ -89,12 +92,7 @@ export function lower_specialized_app(
   const runtime_args: RuntimeSpecializedArg[] = [];
   const runtime_names: string[] = [];
 
-  for (let index = 0; index < target.expr.params.length; index += 1) {
-    const param = target.expr.params[index];
-    expect(param, "Missing parameter " + index);
-    const arg = expr.args[index];
-    expect(arg, "Missing argument " + index);
-
+  for (const { param, arg } of bindings) {
     if (param.is_const) {
       push_const_specialized_arg(
         param.name,
@@ -202,7 +200,9 @@ export function infer_specialized_app_type(
     return undefined;
   }
 
-  if (expr.args.length !== target.expr.params.length) {
+  const bindings = parameter_arguments(target.expr.params, expr.args);
+
+  if (bindings === undefined) {
     return undefined;
   }
 
@@ -210,12 +210,7 @@ export function infer_specialized_app_type(
   const runtime_args: RuntimeSpecializedArg[] = [];
   const runtime_names: string[] = [];
 
-  for (let index = 0; index < target.expr.params.length; index += 1) {
-    const param = target.expr.params[index];
-    const arg = expr.args[index];
-    expect(param, "Missing parameter " + index);
-    expect(arg, "Missing argument " + index);
-
+  for (const { param, arg } of bindings) {
     if (param.is_linear) {
       return undefined;
     }

@@ -117,7 +117,7 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
         this.peek().text === "|"
       ) {
         const body_start = this.index;
-        const sum = this.parse_sum_type(name);
+        const sum = this.parse_sum_type(name, true);
         return {
           tag: "type",
           name,
@@ -130,8 +130,19 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
         };
       }
 
-      if (this.peek().kind === "symbol" && this.peek().text === ".") {
-        throw this.error("Sum types require a leading `|`");
+      if (this.peek().kind === "symbol" && this.peek().text === "`") {
+        const body_start = this.index;
+        const sum = this.parse_sum_type(name, false);
+        return {
+          tag: "type",
+          name,
+          params,
+          body: this.concrete_node(body_start, {
+            tag: "sum",
+            cases: sum.cases,
+          }),
+          recursive: sum.recursive,
+        };
       }
 
       const body_start = this.index;
@@ -166,42 +177,52 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
 
   private parse_sum_type(
     declaration_name: string,
+    leading_pipe: boolean,
   ): { cases: TypeField[]; recursive: boolean } {
     const cases: TypeField[] = [];
     const names = new Set<string>();
     let recursive = false;
-    this.expect_symbol("|");
-    this.skip_newlines();
+    if (leading_pipe) {
+      this.expect_symbol("|");
+      this.skip_newlines();
+    }
 
     while (true) {
       const case_start = this.index;
-      this.expect_symbol(".");
+      this.expect_symbol("`");
       const case_name = this.expect_name("Expected sum case name");
-      expect_snake_case(case_name, "Sum case");
+      expect(
+        /^[A-Z][A-Za-z0-9]*$/.test(case_name),
+        "Sum case must use PascalCase: " + case_name,
+      );
       expect(!names.has(case_name), "Duplicate sum case: " + case_name);
       names.add(case_name);
-      let type_name = "Unit";
+      const member = this.consume_type_member(
+        declaration_name,
+        new Set(["|"]),
+      );
+      let type_name = member.text;
 
-      if (this.match_symbol("=")) {
-        const member = this.consume_type_member(
-          declaration_name,
-          new Set(["|"]),
-        );
-        type_name = member.text;
+      if (type_name === "[]") {
+        type_name = "Unit";
+      }
 
-        if (type_name === "[]") {
-          type_name = "Unit";
-        }
-
-        if (member.recursive) {
-          recursive = true;
-        }
+      if (member.recursive) {
+        recursive = true;
       }
 
       cases.push(this.concrete_node(case_start, {
         name: case_name,
         type_name,
       }));
+
+      if (!leading_pipe) {
+        if (this.peek().kind === "symbol" && this.peek().text === "|") {
+          throw this.error("Multiple-case sums require a leading `|`");
+        }
+
+        break;
+      }
 
       if (this.match_symbol("|")) {
         this.skip_newlines();
@@ -222,6 +243,9 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
     }
 
     expect(cases.length > 0, "Sum type requires at least one case");
+    if (leading_pipe) {
+      expect(cases.length > 1, "Single-case sums omit the leading `|`");
+    }
     return { cases, recursive };
   }
 
@@ -283,8 +307,6 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
     this.expect_symbol(opening);
     this.skip_newlines();
     const fields: TypeField[] = [];
-    const names = new Set<string>();
-    let positional: boolean | undefined;
     let recursive = false;
 
     if (this.match_symbol(closing)) {
@@ -298,32 +320,15 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
       };
     }
 
+    if (this.peek().kind === "symbol" && this.peek().text === ".") {
+      throw this.error(
+        "Named product types use `struct { .field = Type }`",
+      );
+    }
+
     while (true) {
       const field_start = this.index;
-      const named = this.peek().kind === "symbol" && this.peek().text === ".";
-
-      if (positional === undefined) {
-        positional = !named;
-      } else if (positional === named) {
-        throw this.error("Cannot mix named and positional product entries");
-      }
-
-      let field_name: string;
-
-      if (named) {
-        this.expect_symbol(".");
-        field_name = this.expect_name("Expected product field name");
-        expect_snake_case(field_name, "Product field");
-        this.expect_symbol("=");
-      } else {
-        field_name = "item_" + fields.length.toString();
-      }
-
-      expect(
-        !names.has(field_name),
-        "Duplicate product field: " + field_name,
-      );
-      names.add(field_name);
+      const field_name = "item_" + fields.length.toString();
       const member = this.consume_type_member(
         declaration_name,
         new Set([",", closing, "|"]),
@@ -354,12 +359,11 @@ export abstract class ParserTypeDeclaration extends ParserStmtBinding {
       );
     }
 
-    expect(positional !== undefined, "Missing product kind");
     return {
       body: this.concrete_node(start, {
         tag: "product",
         fields,
-        positional,
+        positional: true,
       }),
       recursive,
     };

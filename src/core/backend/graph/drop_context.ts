@@ -7,6 +7,7 @@ import type {
 } from "../../ast.ts";
 import type { CoreCtx } from "../../local_collect.ts";
 import {
+  materialized_static_owner_binding,
   mutable_static_owner_value_materializes,
   static_owner_value_materializes,
 } from "../../mutable_static_owner.ts";
@@ -29,6 +30,7 @@ import {
 import { core_drop_if_let_branch_ctx } from "./proof_context.ts";
 import { core_unknown_host_boundary_probe_error } from "./proof_unsupported.ts";
 import type { CoreBackendGraph } from "./types.ts";
+import { bind_core_function_params } from "../../function_params.ts";
 
 export function collect_core_drop_ctx(
   backend: CoreBackendGraph,
@@ -39,6 +41,13 @@ export function collect_core_drop_ctx(
   for (let index = 0; index < core.statements.length; index += 1) {
     const stmt = core.statements[index];
     expect(stmt, "Missing core statement " + index.toString());
+
+    if (
+      core.function_params !== undefined &&
+      index + 1 === core.statements.length
+    ) {
+      bind_core_function_params(core.function_params, ctx);
+    }
 
     if (
       index + 1 >= core.statements.length &&
@@ -63,6 +72,13 @@ export function collect_core_borrow_ctx(
   for (let index = 0; index < core.statements.length; index += 1) {
     const stmt = core.statements[index];
     expect(stmt, "Missing core statement " + index.toString());
+
+    if (
+      core.function_params !== undefined &&
+      index + 1 === core.statements.length
+    ) {
+      bind_core_function_params(core.function_params, ctx);
+    }
 
     if (
       index + 1 >= core.statements.length &&
@@ -143,6 +159,12 @@ function collect_drop_analysis_stmt_locals(
 ): void {
   if (stmt.tag === "bind") {
     const value = backend.type_check.core_binding_value(stmt, ctx);
+
+    if (stmt.kind === "const" && value.tag === "lam") {
+      collect_stmt_locals_for_proof(backend, stmt, ctx);
+      return;
+    }
+
     const static_value = stmt.kind === "const"
       ? drop_analysis_static_expr_value(backend, value, ctx)
       : drop_analysis_runtime_binding_static_expr_value(
@@ -163,30 +185,12 @@ function collect_drop_analysis_stmt_locals(
         return;
       }
 
-      let materialized_struct_owner = false;
-      if (
-        stmt.kind === "let" &&
-        ctx.materialized_bindings?.has(stmt.name) === true &&
+      const materialized_owner = stmt.kind === "let" &&
         value.tag !== "scratch" &&
-        (!ctx.scratch_depth || ctx.scratch_depth === 0)
-      ) {
-        const struct_value = backend.struct.static_struct_value(
-          static_value,
-          ctx,
-        );
-        if (
-          struct_value &&
-          !(
-            struct_value.type_expr.tag === "var" &&
-            struct_value.type_expr.name === "object_type"
-          )
-        ) {
-          materialized_struct_owner = true;
-        }
-      }
+        materialized_static_owner_binding(stmt.name, static_value, ctx);
       if (
         stmt.kind === "let" &&
-        (materialized_struct_owner ||
+        (materialized_owner ||
           (stmt.annotation !== undefined &&
             core_runtime_aggregate_type_for_ownership(
                 backend,
@@ -604,6 +608,15 @@ function core_runtime_aggregate_ownership_probe_error(
   if (
     error.message.startsWith(
       "Core first-class closure parameter must use a scalar annotation:",
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    error.message.startsWith(
+      "First-class closure ownership-qualified parameter annotations are " +
+        "not supported yet:",
     )
   ) {
     return true;

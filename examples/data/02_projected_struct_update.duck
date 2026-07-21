@@ -1,7 +1,9 @@
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 
 type Point = struct { .x = Int, .y = Int }
 
 let point: Point = [20, 21]
 
-(point :+ { .x = point.x + 1 }).x + point.y
+let updated = point :+ { .x = point.x + 1 }
+
+updated.x + point.y

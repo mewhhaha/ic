@@ -8,6 +8,8 @@ import type {
 } from "./ast.ts";
 import { lookup } from "./env.ts";
 import { lookup_type_field } from "./fields.ts";
+import { format_type_expr, parse_type_expr } from "./type_expr.ts";
+import { tokenize } from "./tokenize.ts";
 import { is_builtin_type_name } from "./types.ts";
 
 type TypePatternHooks = {
@@ -144,6 +146,7 @@ function substitute_type_set_member(
       return { tag: "name", name: resolve_type_name(type.name, env, hooks) };
 
     case "atom":
+    case "literal":
     case "top":
     case "never":
       return type;
@@ -208,6 +211,14 @@ function resolve_type_name(
   env: Env,
   hooks: TypePatternHooks,
 ): string {
+  const parsed = parse_type_expr(tokenize(name));
+
+  if (parsed.tag !== "name") {
+    return format_type_expr(
+      substitute_type_set_member(parsed, env, hooks),
+    );
+  }
+
   if (is_builtin_type_name(name)) {
     return name;
   }

@@ -26,7 +26,11 @@ import {
 import type {
   RuntimeAggregateEmitCtx,
   RuntimeAggregateHooks,
+  RuntimeAggregateTempCtx,
 } from "./types.ts";
+
+export const runtime_aggregate_move_pointer_local =
+  "__runtime_aggregate_move_pointer";
 
 export function emit_runtime_aggregate_field_load<
   ctx extends RuntimeAggregateTypeCtx,
@@ -50,6 +54,52 @@ export function emit_runtime_aggregate_field_load<
     field.type,
     field.offset,
   );
+}
+
+export function emit_runtime_aggregate_field_move<
+  ctx extends RuntimeAggregateTypeCtx & RuntimeAggregateTempCtx,
+>(
+  object: CoreExpr,
+  name: string,
+  ctx: ctx,
+  hooks: RuntimeAggregateTypeHooks<ctx> & {
+    emit_expr: (expr: CoreExpr, ctx: ctx) => Wat;
+  },
+): Wat {
+  const access = runtime_aggregate_field_access(object, name, ctx, hooks);
+  expect(access, "Missing runtime aggregate field: " + name);
+  const field = access.field;
+
+  if (field.tag === "struct") {
+    return emit_runtime_aggregate_field_pointer(object, name, ctx, hooks);
+  }
+
+  expect(
+    field.tag === "value",
+    "Core runtime aggregate field " + name +
+      " cannot be moved as a standalone value",
+  );
+
+  if (!field.text && !field.resume && field.union_type_expr === undefined) {
+    return hooks.emit_expr(access.base, ctx) + "\n" + load_instr(
+      field.type,
+      field.offset,
+    );
+  }
+
+  expect(
+    field.type === "i32",
+    "Owned runtime aggregate field " + name + " must use an i32 pointer",
+  );
+  ctx.locals.set(runtime_aggregate_move_pointer_local, "i32");
+  return [
+    hooks.emit_expr(access.base, ctx),
+    "local.tee $" + runtime_aggregate_move_pointer_local,
+    load_instr(field.type, field.offset),
+    "local.get $" + runtime_aggregate_move_pointer_local,
+    "i32.const 0",
+    store_instr(field.type, field.offset),
+  ].join("\n");
 }
 
 export function emit_runtime_aggregate_field_pointer<
@@ -269,11 +319,15 @@ function emit_runtime_aggregate_field_copies<
       continue;
     }
 
-    const source_field: CoreExpr = {
+    let source_field: CoreExpr = {
       tag: "field",
       object: source,
       name: field_info.name,
     };
+
+    if (source.tag === "field" && source.move) {
+      source_field = { ...source_field, move: true };
+    }
 
     if (field_info.tag === "struct") {
       emit_runtime_aggregate_field_copies(

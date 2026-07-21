@@ -189,8 +189,8 @@ function runtime_struct_field_fallback_ic(field: TypeField): IcNode {
   }
 
   if (
-    field.type_name === "Bool" || field.type_name === "Int" ||
-    field.type_name === "I32" ||
+    field.type_name === "Bool" || field.type_name === "Char" ||
+    field.type_name === "Int" || field.type_name === "I32" ||
     field.type_name === "U32"
   ) {
     return { tag: "num", type: "i32", value: 0 };

@@ -661,7 +661,7 @@ flag = false
 
 Deno.test("core type checks compile away through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= Text,
   .age= Int
@@ -720,14 +720,14 @@ Deno.test("core direct type annotations compile through WAT to Wasm", async () =
   const wat_text = wat_from_core_source(`
 const int_type = Int
 
-type ResultType = | .ok = int_type | .err = Int
+type ResultType = | \`Ok int_type | \`Err Int
 const result_type = ResultType
 
 const alias_type = result_type
 
-let result: alias_type = .ok(41)
+let result: alias_type = \`Ok (41)
 
-if let .ok(value) = result {
+if let \`Ok value = result {
   value + 1
 } else {
   0
@@ -754,17 +754,17 @@ if let .ok(value) = result {
   }
 
   const dynamic_wat = wat_from_core_source(`
-type ResultType = | .ok = Int | .err = Int
+type ResultType = | \`Ok Int | \`Err Int
 const result_type = ResultType
 
 let input = 0
 let result: result_type = if input {
-  result_type.ok(40)
+  \`Ok (40)
 } else {
-  result_type.err(7)
+  \`Err (7)
 }
 
-if let .ok(value) = result {
+if let \`Ok value = result {
   value + 1
 } else {
   5
@@ -791,23 +791,23 @@ if let .ok(value) = result {
   }
 
   const dynamic_text_wat = wat_from_core_source(`
-type ResultType = | .ok = Text | .err = Text
+type ResultType = | \`Ok Text | \`Err Text
 const result_type = ResultType
 
 let input = 1
 let left = "Ada"
 let right = "Grace"
 let result: result_type = if input {
-  result_type.ok(left)
+  \`Ok (left)
 } else {
-  result_type.err(right)
+  \`Err (right)
 }
 
 input = 0
 left = "Zoe"
 right = "Ida"
 
-let value = if let .ok(text) = result {
+let value = if let \`Ok text = result {
   text
 } else {
   ""
@@ -840,7 +840,7 @@ let value = if let .ok(text) = result {
 
 Deno.test("core direct parameter annotations compile through WAT to Wasm", async () => {
   const struct_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -873,18 +873,18 @@ sum_pair([.first = 40, .second = 2])
   }
 
   const union_wat = wat_from_core_source(`
-type ResultType = | .ok = Int | .err = Int
+type ResultType = | \`Ok Int | \`Err Int
 const result_type = ResultType
 
 const unwrap = (result: result_type) => {
-  if let .ok(value) = result {
+  if let \`Ok value = result {
     value + 1
   } else {
     0
   }
 }
 
-unwrap(.ok(41))
+unwrap(\`Ok (41))
 `);
   const union_instance = await instantiate_wat(
     union_wat,

@@ -200,12 +200,12 @@ function lower_const_binding(
   );
 
   if (stmt.annotation) {
-    hooks.check_binding_annotation(stmt.annotation, stmt_value, env);
     stmt_value = hooks.apply_annotation_context(
       stmt.annotation,
       stmt_value,
       env,
     );
+    hooks.check_binding_annotation(stmt.annotation, stmt_value, env);
   }
 
   if (stmt.is_linear) {

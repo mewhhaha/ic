@@ -20,41 +20,25 @@ export function collect_if_else_stmt_locals(
     undefined,
   );
   const statics = new Map(ctx.statics);
-  const then_ctx: CoreCtx = {
-    locals: ctx.locals,
-    statics: new Map(statics),
-    fn_types: new Map(ctx.fn_types),
-    text_locals: new Set(ctx.text_locals),
-    struct_locals: new Map(ctx.struct_locals),
-    union_locals: new Map(ctx.union_locals),
-    frozen_locals: clone_optional_set(ctx.frozen_locals),
-    host_imports: clone_core_host_imports(ctx.host_imports),
-    scratch_depth: ctx.scratch_depth,
-    materialized_bindings: ctx.materialized_bindings,
-    mutable_bindings: ctx.mutable_bindings,
-    next_loop: ctx.next_loop,
-    next_temp: ctx.next_temp,
-  };
+  const then_ctx = create_if_branch_ctx(
+    ctx,
+    statics,
+    ctx.fn_types,
+    ctx.next_loop,
+    ctx.next_temp,
+  );
 
   for (const item of stmt.then_body) {
     callbacks.collect_stmt_locals(item, then_ctx, hooks);
   }
 
-  const else_ctx: CoreCtx = {
-    locals: ctx.locals,
-    statics: new Map(statics),
-    fn_types: new Map(then_ctx.fn_types),
-    text_locals: new Set(ctx.text_locals),
-    struct_locals: new Map(ctx.struct_locals),
-    union_locals: new Map(ctx.union_locals),
-    frozen_locals: clone_optional_set(ctx.frozen_locals),
-    host_imports: clone_core_host_imports(ctx.host_imports),
-    scratch_depth: ctx.scratch_depth,
-    materialized_bindings: ctx.materialized_bindings,
-    mutable_bindings: ctx.mutable_bindings,
-    next_loop: then_ctx.next_loop,
-    next_temp: then_ctx.next_temp,
-  };
+  const else_ctx = create_if_branch_ctx(
+    ctx,
+    statics,
+    then_ctx.fn_types,
+    then_ctx.next_loop,
+    then_ctx.next_temp,
+  );
 
   for (const item of stmt.else_body) {
     callbacks.collect_stmt_locals(item, else_ctx, hooks);
@@ -62,6 +46,8 @@ export function collect_if_else_stmt_locals(
 
   ctx.next_loop = else_ctx.next_loop;
   ctx.next_temp = else_ctx.next_temp;
+  merge_branch_locals(ctx.locals, then_ctx.locals);
+  merge_branch_locals(ctx.locals, else_ctx.locals);
   merge_generated_temp_facts(ctx, then_ctx);
   merge_generated_temp_facts(ctx, else_ctx);
 
@@ -75,6 +61,78 @@ export function collect_if_else_stmt_locals(
   );
 
   merge_assigned_runtime_facts(stmt, ctx, then_ctx, else_ctx);
+}
+
+export function collect_if_expr_branch_locals(
+  expr: Extract<CoreExpr, { tag: "if" }>,
+  ctx: CoreCtx,
+  hooks: CoreLocalCollectHooks,
+  callbacks: Pick<CoreLocalCollectorCallbacks, "collect_expr_locals">,
+): void {
+  const then_ctx = create_if_branch_ctx(
+    ctx,
+    ctx.statics,
+    ctx.fn_types,
+    ctx.next_loop,
+    ctx.next_temp,
+  );
+  callbacks.collect_expr_locals(expr.then_branch, then_ctx, hooks);
+  const else_ctx = create_if_branch_ctx(
+    ctx,
+    ctx.statics,
+    then_ctx.fn_types,
+    then_ctx.next_loop,
+    then_ctx.next_temp,
+  );
+  callbacks.collect_expr_locals(expr.else_branch, else_ctx, hooks);
+
+  ctx.next_loop = else_ctx.next_loop;
+  ctx.next_temp = else_ctx.next_temp;
+  merge_branch_locals(ctx.locals, then_ctx.locals);
+  merge_branch_locals(ctx.locals, else_ctx.locals);
+  merge_generated_temp_facts(ctx, then_ctx);
+  merge_generated_temp_facts(ctx, else_ctx);
+}
+
+function create_if_branch_ctx(
+  ctx: CoreCtx,
+  statics: CoreCtx["statics"],
+  fn_types: CoreCtx["fn_types"],
+  next_loop: number,
+  next_temp: number,
+): CoreCtx {
+  return {
+    locals: new Map(ctx.locals),
+    static_capture_values: clone_optional_map(ctx.static_capture_values),
+    statics: new Map(statics),
+    fn_types: new Map(fn_types),
+    text_locals: new Set(ctx.text_locals),
+    struct_locals: new Map(ctx.struct_locals),
+    union_locals: new Map(ctx.union_locals),
+    borrowed_locals: clone_optional_set(ctx.borrowed_locals),
+    frozen_locals: clone_optional_set(ctx.frozen_locals),
+    host_imports: clone_core_host_imports(ctx.host_imports),
+    scratch_depth: ctx.scratch_depth,
+    materialized_bindings: ctx.materialized_bindings,
+    mutable_bindings: ctx.mutable_bindings,
+    next_loop,
+    next_temp,
+  };
+}
+
+function merge_branch_locals(
+  target: CoreCtx["locals"],
+  branch: CoreCtx["locals"],
+): void {
+  for (const [name, type] of branch) {
+    const existing = target.get(name);
+    if (existing !== undefined) {
+      expect(existing === type, "Core if branch local type mismatch: " + name);
+      continue;
+    }
+
+    target.set(name, type);
+  }
 }
 
 function merge_assigned_runtime_facts(
@@ -223,4 +281,14 @@ function clone_optional_set(
   }
 
   return new Set(value);
+}
+
+function clone_optional_map<K, V>(
+  value: Map<K, V> | undefined,
+): Map<K, V> | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  return new Map(value);
 }

@@ -49,7 +49,7 @@ Deno.test("semantic tokens preserve const and runtime shadow generations", () =>
 });
 
 Deno.test("semantic tokens classify types, members, effects, and linear uses", () => {
-  const text = "type Box item = [.value = item]\n" +
+  const text = "type Box item = struct {.value = item}\n" +
     "effect Counter { get: () => I32 }\n" +
     "let !token = 1\n!token\n" +
     "let box: Box = [.value = 1]\nbox.value\n";
@@ -73,13 +73,13 @@ Deno.test("semantic tokens classify types, members, effects, and linear uses", (
       modifiers: ["declaration"],
     }, {
       line: 0,
-      character: 18,
+      character: 25,
       length: 5,
       type: "property",
       modifiers: ["declaration"],
     }, {
       line: 0,
-      character: 26,
+      character: 33,
       length: 4,
       type: "typeParameter",
       modifiers: [],

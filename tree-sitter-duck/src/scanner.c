@@ -7,6 +7,9 @@
 enum TokenType {
   APPLICATION_SPACE,
   TYPE_APPLICATION_SPACE,
+  BREAK_VALUE_SPACE,
+  BREAK_TERMINATOR_SPACE,
+  EXTENSION_MEMBER_TERMINATOR,
 };
 
 void *tree_sitter_duck_external_scanner_create(void) {
@@ -49,12 +52,10 @@ static bool starts_application_argument(int32_t character) {
     case '_':
     case '"':
     case '\'':
-    case '.':
     case '(':
     case '[':
     case '{':
     case '!':
-    case '&':
     case '#':
       return true;
     default:
@@ -107,8 +108,31 @@ bool tree_sitter_duck_external_scanner_scan(
   (void)payload;
 
   if (
+    valid_symbols[BREAK_TERMINATOR_SPACE] &&
+    (lexer->lookahead == '\n' || lexer->lookahead == '\r')
+  ) {
+    lexer->advance(lexer, true);
+    lexer->mark_end(lexer);
+    lexer->result_symbol = BREAK_TERMINATOR_SPACE;
+    return true;
+  }
+
+  if (
+    valid_symbols[EXTENSION_MEMBER_TERMINATOR] &&
+    (lexer->lookahead == '\n' || lexer->lookahead == '\r')
+  ) {
+    lexer->advance(lexer, true);
+    lexer->mark_end(lexer);
+    lexer->result_symbol = EXTENSION_MEMBER_TERMINATOR;
+    return true;
+  }
+
+  if (
     !valid_symbols[APPLICATION_SPACE] &&
-    !valid_symbols[TYPE_APPLICATION_SPACE]
+    !valid_symbols[TYPE_APPLICATION_SPACE] &&
+    !valid_symbols[BREAK_VALUE_SPACE] &&
+    !valid_symbols[BREAK_TERMINATOR_SPACE] &&
+    !valid_symbols[EXTENSION_MEMBER_TERMINATOR]
   ) {
     return false;
   }
@@ -124,6 +148,25 @@ bool tree_sitter_duck_external_scanner_scan(
   lexer->mark_end(lexer);
 
   if (
+    valid_symbols[BREAK_TERMINATOR_SPACE] &&
+    (lexer->lookahead == 0 || lexer->lookahead == '\n' ||
+      lexer->lookahead == '\r' || lexer->lookahead == ';' ||
+      lexer->lookahead == '}')
+  ) {
+    lexer->result_symbol = BREAK_TERMINATOR_SPACE;
+    return true;
+  }
+
+  if (
+    valid_symbols[BREAK_VALUE_SPACE] && lexer->lookahead != 0 &&
+    lexer->lookahead != '\n' && lexer->lookahead != '\r' &&
+    lexer->lookahead != ';' && lexer->lookahead != '}'
+  ) {
+    lexer->result_symbol = BREAK_VALUE_SPACE;
+    return true;
+  }
+
+  if (
     valid_symbols[TYPE_APPLICATION_SPACE] &&
     starts_type_argument(lexer->lookahead)
   ) {
@@ -137,6 +180,17 @@ bool tree_sitter_duck_external_scanner_scan(
 
   if (!starts_application_argument(lexer->lookahead)) {
     return false;
+  }
+
+  if (lexer->lookahead == '!') {
+    lexer->advance(lexer, false);
+    if (
+      !((lexer->lookahead >= 'A' && lexer->lookahead <= 'Z') ||
+        (lexer->lookahead >= 'a' && lexer->lookahead <= 'z') ||
+        lexer->lookahead == '_')
+    ) {
+      return false;
+    }
   }
 
   if (

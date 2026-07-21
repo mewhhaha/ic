@@ -12,6 +12,11 @@ annotated operation rows, effectful `<-` binding, and swappable runners.
   runners. The CLI selects a runner before calling `main(runner)`.
 - `../handlers/01_local_counter.duck` implements a deep, stateful `Counter`
   effect entirely inside Duck and installs it with `try ... with ...`.
+- `../handlers/02_inferred_option_do.duck` imports the `Do` defaults and lets
+  `try calculate()` select Option's exact affine interpretation.
+- `../handlers/03_composed_default_handlers.duck` defines two source default
+  handlers. The lower-order handler runs inside the higher-order handler, so
+  their return transformations produce `(10 + 10) * 2 + 2 = 42`.
 - `multi_file/` separates a host interface, an effect-using module, and an entry
   module. `host.duck` is supplied as the compiler's host interface; it is not an
   authority-bearing runtime import.

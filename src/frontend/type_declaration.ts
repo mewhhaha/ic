@@ -15,7 +15,7 @@ import {
   sem_type_from_expr,
   type SemType,
 } from "./semantic_type.ts";
-import { parse_type_expr } from "./type_expr.ts";
+import { format_type_expr, parse_type_expr } from "./type_expr.ts";
 import { tokenize } from "./tokenize.ts";
 import {
   integer_type_from_name,
@@ -51,13 +51,6 @@ function type_declaration_binding(
   effects: Map<string, EffectDeclaration>,
   type_declarations: Map<string, TypeDeclaration>,
 ): Stmt {
-  if (declaration.recursive) {
-    throw new Error(
-      "Recursive algebraic type declarations are not supported yet: " +
-        declaration.name,
-    );
-  }
-
   let fields: TypeField[] = [];
 
   if (
@@ -70,8 +63,8 @@ function type_declaration_binding(
 
   for (const field of fields) {
     expect(
-      /^[A-Za-z_][A-Za-z0-9_]*$/.test(field.type_name),
-      "Nested and applied row member types are not supported yet: " +
+      parse_type_expr(tokenize(field.type_name)).tag !== "product",
+      "Anonymous product row members are not supported yet: " +
         field.type_name,
     );
   }
@@ -94,15 +87,81 @@ function type_declaration_binding(
       semantic,
     );
   } else if (declaration.body.tag === "product") {
-    if (declaration.body.initializer !== undefined) {
+    const product = declaration.body;
+
+    if (product.initializer !== undefined) {
+      let initializer = product.initializer;
+
+      if (
+        initializer.tag === "app" && initializer.arg?.tag === "shape" &&
+        initializer.args.length === 1
+      ) {
+        const shape: Extract<FrontExpr, { tag: "shape" }> = {
+          ...initializer.arg,
+          entries: initializer.arg.entries.map((entry) => {
+            const field = product.fields.find((candidate) => {
+              return candidate.name === entry.label;
+            });
+
+            if (field === undefined) {
+              return entry;
+            }
+
+            let storage_type_name = field.type_name;
+            const nominal_type_name = nominal_product_type_name(
+              storage_type_name,
+              type_declarations,
+              declaration.name,
+            );
+
+            if (nominal_type_name !== undefined) {
+              storage_type_name = nominal_type_name;
+            }
+
+            if (effects.has(storage_type_name)) {
+              storage_type_name = "I32";
+            } else {
+              const resolving = new Set<string>();
+
+              while (!resolving.has(storage_type_name)) {
+                resolving.add(storage_type_name);
+                const alias = type_declarations.get(storage_type_name);
+
+                if (
+                  alias === undefined || alias.params.length !== 0 ||
+                  alias.body.tag !== "alias" || alias.body.opaque === true ||
+                  !/^[A-Za-z_][A-Za-z0-9_]*$/.test(alias.body.type_name)
+                ) {
+                  break;
+                }
+
+                storage_type_name = alias.body.type_name;
+              }
+            }
+
+            return {
+              ...entry,
+              value: {
+                tag: "set_type" as const,
+                type_expr: {
+                  tag: "name" as const,
+                  name: storage_type_name,
+                },
+              },
+            };
+          }),
+        };
+        initializer = { ...initializer, arg: shape, args: [shape] };
+      }
+
       value = {
         tag: "comptime",
-        expr: declaration.body.initializer,
+        expr: initializer,
       };
     } else {
       value = {
         tag: "struct_type",
-        fields: declaration.body.fields.map((field) => {
+        fields: product.fields.map((field) => {
           if (effects.has(field.type_name)) {
             return { name: field.name, type_name: "I32" };
           }
@@ -220,6 +279,43 @@ function type_declaration_binding(
     annotation: undefined,
     value,
   };
+}
+
+function nominal_product_type_name(
+  type_name: string,
+  declarations: Map<string, TypeDeclaration>,
+  excluded_name: string,
+): string | undefined {
+  const type = parse_type_expr(tokenize(type_name));
+
+  if (type.tag !== "product") {
+    return undefined;
+  }
+
+  const expected = format_type_expr(type);
+
+  for (const [name, declaration] of declarations) {
+    if (
+      name === excluded_name || declaration.params.length !== 0 ||
+      declaration.body.tag !== "product"
+    ) {
+      continue;
+    }
+
+    const candidate: TypeExpr = {
+      tag: "product",
+      entries: declaration.body.fields.map((field) => ({
+        label: field.name,
+        type_expr: parse_type_expr(tokenize(field.type_name)),
+      })),
+    };
+
+    if (format_type_expr(candidate) === expected) {
+      return name;
+    }
+  }
+
+  return undefined;
 }
 
 function packed_type_value(declaration: TypeDeclaration): FrontExpr {
@@ -490,6 +586,7 @@ function type_expr_uses_set_surface(type: TypeExpr): boolean {
       return type_expr_uses_set_surface(type.body);
 
     case "atom":
+    case "literal":
     case "top":
     case "never":
     case "frozen":
@@ -617,7 +714,9 @@ export function front_type_value_for_semantic_type(
     return { tag: "var", name: type.name };
   }
 
-  if (type.tag === "atom" || type.tag === "never") {
+  if (
+    type.tag === "atom" || type.tag === "literal" || type.tag === "never"
+  ) {
     return { tag: "set_type", type_expr: source };
   }
 
@@ -630,7 +729,7 @@ export function front_type_value_for_semantic_type(
   return {
     tag: "union_type",
     cases: members.map((member, index) => ({
-      name: "set_" + index.toString(),
+      name: "Set" + index.toString(),
       type_name: runtime_type_name(member, declaration_name),
       set_member: type_expr_for_semantic_type(member),
     })),
@@ -651,9 +750,36 @@ function runtime_type_name(type: SemType, declaration_name: string): string {
     case "atom":
       return "I32";
 
+    case "literal":
+      if (type.value.tag === "bool") {
+        return "Bool";
+      }
+
+      if (type.value.tag === "text") {
+        return "Text";
+      }
+
+      if (type.value.character !== undefined) {
+        return "Char";
+      }
+
+      if (type.value.integer !== undefined) {
+        return (type.value.integer.signed ? "I" : "U") +
+          type.value.integer.width.toString();
+      }
+
+      if (type.value.type === "i64") {
+        return "I64";
+      }
+
+      return "I32";
+
     case "named":
     case "variant":
       return type.name;
+
+    case "apply":
+      return format_type_expr(type_expr_for_semantic_type(type));
 
     case "record":
       if (type.name) {
@@ -674,7 +800,6 @@ function runtime_type_name(type: SemType, declaration_name: string): string {
 
     case "top":
     case "never":
-    case "apply":
     case "tuple":
     case "product":
     case "array":
@@ -711,6 +836,9 @@ function type_expr_for_semantic_type(type: SemType): TypeExpr {
 
     case "atom":
       return { tag: "atom", name: type.name };
+
+    case "literal":
+      return { tag: "literal", value: type.value };
 
     case "frozen":
       return { tag: "frozen", value: type_expr_for_semantic_type(type.value) };
@@ -834,6 +962,8 @@ function ordered_type_declarations(
     }
   }
 
+  validate_recursive_type_graph(types);
+
   const state = new Map<string, "visiting" | "done">();
   const stack: string[] = [];
   const result: TypeDeclaration[] = [];
@@ -846,21 +976,7 @@ function ordered_type_declarations(
     }
 
     if (current === "visiting") {
-      const start = stack.indexOf(declaration.name);
-      expect(start >= 0, "Missing recursive type stack entry");
-      const cycle = stack.slice(start);
-      cycle.push(declaration.name);
-      throw new Error(
-        "Recursive algebraic type declarations are not supported yet: " +
-          cycle.join(" -> "),
-      );
-    }
-
-    if (declaration.recursive) {
-      throw new Error(
-        "Recursive algebraic type declarations are not supported yet: " +
-          declaration.name,
-      );
+      return;
     }
 
     state.set(declaration.name, "visiting");
@@ -885,6 +1001,58 @@ function ordered_type_declarations(
   }
 
   return result;
+}
+
+function validate_recursive_type_graph(
+  types: Map<string, TypeDeclaration>,
+): void {
+  const state = new Map<string, "visiting" | "done">();
+  const stack: string[] = [];
+
+  function visit(declaration: TypeDeclaration): void {
+    const current = state.get(declaration.name);
+
+    if (current === "done") {
+      return;
+    }
+
+    if (current === "visiting") {
+      const start = stack.indexOf(declaration.name);
+      expect(start >= 0, "Missing inline recursive type stack entry");
+      const cycle = stack.slice(start);
+      cycle.push(declaration.name);
+      throw new Error(
+        "Recursive type requires an indirect sum edge: " + cycle.join(" -> "),
+      );
+    }
+
+    state.set(declaration.name, "visiting");
+    stack.push(declaration.name);
+
+    for (const name of type_declaration_references(declaration)) {
+      const referenced = types.get(name);
+
+      if (!referenced) {
+        continue;
+      }
+
+      if (
+        declaration.body.tag === "sum" || referenced.body.tag === "sum"
+      ) {
+        continue;
+      }
+
+      visit(referenced);
+    }
+
+    const popped = stack.pop();
+    expect(popped === declaration.name, "Mismatched inline type stack");
+    state.set(declaration.name, "done");
+  }
+
+  for (const declaration of types.values()) {
+    visit(declaration);
+  }
 }
 
 function type_declaration_references(

@@ -33,7 +33,12 @@ type IntegerPrimOp =
   | "load8_u"
   | "trap";
 
-type I32PrimOp = IntegerPrimOp | "trunc_f32_s" | "wrap_i64" | "reinterpret_f32";
+type I32PrimOp =
+  | IntegerPrimOp
+  | "trunc_f32_s"
+  | "trunc_f64_s"
+  | "wrap_i64"
+  | "reinterpret_f32";
 
 type I64PrimOp = IntegerPrimOp | "extend_i32_s" | "extend_i32_u";
 
@@ -96,6 +101,8 @@ export type NumericBuiltinName =
   | "@f32_sqrt"
   | "@f32_from_i32"
   | "@i32_from_f32"
+  | "@f64_from_i32"
+  | "@i32_from_f64"
   | "@unsafe_i32_wrap_i64"
   | "@unsafe_i64_extend_i32_signed"
   | "@unsafe_i64_extend_i32_unsigned"
@@ -137,6 +144,10 @@ export function numeric_builtin_prim(name: string): Prim | undefined {
       return "f32.convert_i32_s";
     case "@i32_from_f32":
       return "i32.trunc_f32_s";
+    case "@f64_from_i32":
+      return "f64.convert_i32_s";
+    case "@i32_from_f64":
+      return "i32.trunc_f64_s";
     case "@unsafe_i32_wrap_i64":
       return "i32.wrap_i64";
     case "@unsafe_i64_extend_i32_signed":
@@ -284,6 +295,10 @@ export function numeric_builtin_name(
       return "@f32_from_i32";
     case "i32.trunc_f32_s":
       return "@i32_from_f32";
+    case "f64.convert_i32_s":
+      return "@f64_from_i32";
+    case "i32.trunc_f64_s":
+      return "@i32_from_f64";
     case "i32.wrap_i64":
       return "@unsafe_i32_wrap_i64";
     case "i64.extend_i32_s":
@@ -526,6 +541,7 @@ function binary_numeric_op(prim: Prim): NumericOp | undefined {
     case "f32.convert_i32_s":
     case "f64.convert_i32_s":
     case "i32.trunc_f32_s":
+    case "i32.trunc_f64_s":
     case "i32.wrap_i64":
     case "i64.extend_i32_s":
     case "i64.extend_i32_u":
@@ -694,6 +710,7 @@ Prim.fmt = function fmt(prim: Prim): string {
     case "f32.convert_i32_s":
     case "f64.convert_i32_s":
     case "i32.trunc_f32_s":
+    case "i32.trunc_f64_s":
     case "i32.wrap_i64":
     case "i64.extend_i32_s":
     case "i64.extend_i32_u":
@@ -751,6 +768,8 @@ Prim.type = function type(prim: Prim): CallableType<ValType> {
       return { args: [], result: "i32" };
     case "i32.trunc_f32_s":
       return { args: ["f32"], result: "i32" };
+    case "i32.trunc_f64_s":
+      return { args: ["f64"], result: "i32" };
     case "i32.wrap_i64":
       return { args: ["i64"], result: "i32" };
     case "i32.reinterpret_f32":

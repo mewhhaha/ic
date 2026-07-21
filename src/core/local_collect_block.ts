@@ -17,6 +17,7 @@ export function collect_block_expr_locals(
     text_locals: new Set(ctx.text_locals),
     struct_locals: new Map(ctx.struct_locals),
     union_locals: new Map(ctx.union_locals),
+    borrowed_locals: clone_optional_set(ctx.borrowed_locals),
     frozen_locals: clone_optional_set(ctx.frozen_locals),
     host_imports: clone_core_host_imports(ctx.host_imports),
     scratch_depth: ctx.scratch_depth,

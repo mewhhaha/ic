@@ -160,6 +160,10 @@ export function validate_atom_identities(source: Source): void {
       for (const entry of pattern.entries) {
         visit_pattern(entry.pattern);
       }
+
+      if (pattern.rest !== undefined) {
+        visit_pattern(pattern.rest);
+      }
       return;
     }
 

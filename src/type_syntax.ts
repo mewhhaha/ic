@@ -1,3 +1,6 @@
+import type { IntegerType } from "./integer.ts";
+import type { NumType } from "./op.ts";
+
 export type ResumeSignature = {
   input_type: string;
   output_type: string;
@@ -16,6 +19,7 @@ export type TypeExpr =
   | { tag: "name"; name: string }
   | { tag: "forall"; params: string[]; body: TypeExpr }
   | { tag: "atom"; name: string }
+  | { tag: "literal"; value: TypeLiteral }
   | { tag: "top" }
   | { tag: "never" }
   | { tag: "frozen"; value: TypeExpr }
@@ -38,6 +42,17 @@ export type TypeExpr =
     effects: EffectRowExpr | undefined;
     result: TypeExpr;
   };
+
+export type TypeLiteral =
+  | { tag: "bool"; value: boolean }
+  | {
+    tag: "num";
+    type: NumType;
+    value: number | bigint;
+    character?: string;
+    integer?: IntegerType;
+  }
+  | { tag: "text"; value: string };
 
 export type TypeProductEntry = {
   label?: string;

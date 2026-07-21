@@ -1,7 +1,7 @@
 module (!init: Init) where
 
-const { length } = comptime import "duck:prelude/runtime" ()
-const { struct } = comptime import "duck:prelude" ()
+const { length } = import "duck:prelude/runtime" ()
+const { struct } = import "duck:prelude" ()
 
 declare effect Input {
   flag: () => Bool
@@ -9,18 +9,18 @@ declare effect Input {
 
 declare Init { input: Input }
 
-type Result error value = | .ok = value | .err = error
+type Result error value = | `Ok value | `Err error
 type User = struct { .name = Text, .score = Int }
 type UserResult = Result Text User
 
 flag <- Input.flag()
 let outcome: UserResult = if flag {
-  UserResult.ok ["Ada", 42]
+  `Ok [.name = "Ada", .score = 42]
 } else {
-  UserResult.err("missing")
+  `Err ("missing")
 }
 
-let result: I32 = if let .ok(user) = outcome {
+let result: I32 = if let `Ok user = outcome {
   user.score
 } else {
   length("missing") * 6

@@ -1,11 +1,11 @@
-type Result = | .ok = Int | .err = Text
+type Result = | `Ok Int | `Err Text
 
 let unwrap = (result: Result) => {
-  if let .ok(value) = result {
+  if let `Ok value = result {
     value
   } else {
     0
   }
 }
 
-unwrap(Result.ok(42))
+unwrap(`Ok (42))

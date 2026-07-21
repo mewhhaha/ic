@@ -11,6 +11,7 @@ export type StaticCoreCallCtx = {
   text_locals: Set<string>;
   struct_locals: Map<string, CoreExpr>;
   union_locals: Map<string, CoreExpr>;
+  borrowed_locals?: Set<string>;
   materialized_bindings?: Set<string>;
 };
 

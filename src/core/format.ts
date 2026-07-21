@@ -91,10 +91,12 @@ function format_stmt(stmt: CoreStmt, depth: number): string {
     }
 
     case "if_let_stmt": {
-      let head = "if let ." + stmt.case_name;
+      let head = "if let `" + stmt.case_name;
 
       if (stmt.value_name) {
-        head += "(" + stmt.value_name + ")";
+        head += " " + stmt.value_name;
+      } else {
+        head += " ()";
       }
 
       const body = stmt.body.map((item) => format_stmt(item, depth + 1)).join(
@@ -207,10 +209,12 @@ function format_expr(expr: CoreExpr): string {
         format_expr(expr.else_branch) + " }";
 
     case "if_let": {
-      let head = "if let ." + expr.case_name;
+      let head = "if let `" + expr.case_name;
 
       if (expr.value_name) {
-        head += "(" + expr.value_name + ")";
+        head += " " + expr.value_name;
+      } else {
+        head += " ()";
       }
 
       return head + " = " + format_expr(expr.target) + " { " +
@@ -228,10 +232,12 @@ function format_expr(expr: CoreExpr): string {
       let value = "";
 
       if (expr.value) {
-        value = "(" + format_expr(expr.value) + ")";
+        value = " " + format_expr(expr.value);
+      } else {
+        value = " ()";
       }
 
-      return "." + expr.name + value;
+      return "`" + expr.name + value;
     }
 
     case "unsupported":

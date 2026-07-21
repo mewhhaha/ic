@@ -226,7 +226,7 @@ function create_walk_effect(backend: WalkBackend): DisposableEffect {
           );
         }
 
-        return { tag: "ok" };
+        return { tag: "Ok" };
       } catch (error) {
         reset();
         return error_result(path, error);
@@ -270,7 +270,7 @@ function create_walk_effect(backend: WalkBackend): DisposableEffect {
         if (frame.state === "leave") {
           frames.pop();
           return {
-            tag: "leave",
+            tag: "Leave",
             value: walk_entry(
               frame.path,
               frame.name,
@@ -328,7 +328,7 @@ function create_walk_effect(backend: WalkBackend): DisposableEffect {
       }
 
       active = false;
-      return { tag: "done" };
+      return { tag: "Done" };
     },
     prune(): undefined {
       const frame = frames[frames.length - 1];
@@ -378,10 +378,14 @@ function entry_event(
   depth: number,
   size: bigint,
 ): DuckValue {
-  let tag: string = kind;
+  let tag = "Other";
 
   if (kind === "directory") {
-    tag = "enter";
+    tag = "Enter";
+  } else if (kind === "file") {
+    tag = "File";
+  } else if (kind === "symlink") {
+    tag = "Symlink";
   }
 
   return { tag, value: walk_entry(path, name, depth, size) };
@@ -516,7 +520,7 @@ function create_live_file_reader(): DisposableEffect {
       try {
         file = Deno.openSync(requested, { read: true });
         path = requested;
-        return { tag: "ok" };
+        return { tag: "Ok" };
       } catch (error) {
         return error_result(requested, error);
       }
@@ -541,10 +545,10 @@ function create_live_file_reader(): DisposableEffect {
         }
 
         if (count === null) {
-          return { tag: "eof" };
+          return { tag: "Eof" };
         }
 
-        return { tag: "chunk", value: buffer.slice(0, count) };
+        return { tag: "Chunk", value: buffer.slice(0, count) };
       } catch (error) {
         return error_result(path, error);
       }
@@ -595,7 +599,7 @@ function create_mock_file_reader(
       bytes = found;
       offset = 0;
       path = requested;
-      return { tag: "ok" };
+      return { tag: "Ok" };
     },
     read(max_value: DuckValue): DuckValue {
       const max = expect_positive_size(max_value, "FileReader.read max_bytes");
@@ -609,13 +613,13 @@ function create_mock_file_reader(
       }
 
       if (offset >= bytes.byteLength) {
-        return { tag: "eof" };
+        return { tag: "Eof" };
       }
 
       const end = Math.min(offset + max, bytes.byteLength);
       const chunk = bytes.slice(offset, end);
       offset = end;
-      return { tag: "chunk", value: chunk };
+      return { tag: "Chunk", value: chunk };
     },
     close(): undefined {
       close();
@@ -640,10 +644,10 @@ function create_live_stdin(): DuckEffectObject {
         }
 
         if (count === null) {
-          return { tag: "eof" };
+          return { tag: "Eof" };
         }
 
-        return { tag: "chunk", value: buffer.slice(0, count) };
+        return { tag: "Chunk", value: buffer.slice(0, count) };
       } catch (error) {
         return error_result("<stdin>", error);
       }
@@ -666,13 +670,13 @@ function create_memory_input(input: Uint8Array): DuckEffectObject {
       const max = expect_positive_size(max_value, "Stdin.read max_bytes");
 
       if (offset >= input.byteLength) {
-        return { tag: "eof" };
+        return { tag: "Eof" };
       }
 
       const end = Math.min(offset + max, input.byteLength);
       const chunk = input.slice(offset, end);
       offset = end;
-      return { tag: "chunk", value: chunk };
+      return { tag: "Chunk", value: chunk };
     },
     is_terminal(): number {
       return 0;
@@ -707,10 +711,10 @@ function create_live_output(stream: "stdout" | "stderr"): DuckEffectObject {
           offset += count;
         }
 
-        return { tag: "ok" };
+        return { tag: "Ok" };
       } catch (error) {
         if (error instanceof Deno.errors.BrokenPipe) {
-          return { tag: "closed" };
+          return { tag: "Closed" };
         }
 
         return error_result("<" + stream + ">", error);
@@ -734,7 +738,7 @@ function create_memory_output(output: Uint8Array[]): DuckEffectObject {
   return {
     write(value: DuckValue): DuckValue {
       output.push(expect_bytes(value, "mock output bytes").slice());
-      return { tag: "ok" };
+      return { tag: "Ok" };
     },
     is_terminal(): number {
       return 0;
@@ -747,7 +751,7 @@ function error_result(
   error: unknown,
   code?: number,
 ): DuckValue {
-  return { tag: "err", value: io_error(path, error, code) };
+  return { tag: "Err", value: io_error(path, error, code) };
 }
 
 function io_error(path: string, error: unknown, code?: number): DuckValue {

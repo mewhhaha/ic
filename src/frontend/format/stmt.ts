@@ -1,10 +1,28 @@
 import type { FrontExpr, Stmt } from "../ast.ts";
+import { expect } from "../../expect.ts";
 import { format_binding_name, is_no_demand_name } from "../names.ts";
 import { format_type_expr } from "../type_expr.ts";
-import { format_pattern, format_type_pattern } from "./common.ts";
+import {
+  format_attribute_groups,
+  format_pattern,
+  format_type_pattern,
+} from "./common.ts";
 import { format_host_import } from "./host_import.ts";
 
 export function format_stmt_with_expr(
+  stmt: Stmt,
+  format_expr: (expr: FrontExpr) => string,
+): string {
+  let attributes = "";
+
+  if (stmt.tag === "bind") {
+    attributes = format_attribute_groups(stmt.attribute_groups, format_expr);
+  }
+
+  return attributes + format_stmt_without_attributes(stmt, format_expr);
+}
+
+function format_stmt_without_attributes(
   stmt: Stmt,
   format_expr: (expr: FrontExpr) => string,
 ): string {
@@ -25,6 +43,10 @@ export function format_stmt_with_expr(
 
     if (stmt.is_recursive) {
       text += "rec ";
+    }
+
+    if (stmt.opens_import === true) {
+      text += "open ";
     }
 
     if (stmt.pattern) {
@@ -134,10 +156,33 @@ export function format_stmt_with_expr(
       head += format_binding_name(stmt.index) + ", ";
     }
 
-    head += format_binding_name(stmt.item) + " in " +
+    if (stmt.pattern !== undefined) {
+      head += format_pattern(stmt.pattern);
+    } else {
+      head += format_binding_name(stmt.item);
+    }
+
+    head += " in " +
       format_expr(stmt.collection) + " ";
+    let body = stmt.body;
+
+    if (stmt.pattern !== undefined) {
+      const wrapper = stmt.body[0];
+      expect(
+        stmt.body.length === 1 && wrapper?.tag === "expr" &&
+          wrapper.expr.tag === "match",
+        "Pattern collection loop is missing its match wrapper",
+      );
+      const matching = wrapper.expr.arms[0];
+      expect(
+        matching !== undefined && matching.body.tag === "block",
+        "Pattern collection loop is missing its matching body",
+      );
+      body = matching.body.statements.slice(0, -1);
+    }
+
     return head + "{ " +
-      stmt.body.map((item) => format_stmt_with_expr(item, format_expr)).join(
+      body.map((item) => format_stmt_with_expr(item, format_expr)).join(
         "; ",
       ) + " }";
   }
@@ -150,10 +195,12 @@ export function format_stmt_with_expr(
   }
 
   if (stmt.tag === "if_let_stmt") {
-    let pattern = "." + stmt.case_name;
+    let pattern = "`" + stmt.case_name;
 
     if (stmt.value_name) {
-      pattern += "(" + format_binding_name(stmt.value_name) + ")";
+      pattern += " " + format_binding_name(stmt.value_name);
+    } else {
+      pattern += " _";
     }
 
     return "if let " + pattern + " = " + format_expr(stmt.target) + " { " +

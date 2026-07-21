@@ -103,6 +103,18 @@ Deno.test("inlay type hints identify boolean values", () => {
   }]);
 });
 
+Deno.test("inlay type hints identify character values", () => {
+  const text = "let letter = 'c'\n";
+
+  assert_equals(dump(hints(text, category_config("types"))), [{
+    line: 0,
+    character: 10,
+    label: ": Char",
+    kind: 1,
+    category: "types",
+  }]);
+});
+
 Deno.test("inlay effect hints snapshot inferred row and result", () => {
   const text = "declare effect Io { read: () => Text }\n" +
     "let greet = () => {\n" +

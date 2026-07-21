@@ -2,12 +2,14 @@ import { format_text } from "../fmt/format.ts";
 import { run_lsp } from "../lsp/server.ts";
 import { Source, type SourceDiagnostic } from "../frontend.ts";
 import { run_build, run_source } from "./compile.ts";
+import { run_tests } from "./test.ts";
 
 const usage = `Usage: duck <command>
 
 Commands:
   build <file> [options]    Compile a .duck file; defaults to Core Wasm
   run <file> [options]      Compile and run a .duck file
+  test <file>               Compile and run @[test] functions
   fmt [paths...] [--check]  Format .duck files in place; --check only reports
   fmt --stdin               Format source from stdin to stdout
   check <paths...>          Analyze .duck files and report diagnostics
@@ -46,6 +48,10 @@ async function dispatch_command(
 
   if (command === "run") {
     return await run_source(args);
+  }
+
+  if (command === "test") {
+    return await run_tests(args);
   }
 
   if (command === "fmt") {

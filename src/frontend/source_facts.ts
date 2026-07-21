@@ -32,6 +32,11 @@ import {
   const_i32_value,
   expanded_type_product_entries,
 } from "./fixed_array_type.ts";
+import { compiler_intrinsic_for_operator_target } from "./fixity.ts";
+import {
+  infer_effect_operation_type_arguments,
+  substitute_effect_type,
+} from "./effect_operation.ts";
 import { tokenize } from "./tokenize.ts";
 import { f32x4_builtin_prim, numeric_builtin_prim } from "../op.ts";
 import { diagnostic_codes, type DiagnosticCode } from "../diagnostic.ts";
@@ -167,6 +172,7 @@ function source_constructor_array_length(
 ): ArrayLengthExpr | undefined {
   if (
     value.tag === "num" && value.type === "i32" &&
+    value.character === undefined &&
     typeof value.value === "number" && Number.isSafeInteger(value.value) &&
     value.value >= 0
   ) {
@@ -218,6 +224,7 @@ export type SourceFacts = {
   nominal_of: WeakMap<object, string>;
   const_source_of: WeakMap<object, object>;
   editor_type_of: WeakMap<object, SourceTypeFact>;
+  expected_type_of: WeakMap<object, SourceTypeFact>;
   definition_type_of: WeakMap<object, Map<string, SourceTypeFact>>;
   inference_diagnostics: SourceDiagnostic[];
   expressions: FrontExpr[];
@@ -258,6 +265,7 @@ export function source_inference_diagnostics(
   const diagnostics = [...facts.inference_diagnostics];
   const known_names = new Set<string>([
     "Bool",
+    "Char",
     "Unit",
     "Int",
     "I32",
@@ -280,12 +288,14 @@ export function source_inference_diagnostics(
     "@f32_sqrt",
     "@f32_from_i32",
     "@i32_from_f32",
+    "@f64_from_i32",
+    "@i32_from_f64",
     "@unsafe_i32_wrap_i64",
     "@unsafe_i64_extend_i32_signed",
     "@unsafe_i64_extend_i32_unsigned",
     "@unsafe_i32_reinterpret_f32",
     "@unsafe_f32_reinterpret_i32",
-    "@as",
+    "@cast",
     "@f32x4",
     "@f32x4_splat",
     "@f32x4_add",
@@ -435,7 +445,8 @@ function collect_unresolved_annotation_names(
   }
 
   if (
-    annotation.tag === "atom" || annotation.tag === "top" ||
+    annotation.tag === "atom" || annotation.tag === "literal" ||
+    annotation.tag === "top" ||
     annotation.tag === "never"
   ) {
     return;
@@ -548,6 +559,10 @@ function runtime_prelude_intrinsic(name: string): string | undefined {
       return "@f32_from_i32";
     case "i32_from_f32":
       return "@i32_from_f32";
+    case "f64_from_i32":
+      return "@f64_from_i32";
+    case "i32_from_f64":
+      return "@i32_from_f64";
     case "format_i32":
       return "@format_i32";
     case "format_i64":
@@ -583,6 +598,7 @@ class SourceFactRecorder {
     nominal_of: new WeakMap(),
     const_source_of: new WeakMap(),
     editor_type_of: new WeakMap(),
+    expected_type_of: new WeakMap(),
     definition_type_of: new WeakMap(),
     inference_diagnostics: [],
     expressions: [],
@@ -611,6 +627,7 @@ class SourceFactRecorder {
   readonly closure_calls: ClosureCallContext[] = [];
   readonly builtin_aliases = new Map<string, string>();
   readonly const_values = new Map<string, FrontExpr>();
+  readonly deferred_cast_type_targets = new WeakSet<object>();
   replaying_closure = false;
 
   constructor(readonly source: Source) {
@@ -857,12 +874,16 @@ class SourceFactRecorder {
     statements: Stmt[],
     scope: Scope,
     break_types: (SourceTypeFact | undefined)[] | undefined,
+    expected?: SourceTypeFact,
   ): SourceTypeFact | undefined {
     let result: SourceTypeFact | undefined = unit_type();
     let returned = false;
     let unreachable_scope: Scope | undefined;
 
-    for (const statement of statements) {
+    for (let index = 0; index < statements.length; index += 1) {
+      const statement = statements[index];
+      expect(statement, "Missing source statement " + index.toString());
+
       if (returned) {
         if (unreachable_scope === undefined) {
           unreachable_scope = new Map(scope);
@@ -879,7 +900,18 @@ class SourceFactRecorder {
         continue;
       }
 
-      result = this.record_statement(statement, scope, break_types);
+      let statement_expected: SourceTypeFact | undefined;
+
+      if (index === statements.length - 1) {
+        statement_expected = expected;
+      }
+
+      result = this.record_statement(
+        statement,
+        scope,
+        break_types,
+        statement_expected,
+      );
 
       if (statement_returns(statement)) {
         returned = true;
@@ -893,6 +925,7 @@ class SourceFactRecorder {
     statement: Stmt,
     scope: Scope,
     break_types: (SourceTypeFact | undefined)[] | undefined,
+    expected?: SourceTypeFact,
   ): SourceTypeFact | undefined {
     if (statement.tag === "bind" && statement.mutual !== undefined) {
       const group = [
@@ -1144,14 +1177,14 @@ class SourceFactRecorder {
     }
 
     if (statement.tag === "expr") {
-      return this.record_expr(statement.expr, scope, undefined, break_types);
+      return this.record_expr(statement.expr, scope, expected, break_types);
     }
 
     if (statement.tag === "return") {
       const type = this.record_expr(
         statement.value,
         scope,
-        undefined,
+        expected,
         break_types,
       );
       const return_types = this.return_type_stack.at(-1);
@@ -1308,12 +1341,19 @@ class SourceFactRecorder {
     break_types: (SourceTypeFact | undefined)[] | undefined,
   ): SourceTypeFact | undefined {
     this.record_expression(expr);
+
+    if (expected !== undefined) {
+      this.facts.expected_type_of.set(expr, expected);
+    }
+
     let type: SourceTypeFact | undefined;
 
     if (expr.tag === "bool") {
       type = named_type("Bool");
     } else if (expr.tag === "num") {
-      if (expr.integer) {
+      if (expr.character !== undefined) {
+        type = named_type("Char");
+      } else if (expr.integer) {
         let value: bigint;
 
         if (typeof expr.value === "bigint") {
@@ -1440,14 +1480,23 @@ class SourceFactRecorder {
         this.closure_calls.push(context);
       }
     } else if (expr.tag === "app") {
+      let cast_name: string | undefined;
+
       if (
         expr.func.tag === "var" &&
-        (expr.func.name === "@as" || expr.func.name === "@seal" ||
+        (expr.func.name === "@cast" || expr.func.name === "@seal" ||
           expr.func.name === "@representation" ||
           expr.func.name === "@integer.wrap") &&
         !scope.has(expr.func.name)
       ) {
-        const cast_name = expr.func.name;
+        cast_name = expr.func.name;
+      } else if (expr.operator_syntax?.target === "seal") {
+        cast_name = "@seal";
+      } else if (expr.operator_syntax?.target === "representation") {
+        cast_name = "@representation";
+      }
+
+      if (cast_name !== undefined) {
         const args = compiler_builtin_args(expr);
         this.record_expr(expr.func, scope, undefined, break_types);
 
@@ -1461,8 +1510,8 @@ class SourceFactRecorder {
         } else {
           const value = args[0];
           const target = args[1];
-          expect(value, "Missing @as value argument");
-          expect(target, "Missing @as target argument");
+          expect(value, "Missing @cast value argument");
+          expect(target, "Missing @cast target argument");
           const value_type = this.record_expr(
             value,
             scope,
@@ -1481,11 +1530,14 @@ class SourceFactRecorder {
           if (
             target_type === undefined || target_type.resolved_name === "unknown"
           ) {
-            this.facts.inference_diagnostics.push(source_diagnostic(
-              diagnostic_codes.unresolved_call_type,
-              cast_name + " target must be a statically known type value",
-              target,
-            ));
+            if (!this.deferred_cast_type_targets.has(target)) {
+              this.facts.inference_diagnostics.push(source_diagnostic(
+                diagnostic_codes.unresolved_call_type,
+                cast_name + " target must be a statically known type value",
+                target,
+              ));
+            }
+
             type = named_type("unknown");
           } else if (
             cast_name === "@integer.wrap" &&
@@ -1607,10 +1659,6 @@ class SourceFactRecorder {
           if (index === 1) {
             expected_arg = named_type("Shape");
           }
-        } else if (builtin === "@type.member") {
-          if (index === 1) {
-            expected_arg = named_type("Text");
-          }
         } else if (
           builtin === "@type.union" || builtin === "@type.intersection" ||
           builtin === "@type.difference"
@@ -1641,6 +1689,54 @@ class SourceFactRecorder {
 
       if (builtin !== undefined) {
         type = builtin_call_result(builtin, args);
+      } else if (
+        expr.func.tag === "field" && expr.func.object.tag === "var"
+      ) {
+        const effect_name = expr.func.object.name;
+        const operation_name = expr.func.name;
+        const declaration = this.declarations.get(effect_name);
+        const operation = declaration?.tag === "effect"
+          ? declaration.operations.find((candidate) =>
+            candidate.name === operation_name
+          )
+          : undefined;
+
+        if (declaration?.tag === "effect" && operation !== undefined) {
+          const bindings = infer_effect_operation_type_arguments(
+            declaration,
+            operation,
+            args,
+            expected,
+          );
+          const result_name = substitute_effect_type(
+            operation.result.type_name,
+            bindings,
+          );
+
+          expr.effect_type_arguments = operation.type_params.flatMap(
+            (param) => {
+              const type_name = bindings.get(param);
+
+              if (type_name === undefined) {
+                return [];
+              }
+
+              return [{ name: param, type_name }];
+            },
+          );
+
+          const unresolved_result = operation.type_params.some((param) => {
+            return new RegExp("\\b" + param + "\\b").test(result_name);
+          });
+
+          if (unresolved_result) {
+            type = named_type("unknown");
+          } else {
+            type = this.type_from_name(result_name);
+          }
+        } else if (func !== undefined) {
+          type = this.specialize_call_result(func, args, expr);
+        }
       } else if (func !== undefined) {
         let inferred_callable = false;
 
@@ -1664,6 +1760,7 @@ class SourceFactRecorder {
         expr.statements,
         new Map(scope),
         break_types,
+        expected,
       );
     } else if (expr.tag === "loop") {
       const loop_breaks: (SourceTypeFact | undefined)[] = [];
@@ -1734,16 +1831,29 @@ class SourceFactRecorder {
     } else if (expr.tag === "handler") {
       type = this.record_handler(expr, scope, expected, break_types);
     } else if (expr.tag === "try_with") {
+      if (
+        expected !== undefined && !expected.inference_variable &&
+        expected.resolved_name !== "unknown"
+      ) {
+        expr.handler_output_type = expected.name;
+      }
+
       const body = this.record_expr(
         expr.body,
         scope,
         undefined,
         break_types,
       );
+      let handler_expected: SourceTypeFact | undefined;
+
+      if (expr.handler_output_type !== undefined) {
+        handler_expected = this.type_from_name(expr.handler_output_type);
+      }
+
       const handler = this.record_expr(
         expr.handler,
         scope,
-        undefined,
+        handler_expected,
         break_types,
       );
 
@@ -1798,28 +1908,12 @@ class SourceFactRecorder {
     expr: Extract<FrontExpr, { tag: "app" }>,
     scope: Scope,
   ): string | undefined {
-    if (expr.operator_syntax?.target === "Semigroup.append") {
-      return "@append";
-    }
+    const operator_intrinsic = compiler_intrinsic_for_operator_target(
+      expr.operator_syntax?.target,
+    );
 
-    if (expr.operator_syntax?.target === "Bits.bit_and") {
-      return "@bit_and";
-    }
-
-    if (expr.operator_syntax?.target === "Bits.bit_or") {
-      return "@bit_or";
-    }
-
-    if (expr.operator_syntax?.target === "Bits.bit_xor") {
-      return "@bit_xor";
-    }
-
-    if (expr.operator_syntax?.target === "Bits.shift_left") {
-      return "@shift_left";
-    }
-
-    if (expr.operator_syntax?.target === "Bits.shift_right_unsigned") {
-      return "@shift_right_u";
+    if (operator_intrinsic !== undefined) {
+      return operator_intrinsic;
     }
 
     if (expr.func.tag !== "var") {
@@ -1837,7 +1931,7 @@ class SourceFactRecorder {
     }
 
     if (
-      expr.func.name === "@as" || expr.func.name === "@seal" ||
+      expr.func.name === "@cast" || expr.func.name === "@seal" ||
       expr.func.name === "@representation" ||
       expr.func.name === "@integer.wrap" ||
       expr.func.name === "@len" || expr.func.name === "@get" ||
@@ -1850,14 +1944,14 @@ class SourceFactRecorder {
       expr.func.name === "@shape.entries" ||
       expr.func.name === "@type.product" ||
       expr.func.name === "@type.extend" ||
-      expr.func.name === "@type.member" ||
       expr.func.name === "@type.union" ||
       expr.func.name === "@type.intersection" ||
       expr.func.name === "@type.difference" ||
       expr.func.name === "@type.namespace" ||
       expr.func.name === "@describe_type" ||
       expr.func.name === "@describe_fields" ||
-      expr.func.name === "@describe_cases" || expr.func.name === "@construct" ||
+      expr.func.name === "@describe_cases" || expr.func.name === "@type_of" ||
+      expr.func.name === "@construct" ||
       expr.func.name === "@project" || expr.func.name === "@is_case" ||
       f32x4_builtin_prim(expr.func.name) !== undefined ||
       numeric_builtin_prim(expr.func.name) !== undefined
@@ -2014,6 +2108,10 @@ class SourceFactRecorder {
       }
 
       return array_length_is_known(type.length, type_parameters);
+    }
+
+    if (type.tag === "literal") {
+      return true;
     }
 
     if (type.tag !== "arrow") {
@@ -2308,6 +2406,30 @@ class SourceFactRecorder {
       this.record_pattern_bindings(expr.pattern, params[0], body_scope);
     }
 
+    if (expr.body.tag === "app") {
+      const operator_target = expr.body.operator_syntax?.target;
+      const direct_cast = expr.body.func.tag === "var" &&
+        (expr.body.func.name === "@cast" ||
+          expr.body.func.name === "@seal" ||
+          expr.body.func.name === "@representation");
+      const operator_cast = operator_target === "seal" ||
+        operator_target === "representation";
+
+      if (direct_cast || operator_cast) {
+        const args = compiler_builtin_args(expr.body);
+        const target = args[1];
+
+        if (target !== undefined && target.tag === "var") {
+          for (const param of expr.params) {
+            if (param.name === target.name && param.is_const) {
+              this.deferred_cast_type_targets.add(target);
+              break;
+            }
+          }
+        }
+      }
+    }
+
     const return_types: (SourceTypeFact | undefined)[] = [];
     this.return_type_stack.push(return_types);
     let contextual_result: SourceTypeFact | undefined;
@@ -2459,7 +2581,9 @@ class SourceFactRecorder {
       if (literal.tag === "bool") {
         literal_types.push(named_type("Bool"));
       } else if (literal.tag === "num") {
-        if (literal.type === "i64") {
+        if (literal.character !== undefined) {
+          literal_types.push(named_type("Char"));
+        } else if (literal.type === "i64") {
           literal_types.push(named_type("I64"));
         } else if (literal.type === "f32") {
           literal_types.push(named_type("F32"));
@@ -2739,6 +2863,10 @@ class SourceFactRecorder {
 
         this.record_pattern_bindings(entry.pattern, entry_type, scope);
       }
+
+      if (pattern.rest !== undefined) {
+        this.record_pattern_bindings(pattern.rest, undefined, scope);
+      }
       return;
     }
 
@@ -3007,12 +3135,22 @@ class SourceFactRecorder {
     this.record_definition(expr.return_clause.param, "name", return_parameter);
     return_scope.set(expr.return_clause.param.name, return_parameter);
 
-    const handler_result = this.record_expr(
+    let handler_result = this.record_expr(
       expr.return_clause.body,
       return_scope,
       expected,
       break_types,
     );
+
+    if (
+      expected !== undefined && !expected.inference_variable &&
+      expected.resolved_name !== "unknown" &&
+      (handler_result === undefined || handler_result.inference_variable ||
+        handler_result.resolved_name === "unknown")
+    ) {
+      handler_result = expected;
+      this.facts.editor_type_of.set(expr.return_clause.body, expected);
+    }
 
     if (handler_result === undefined || is_error_type(handler_result)) {
       valid = false;
@@ -3043,20 +3181,21 @@ class SourceFactRecorder {
 
         if (operation !== undefined) {
           operation_found = true;
-          operation_params = operation.params.map((param) => {
-            const substitution = substitutions.get(param.type_name);
-
-            if (substitution !== undefined) {
-              return substitution;
-            }
-
-            return this.type_from_name(param.type_name);
-          });
-          operation_result = substitutions.get(operation.result.type_name);
-
-          if (operation_result === undefined) {
-            operation_result = this.type_from_name(operation.result.type_name);
+          for (const param of operation.type_params) {
+            substitutions.set(param, inference_type());
           }
+          operation_params = operation.params.map((param) =>
+            this.resolve_type_expr(
+              parse_type_expr(tokenize(param.type_name)),
+              substitutions,
+              new Set(),
+            )
+          );
+          operation_result = this.resolve_type_expr(
+            parse_type_expr(tokenize(operation.result.type_name)),
+            substitutions,
+            new Set(),
+          );
 
           if (
             operation_params.some((param) => is_error_type(param)) ||
@@ -3195,22 +3334,25 @@ class SourceFactRecorder {
       }
 
       for (const operation of declaration.operations) {
-        let result = substitutions.get(operation.result.type_name);
+        const operation_substitutions = new Map(substitutions);
 
-        if (result === undefined) {
-          result = this.type_from_name(operation.result.type_name);
+        for (const param of operation.type_params) {
+          operation_substitutions.set(param, inference_type());
         }
 
         const params = operation.params.map((param) => param.type_name);
-        const param_types = operation.params.map((param) => {
-          const substitution = substitutions.get(param.type_name);
-
-          if (substitution !== undefined) {
-            return substitution;
-          }
-
-          return this.type_from_name(param.type_name);
-        });
+        const param_types = operation.params.map((param) =>
+          this.resolve_type_expr(
+            parse_type_expr(tokenize(param.type_name)),
+            operation_substitutions,
+            new Set(),
+          )
+        );
+        const result = this.resolve_type_expr(
+          parse_type_expr(tokenize(operation.result.type_name)),
+          operation_substitutions,
+          new Set(),
+        );
 
         if (
           is_error_type(result) ||
@@ -3549,6 +3691,10 @@ class SourceFactRecorder {
       return named_type("#" + type_expr.name);
     }
 
+    if (type_expr.tag === "literal") {
+      return named_type(format_type_expr(type_expr));
+    }
+
     if (type_expr.tag === "top" || type_expr.tag === "never") {
       return named_type(format_type_expr(type_expr));
     }
@@ -3638,7 +3784,7 @@ class SourceFactRecorder {
         return named_type("unknown");
       }
 
-      return named_type(format_type_expr(type_expr));
+      return value;
     }
 
     if (type_expr.tag === "tuple") {
@@ -3741,8 +3887,27 @@ class SourceFactRecorder {
     args: SourceTypeFact[],
     resolving: Set<string>,
   ): SourceTypeFact {
-    const specialized_name = declaration.name + " " +
-      args.map((arg) => arg.name).join(" ");
+    let specialized_type: TypeExpr = {
+      tag: "name",
+      name: declaration.name,
+    };
+
+    for (const arg of args) {
+      let arg_name = arg.name;
+
+      if (arg.inference_variable || arg_name === "") {
+        arg_name = "_";
+      }
+
+      const arg_type = parse_type_expr(tokenize(arg_name));
+      specialized_type = {
+        tag: "apply",
+        func: specialized_type,
+        arg: arg_type,
+      };
+    }
+
+    const specialized_name = format_type_expr(specialized_type);
     const cached = this.applied_declaration_types.get(specialized_name);
 
     if (cached !== undefined) {
@@ -4091,11 +4256,19 @@ function builtin_call_result(
   name: string,
   args: (SourceTypeFact | undefined)[],
 ): SourceTypeFact | undefined {
-  if (name === "@type.extend" && args.length === 2) {
-    return args[0];
+  if (name === "@type_of" && args.length === 1) {
+    const represented = args[0];
+
+    if (represented === undefined) {
+      return undefined;
+    }
+
+    const result = named_type("Type");
+    result.constructed = represented;
+    return result;
   }
 
-  if (name === "@type.member" && args.length === 3) {
+  if (name === "@type.extend" && args.length === 2) {
     return args[0];
   }
 
@@ -4209,6 +4382,22 @@ function builtin_call_result(
 
   if (name === "@i32_from_f32" && args.length === 1) {
     if (args[0]?.resolved_name === "F32") {
+      return named_type("I32");
+    }
+
+    return undefined;
+  }
+
+  if (name === "@f64_from_i32" && args.length === 1) {
+    if (args[0] !== undefined && is_i32_family(args[0])) {
+      return named_type("F64");
+    }
+
+    return undefined;
+  }
+
+  if (name === "@i32_from_f64" && args.length === 1) {
+    if (args[0]?.resolved_name === "F64") {
       return named_type("I32");
     }
 
@@ -4506,7 +4695,8 @@ function is_text_family(
 
 function is_supported_loop_result(type: SourceTypeFact): boolean {
   return is_numeric_type(type) || type.resolved_name === "Bool" ||
-    type.resolved_name === "Unit" || type.resolved_name.startsWith("#");
+    type.resolved_name === "Char" || type.resolved_name === "Unit" ||
+    type.resolved_name.startsWith("#");
 }
 
 function named_type(name: string, nominal?: string): SourceTypeFact {
@@ -5147,7 +5337,8 @@ function canonical_scalar_from_source_name(
   name: string,
 ): Extract<Type, { tag: "scalar" }>["name"] | undefined {
   if (
-    name === "Bool" || name === "Unit" || name === "Int" ||
+    name === "Bool" || name === "Char" || name === "Unit" ||
+    name === "Int" ||
     name === "I32" || name === "U32" || name === "I64" ||
     name === "F32" || name === "F64" || name === "F32x4" || name === "Text" ||
     name === "Bytes" || name === "Resume"
@@ -6135,7 +6326,8 @@ function compatible_equality_operands(
   }
 
   if (
-    left.resolved_name === "Bool" || left.resolved_name === "Text" ||
+    left.resolved_name === "Bool" || left.resolved_name === "Char" ||
+    left.resolved_name === "Text" ||
     left.resolved_name === "Bytes" || left.resolved_name === "Unit" ||
     left.resolved_name.startsWith("#")
   ) {
@@ -6150,6 +6342,10 @@ function front_type_from_source_fact(
 ): FrontType | undefined {
   if (type.resolved_name === "Bool") {
     return { tag: "bool" };
+  }
+
+  if (type.resolved_name === "Char") {
+    return { tag: "char" };
   }
 
   if (

@@ -16,6 +16,7 @@ export type RuntimeUnionMatchCtx = {
   text_locals: Set<string>;
   struct_locals: Map<string, CoreExpr>;
   union_locals: Map<string, CoreExpr>;
+  borrowed_locals?: Set<string>;
   frozen_locals?: Set<string>;
   host_imports?: Map<string, CoreHostImport>;
   scratch_depth?: number;
@@ -168,6 +169,7 @@ export function static_runtime_union_match_branch_ctx(
     text_locals: new Set(ctx.text_locals),
     struct_locals: new Map(ctx.struct_locals),
     union_locals: new Map(ctx.union_locals),
+    borrowed_locals: clone_optional_set(ctx.borrowed_locals),
     frozen_locals: clone_optional_set(ctx.frozen_locals),
     host_imports: clone_core_host_imports(ctx.host_imports),
     scratch_depth: ctx.scratch_depth,
@@ -191,6 +193,7 @@ export function core_runtime_union_match_branch_ctx(
     text_locals: new Set(ctx.text_locals),
     struct_locals: new Map(ctx.struct_locals),
     union_locals: new Map(ctx.union_locals),
+    borrowed_locals: clone_optional_set(ctx.borrowed_locals),
     frozen_locals: clone_optional_set(ctx.frozen_locals),
     host_imports: clone_core_host_imports(ctx.host_imports),
     scratch_depth: ctx.scratch_depth,

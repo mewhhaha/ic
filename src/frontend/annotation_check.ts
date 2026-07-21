@@ -315,6 +315,19 @@ function check_builtin_binding_annotation(
     return;
   }
 
+  if (annotation === "Char") {
+    const actual = hooks.infer_expr(value, env);
+
+    if (actual.tag !== "char") {
+      throw new Error(
+        "Binding annotation expects Char, got " +
+          binding_value_type_name(value, env, hooks),
+      );
+    }
+
+    return;
+  }
+
   if (annotation === "Resume") {
     const actual = hooks.infer_expr(value, env);
 

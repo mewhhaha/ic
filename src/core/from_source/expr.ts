@@ -18,7 +18,13 @@ import {
 } from "../../frontend/aggregate.ts";
 import { numeric_builtin_call } from "../../frontend/numeric.ts";
 import { Callable } from "../../trait.ts";
-import { Prim } from "../../op.ts";
+import {
+  numeric_builtin_prim,
+  Prim,
+  specialize_prim_for_integer,
+  specialize_prim_for_operands,
+} from "../../op.ts";
+import type { ValType } from "../../op.ts";
 import { expect } from "../../expect.ts";
 import { f32x4_builtin_call } from "../../frontend/f32x4.ts";
 import { compiler_builtin_args } from "../../frontend/call_args.ts";
@@ -28,6 +34,14 @@ import {
   integer_type_name,
   type IntegerType,
 } from "../../integer.ts";
+import { compiler_intrinsic_for_operator_target } from "../../frontend/fixity.ts";
+import {
+  format_type_expr,
+  function_type_expr,
+  parse_type_expr,
+} from "../../frontend/type_expr.ts";
+import { tokenize } from "../../frontend/tokenize.ts";
+import { val_type_from_type_name } from "../../frontend/types.ts";
 
 export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
   return record_optional_core_source_origin(
@@ -78,6 +92,10 @@ function core_expr_untracked(
         value: expr.value,
       };
 
+      if (expr.character !== undefined) {
+        lowered.character = expr.character;
+      }
+
       if (expr.integer) {
         lowered.integer = expr.integer;
       }
@@ -114,11 +132,21 @@ function core_expr_untracked(
 
     case "var": {
       const resolved = resolve_bound_core_value_name(ctx, expr.name);
-      const named_rec = ctx.namedRecs.get(resolved) ||
-        ctx.namedRecs.get(expr.name);
+      let named_rec = ctx.namedRecs.get(resolved);
+      let recursive_name = resolved;
+
+      if (named_rec === undefined) {
+        named_rec = ctx.namedRecs.get(expr.name);
+        recursive_name = expr.name;
+      }
 
       if (named_rec) {
-        return { tag: "rec_ref", name: resolved, params: named_rec.params };
+        return {
+          tag: "rec_ref",
+          name: recursive_name,
+          params: named_rec.params,
+          result_annotation: named_rec.result_annotation,
+        };
       }
 
       if (expr.resume_signature) {
@@ -148,9 +176,14 @@ function core_expr_untracked(
 
     case "prim": {
       const integer = front_expr_integer_type(expr, ctx);
+      const specialized_prim = specialize_prim_for_operands(
+        expr.prim,
+        front_expr_numeric_type(expr.left, ctx),
+        front_expr_numeric_type(expr.right, ctx),
+      );
       const prim: CoreExpr = {
         tag: "prim",
-        prim: expr.prim,
+        prim: specialized_prim,
         args: [core_expr(expr.left, ctx), core_expr(expr.right, ctx)],
         integer,
       };
@@ -219,6 +252,31 @@ function core_expr_untracked(
     }
 
     case "app": {
+      const operator_intrinsic = compiler_intrinsic_for_operator_target(
+        expr.operator_syntax?.target,
+      );
+
+      if (operator_intrinsic === "@append") {
+        return core_expr({
+          ...expr,
+          func: { tag: "var", name: operator_intrinsic },
+          operator_syntax: undefined,
+        }, ctx);
+      }
+
+      if (operator_intrinsic !== undefined) {
+        const prim = numeric_builtin_prim(operator_intrinsic);
+        expect(prim, "Missing primitive for " + operator_intrinsic);
+        const integer = front_expr_integer_type(expr, ctx);
+        const lowered: CoreExpr = {
+          tag: "prim",
+          prim,
+          args: expr.args.map((arg) => core_expr(arg, ctx)),
+          integer,
+        };
+        return lower_core_integer_prim(lowered, integer, ctx);
+      }
+
       if (
         expr.func.tag === "var" && expr.func.name === "@integer.wrap" &&
         !ctx.aliases.has(expr.func.name)
@@ -247,7 +305,7 @@ function core_expr_untracked(
 
       if (
         expr.func.tag === "var" &&
-        (expr.func.name === "@as" || expr.func.name === "@seal" ||
+        (expr.func.name === "@cast" || expr.func.name === "@seal" ||
           expr.func.name === "@representation") &&
         !ctx.aliases.has(expr.func.name)
       ) {
@@ -321,10 +379,86 @@ function core_expr_untracked(
         args = compiler_builtin_args(expr);
       }
 
+      const func = core_expr(expr.func, ctx);
+      const lowered_args: CoreExpr[] = [];
+
+      for (let index = 0; index < args.length; index += 1) {
+        const arg = args[index];
+        expect(arg, "Missing core call argument " + index.toString());
+        let lowered_arg = core_expr(arg, ctx);
+        let target_param: CoreParam | undefined;
+
+        if (
+          func.tag === "lam" || func.tag === "rec" ||
+          func.tag === "rec_ref"
+        ) {
+          target_param = func.params[index];
+        }
+
+        if (
+          lowered_arg.tag === "lam" && target_param?.annotation !== undefined
+        ) {
+          const annotation = function_type_expr(
+            parse_type_expr(tokenize(target_param.annotation)),
+          );
+
+          if (annotation) {
+            let parameter_types = [annotation.param];
+
+            if (annotation.param.tag === "product") {
+              parameter_types = annotation.param.entries.map((entry) => {
+                return entry.type_expr;
+              });
+            }
+
+            expect(
+              lowered_arg.params.length === parameter_types.length,
+              "Core function argument " + index.toString() + " expects " +
+                parameter_types.length.toString() + " parameters, got " +
+                lowered_arg.params.length.toString(),
+            );
+            lowered_arg = {
+              ...lowered_arg,
+              params: lowered_arg.params.map((param, param_index) => {
+                if (param.annotation !== undefined) {
+                  return param;
+                }
+
+                const parameter_type = parameter_types[param_index];
+                expect(
+                  parameter_type,
+                  "Missing contextual core function parameter " +
+                    param_index.toString(),
+                );
+                return {
+                  ...param,
+                  annotation: resolve_core_annotation(
+                    ctx,
+                    format_type_expr(parameter_type),
+                  ),
+                };
+              }),
+            };
+          }
+        }
+
+        if (
+          func.tag === "rec_ref" && target_param &&
+          !target_param.is_const &&
+          !target_param.annotation?.startsWith("&") &&
+          !target_param.annotation?.startsWith("^") &&
+          (lowered_arg.tag === "field" || lowered_arg.tag === "index")
+        ) {
+          lowered_arg = { ...lowered_arg, move: true };
+        }
+
+        lowered_args.push(lowered_arg);
+      }
+
       const app: Extract<CoreExpr, { tag: "app" }> = {
         tag: "app",
-        func: core_expr(expr.func, ctx),
-        args: args.map((arg) => core_expr(arg, ctx)),
+        func,
+        args: lowered_args,
       };
 
       if (expr.resume_payload) {
@@ -360,11 +494,25 @@ function core_expr_untracked(
 
     case "block": {
       const block_ctx = fork_core_from_source_ctx(ctx);
+      const statements = expr.statements.map((stmt) => {
+        return ctx.lower_stmt(stmt, block_ctx);
+      });
+      const final_stmt = statements[statements.length - 1];
+
+      if (
+        final_stmt === undefined ||
+        (final_stmt.tag !== "expr" && final_stmt.tag !== "return" &&
+          final_stmt.tag !== "assign")
+      ) {
+        statements.push({
+          tag: "expr",
+          expr: { tag: "num", type: "i32", value: 0 },
+        });
+      }
+
       return {
         tag: "block",
-        statements: expr.statements.map((stmt) => {
-          return ctx.lower_stmt(stmt, block_ctx);
-        }),
+        statements,
       };
     }
 
@@ -420,7 +568,13 @@ function core_expr_untracked(
       return {
         tag: "struct_value",
         type_expr: core_expr(expr.type_expr, ctx),
-        fields: expr.fields.map((field) => core_field(field, ctx)),
+        fields: expr.fields.map((field) => {
+          let value = core_expr(field.value, ctx);
+          if (value.tag === "field" || value.tag === "index") {
+            value = { ...value, move: true };
+          }
+          return { name: field.name, value };
+        }),
       };
 
     case "struct_update":
@@ -489,11 +643,12 @@ function core_expr_untracked(
           tag: "field",
           object,
           name: expr.name,
+          move: expr.move,
           resume_signature: expr.resume_signature,
         };
       }
 
-      return { tag: "field", object, name: expr.name };
+      return { tag: "field", object, name: expr.name, move: expr.move };
     }
 
     case "index":
@@ -501,13 +656,14 @@ function core_expr_untracked(
         tag: "index",
         object: core_expr(expr.object, ctx),
         index: core_expr(expr.index, ctx),
+        move: expr.move,
       };
 
     case "union_case": {
       let payload: CoreExpr | undefined;
       let type_expr: CoreExpr | undefined;
 
-      if (expr.value) {
+      if (expr.value && expr.value.tag !== "unit") {
         payload = core_expr(expr.value, ctx);
       }
 
@@ -538,12 +694,13 @@ function core_expr_untracked(
   }
 }
 
-function record_param_integer_type(
+export function record_param_integer_type(
   param: Param,
   ctx: CoreFromSourceCtx,
 ): void {
   if (!param.annotation) {
     ctx.integer_types.delete(param.name);
+    ctx.numeric_types.delete(param.name);
     return;
   }
 
@@ -552,6 +709,12 @@ function record_param_integer_type(
 
   if (annotation) {
     integer = integer_type_from_name(annotation);
+    const numeric = val_type_from_type_name(annotation);
+    if (numeric) {
+      ctx.numeric_types.set(param.name, numeric);
+    } else {
+      ctx.numeric_types.delete(param.name);
+    }
   }
 
   if (integer) {
@@ -563,6 +726,35 @@ function record_param_integer_type(
   } else {
     ctx.integer_types.delete(param.name);
   }
+}
+
+export function front_expr_numeric_type(
+  expr: FrontExpr,
+  ctx: CoreFromSourceCtx,
+): ValType | undefined {
+  if (expr.tag === "num") {
+    return expr.type;
+  }
+
+  if (expr.tag === "var" || expr.tag === "linear") {
+    const name = resolve_core_name(ctx, expr.name);
+    return ctx.numeric_types.get(name);
+  }
+
+  if (expr.tag === "prim") {
+    const prim = specialize_prim_for_operands(
+      expr.prim,
+      front_expr_numeric_type(expr.left, ctx),
+      front_expr_numeric_type(expr.right, ctx),
+    );
+    return Callable.type(Prim, prim).result;
+  }
+
+  if (expr.tag === "captured") {
+    return front_expr_numeric_type(expr.expr, ctx);
+  }
+
+  return undefined;
 }
 
 export function front_expr_integer_type(
@@ -601,6 +793,28 @@ export function front_expr_integer_type(
       if (target && target.tag === "var") {
         return integer_type_from_name(target.name);
       }
+    }
+
+    let preserves_integer_type = numeric_builtin_call(expr) !== undefined;
+    const operator_intrinsic = compiler_intrinsic_for_operator_target(
+      expr.operator_syntax?.target,
+    );
+    if (
+      operator_intrinsic !== undefined &&
+      numeric_builtin_prim(operator_intrinsic) !== undefined
+    ) {
+      preserves_integer_type = true;
+    }
+    if (
+      expr.func.tag === "var" &&
+      (expr.func.name === "@cast" || expr.func.name === "@seal" ||
+        expr.func.name === "@representation")
+    ) {
+      preserves_integer_type = true;
+    }
+
+    if (!preserves_integer_type) {
+      return undefined;
     }
 
     const first = args[0];
@@ -1069,20 +1283,37 @@ function lower_core_integer_prim(
     return lower_core_wide_integer_prim(expr, integer, ctx);
   }
 
-  if (integer.width === integer_carrier_width(integer)) {
-    return expr;
-  }
-
   expect(
     expr.tag === "prim",
     "Integer primitive lowering requires a primitive",
   );
 
-  if (!expr.prim.endsWith(".shl") && !expr.prim.endsWith(".shr_u")) {
-    return expr;
+  let carrier: "i32" | "i64" = "i32";
+  if (integer.width > 32) {
+    carrier = "i64";
+  }
+  const carrier_prim = specialize_prim_for_operands(
+    expr.prim,
+    carrier,
+    carrier,
+  );
+  const specialized: CoreExpr = {
+    ...expr,
+    prim: specialize_prim_for_integer(carrier_prim, integer.signed),
+  };
+
+  if (integer.width === integer_carrier_width(integer)) {
+    return specialized;
   }
 
-  return core_narrow_integer_shift(expr, integer, ctx);
+  if (
+    !specialized.prim.endsWith(".shl") &&
+    !specialized.prim.endsWith(".shr_u")
+  ) {
+    return specialized;
+  }
+
+  return core_narrow_integer_shift(specialized, integer, ctx);
 }
 
 function lower_core_wide_integer_prim(

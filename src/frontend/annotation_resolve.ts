@@ -47,6 +47,10 @@ export function resolve_annotation_type(
     return { tag: "bool" };
   }
 
+  if (annotation === "Char") {
+    return { tag: "char" };
+  }
+
   if (annotation === "I64") {
     return { tag: "int", type: "i64" };
   }
@@ -115,6 +119,25 @@ function direct_annotation_front_type(
     case "never":
       return { tag: "never" };
 
+    case "literal":
+      if (type.value.tag === "bool") {
+        return { tag: "bool" };
+      }
+
+      if (type.value.tag === "text") {
+        return { tag: "text" };
+      }
+
+      if (type.value.character !== undefined) {
+        return { tag: "char" };
+      }
+
+      return {
+        tag: "int",
+        type: type.value.type,
+        integer: type.value.integer,
+      };
+
     case "frozen":
     case "borrow":
       return direct_annotation_front_type(type.value);
@@ -151,7 +174,7 @@ export function resolve_numeric_expr_type(
 
   const inferred = hooks.infer_expr(expr, env);
 
-  if (inferred.tag === "bool") {
+  if (inferred.tag === "bool" || inferred.tag === "char") {
     return undefined;
   }
 

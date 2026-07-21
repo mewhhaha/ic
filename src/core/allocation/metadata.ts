@@ -1,4 +1,4 @@
-import type { CoreExpr } from "../ast.ts";
+import type { CoreExpr, CoreStmt } from "../ast.ts";
 import type { CoreAllocationFact } from "./types.ts";
 
 type CoreAllocationPermitMetadata = {
@@ -10,7 +10,10 @@ type CoreAllocationPermitMetadata = {
 const subjects = new WeakMap<CoreAllocationFact, CoreExpr>();
 const permits = new WeakMap<CoreAllocationFact, CoreAllocationPermitMetadata>();
 const freeze_subjects = new WeakMap<CoreAllocationFact, CoreExpr>();
-const lifetime_subjects = new WeakMap<CoreAllocationFact, CoreExpr>();
+const lifetime_subjects = new WeakMap<
+  CoreAllocationFact,
+  CoreExpr | CoreStmt
+>();
 const emission_subjects = new WeakMap<CoreAllocationFact, Set<CoreExpr>>();
 const returned_subjects = new WeakMap<CoreAllocationFact, CoreExpr>();
 const scratch_scopes = new WeakMap<CoreAllocationFact, string>();
@@ -101,14 +104,14 @@ export function core_allocation_fact_freeze_subject(
 
 export function register_core_allocation_fact_lifetime_subject(
   fact: CoreAllocationFact,
-  subject: CoreExpr,
+  subject: CoreExpr | CoreStmt,
 ): void {
   lifetime_subjects.set(fact, subject);
 }
 
 export function core_allocation_fact_lifetime_subject(
   fact: CoreAllocationFact,
-): CoreExpr | undefined {
+): CoreExpr | CoreStmt | undefined {
   const subject = lifetime_subjects.get(fact);
   if (subject) {
     return subject;

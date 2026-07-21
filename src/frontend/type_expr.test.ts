@@ -183,6 +183,36 @@ Deno.test("type expressions parse the structured type surface", () => {
   );
 });
 
+Deno.test("integer text boolean and character literals are exact types", () => {
+  assert_equals(parse_type_expr(tokenize("1")), {
+    tag: "literal",
+    value: { tag: "num", type: "i32", value: 1 },
+  });
+  assert_equals(parse_type_expr(tokenize('"ready"')), {
+    tag: "literal",
+    value: { tag: "text", value: "ready" },
+  });
+  assert_equals(parse_type_expr(tokenize("'c'")), {
+    tag: "literal",
+    value: { tag: "num", type: "i32", value: 99, character: "c" },
+  });
+  assert_equals(parse_type_expr(tokenize("true :| false")), {
+    tag: "union",
+    left: { tag: "literal", value: { tag: "bool", value: true } },
+    right: { tag: "literal", value: { tag: "bool", value: false } },
+  });
+  assert_equals(
+    format_type_expr(
+      parse_type_expr(tokenize("1 :| \"ready\" :| false :| 'c'")),
+    ),
+    "1 :| \"ready\" :| false :| 'c'",
+  );
+  assert_throws(
+    () => parse_type_expr(tokenize("1f32")),
+    "Floating-point literal types are not supported",
+  );
+});
+
 Deno.test("type expression set operators bind tighter from union to difference", () => {
   const type = parse_type_expr(tokenize("A :| B :& C :- D"));
   assert_equals(format_type_expr(type), "A :| B :& C :- D");

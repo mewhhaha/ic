@@ -20,7 +20,8 @@ export function core_materialized_bindings(core: Core): Set<string> {
   for (const stmt of core.statements) {
     if (
       stmt.tag === "bind" && stmt.kind === "const" &&
-      stmt.value.tag === "union_type"
+      stmt.value.tag === "union_type" &&
+      stmt.value.cases.every((union_case) => !union_case.set_member)
     ) {
       union_types.add(stmt.name);
     }
@@ -40,6 +41,9 @@ function collect_materialized_stmt_bindings(
   switch (stmt.tag) {
     case "bind":
       if (stmt.force_materialized) {
+        result.add(stmt.name);
+      }
+      if (stmt.annotation && union_types.has(stmt.annotation)) {
         result.add(stmt.name);
       }
       collect_materialized_expr_bindings(stmt.value, union_types, result);
@@ -208,6 +212,10 @@ function collect_materialized_expr_bindings(
     case "struct_value":
       collect_materialized_expr_bindings(expr.type_expr, union_types, result);
       for (const field of expr.fields) {
+        const owner = named_union_payload_binding(field.value);
+        if (owner) {
+          result.add(owner);
+        }
         collect_materialized_expr_bindings(field.value, union_types, result);
       }
       return;

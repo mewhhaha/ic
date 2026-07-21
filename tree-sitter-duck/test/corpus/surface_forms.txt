@@ -1,4 +1,75 @@
 ==================
+Operator prefixes do not become application arguments
+==================
+
+let different = left != right
+let both = left && right
+let consumed = consume !linear
+
+---
+
+(source_file
+  (binding_statement
+    (identifier)
+    (binary_expression
+      (postfix_expression
+        (identifier))
+      (operator_symbol)
+      (postfix_expression
+        (identifier))))
+  (binding_statement
+    (identifier)
+    (binary_expression
+      (postfix_expression
+        (identifier))
+      (operator_symbol)
+      (postfix_expression
+        (identifier))))
+  (binding_statement
+    (identifier)
+    (application_expression
+      (postfix_expression
+        (identifier))
+      (postfix_expression
+        (linear_reference
+          (identifier))))))
+
+==================
+Prefix negation in values and conditions
+==================
+
+let negated = !(ready)
+if !(ready || done) { () }
+
+---
+
+(source_file
+  (binding_statement
+    (identifier)
+    (unary_expression
+      (postfix_expression
+        (parenthesized_expression
+          (postfix_expression
+            (identifier))))))
+  (expression_statement
+    (if_expression
+      (condition_expression
+        (condition_unary_expression
+          (condition_expression
+            (condition_parenthesized_expression
+              (condition_expression
+                (condition_binary_expression
+                  (condition_expression
+                    (identifier))
+                  (operator_symbol)
+                  (condition_expression
+                    (identifier))))))))
+      (block
+        (expression_statement
+          (postfix_expression
+            (unit_pattern)))))))
+
+==================
 Unary applications and products
 ==================
 
@@ -55,11 +126,12 @@ let values = [x, y]
 let rebuilt = [x, ...rec(index + 1, length)]
 let repeated = [x; 3]
 let source = import "./source.duck"
+let config = include "./config.json"
 let cast = x as Text
 let updated = x :+ { .field = y }
 let [first, ...rest] = values
 let result = match target {
-| .ok(value) if ready => value
+| `Ok value if ready => value
 | _ => 0
 }
 let selected = match value {
@@ -112,6 +184,11 @@ type Values = [I32; 3]
         (string))))
   (binding_statement
     (identifier)
+    (postfix_expression
+      (include_expression
+        (string))))
+  (binding_statement
+    (identifier)
     (as_expression
       (postfix_expression
         (identifier))
@@ -149,7 +226,7 @@ type Values = [I32; 3]
       (match_case_block
         (match_case
           (union_pattern
-            (identifier)
+            (constructor_identifier)
             (identifier))
           (condition_expression
             (identifier))
@@ -249,3 +326,51 @@ const fold = rec (values, index) => {
                         (operator_symbol)
                         (postfix_expression
                           (number))))))))))))))
+
+==================
+Const variadic parameter
+==================
+
+const collect = (const ...values) => values
+
+---
+
+(source_file
+  (binding_statement
+    (identifier)
+    (arrow_function
+      (parameter_list
+        (parameter
+          (identifier)))
+      (postfix_expression
+        (identifier)))))
+
+==================
+Value-pack rest pattern
+==================
+
+let first = match values {
+| (value, ...remaining) => value
+| _ => 0
+}
+
+---
+
+(source_file
+  (binding_statement
+    (identifier)
+    (match_expression
+      (condition_expression
+        (identifier))
+      (match_case_block
+        (match_case
+          (value_pack_split_pattern
+            (identifier)
+            (product_rest_pattern
+              (identifier)))
+          (postfix_expression
+            (identifier)))
+        (match_case
+          (wildcard)
+          (postfix_expression
+            (number)))))))

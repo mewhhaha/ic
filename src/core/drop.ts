@@ -8,6 +8,7 @@ import type {
   CoreDropPlan,
   CoreDropState,
 } from "./drop/types.ts";
+import { unique_heap_ownership } from "./drop/ownership.ts";
 
 export type {
   CoreDropEdge,
@@ -41,6 +42,24 @@ export function core_drop_plan<ctx>(
     active_functions: new Set(),
   };
   const owners = new Map<string, CoreDropOwner>();
+
+  if (core.function_params !== undefined) {
+    for (const param of core.function_params) {
+      const subject = { tag: "var", name: param.name } as const;
+      const ownership = unique_heap_ownership(subject, ctx, hooks);
+
+      if (ownership === undefined) {
+        continue;
+      }
+
+      owners.set(param.name, {
+        name: param.name,
+        ownership,
+        pointer: "named",
+        subject,
+      });
+    }
+  }
 
   scan_drop_stmts(
     core.statements,

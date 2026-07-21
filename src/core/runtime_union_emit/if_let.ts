@@ -6,6 +6,7 @@ import { set_local } from "../emit/local.ts";
 import type { RuntimeUnionTarget } from "../runtime_union.ts";
 import { emit_runtime_union_match_payload_setup } from "../runtime_union_payload_emit.ts";
 import type { RuntimeUnionIfLetCtx, RuntimeUnionIfLetHooks } from "./types.ts";
+import { core_expr_is_borrowed } from "../local_facts.ts";
 
 export function emit_runtime_union_if_let_stmt<
   ctx extends RuntimeUnionIfLetCtx,
@@ -24,6 +25,7 @@ export function emit_runtime_union_if_let_stmt<
   const info = hooks.runtime_union_match_info(stmt.case_name, target, ctx);
   const binding = hooks.match_branch_ctx(stmt.value_name, info, ctx);
   const branch_ctx = binding.ctx;
+  bind_borrowed_payload(stmt.value_name, target.target, ctx, branch_ctx);
   const body: string[] = [];
   const payload_setup = emit_runtime_union_match_payload_setup(
     local_name,
@@ -116,6 +118,7 @@ export function emit_runtime_union_if_let_expr<
   const info = hooks.runtime_union_match_info(expr.case_name, target, ctx);
   const binding = hooks.match_branch_ctx(expr.value_name, info, ctx);
   const branch_ctx = binding.ctx;
+  bind_borrowed_payload(expr.value_name, target.target, ctx, branch_ctx);
   const then_lines: string[] = [];
   const payload_setup = emit_runtime_union_match_payload_setup(
     local_name,
@@ -157,6 +160,21 @@ export function emit_runtime_union_if_let_expr<
     indent_lines(else_branch, 2),
     "end",
   ].join("\n");
+}
+
+function bind_borrowed_payload<ctx extends RuntimeUnionIfLetCtx>(
+  value_name: string | undefined,
+  target: CoreExpr,
+  source_ctx: ctx,
+  branch_ctx: ctx,
+): void {
+  if (!value_name || !branch_ctx.borrowed_locals) {
+    return;
+  }
+
+  if (core_expr_is_borrowed(target, source_ctx)) {
+    branch_ctx.borrowed_locals.add(value_name);
+  }
 }
 
 function runtime_union_match_local<ctx extends RuntimeUnionIfLetCtx>(

@@ -39,6 +39,7 @@ Compile or run a source file directly:
 just duck build examples/basics/01_arithmetic_and_shadowing.duck
 just duck build examples/basics/01_arithmetic_and_shadowing.duck --emit all
 just duck run examples/basics/01_arithmetic_and_shadowing.duck
+just duck test examples/testing/01_inline_tests.duck
 ```
 
 Compile the generated WAT to Wasm:
@@ -86,6 +87,7 @@ just duck build main.duck     # write build/main.wasm through Core
 just duck build main.duck --route ic --emit wat
 just duck build main.duck --managed --emit all
 just duck run main.duck
+just duck test tests.duck       # run zero-argument @[test] functions
 just duck lsp                 # run the language server over stdio
 ```
 
@@ -137,16 +139,16 @@ Save that as `answer.duck` and run it with:
 just duck run answer.duck
 ```
 
-The main scalar types are `Bool`, `I32`, `U32`, `I64`, `F32`, `F64`, `Text`,
-`Bytes`, and `Unit`. `Int` is the ergonomic source integer type and has the same
-runtime representation as `I32`. Literals retain their type:
+The main scalar types are `Bool`, `Char`, `I32`, `U32`, `I64`, `F32`, `F64`,
+`Text`, `Bytes`, and `Unit`. `Int` is the ergonomic source integer type and has
+the same runtime representation as `I32`. Literals retain their type:
 
 ```duck
 let count: I32 = 42i32
 let large: I64 = 42i64
 let ratio: F32 = 1.5f32
 let ready: Bool = true
-let letter = 'A'
+let letter: Char = 'A'
 let greeting: Text = "hello"
 
 count
@@ -237,22 +239,25 @@ if value < 41 && value != 0 {
 }
 ```
 
-Use `@as` when an explicit zero-cost representation cast is intended. `Bool`
+Use `@cast` when an explicit zero-cost representation cast is intended. `Bool`
 shares its carrier with `Int`, `I32`, and `U32`, so zero is false and nonzero is
 true after an explicit cast:
 
 ```duck
 let flag: I32 = 2
 
-if @as(flag, Bool) {
+if @cast(flag, Bool) {
   42
 } else {
   0
 }
 ```
 
-`@as` does not permit width changes or cross a newtype boundary. The explicit
+`@cast` does not permit width changes or cross a newtype boundary. The explicit
 unsafe numeric intrinsics cover bit reinterpretation, truncation, and extension.
+`duck:prelude/numeric` provides checked `parse_u32_decimal` and
+`parse_i64_decimal`; both require the complete decimal text and reject overflow.
+It also exposes explicit `I32` conversions for both `F32` and `F64`.
 
 ### 5. Blocks, early return, and pattern conditions
 
@@ -323,11 +328,11 @@ let stored = [first, second]
 Labeled products are created with the source-defined `struct` type function:
 
 ```duck
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 
 type Point = struct { .x = Int, .y = Int }
 
-let point: Point = [20, 21]
+let point = Point.new { .x = 20, .y = 21 }
 let moved: Point = point :+ { .x = point.x + 1 }
 
 moved.x + moved.y
@@ -377,13 +382,13 @@ whitespace:
 
 ```duck
 type Option value =
-  | .some = value
-  | .none
+  | `Some value
+  | `None Unit
 
 type IntOption = Option Int
-let value: IntOption = IntOption.some(41)
+let value: IntOption = `Some 41
 
-if let .some(found) = value {
+if let `Some found = value {
   found + 1
 } else {
   0
@@ -397,7 +402,7 @@ patterns can bind the segment between a fixed prefix and suffix:
 
 ```duck
 match response {
-  | .cached(value) | .fresh(value) => value
+  | `Cached value | `Fresh value => value
   | "hello ${id} why" => id
   | _ => "unknown"
 }
@@ -413,7 +418,7 @@ wraps the compiler primitives with ordinary source functions:
 
 ```duck
 const { append, length, get, slice } =
-  comptime import "duck:prelude/runtime" ()
+  import "duck:prelude/runtime" ()
 
 let name = append ["Ada", " Lovelace"]
 let first = slice [name, 0, 3]
@@ -423,7 +428,12 @@ length(first) + get [name, 1]
 
 The functional prelude also defines `<>` for append. UTF-8 conversion is
 explicit through `encode_utf8` and `decode_utf8`; `Text` and `Bytes` are not
-silently interchangeable. Runtime indexing and slicing emit bounds checks.
+silently interchangeable. Runtime indexing and slicing emit bounds checks. The
+focused `duck:prelude/text` module also provides `text_trim_whitespace`, which
+recognizes Unicode whitespace rather than only ASCII separators, and
+`text_repeat` for source-defined repetition. `duck:prelude/csv` keeps field
+quoting, row construction, and decimal row-index formatting in a small focused
+module, so CSV-heavy programs do not link the complete runtime prelude.
 
 ### 10. Types are compile-time values
 
@@ -433,6 +443,9 @@ Type algebra is expressed by source-defined operators:
 type Value = I32 :| Text :| I64
 type Number = Value :- Text
 type ExactInt = Number :& I32
+type Bit = 0 :| 1
+type Method = "GET" :| "POST"
+type Truth = true :| false
 
 let value: Value = 42
 
@@ -446,18 +459,31 @@ if value is I32 {
 - `:|` forms a type union.
 - `:&` forms an intersection.
 - `:-` removes members.
-- `:+` extends a type value with namespace members or methods.
+- `:+` extends a type value with namespace members or methods. Its right side
+  may be a statically named shape or one computed `(name, value)` grouping.
 - `:>` seals a representation-compatible value as a nominal newtype.
+- `:<` exposes a newtype's declared runtime representation.
+
+Integer, text, Boolean, and character literals are singleton types. `@type_of`
+preserves that precision: `@type_of(1)` is `1` and `@type_of('A')` is `'A'`.
+Write `@cast(1, I32)` or `@cast('A', Char)` inside `@type_of` when the wider
+source type is wanted instead.
+
+Computed member names use an inline grouping on the right:
+
+```duck
+product_type :+ (field.name, value => value[index])
+```
 
 Newtypes are zero-cost but nominally distinct:
 
 ```duck
-const { newtype } = comptime import "duck:prelude" ()
+const { newtype, seal, representation } = import "duck:prelude" ()
 
 type Centimeter = newtype I32
 const distance = 42 :> Centimeter
 
-Centimeter.unwrap distance
+distance :< I32
 ```
 
 `packed` builds one source-defined scalar from fixed-width fields and generates
@@ -504,7 +530,7 @@ functional categories:
 
 ```duck
 const { pipe, apply, length, bit_or } =
-  comptime import "duck:prelude/functional" ()
+  import "duck:prelude/functional" ()
 
 const increment = value => value + 1
 const double = value => value * 2
@@ -518,21 +544,50 @@ piped + applied + length("abc") + bit_or [shifted, 2]
 
 The same module exports `identity`, `constant`, `compose`, `flip`, `curry`,
 `uncurry`, `fanout`, `converge`, and helpers for `Option`, `Result`, and
-`Either`. It declares the standard ducks `Eq`, `Ord`, `Semigroup`, `Monoid`,
-`Bits`, `Functor`, `Applicative`, `Monad`, `Foldable`, `Traversable`,
+`Either`. List transforms use an explicit compile-time output type so recursive
+union construction remains unambiguous:
+
+```duck
+const { list_map, list_reverse, list_take } =
+  import "duck:prelude/collections" ()
+
+let values: List I32 = `Cons ([1, `Cons ([2, `Nil ()])])
+let doubled: List I32 = list_map(I32, values, value => value * 2)
+let newest_first = list_reverse(I32, doubled)
+list_take(I32, 1, newest_first)
+```
+
+The functional prelude re-exports these collection operations. The focused
+module is useful for larger gpufuck programs that do not need the complete set
+of functional categories and runtime conveniences. The functional prelude
+declares the standard ducks `Eq`, `Ord`, `Semigroup`, `Monoid`, `Bits`,
+`Functor`, `Applicative`, `Monad`, `AffineMonad`, `Foldable`, `Traversable`,
 `Category`, `Show`, `From`, `Into`, `TryFrom`, and related categories.
+
+Domain code can import `duck:prelude/abstractions` for nominal scalar wrappers,
+source spans, fuel budgets, predicates, patches, reducers, transitions,
+comparators, diagnostics, authorities, `Decision`, `These`, `Iso`, `Codec`, and
+stable hashing. Higher-order predicate and patch composition is specialized at
+compile time:
+
+```duck
+const { patch, patch_apply, patch_compose } =
+  import "duck:prelude/abstractions" ()
+
+const increment = comptime patch(value => value + 1)
+const double = comptime patch(value => value * 2)
+const update = comptime patch_compose(double, increment)
+patch_apply(update, 20)
+```
 
 The standard functional operators are:
 
-| Operator            | Meaning                                      |
-| ------------------- | -------------------------------------------- |
-| `$`                 | function application                         |
-| `                   | >`                                           |
-| `<>`                | append                                       |
-| `&&&`, `            |                                              |
-| `<<`, `>>`          | left and unsigned-right shift                |
-| `<$>`, `<*>`, `>>=` | functor map, applicative apply, monadic bind |
-| `<                  | >`                                           |
+- `$` for function application and `|>` for value piping;
+- `<>` for append;
+- `|||`, `^^^`, and `&&&` for bitwise operations;
+- `<<` and `>>` for left and unsigned-right shifts;
+- `<$>`, `<*>`, and `>>=` for functor map, applicative apply, and monadic bind;
+- `<|>` for alternative choice.
 
 ### 13. Ducks, extensions, and compiler intrinsics
 
@@ -571,10 +626,11 @@ let read = (const operations: readable, value) => operations.read(value)
 read(scalar_operations, 41)
 ```
 
-Names beginning with `@` are compiler functions. Most application code reaches
-them through source prelude wrappers. Important groups include:
+Names beginning with `@` are compiler functions. They are implementation
+boundaries for the source prelude; application code uses ordinary prelude
+functions, traits, and operators. Important groups include:
 
-- checked representation casts: `@as`, `@seal`, and `@representation`;
+- checked representation casts: `@cast`, `@seal`, and `@representation`;
 - text and collection operations: `@append`, `@len`, `@get`, and `@slice`;
 - integer bits and shifts: `@bit_and`, `@bit_or`, `@bit_xor`, `@shift_left`, and
   `@shift_right_u`;
@@ -631,19 +687,19 @@ let counter = {
 try run() with counter
 ```
 
-Handlers are deep and resumptions are affine. Omitted operations forward to an
-outer handler. Checked duplication is available only when every captured value
-is safe to copy or share.
+Handlers are deep. A `!resume` parameter is affine, while an ordinary `resume`
+parameter is reusable and checks that every captured value is safe to copy or
+share. Omitted operations forward to an outer handler.
 
-The effects prelude declares `State`, `Reader`, `Writer`, `Raise`, `Clock`,
-`Random`, `Console`, `Environment`, `Resource`, `Log`, `Validation`, `Async`,
-`Channel`, `Mutex`, `Semaphore`, `TaskGroup`, and `Stm`. The defaults module
-provides source handlers and explicit adapter factories:
+The effects prelude declares `State`, `Reader`, `Writer`, `Raise`, `Do`,
+`Clock`, `Random`, `Console`, `Environment`, `Resource`, `Log`, `Validation`,
+`Async`, `Channel`, `Mutex`, `Semaphore`, `TaskGroup`, and `Stm`. The defaults
+module provides source handlers and explicit adapter factories:
 
 ```duck
-const _ = comptime import "duck:prelude/effects" ()
+const _ = import "duck:prelude/effects" ()
 const { default_state, default_reader } =
-  comptime import "duck:prelude/effects/defaults" ()
+  import "duck:prelude/effects/defaults" ()
 
 let run = () => {
   environment <- Reader.ask()
@@ -655,10 +711,61 @@ let run = () => {
 try (try run() with default_state(0)) with default_reader(40)
 ```
 
+`Do` is higher-kinded and its payload is operation-polymorphic:
+
+```duck
+effect Do monad {
+  unwrap: forall value. (monad value) => value
+}
+
+const {} = import "duck:prelude/effects/defaults" ()
+type IntOption = Option I32
+let run = () => {
+  let wrapped: IntOption = `Some 42
+  value <- do wrapped
+  value
+}
+let result: IntOption = try run()
+```
+
+The defaults module defines the generic source `Do` rule in terms of `Monad` and
+a more specific affine rule for `Option`. `Option` therefore keeps its
+zero-or-one-shot implementation, while constructors such as `List` can use a
+reusable resumption. Multi-shot handling is accepted only when the captured
+continuation is duplicable.
+
+`try computation` is an inferred handler boundary. It collects the effects of
+the computation and requires exactly one lexical `DefaultHandler` duck instance
+for each effect. The instance supplies its handled effect, handler factory, and
+composition order in source:
+
+```duck
+const _ = import "duck:prelude/effects" ()
+
+const counter = () => Counter {
+  get: (!resume) => !resume(42),
+  return: value => value,
+}
+
+extend Counter {
+  type Handled = Counter
+  .make = _ => counter()
+  .output = _ => Identity
+  .order = _ => 10
+}
+```
+
+The `.output` projection returns the result constructor; it can return its
+effect-type argument for generic families such as `Do`. Lower orders are
+installed inside higher orders, so several inferred handlers compose
+deterministically. Missing defaults, duplicate defaults for one effect, and
+equal orders are compile-time errors. Use `try computation with handler` when
+the handler should be explicit.
+
 Use named const instances when one run has several effects from the same family:
 
 ```duck
-const _ = comptime import "duck:prelude/effects" ()
+const _ = import "duck:prelude/effects" ()
 
 const counter = State I32
 const message = State Text
@@ -723,6 +830,26 @@ const capabilities = [.base = 40, .bonus = 2]
 let application = score_module(capabilities)
 application.run
 ```
+
+Import resolution and module invocation happen during compilation. Prelude
+exports therefore need no additional `comptime` prefix. Use an ordinary product
+pattern to select exports, or `const open` to introduce all exports except
+explicit exclusions and renames:
+
+```duck
+const { struct } = import "duck:prelude" ()
+const open { .compose = _, .pipe = pipe2 } =
+  import "duck:prelude/functional" ()
+```
+
+The open binding excludes `compose`, renames `pipe` to `pipe2`, and introduces
+the remaining exports under their declared names. Conflicting open bindings are
+compile errors.
+
+`include "./config.json"` reads a file relative to the containing source file
+and produces a compile-time `Text` literal. Parsing is an ordinary staged
+operation, for example `comptime parse_config(include "./config.json")`, so the
+parser—not the file loader—defines the resulting value and type.
 
 Importing does not grant authority. Managed entry modules receive their root
 resources through `Init`, and imported modules receive only the narrowed record

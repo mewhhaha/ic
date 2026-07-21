@@ -2,6 +2,7 @@ import type { Env, FrontExpr, Stmt } from "./ast.ts";
 import { lookup } from "./env.ts";
 import { is_builtin_type_name } from "./types.ts";
 import { pattern_bindings } from "./pattern.ts";
+import { import_meta_binding_name } from "./import_meta.ts";
 
 const stable_compiler_callable_names = new Set([
   "@append",
@@ -14,12 +15,14 @@ const stable_compiler_callable_names = new Set([
   "@f32_sqrt",
   "@f32_from_i32",
   "@i32_from_f32",
+  "@f64_from_i32",
+  "@i32_from_f64",
   "@unsafe_i32_wrap_i64",
   "@unsafe_i64_extend_i32_signed",
   "@unsafe_i64_extend_i32_unsigned",
   "@unsafe_i32_reinterpret_f32",
   "@unsafe_f32_reinterpret_i32",
-  "@as",
+  "@cast",
   "@seal",
   "@representation",
   "@format_i32",
@@ -38,17 +41,22 @@ const stable_compiler_callable_names = new Set([
 ]);
 
 export function is_const_builtin_name(name: string): boolean {
+  if (name === import_meta_binding_name) {
+    return true;
+  }
+
   return name === "@fail" || name === "@size_of" || name === "@align_of" ||
     name === "@layout" || name === "@is_struct" || name === "@is_union" ||
     name === "@has" || name === "@fields_of" || name === "@cases_of" ||
     name === "@describe_type" || name === "@describe_fields" ||
     name === "@describe_cases" ||
+    name === "@type_of" ||
     name === "@construct" || name === "@project" || name === "@is_case" ||
-    name === "@len" || name === "@get" ||
+    name === "@len" || name === "@get" || name === "@include" ||
     name === "@shape.entries" || name === "@type.product" ||
     name === "@type.namespace" || name === "@type.union" ||
     name === "@type.intersection" || name === "@type.difference" ||
-    name === "@type.extend" || name === "@type.member" ||
+    name === "@type.extend" ||
     is_builtin_type_name(name) ||
     name === "object_type" || name === "layout_type" ||
     name === "field_offsets_type";
@@ -172,6 +180,12 @@ export function validate_const_expr(
     case "app":
       validate_const_expr(expr.func, env, bound, message);
 
+      if (
+        expr.func.tag === "var" && expr.func.name === "@type_of"
+      ) {
+        return;
+      }
+
       for (const arg of expr.args) {
         validate_const_expr(arg, env, bound, message);
       }
@@ -199,7 +213,8 @@ export function validate_const_expr(
       return;
 
     case "loop":
-      throw new Error(message);
+      validate_const_block(expr.body, env, bound, message);
+      return;
 
     case "captured":
       validate_const_expr(expr.expr, expr.env, bound, message);
@@ -288,7 +303,30 @@ export function validate_const_expr(
 
       throw new Error(message + ": " + expr.name);
 
-    case "handler":
+    case "handler": {
+      const state = new Set(bound);
+
+      for (const binding of expr.state) {
+        validate_const_expr(binding.value, env, state, message);
+        state.add(binding.name);
+      }
+
+      for (const clause of expr.clauses) {
+        const local = new Set(state);
+
+        for (const param of clause.params) {
+          local.add(param.name);
+        }
+
+        validate_const_expr(clause.body, env, local, message);
+      }
+
+      const returned = new Set(state);
+      returned.add(expr.return_clause.param.name);
+      validate_const_expr(expr.return_clause.body, env, returned, message);
+      return;
+    }
+
     case "try_with":
       throw new Error(message + ": " + expr.tag);
 
@@ -313,8 +351,30 @@ function validate_const_block(
         );
       }
 
+      if (stmt.is_recursive || stmt.value.tag === "rec") {
+        local.add(stmt.name);
+      }
+
       validate_const_expr(stmt.value, env, local, message);
-      local.add(stmt.name);
+
+      if (stmt.pattern) {
+        for (const binding of pattern_bindings(stmt.pattern)) {
+          local.add(binding.name);
+        }
+      } else {
+        local.add(stmt.name);
+      }
+
+      continue;
+    }
+
+    if (stmt.tag === "bind_pattern") {
+      validate_const_expr(stmt.value, env, local, message);
+
+      for (const item of stmt.items) {
+        local.add(item.name);
+      }
+
       continue;
     }
 

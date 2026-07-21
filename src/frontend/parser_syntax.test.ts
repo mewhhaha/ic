@@ -123,7 +123,8 @@ Deno.test("parser supplies spans for every reachable AST object", () => {
 });
 
 Deno.test("strict and tolerant parsing share syntax and concrete source spans", () => {
-  const text = "type Pair = [.left = Int, .right = Int]\nlet value = 1 + 2\n";
+  const text =
+    "type Pair = struct {.left = Int, .right = Int}\nlet value = 1 + 2\n";
   const strict = parse_source(text);
   const tolerant = parse_source_with_diagnostics(text);
 
@@ -140,7 +141,7 @@ Deno.test("strict and tolerant parsing share syntax and concrete source spans", 
 
   assert_equals(
     text.slice(source_span(declaration).start, source_span(declaration).end),
-    "type Pair = [.left = Int, .right = Int]",
+    "type Pair = struct {.left = Int, .right = Int}",
   );
   assert_equals(
     text.slice(source_span(statement).start, source_span(statement).end),
@@ -182,8 +183,8 @@ Deno.test("transparent parentheses preserve the inner expression span", () => {
 
 Deno.test("declaration members retain exact concrete spans", () => {
   const text = [
-    "type Pair = [.left = Int, .right = Int]",
-    "type Maybe = | .some = Int | .none",
+    "type Pair = struct {.left = Int, .right = Int}",
+    "type Maybe = | `Some Int | `None Unit",
     "declare effect Io { write: (&Text, I32) => #Text }",
     "",
   ].join("\n");
@@ -206,8 +207,8 @@ Deno.test("declaration members retain exact concrete spans", () => {
 
   assert_concrete_slice(text, pair.body.fields[0], ".left = Int");
   assert_concrete_slice(text, pair.body.fields[1], ".right = Int");
-  assert_concrete_slice(text, maybe.body.cases[0], ".some = Int");
-  assert_concrete_slice(text, maybe.body.cases[1], ".none");
+  assert_concrete_slice(text, maybe.body.cases[0], "`Some Int");
+  assert_concrete_slice(text, maybe.body.cases[1], "`None Unit");
   const operation = effect.operations[0];
   if (operation === undefined) throw new Error("Missing effect operation");
   assert_concrete_slice(text, operation.params[0], "&Text");

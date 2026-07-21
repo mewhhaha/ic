@@ -192,6 +192,17 @@ function validate_field_type(
     return;
   }
 
+  if (expected === "Char") {
+    if (actual.tag !== "char") {
+      throw new Error(
+        "Struct field " + name + " expects Char, got " +
+          front_type_name(actual),
+      );
+    }
+
+    return;
+  }
+
   if (expected === "Int" || expected === "I32" || expected === "U32") {
     if (
       actual.tag !== "int" ||

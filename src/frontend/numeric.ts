@@ -440,6 +440,20 @@ export function check_numeric_primitive_operands(
     }
   }
 
+  if (left_type.tag === "char" || right_type.tag === "char") {
+    const equality = expr.prim === "i32.eq" || expr.prim === "i32.ne";
+
+    if (
+      equality && left_type.tag === "char" && right_type.tag === "char"
+    ) {
+      return expr.prim;
+    }
+
+    if (equality) {
+      throw new Error("Char equality requires Char operands");
+    }
+  }
+
   if (left_type.tag === "text" || right_type.tag === "text") {
     if (expr.prim === "i32.eq" || expr.prim === "i32.ne") {
       if (left_type.tag === "text" && right_type.tag === "text") {

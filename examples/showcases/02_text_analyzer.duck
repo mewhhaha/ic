@@ -1,4 +1,4 @@
-const { append, length, slice } = comptime import "duck:prelude/runtime" ()
+const { append, length, slice } = import "duck:prelude/runtime" ()
 
 let source = "lambda"
 let head = slice(source, 0, 3)

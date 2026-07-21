@@ -3,7 +3,7 @@ import { Core } from "../core.ts";
 import { Source } from "../frontend.ts";
 
 const suspended_source = `
-type SuspendedType = | .suspended = Resume | .done = I32
+type SuspendedType = | \`Suspended Resume | \`Done I32
 const suspended_type = SuspendedType
 
 effect Suspend {
@@ -16,14 +16,14 @@ let run = () => {
 }
 
 let suspend = Suspend {
-  pause: (!resume) => suspended_type.suspended(!resume),
-  return: value => suspended_type.done(value),
+  pause: (!resume) => \`Suspended !resume,
+  return: value => \`Done value,
 }
 
 let suspended: suspended_type = try run() with suspend
-if let .suspended(resume) = suspended {
+if let \`Suspended resume = suspended {
   let completed: suspended_type = !resume(41)
-  if let .done(value) = completed { value } else { 0 }
+  if let \`Done value = completed { value } else { 0 }
 } else {
   0
 }
@@ -82,6 +82,24 @@ let counter = {
 try run() with counter
 `;
 
+const reusable_resume_source = `
+effect Choose {
+  choose: () => I32
+}
+
+let run = () => {
+  value <- Choose.choose()
+  value + 1
+}
+
+let choose = Choose {
+  choose: (resume) => resume(10) + resume(20),
+  return: value => value,
+}
+
+try run() with choose
+`;
+
 async function run_i32(source: string): Promise<number> {
   const command = new Deno.Command("wat2wasm", {
     args: ["-o", "-", "-"],
@@ -114,6 +132,10 @@ Deno.test("a resumption can leave try in a union and resume later", async () => 
 
 Deno.test("checked resumption dup copies scalar handler state", async () => {
   assert_equals(await run_i32(duplicated_scalar_state_source), 11);
+});
+
+Deno.test("an ordinary resumption parameter is reusable", async () => {
+  assert_equals(await run_i32(reusable_resume_source), 32);
 });
 
 Deno.test("a resumption cannot be invoked twice", () => {
@@ -188,6 +210,28 @@ try run() with fork
   );
 });
 
+Deno.test("a reusable resumption rejects unique handler captures", () => {
+  assert_throws(
+    () =>
+      Source.core(`
+effect Fork { fork: () => Unit }
+let run = () => {
+  _ <- Fork.fork()
+  0
+}
+let fork = {
+  let owner = (value: I32) => value
+  Fork {
+    fork: (resume) => resume(()),
+    return: value => value,
+  }
+}
+try run() with fork
+`),
+    "Cannot duplicate resumption resume: capture owner is unique",
+  );
+});
+
 Deno.test("an immediate local resumption stays direct and import-free", () => {
   const direct_wat = Source.wat(direct_resume_source);
 
@@ -217,9 +261,9 @@ Deno.test("an escaped resumption allocates and dispatches indirectly", () => {
   );
 });
 
-Deno.test("an abandoned resumption drops its union frame and closure", () => {
+Deno.test("an abandoned resumption drops its closure", () => {
   const source = `
-type SuspendedType = | .suspended = Resume | .done = I32
+type SuspendedType = | \`Suspended Resume | \`Done I32
 const suspended_type = SuspendedType
 effect Suspend { pause: () => I32 }
 let run = () => {
@@ -227,8 +271,8 @@ let run = () => {
   value
 }
 let suspend = Suspend {
-  pause: (!resume) => suspended_type.suspended(!resume),
-  return: value => suspended_type.done(value),
+  pause: (!resume) => \`Suspended !resume,
+  return: value => \`Done value,
 }
 let suspended: suspended_type = try run() with suspend
 0
@@ -246,14 +290,9 @@ let suspended: suspended_type = try run() with suspend
     })),
     [{
       allocation_id: "allocation#0",
-      owner: "suspended",
-      reason: "runtime_union",
-      owned_children: [{
-        allocation_ids: ["allocation#1"],
-        offset: 4,
-        ownership: { tag: "unique_heap", reason: "closure" },
-        layout: "closure_env.table_index_and_capture_slots",
-      }],
+      owner: undefined,
+      reason: "closure",
+      owned_children: undefined,
     }],
   );
   assert_includes(wat, "call $__alloc");

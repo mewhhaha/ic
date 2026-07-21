@@ -23,6 +23,13 @@ Small pure examples marked `IC` use `Source.ic_wat`; structured examples marked
 `Source.artifact_file` and receive explicit effect objects through `DuckRunner`.
 The executable expectations and deterministic runners live in `manifest.ts`.
 
+The source-level testing example lives at `testing/01_inline_tests.duck`. Run
+its `@[test]` functions with:
+
+```sh
+just duck test examples/testing/01_inline_tests.duck
+```
+
 ## Basics
 
 | Example                            | Focus                                   | Route   | Result      |
@@ -119,9 +126,11 @@ The executable expectations and deterministic runners live in `manifest.ts`.
 
 ## Effects
 
-| Example                          | Focus                                     | Route | Result |
-| -------------------------------- | ----------------------------------------- | ----- | ------ |
-| `handlers/01_local_counter.duck` | deep stateful Duck-defined effect handler | Core  | `42`   |
+| Example                                      | Focus                                      | Route | Result |
+| -------------------------------------------- | ------------------------------------------ | ----- | ------ |
+| `handlers/01_local_counter.duck`             | deep stateful Duck-defined effect handler  | Core  | `42`   |
+| `handlers/02_inferred_option_do.duck`        | inferred source Option handler             | Core  | `42`   |
+| `handlers/03_composed_default_handlers.duck` | ordered composition of two source defaults | Core  | `42`   |
 
 `effects/01_inferred_io.duck` and `effects/02_annotated_effect_row.duck`
 contrast inferred rows with `-> <row>` function types.
@@ -140,6 +149,7 @@ effects or deterministic mocks when `--dry-run` is present; see
 | `04_result_pipeline.duck`           | generic union with struct payload and host-selected branch  | Managed | `42`   |
 | `05_linear_host_session.duck`       | scratch promotion, freeze, effect resource, and host borrow | Managed | `42`   |
 | `06_modular_score_application.duck` | import, module application, and compile-time closure        | IC      | `42`   |
+| `07_domain_abstractions.duck`       | predicates, patches, and bounded source spans               | Core    | `42`   |
 
 ## Expected Failures
 

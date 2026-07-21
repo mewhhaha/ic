@@ -60,6 +60,7 @@ import {
 import { create_core_runtime_union_match_child_ctx } from "./graph/proof_context.ts";
 import { static_owner_value_materializes } from "../mutable_static_owner.ts";
 import { create_core_backend_graph } from "./graph/instance.ts";
+import { named_rec_function_core } from "../named_rec.ts";
 
 const core_backend = create_core_backend_graph();
 
@@ -84,8 +85,51 @@ export function core_mod(core: CoreNode, name = "main"): Mod {
 function prepare_cleanup_emission(core: CoreNode): void {
   const proof = core_backend_proof(core_backend, core);
   core_check_baseline_proof(proof);
-  core.cleanup_emission = elaborate_core_cleanup_emission(core, proof.drops);
+  let cleanup_emission: ReturnType<typeof elaborate_core_cleanup_emission>;
+  try {
+    cleanup_emission = elaborate_core_cleanup_emission(
+      core,
+      proof.drops,
+      proof.allocations,
+    );
+  } catch (error) {
+    throw new Error("Core program cleanup elaboration failed", {
+      cause: error,
+    });
+  }
   core.allocation_permit_plan = proof.allocations;
+
+  if (core.recFunctions !== undefined) {
+    for (const name in core.recFunctions) {
+      const definition = core.recFunctions[name];
+      expect(definition, "Missing named recursive function: " + name);
+      const function_core = named_rec_function_core(core, definition);
+      let function_proof: CoreBaselineProof;
+      try {
+        function_proof = core_backend_proof(core_backend, function_core);
+        core_check_baseline_proof(function_proof);
+      } catch (error) {
+        throw new Error("Named recursive function proof failed: " + name, {
+          cause: error,
+        });
+      }
+      try {
+        cleanup_emission.push(...elaborate_core_cleanup_emission(
+          function_core,
+          function_proof.drops,
+          function_proof.allocations,
+        ));
+      } catch (error) {
+        throw new Error(
+          "Named recursive function cleanup elaboration failed: " + name,
+          { cause: error },
+        );
+      }
+      definition.allocation_permit_plan = function_proof.allocations;
+    }
+  }
+
+  core.cleanup_emission = cleanup_emission;
 }
 
 export function core_data(core: CoreNode): DataSegment[] {

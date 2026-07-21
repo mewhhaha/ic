@@ -18,6 +18,7 @@ export type CoreExprEmitCtx = {
   static_capture_values?: Map<string, CoreExpr>;
   struct_locals: Map<string, CoreExpr>;
   union_locals: Map<string, CoreExpr>;
+  borrowed_locals?: Set<string>;
   frozen_locals?: Set<string>;
   heap: {
     needed: boolean;

@@ -22,6 +22,7 @@ import {
   allocator_free_head,
   runtime_allocator_funcs,
 } from "./runtime_allocator.ts";
+import { core_recursive_drop_functions } from "./recursive_drop.ts";
 import { core_host_func_imports } from "./host_import.ts";
 import {
   check_core_allocation_permits,
@@ -64,7 +65,22 @@ export function emit_core_artifact<ctx extends CoreArtifactEmitCtx>(
     allocation_permit_plan,
   );
   const core_ctx = hooks.collect_core_ctx(core);
-  const text_layout = hooks.build_text_layout(core, core_ctx);
+  let recursive_drop_funcs: Func[];
+  try {
+    recursive_drop_funcs = core_recursive_drop_functions(core, core_ctx);
+  } catch (error) {
+    throw new Error("Core recursive destructor planning failed", {
+      cause: error,
+    });
+  }
+  let text_layout: ReturnType<
+    CoreArtifactEmitHooks<ctx>["build_text_layout"]
+  >;
+  try {
+    text_layout = hooks.build_text_layout(core, core_ctx);
+  } catch (error) {
+    throw new Error("Core text layout planning failed", { cause: error });
+  }
   const closures = create_closure_emit_ctx();
   const heap: RuntimeTextHeap = { needed: false };
   const scratch: CoreScratchHeap = { needed: false };
@@ -76,31 +92,38 @@ export function emit_core_artifact<ctx extends CoreArtifactEmitCtx>(
     scratch,
     allocation_permits,
   });
-  const lines: string[] = [];
-
-  for (const [name, type] of core_ctx.locals) {
-    lines.push("(local $" + name + " " + type + ")");
-  }
+  const statement_lines: string[] = [];
 
   for (let index = 0; index < core.statements.length; index += 1) {
     const stmt = core.statements[index];
     expect(stmt, "Missing core statement " + index);
     const is_final = index + 1 >= core.statements.length;
-    lines.push(hooks.emit_stmt(stmt, ctx, is_final));
+    try {
+      statement_lines.push(hooks.emit_stmt(stmt, ctx, is_final));
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(
+          "Core statement emission failed at index " + index + ": " +
+            error.message,
+          { cause: error },
+        );
+      }
+      throw new Error("Core statement emission failed at index " + index, {
+        cause: error,
+      });
+    }
   }
 
   const final_stmt = core.statements[core.statements.length - 1];
   expect(final_stmt, "Core program has no result statement");
-  const funcs = hooks.emit_lifted_closure_funcs(
-    text_layout,
-    closures,
-    heap,
-    scratch,
-    allocation_permits,
-  );
+  const lines: string[] = [];
+  for (const [name, type] of core_ctx.locals) {
+    lines.push("(local $" + name + " " + type + ")");
+  }
+  lines.push(...statement_lines);
   const named_rec_funcs = emit_named_rec_functions(
     core,
-    { text_layout, closures, heap, scratch, allocation_permits },
+    { text_layout, closures, heap, scratch },
     {
       collect_core_ctx: hooks.collect_core_ctx,
       create_emit_ctx: hooks.create_emit_ctx,
@@ -108,12 +131,35 @@ export function emit_core_artifact<ctx extends CoreArtifactEmitCtx>(
       stmt_result_type: hooks.stmt_result_type,
     },
   );
+  let funcs: Func[];
+  try {
+    funcs = hooks.emit_lifted_closure_funcs(
+      text_layout,
+      closures,
+      heap,
+      scratch,
+      allocation_permits,
+    );
+  } catch (error) {
+    throw new Error("Lifted closure emission failed", { cause: error });
+  }
 
   for (const func of named_rec_funcs) {
     funcs.push(func);
   }
+  for (const func of recursive_drop_funcs) {
+    funcs.push(func);
+  }
 
   check_core_allocation_permits(allocation_permits);
+
+  for (const permit_state of closures.allocation_permit_states) {
+    if (permit_state === allocation_permits) {
+      continue;
+    }
+
+    check_core_allocation_permits(permit_state);
+  }
 
   let table: Table | undefined;
 
@@ -126,9 +172,16 @@ export function emit_core_artifact<ctx extends CoreArtifactEmitCtx>(
 
   const body = lines.join("\n");
 
+  let result: ValType;
+  try {
+    result = hooks.stmt_result_type(final_stmt, core_ctx);
+  } catch (error) {
+    throw new Error("Core result type emission failed", { cause: error });
+  }
+
   return {
     body,
-    result: hooks.stmt_result_type(final_stmt, core_ctx),
+    result,
     data: text_layout.data,
     funcs,
     imports: core_host_func_imports(core),
@@ -136,7 +189,7 @@ export function emit_core_artifact<ctx extends CoreArtifactEmitCtx>(
     table,
     heap_start: text_layout.heap_start,
     needs_heap: heap.needed || table !== undefined ||
-      body.includes("call $__free"),
+      body.includes("call $__free") || recursive_drop_funcs.length > 0,
     needs_scratch: scratch.needed,
   };
 }
@@ -171,7 +224,7 @@ export function core_mod_from_artifact(
   };
 
   if (artifact.needs_heap) {
-    Object.assign(funcs, runtime_allocator_funcs());
+    Object.assign(funcs, runtime_allocator_funcs(artifact.heap_start));
   }
 
   const mod: Mod = {

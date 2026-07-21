@@ -14,9 +14,11 @@ import type { StaticValuePlan } from "./static_values.ts";
 import { static_scratch_aggregate_alias_materializes } from "./static_values.ts";
 import { static_function_value } from "./type_static.ts";
 import {
+  materialized_static_owner_binding,
   mutable_static_owner_value_materializes,
   static_owner_value_materializes,
 } from "./mutable_static_owner.ts";
+import { bind_core_borrowed_fact } from "./local_facts.ts";
 
 export type CoreStmtEmitCtx = {
   locals: Map<string, ValType>;
@@ -30,6 +32,7 @@ export type CoreStmtEmitCtx = {
   scratch_return_resets: string[];
   scratch_depth?: number;
   frozen_locals?: Set<string>;
+  borrowed_locals?: Set<string>;
   materialized_bindings?: Set<string>;
   mutable_bindings?: Set<string>;
 };
@@ -341,22 +344,17 @@ function emit_core_stmt_inner<
 
       if (
         hooks.is_static_value_expr(value, ctx) &&
+        stmt.annotation?.startsWith("&") !== true &&
         (ctx.mutable_bindings?.has(stmt.name) !== true ||
           value.tag === "struct_value")
       ) {
         const plan = hooks.plan_static_value_expr(value, ctx, ctx);
-        const materialized_struct_owner = stmt.kind === "let" &&
-          ctx.materialized_bindings?.has(stmt.name) === true &&
+        const materialized_owner = stmt.kind === "let" &&
           value.tag !== "scratch" &&
-          (!ctx.scratch_depth || ctx.scratch_depth === 0) &&
-          plan.value.tag === "struct_value" &&
-          !(
-            plan.value.type_expr.tag === "var" &&
-            plan.value.type_expr.name === "object_type"
-          );
+          materialized_static_owner_binding(stmt.name, plan.value, ctx);
         if (
           static_scratch_aggregate_alias_materializes(value) ||
-          materialized_struct_owner ||
+          materialized_owner ||
           (value.tag !== "scratch" &&
             static_owner_value_materializes(plan.value, ctx)) ||
           mutable_static_owner_binding(stmt.name, plan.value, ctx)
@@ -388,6 +386,12 @@ function emit_core_stmt_inner<
             hooks,
           );
           bind_core_frozen_fact(stmt.name, value, ctx);
+          bind_core_borrowed_fact(
+            stmt.name,
+            stmt.annotation,
+            value,
+            ctx,
+          );
           return emitted;
         }
         ctx.statics.set(stmt.name, plan.value);
@@ -404,6 +408,7 @@ function emit_core_stmt_inner<
         hooks.bind_core_union_type(stmt.name, value, stmt.annotation, ctx);
         bind_core_text_fact(stmt.name, value, stmt.annotation, ctx, hooks);
         bind_core_frozen_fact(stmt.name, value, ctx);
+        bind_core_borrowed_fact(stmt.name, stmt.annotation, value, ctx);
         return emitted;
       }
     }
@@ -456,6 +461,7 @@ function emit_core_stmt_inner<
               hooks,
             );
             bind_core_frozen_fact(stmt.name, value, ctx);
+            bind_core_borrowed_fact(stmt.name, undefined, value, ctx);
             return emitted;
           }
           ctx.statics.set(stmt.name, plan.value);
@@ -482,6 +488,7 @@ function emit_core_stmt_inner<
           );
           bind_core_text_fact(stmt.name, value, undefined, ctx, hooks);
           bind_core_frozen_fact(stmt.name, value, ctx);
+          bind_core_borrowed_fact(stmt.name, undefined, value, ctx);
           return emitted;
         }
       }
@@ -690,6 +697,9 @@ function emit_cleanup_rows(
         "Missing cleanup owner local: " + row.owner,
       );
       pointer = "local.get $" + row.owner;
+    }
+    if (row.destructor) {
+      return pointer + "\ncall $" + row.destructor + "\ndrop";
     }
     const lines: string[] = [];
     emit_owned_child_cleanup(lines, pointer, [], row.owned_children);

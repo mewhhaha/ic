@@ -1,4 +1,5 @@
-import type { FrontExpr, Stmt } from "../../frontend/ast.ts";
+import type { FrontExpr, Stmt, TypeExpr } from "../../frontend/ast.ts";
+import { format_type_expr } from "../../frontend/type_expr.ts";
 import type { CoreExpr, CoreStmt } from "../ast.ts";
 import {
   bind_core_name,
@@ -14,6 +15,8 @@ import {
   core_expr,
   core_param,
   front_expr_integer_type,
+  front_expr_numeric_type,
+  record_param_integer_type,
 } from "./expr.ts";
 import { validate_named_recursive_tail_binding } from "./rec.ts";
 import { record_optional_core_source_origin } from "../source_origin.ts";
@@ -24,6 +27,7 @@ import {
   integer_type_name,
   type IntegerType,
 } from "../../integer.ts";
+import { val_type_from_type_name } from "../../frontend/types.ts";
 
 export function core_stmt(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
   return record_optional_core_source_origin(
@@ -39,7 +43,23 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
         return core_mutually_recursive_binding(stmt, ctx);
       }
 
-      if (stmt.is_recursive || stmt.managed_export) {
+      let result_type = stmt.type_annotation;
+      while (result_type?.tag === "forall") {
+        result_type = result_type.body;
+      }
+      if (result_type?.tag === "arrow") {
+        result_type = result_type.result;
+      } else {
+        result_type = undefined;
+      }
+      const named_function = stmt.value.tag === "lam" &&
+        stmt.kind === "let" &&
+        result_type?.tag === "name" &&
+        (ctx.runtime_aggregate_type_names.has(result_type.name) ||
+          result_type.name === "Text" || result_type.name === "Bytes" ||
+          val_type_from_type_name(result_type.name) !== undefined);
+
+      if (stmt.is_recursive || stmt.managed_export || named_function) {
         const name = bind_core_name(ctx, stmt.name);
 
         if (stmt.is_linear) {
@@ -54,7 +74,7 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
           name,
           is_linear: stmt.is_linear,
           annotation: resolve_core_annotation(ctx, stmt.annotation),
-          value: core_recursive_binding_value(stmt, ctx, name),
+          value: core_recursive_binding_value(stmt, ctx, name, named_function),
         };
       }
 
@@ -65,6 +85,16 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
       }
 
       let value = core_expr(source_value, ctx);
+      if (stmt.kind === "let") {
+        value = move_core_projection(value);
+      }
+
+      if (value.tag === "rec") {
+        value = {
+          ...value,
+          result_annotation: named_rec_result_annotation(stmt, ctx),
+        };
+      }
 
       if (value.tag === "block") {
         inline_match_if_let_target(value);
@@ -94,6 +124,22 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
         }
       } else {
         ctx.integer_types.delete(name);
+      }
+
+      let numeric = front_expr_numeric_type(source_value, ctx);
+      if (stmt.annotation) {
+        const annotation = resolve_core_annotation(ctx, stmt.annotation);
+        if (annotation) {
+          const annotated_numeric = val_type_from_type_name(annotation);
+          if (annotated_numeric) {
+            numeric = annotated_numeric;
+          }
+        }
+      }
+      if (numeric) {
+        ctx.numeric_types.set(name, numeric);
+      } else {
+        ctx.numeric_types.delete(name);
       }
 
       let is_linear = stmt.is_linear;
@@ -138,7 +184,7 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
 
     case "assign": {
       resolve_bound_core_value_name(ctx, stmt.name);
-      const value = core_expr(stmt.value, ctx);
+      const value = move_core_projection(core_expr(stmt.value, ctx));
 
       if (value.tag === "block") {
         inline_match_if_let_target(value);
@@ -175,7 +221,7 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
         tag: "index_assign",
         name: resolve_core_name(ctx, stmt.name),
         index: core_expr(stmt.index, ctx),
-        value: core_expr(stmt.value, ctx),
+        value: move_core_projection(core_expr(stmt.value, ctx)),
       };
 
     case "for_range": {
@@ -317,6 +363,14 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
   }
 }
 
+function move_core_projection(value: CoreExpr): CoreExpr {
+  if (value.tag === "field" || value.tag === "index") {
+    return { ...value, move: true };
+  }
+
+  return value;
+}
+
 function core_mutually_recursive_binding(
   stmt: Extract<Stmt, { tag: "bind" }>,
   ctx: CoreFromSourceCtx,
@@ -342,7 +396,11 @@ function core_mutually_recursive_binding(
     const name = bind_core_name(ctx, member.name);
     const params = member.value.params.map((param) => core_param(param, ctx));
     names.set(member.name, name);
-    ctx.namedRecs.set(name, { params, body: undefined });
+    ctx.namedRecs.set(name, {
+      params,
+      body: undefined,
+      result_annotation: named_rec_result_annotation(member, ctx),
+    });
   }
 
   for (const member of members) {
@@ -395,7 +453,12 @@ function core_mutually_recursive_binding(
     name: first_name,
     is_linear: false,
     annotation: resolve_core_annotation(ctx, stmt.annotation),
-    value: { tag: "rec_ref", name: first_name, params: first.params },
+    value: {
+      tag: "rec_ref",
+      name: first_name,
+      params: first.params,
+      result_annotation: first.result_annotation,
+    },
   };
 }
 
@@ -787,24 +850,31 @@ function core_recursive_binding_value(
   stmt: Extract<Stmt, { tag: "bind" }>,
   ctx: CoreFromSourceCtx,
   name: string,
+  force_named = false,
 ): CoreExpr {
-  if (stmt.managed_export) {
+  if (stmt.managed_export || force_named) {
     if (stmt.value.tag !== "lam" && stmt.value.tag !== "rec") {
       throw new Error(
-        "Managed callable must be a lambda or recursive function: " +
+        "Named function must be a lambda or recursive function: " +
           stmt.name,
       );
     }
 
     const params = stmt.value.params.map((param) => core_param(param, ctx));
-    ctx.namedRecs.set(name, { params, body: undefined });
+    const result_annotation = named_rec_result_annotation(stmt, ctx);
+    ctx.namedRecs.set(name, { params, body: undefined, result_annotation });
     const body_ctx = fork_core_from_source_ctx(ctx);
     body_ctx.aliases.set(stmt.name, name);
     body_ctx.aliases.set("rec", name);
-    body_ctx.namedRecs.set(name, { params, body: undefined });
+    body_ctx.namedRecs.set(name, {
+      params,
+      body: undefined,
+      result_annotation,
+    });
 
     for (const param of stmt.value.params) {
       body_ctx.aliases.set(param.name, param.name);
+      record_param_integer_type(param, body_ctx);
 
       if (param.is_linear) {
         body_ctx.linear_names.add(param.name);
@@ -814,8 +884,8 @@ function core_recursive_binding_value(
     }
 
     const body = core_expr(stmt.value.body, body_ctx);
-    ctx.namedRecs.set(name, { params, body });
-    return { tag: "rec_ref", name, params };
+    ctx.namedRecs.set(name, { params, body, result_annotation });
+    return { tag: "rec_ref", name, params, result_annotation };
   }
 
   if (stmt.value.tag === "rec") {
@@ -823,6 +893,7 @@ function core_recursive_binding_value(
 
     for (const param of stmt.value.params) {
       body_ctx.aliases.set(param.name, param.name);
+      record_param_integer_type(param, body_ctx);
       if (param.is_linear) {
         body_ctx.linear_names.add(param.name);
       } else {
@@ -834,6 +905,7 @@ function core_recursive_binding_value(
       tag: "rec",
       params: stmt.value.params.map((param) => core_param(param, ctx)),
       body: core_expr(stmt.value.body, body_ctx),
+      result_annotation: named_rec_result_annotation(stmt, ctx),
     };
   }
 
@@ -842,6 +914,7 @@ function core_recursive_binding_value(
   }
 
   const params = stmt.value.params.map((param) => core_param(param, ctx));
+  const result_annotation = named_rec_result_annotation(stmt, ctx);
   let is_tail = true;
 
   try {
@@ -861,7 +934,7 @@ function core_recursive_binding_value(
   }
 
   if (!is_tail) {
-    ctx.namedRecs.set(name, { params, body: undefined });
+    ctx.namedRecs.set(name, { params, body: undefined, result_annotation });
   }
 
   const body_ctx = fork_core_from_source_ctx(ctx);
@@ -870,11 +943,16 @@ function core_recursive_binding_value(
     body_ctx.aliases.set(stmt.name, "rec");
   } else {
     body_ctx.aliases.set(stmt.name, name);
-    body_ctx.namedRecs.set(name, { params, body: undefined });
+    body_ctx.namedRecs.set(name, {
+      params,
+      body: undefined,
+      result_annotation,
+    });
   }
 
   for (const param of stmt.value.params) {
     body_ctx.aliases.set(param.name, param.name);
+    record_param_integer_type(param, body_ctx);
     if (param.is_linear) {
       body_ctx.linear_names.add(param.name);
     } else {
@@ -885,11 +963,33 @@ function core_recursive_binding_value(
   const body = core_expr(stmt.value.body, body_ctx);
 
   if (!is_tail) {
-    ctx.namedRecs.set(name, { params, body });
-    return { tag: "rec_ref", name, params };
+    ctx.namedRecs.set(name, { params, body, result_annotation });
+    return { tag: "rec_ref", name, params, result_annotation };
   }
 
-  return { tag: "rec", params, body };
+  return {
+    tag: "rec",
+    params,
+    body,
+    result_annotation: named_rec_result_annotation(stmt, ctx),
+  };
+}
+
+function named_rec_result_annotation(
+  stmt: { type_annotation?: TypeExpr },
+  ctx: CoreFromSourceCtx,
+): string | undefined {
+  let type: TypeExpr | undefined = stmt.type_annotation;
+
+  while (type?.tag === "forall") {
+    type = type.body;
+  }
+
+  if (type?.tag !== "arrow") {
+    return undefined;
+  }
+
+  return resolve_core_annotation(ctx, format_type_expr(type.result));
 }
 
 function carried_names(stmts: CoreStmt[]): string[] {

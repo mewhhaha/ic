@@ -1,0 +1,161 @@
+module () where
+
+const {} = import "duck:prelude/types" ()
+const { min_i32, max_i32, bit_and, bit_or, bit_xor, shift_left, shift_right_unsigned, sqrt_f32, f32_from_i32, i32_from_f32, f64_from_i32, i32_from_f64, unsafe_i32_wrap_i64, unsafe_i64_extend_i32_signed, unsafe_i64_extend_i32_unsigned, unsafe_i32_reinterpret_f32, unsafe_f32_reinterpret_i32, format_i32, format_i64, format_f32, f32x4, f32x4_splat, f32x4_add, f32x4_subtract, f32x4_multiply, f32x4_divide, text_get, text_length, text_less_than, text_slice } = import "duck:prelude/runtime" ()
+
+type DecimalU32Result = Result Text I64
+type DecimalI64Result = Result Text I64
+type DecimalU64TextResult = Result Text Text
+
+const saturating_add_i64: [I64, I64] -> I64 = (left: I64, right: I64) => {
+  if right > 0i64 && left > 9223372036854775807i64 - right {
+    9223372036854775807i64
+  } else if right < 0i64 && left < -9223372036854775808i64 - right {
+    -9223372036854775808i64
+  } else {
+    left + right
+  }
+}
+
+const min_i64: [I64, I64] -> I64 = (left: I64, right: I64) => {
+  if left <= right { left } else { right }
+}
+
+const max_i64: [I64, I64] -> I64 = (left: I64, right: I64) => {
+  if left >= right { left } else { right }
+}
+
+const parse_u32_decimal: Text -> DecimalU32Result = (text: Text) => {
+  let valid = text_length(text) > 0
+  let exceeds_u32 = false
+  let parsed = 0i64
+  let index = 0
+
+  loop {
+    if index >= text_length(text) { break }
+    let byte = text_get([text, index])
+
+    if byte < 48 || byte > 57 {
+      valid = false
+    } else if valid {
+      let digit = unsafe_i64_extend_i32_signed(byte - 48)
+      if parsed > 429496729i64 || parsed == 429496729i64 && digit > 5i64 {
+        valid = false
+        exceeds_u32 = true
+      } else {
+        parsed = parsed * 10i64 + digit
+      }
+    }
+
+    index = index + 1
+  }
+
+  if valid {
+    `Ok parsed
+  } else if exceeds_u32 {
+    `Err "number exceeds U32"
+  } else {
+    `Err "must be a non-negative integer"
+  }
+}
+
+const parse_i64_decimal: Text -> DecimalI64Result = (text: Text) => {
+  if text == "-9223372036854775808" { return `Ok (-9223372036854775808i64) }
+
+  let negative = text_length(text) > 0 && text_get([text, 0]) == 45
+  let start = if negative { 1 } else { 0 }
+  let valid = start < text_length(text)
+  let exceeds_i64 = false
+  let parsed = 0i64
+  let index = start
+
+  loop {
+    if index >= text_length(text) { break }
+    let byte = text_get([text, index])
+
+    if byte < 48 || byte > 57 {
+      valid = false
+    } else if valid {
+      let digit = unsafe_i64_extend_i32_signed(byte - 48)
+      if parsed > 922337203685477580i64 || parsed == 922337203685477580i64 && digit > 7i64 {
+        valid = false
+        exceeds_i64 = true
+      } else {
+        parsed = parsed * 10i64 + digit
+      }
+    }
+
+    index = index + 1
+  }
+
+  if valid {
+    if negative { `Ok (0i64 - parsed) } else { `Ok parsed }
+  } else if exceeds_i64 {
+    `Err "number exceeds I64"
+  } else {
+    `Err "must be an integer"
+  }
+}
+
+const parse_u64_decimal_text: Text -> DecimalU64TextResult = text => {
+  let valid = text_length(text) > 0
+  let first_nonzero = text_length(text)
+  let index = 0
+
+  loop {
+    if index >= text_length(text) { break }
+    let byte = text_get([text, index])
+    if byte < 48 || byte > 57 {
+      valid = false
+    } else if byte != 48 && first_nonzero == text_length(text) {
+      first_nonzero = index
+    }
+    index = index + 1
+  }
+
+  if !(valid) {
+    `Err "must be a non-negative integer"
+  } else {
+    let canonical = if first_nonzero == text_length(text) { "0" } else { text_slice([text, first_nonzero, text_length(text)]) }
+    if text_length(canonical) > 20 || text_length(canonical) == 20 && text_less_than(["18446744073709551615", canonical]) {
+      `Err "number exceeds U64"
+    } else {
+      `Ok canonical
+    }
+  }
+}
+
+return {
+  parse_u32_decimal,
+  parse_i64_decimal,
+  parse_u64_decimal_text,
+  saturating_add_i64,
+  min_i64,
+  max_i64,
+  min_i32,
+  max_i32,
+  bit_and,
+  bit_or,
+  bit_xor,
+  shift_left,
+  shift_right_unsigned,
+  sqrt_f32,
+  f32_from_i32,
+  i32_from_f32,
+  f64_from_i32,
+  i32_from_f64,
+  unsafe_i32_wrap_i64,
+  unsafe_i64_extend_i32_signed,
+  unsafe_i64_extend_i32_unsigned,
+  unsafe_i32_reinterpret_f32,
+  unsafe_f32_reinterpret_i32,
+  format_i32,
+  format_i64,
+  format_f32,
+  f32x4,
+  f32x4_splat,
+  f32x4_add,
+  f32x4_subtract,
+  f32x4_multiply,
+  f32x4_divide,
+}

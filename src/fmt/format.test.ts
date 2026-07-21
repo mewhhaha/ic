@@ -17,6 +17,13 @@ Deno.test("format_text keeps unary sigils tight", () => {
   );
 });
 
+Deno.test("format_text separates prefix operators from fixity assignment", () => {
+  assert_equals(
+    format_text("prefix 80 ! = @syntax.not\n"),
+    "prefix 80 ! = @syntax.not\n",
+  );
+});
+
 Deno.test("format_text indents blocks by bracket depth", () => {
   assert_equals(
     format_text("for i in 1..5 {\nif i==2 {\nbreak\n}\n}\n"),
@@ -26,15 +33,15 @@ Deno.test("format_text indents blocks by bracket depth", () => {
 
 Deno.test("format_text indents union alternatives", () => {
   assert_equals(
-    format_text("type Option t =\n| .some = t\n| .none\n"),
-    "type Option t =\n  | .some = t\n  | .none\n",
+    format_text("type Option t =\n| `Some t\n| `None Unit\n"),
+    "type Option t =\n  | `Some t\n  | `None Unit\n",
   );
 });
 
 Deno.test("format_text keeps match alternatives inside their braces", () => {
   assert_equals(
-    format_text("match value {\n| .some item => item\n| .none => 0\n}\n"),
-    "match value {\n  | .some item => item\n  | .none => 0\n}\n",
+    format_text("match value {\n| `Some item => item\n| `None () => 0\n}\n"),
+    "match value {\n  | `Some item => item\n  | `None () => 0\n}\n",
   );
 });
 

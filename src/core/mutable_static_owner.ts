@@ -9,7 +9,24 @@ type StaticOwnerFactCtx = {
   union_locals: Map<string, CoreExpr>;
   frozen_locals?: Set<string>;
   scratch_depth?: number;
+  materialized_bindings?: Set<string>;
 };
+
+export function materialized_static_owner_binding(
+  name: string,
+  value: CoreExpr,
+  ctx: StaticOwnerFactCtx,
+): boolean {
+  if (ctx.scratch_depth && ctx.scratch_depth > 0) {
+    return false;
+  }
+
+  if (!ctx.materialized_bindings?.has(name)) {
+    return false;
+  }
+
+  return mutable_static_owner_value_materializes(value);
+}
 
 export function static_owner_value_materializes(
   value: CoreExpr,

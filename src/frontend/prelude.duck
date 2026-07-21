@@ -1,43 +1,26 @@
 module () where
 
-infixr 15 :> = @seal
+infixr 75 :> = @seal
+infixl 75 :< = @representation
 infixl 65 :+ = @type.extend
 infixl 45 :| = @type.union
 infixl 50 :& = @type.intersection
 infixl 55 :- = @type.difference
 
-const type_extend = [base, additions] => @type.extend [base, additions]
-
-const type_union = [left, right] => @type.union(left, right)
-
-const type_intersection = [left, right] => @type.intersection(left, right)
-
-const type_difference = [base, removed] => @type.difference(base, removed)
-
-const newtype = representation => representation
-
-const packed = layout => layout
-
-const struct = (const shape) => {
-  let product_type = []
-
-  for field in shape {
-    product_type = [...product_type, field.value]
-  }
-
-  for index, field in shape {
-    product_type = @type.member [product_type, field.name, value => value[index]]
-  }
-
-  product_type
-}
+const types_module = import "duck:prelude/types" ()
+const { cast, newtype, packed, representation, seal, struct, type_difference, type_extend, type_intersection, type_union } = types_module
+const not: Bool -> Bool = value => if value { false } else { true }
 
 return {
   struct,
   packed,
   newtype,
+  cast,
+  seal,
+  representation,
   type_extend,
   type_union,
   type_intersection,
   type_difference,
+  not,
 }

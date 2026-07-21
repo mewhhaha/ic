@@ -5,6 +5,8 @@ import { Format } from "../../trait.ts";
 import { format_binding_name } from "../names.ts";
 import { format_type_expr } from "../type_expr.ts";
 import { create_fixity_table } from "../fixity.ts";
+import { format_character_literal } from "../literal.ts";
+import { import_meta_binding_name } from "../import_meta.ts";
 import {
   format_field,
   format_params,
@@ -40,6 +42,10 @@ function format_expr(
   }
 
   if (expr.tag === "num") {
+    if (expr.character !== undefined) {
+      return format_character_literal(expr.character);
+    }
+
     if (expr.integer) {
       return expr.value.toString() + (expr.integer.signed ? "i" : "u") +
         expr.integer.width.toString();
@@ -81,6 +87,10 @@ function format_expr(
   }
 
   if (expr.tag === "var") {
+    if (expr.name === import_meta_binding_name) {
+      return "import.meta";
+    }
+
     return expr.name;
   }
 
@@ -109,6 +119,13 @@ function format_expr(
   }
 
   if (expr.tag === "app") {
+    if (
+      expr.func.tag === "var" && expr.func.name === "@include" &&
+      expr.args.length === 1 && expr.args[0]?.tag === "text"
+    ) {
+      return "include " + Deno.inspect(expr.args[0].value);
+    }
+
     if (expr.operator_syntax !== undefined) {
       const syntax = expr.operator_syntax;
 
@@ -267,6 +284,14 @@ function format_expr(
   }
 
   if (expr.tag === "try_with") {
+    if (expr.infer_default_handlers === true) {
+      return parenthesize(
+        "try " + nested(expr.body, 1),
+        0,
+        parent_precedence,
+      );
+    }
+
     const text = "try " + nested(expr.body, 1) + " with " +
       nested(expr.handler, 1);
     return parenthesize(text, 0, parent_precedence);
@@ -342,10 +367,12 @@ function format_expr(
   }
 
   if (expr.tag === "if_let") {
-    let pattern = "." + expr.case_name;
+    let pattern = "`" + expr.case_name;
 
     if (expr.value_name) {
-      pattern += "(" + format_binding_name(expr.value_name) + ")";
+      pattern += " " + format_binding_name(expr.value_name);
+    } else {
+      pattern += " _";
     }
 
     const text = "if let " + pattern + " = " + nested(expr.target) + " " +
@@ -392,10 +419,12 @@ function format_expr(
 
   if (expr.tag === "union_case") {
     if (expr.value) {
-      return "." + expr.name + "(" + nested(expr.value) + ")";
+      const precedence = 110;
+      const text = "`" + expr.name + " " + nested(expr.value, precedence + 1);
+      return parenthesize(text, precedence, parent_precedence);
     }
 
-    return "." + expr.name;
+    return "`" + expr.name + " ()";
   }
 
   if (expr.tag === "linear") {

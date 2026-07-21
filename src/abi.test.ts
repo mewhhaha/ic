@@ -22,6 +22,7 @@ Deno.test("managed ABI describes declared effects and opaque Init fields", () =>
         params: [],
         operations: [{
           name: "print",
+          type_params: [],
           params: [{ type_name: "Text", ownership: "bounded_borrow" }],
           result: { type_name: "Unit", ownership: "scalar" },
         }],
@@ -163,7 +164,7 @@ return { .answer = 42 }
 `);
   const compiled = elaborate_front_type_sets(resolve_bundled_source_imports(
     Source.parse(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const duck_entry_result_type = struct { .answer= I32 }
 return [.answer = 42] as duck_entry_result_type
 `),
@@ -203,6 +204,7 @@ Deno.test("managed ABI builds deterministic schemas for source fixed arrays", ()
         params: [],
         operations: [{
           name: "read",
+          type_params: [],
           params: [],
           result: { type_name: "pair", ownership: "unique_heap" },
         }],
@@ -234,6 +236,66 @@ Deno.test("managed ABI builds deterministic schemas for source fixed arrays", ()
       offset: 0,
     }],
   });
+});
+
+Deno.test("managed ABI round trips recursive generic lists", async () => {
+  const artifact = Source.artifact(`
+module () where
+
+type List value =
+  | \`Nil Unit
+  | \`Cons ListNode value
+
+type ListNode value = [value, List value]
+type IntList = List I32
+
+let end: IntList = \`Nil ()
+let tail: IntList = \`Cons [2, end]
+let values: IntList = \`Cons [1, tail]
+return { .values = values }
+`);
+
+  assert_equals(artifact.abi.types["List I32"], {
+    tag: "union",
+    name: "List I32",
+    schema_id: 1,
+    size: 8,
+    align: 8,
+    cases: [
+      { name: "Nil", tag_value: 0, payload: { tag: "unit" } },
+      {
+        name: "Cons",
+        tag_value: 1,
+        payload: {
+          tag: "named",
+          name: "ListNode I32",
+          indirect: true,
+        },
+      },
+    ],
+  });
+  assert_equals(artifact.abi.types["ListNode I32"], {
+    tag: "struct",
+    name: "ListNode I32",
+    schema_id: 2,
+    size: 8,
+    align: 4,
+    fields: [
+      { name: "item_0", type: { tag: "i32" }, offset: 0 },
+      {
+        name: "item_1",
+        type: { tag: "named", name: "List I32" },
+        offset: 4,
+      },
+    ],
+  });
+
+  const wasm = await wasm_from_wat(artifact.wat);
+  const host = await DuckHost.instantiate(wasm, artifact.abi);
+
+  assert_equals(host.run(), [
+    { tag: "Cons", value: [1, { tag: "Cons", value: [2, { tag: "Nil" }] }] },
+  ]);
 });
 
 Deno.test("managed ABI records scalar float effect contracts", () => {
@@ -731,7 +793,9 @@ Deno.test("source managed callables bootstrap named aggregate state", async () =
   const artifact = Source.artifact(`
 module () where
 
-type State = [.count = I32]
+const { struct } = import "duck:prelude" ()
+
+type State = struct {.count = I32}
 let step: State -> State = (state: State) => state
 let count: State -> I32 = (state: State) => state.count
 return { .step = step, .count = count }
@@ -829,7 +893,7 @@ function fixed_array_effect_manifest(): {
           schema_id: 2,
           size: 8,
           align: 8,
-          cases: [{ name: "ok", tag_value: 0, payload: { tag: "text" } }],
+          cases: [{ name: "Ok", tag_value: 0, payload: { tag: "text" } }],
         },
         row: {
           tag: "struct",
@@ -1087,16 +1151,16 @@ Deno.test("managed ABI round trips nested fixed arrays and frees owned children"
     host: {
       read() {
         return [
-          [21n, "first", [1, 2], { tag: "ok", value: "ready" }],
-          [-9n, "second", [-3, 5], { tag: "ok", value: "done" }],
+          [21n, "first", [1, 2], { tag: "Ok", value: "ready" }],
+          [-9n, "second", [-3, 5], { tag: "Ok", value: "done" }],
         ];
       },
     },
   });
 
   assert_equals(result, [
-    [21n, "first", [1, 2], { tag: "ok", value: "ready" }],
-    [-9n, "second", [-3, 5], { tag: "ok", value: "done" }],
+    [21n, "first", [1, 2], { tag: "Ok", value: "ready" }],
+    [-9n, "second", [-3, 5], { tag: "Ok", value: "done" }],
   ]);
   const free_count = host.instance.exports.free_count;
 
@@ -1120,7 +1184,7 @@ Deno.test("managed ABI requires exact fixed-array lengths", async () => {
             1n,
             "only row",
             [1, 2],
-            { tag: "ok", value: "nope" },
+            { tag: "Ok", value: "nope" },
           ]];
         },
       },
@@ -1365,7 +1429,7 @@ Deno.test("managed ABI encodes JS structs containing Text", async () => {
   const source = `
 module (!init: Init) where
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct { .name= Text, .age= Int }
 declare effect Host { make_user: () => user_type }
 declare Init { host: Host }
@@ -1393,13 +1457,13 @@ Deno.test("managed ABI encodes tagged JS unions", async () => {
   const source = `
 module (!init: Init) where
 
-type ResultType = | .ok = Text | .err = Int
+type ResultType = | \`Ok Text | \`Err Int
 const result_type = ResultType
 declare effect Host { make_result: () => result_type }
 declare Init { host: Host }
 
 outcome <- Host.make_result()
-let result: I32 = if let .ok(value) = outcome { @len(value) } else { 0 }
+let result: I32 = if let \`Ok value = outcome { @len(value) } else { 0 }
 return { .result = result }
 `;
   const artifact = Source.artifact(source);
@@ -1408,7 +1472,7 @@ return { .result = result }
   const result = host.run({
     host: {
       make_result() {
-        return { tag: "ok", value: "hello" };
+        return { tag: "Ok", value: "hello" };
       },
     },
   });
@@ -1420,7 +1484,7 @@ Deno.test("managed ABI drops discarded owned effect results", async () => {
   const source = `
 module (!init: Init) where
 
-type ResultType = | .chunk = Bytes | .eof
+type ResultType = | \`Chunk Bytes | \`Eof Unit
 const result_type = ResultType
 declare effect Host { read: () => result_type }
 declare Init { host: Host }
@@ -1446,7 +1510,7 @@ return { .result = 1 }
       host: {
         read() {
           reads += 1;
-          return { tag: "chunk", value: new Uint8Array([7, 0, 255]) };
+          return { tag: "Chunk", value: new Uint8Array([7, 0, 255]) };
         },
       },
     });
@@ -1501,8 +1565,10 @@ Deno.test("managed ABI encodes duck-js-1 named struct union payloads indirectly"
   const artifact = Source.artifact(`
 module (!init: Init) where
 
-type User = [.age = I32, .score = I32]
-type ReadResult = | .ok = User | .err
+const { struct } = import "duck:prelude" ()
+
+type User = struct {.age = I32, .score = I32}
+type ReadResult = | \`Ok User | \`Err Unit
 
 declare effect Host {
   read: () => ReadResult
@@ -1511,7 +1577,7 @@ declare effect Host {
 declare Init { host: Host }
 
 outcome <- Host.read()
-let total: I32 = if let .ok(user) = outcome {
+let total: I32 = if let \`Ok user = outcome {
   user.age + user.score
 } else {
   0
@@ -1528,11 +1594,11 @@ return { .total = total }
 
   assert_equals(read_result.cases, [
     {
-      name: "ok",
+      name: "Ok",
       tag_value: 0,
       payload: { tag: "named", name: "User", indirect: true },
     },
-    { name: "err", tag_value: 1, payload: { tag: "unit" } },
+    { name: "Err", tag_value: 1, payload: { tag: "unit" } },
   ]);
 
   const wasm = await wasm_from_wat(artifact.wat);
@@ -1543,7 +1609,7 @@ return { .total = total }
       host.run({
         host: {
           read() {
-            return { tag: "ok", value: [40, 2] };
+            return { tag: "Ok", value: [40, 2] };
           },
         },
       }),
@@ -1558,7 +1624,7 @@ Deno.test("managed ABI round trips Bytes through a typed effect result", async (
   const source = `
 module (!init: Init) where
 
-type ReadResultType = | .chunk = Bytes | .eof | .err = Text
+type ReadResultType = | \`Chunk Bytes | \`Eof Unit | \`Err Text
 const read_result_type = ReadResultType
 
 declare effect Host {
@@ -1569,7 +1635,7 @@ declare effect Host {
 declare Init { host: Host }
 
 outcome <- Host.read()
-result <- if let .chunk(bytes) = outcome {
+result <- if let \`Chunk bytes = outcome {
   _ <- Host.write(&bytes)
   @len(bytes) + @get(bytes, 0)
 } else {
@@ -1588,7 +1654,7 @@ return { .result = final_result }
     const result = host.run({
       host: {
         read() {
-          return { tag: "chunk", value: input };
+          return { tag: "Chunk", value: input };
         },
         write(value) {
           if (!(value instanceof Uint8Array)) {
@@ -1631,7 +1697,7 @@ Deno.test("managed ABI handles Bytes unions in effectful dynamic loops", async (
   const source = `
 module (!init: Init) where
 
-type ResultType = | .chunk = Bytes | .skip
+type ResultType = | \`Chunk Bytes | \`Skip Unit
 const result_type = ResultType
 
 declare effect Host {
@@ -1645,7 +1711,7 @@ declare Init { host: Host }
 length <- Host.count()
 for index in 0..length {
   outcome <- Host.read()
-  if let .chunk(bytes) = outcome {
+  if let \`Chunk bytes = outcome {
     let prefix = @slice(bytes, 0, 1)
     let doubled = @append(prefix, prefix)
     let marker: Text = @append("loop", "!")
@@ -1669,7 +1735,7 @@ return { .result = length }
           return 2;
         },
         read() {
-          return { tag: "chunk", value: input };
+          return { tag: "Chunk", value: input };
         },
         write(value) {
           if (!(value instanceof Uint8Array)) {
@@ -1871,7 +1937,7 @@ Deno.test("effectful helper early return exits the helper, not the module", asyn
   const artifact = Source.artifact(`
 module (!init: Init) where
 
-type OpenResult = | .ok | .err = I32
+type OpenResult = | \`Ok Unit | \`Err I32
 
 declare effect Host {
   open: () => OpenResult
@@ -1883,7 +1949,7 @@ declare Init { host: Host }
 let check: () -> <Host.open :| Host.touch> I32 = () => {
   opened <- Host.open()
 
-  if let .err(code) = opened {
+  if let \`Err code = opened {
     return code
   }
 
@@ -1901,7 +1967,7 @@ return { .result = result }
   const err_result = err_host.run({
     host: {
       open() {
-        return { tag: "err", value: 9 };
+        return { tag: "Err", value: 9 };
       },
       touch() {
         err_touches += 1;
@@ -1917,7 +1983,7 @@ return { .result = result }
   const ok_result = ok_host.run({
     host: {
       open() {
-        return { tag: "ok" };
+        return { tag: "Ok" };
       },
       touch() {
         ok_touches += 1;
@@ -1933,7 +1999,7 @@ Deno.test("effectful bracket closes after callback-local early return", async ()
   const artifact = Source.artifact(`
 module (!init: Init) where
 
-type OpenResult = | .ok | .err
+type OpenResult = | \`Ok Unit | \`Err Unit
 
 declare effect FileReader {
   open: (&Text) => OpenResult
@@ -1948,12 +2014,12 @@ let with_file: [Text, () -> <e> I32] -> <FileReader.open :| FileReader.close :| 
     open_result <- FileReader.open(&path)
 
     match open_result {
-      | .ok => {
+      | \`Ok () => {
         code <- action()
         _ <- FileReader.close()
         code
       }
-      | .err => 2
+      | \`Err () => 2
     }
   }
 
@@ -1971,7 +2037,7 @@ return { .result = result }
     file_reader: {
       open() {
         events.push("open");
-        return { tag: "ok" };
+        return { tag: "Ok" };
       },
       read() {
         events.push("read");
@@ -1993,7 +2059,7 @@ return { .result = result }
     file_reader: {
       open() {
         failed_events.push("open");
-        return { tag: "err" };
+        return { tag: "Err" };
       },
       read() {
         failed_events.push("read");
@@ -2042,7 +2108,7 @@ Deno.test("const call conditions with effectful branches compile through loops a
   const artifact = Source.artifact(`
 module (!init: Init) where
 
-type FetchResult = | .chunk = Bytes | .none
+type FetchResult = | \`Chunk Bytes | \`None Unit
 
 declare effect Host {
   fetch: () => FetchResult
@@ -2067,7 +2133,7 @@ const has_bytes = (bytes: Bytes, limit: I32) => {
 fetched <- Host.fetch()
 let hits = 0
 
-if let .chunk(first_bytes) = fetched {
+if let \`Chunk first_bytes = fetched {
   let pending: Bytes = first_bytes
   let flag = 1
   loop_total <- loop {
@@ -2095,7 +2161,7 @@ return { .hits = hits }
   const result = host.run({
     host: {
       fetch() {
-        return { tag: "chunk", value: new Uint8Array([7, 8, 9]) };
+        return { tag: "Chunk", value: new Uint8Array([7, 8, 9]) };
       },
       put(value) {
         if (!(value instanceof Uint8Array)) {

@@ -282,10 +282,10 @@ export function scan_source(text: string): SourceSyntax {
         advance();
         advance();
         add_token("symbol", "..", start, start_line, start_column);
-      } else if (is_operator_character(char)) {
+      } else if (is_operator_start_character(char)) {
         while (
           index < text.length &&
-          is_operator_character(text[index] as string)
+          is_operator_continuation_character(text[index] as string)
         ) {
           advance();
         }
@@ -296,7 +296,7 @@ export function scan_source(text: string): SourceSyntax {
           start_line,
           start_column,
         );
-      } else if ("{}()[],:..;#@".includes(char)) {
+      } else if ("{}()[],:..;#@`".includes(char)) {
         advance();
         if (char === ";") {
           add_token("newline", "\n", start, start_line, start_column);
@@ -341,8 +341,12 @@ export function scan_source(text: string): SourceSyntax {
   return make_source_syntax(text, pieces, diagnostics);
 }
 
-function is_operator_character(value: string): boolean {
+function is_operator_start_character(value: string): boolean {
   return ":-!$%&*+/<=>?^|~\\".includes(value);
+}
+
+function is_operator_continuation_character(value: string): boolean {
+  return value === "." || is_operator_start_character(value);
 }
 
 function is_hex_digit(value: string): boolean {

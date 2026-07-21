@@ -152,7 +152,8 @@ function host_import_scalar_value_type(
   name: string,
 ): ValType | undefined {
   if (
-    name === "Bool" || name === "Int" || name === "I32" || name === "U32"
+    name === "Bool" || name === "Char" || name === "Int" ||
+    name === "I32" || name === "U32"
   ) {
     return "i32";
   }

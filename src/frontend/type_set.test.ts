@@ -43,16 +43,75 @@ if value == #hello { 42 } else { 0 }
   assert_includes(wat, "i32.const");
 });
 
+Deno.test("literal singleton annotations accept their sole value", () => {
+  const integer = Source.wat("const one: 1 = 1\none");
+  const boolean = Source.wat(`
+const ready: true = true
+if ready { 1 } else { 0 }
+`);
+  const text = Source.wat('const method: "GET" = "GET"\n@len(method)');
+
+  assert_includes(integer, "i32.const 1");
+  assert_includes(boolean, "i32.const 1");
+  assert_includes(text, "\\47\\45\\54");
+});
+
+Deno.test("literal singleton annotations reject every other value", () => {
+  assert_throws(
+    () => Source.wat("const value: 1 = 2\nvalue"),
+    "annotation expects 1, got 2",
+  );
+  assert_throws(
+    () => Source.wat("const value: true = false\nvalue"),
+    "annotation expects true, got false",
+  );
+  assert_throws(
+    () => Source.wat('const value: "GET" = "POST"\n@len(value)'),
+    'annotation expects "GET", got "POST"',
+  );
+});
+
+Deno.test("literal unions discriminate integer text and boolean members", async () => {
+  const integer = await run_i32_source(
+    `
+type Bit = 0 :| 1
+let bit: Bit = 1
+if bit is 1 { 42 } else { 0 }
+`,
+    "integer_literal_union",
+  );
+  const text = await run_i32_source(
+    `
+type Method = "GET" :| "POST"
+let method: Method = "POST"
+if method is "POST" { 42 } else { 0 }
+`,
+    "text_literal_union",
+  );
+  const boolean = await run_i32_source(
+    `
+type Truth = true :| false
+let truth: Truth = false
+if truth is false { 42 } else { 0 }
+`,
+    "boolean_literal_union",
+  );
+
+  assert_equals(integer, 42);
+  assert_equals(text, 42);
+  assert_equals(boolean, 42);
+});
+
 Deno.test("finite atom and arbitrary type unions inject plain values", () => {
   const atoms = Source.wat(`
 type Truth = #true :| #false
 let value: Truth = #true
-if let .set_1(_) = value { 42 } else { 0 }
+if let \`Set1 _ = value { 42 } else { 0 }
 `);
   const scalar = Source.wat(`
 type Scalar = Int :| Text
 let value: Scalar = 42
-if let .set_0(number) = value { number } else { 0 }
+if let \`Set0 number = value { number } else { 0 }
 `);
 
   assert_includes(atoms, "i32.const 42");
@@ -67,7 +126,7 @@ type Scalar = Bool :| Text
 let value: Scalar = 1
 if value is Bool { 42 } else { 0 }
 `),
-    "Type-set binding annotation expects Scalar, got I32",
+    "Type-set binding annotation expects Scalar, got 1",
   );
 });
 
@@ -79,7 +138,7 @@ type Scalar = I32 :| Text
 let value: Scalar = true
 if value is I32 { 42 } else { 0 }
 `),
-    "Type-set binding annotation expects Scalar, got Bool",
+    "Type-set binding annotation expects Scalar, got true",
   );
 });
 
@@ -318,8 +377,10 @@ Deno.test("selected type-set closures share an injected argument layout", () => 
   const artifact = Source.artifact(`
 module (!init: Init) where
 
+const { struct } = import "duck:prelude" ()
+
 declare effect Input { flag: () => I32 }
-type Init = [.input = Input]
+type Init = struct {.input = Input}
 type Choice = Int :| Text
 
 flag <- Input.flag()
@@ -385,9 +446,11 @@ Deno.test("finite type sets retain a tagged managed ABI schema", () => {
   const artifact = Source.artifact(`
 module (!init: Init) where
 
+const { struct } = import "duck:prelude" ()
+
 type Read = Int :| Text
 declare effect Input { read: () => Read }
-type Init = [.input = Input]
+type Init = struct {.input = Input}
 
 value <- Input.read()
 let result: I32 = if value is Int { value } else { @len(value) }
@@ -402,8 +465,8 @@ return { .result = result }
   }
 
   assert_equals(read.cases, [
-    { name: "set_0", tag_value: 0, payload: { tag: "i32" } },
-    { name: "set_1", tag_value: 1, payload: { tag: "text" } },
+    { name: "Set0", tag_value: 0, payload: { tag: "i32" } },
+    { name: "Set1", tag_value: 1, payload: { tag: "text" } },
   ]);
 });
 
@@ -411,10 +474,12 @@ Deno.test("generic type-set specializations retain their managed ABI schema", ()
   const artifact = Source.artifact(`
 module (!init: Init) where
 
+const { struct } = import "duck:prelude" ()
+
 type Maybe a = a :| #nothing
 type MaybeInt = Maybe Int
 declare effect Input { value: () => MaybeInt }
-type Init = [.input = Input]
+type Init = struct {.input = Input}
 
 value <- Input.value()
 let result: I32 = if value is Int { value } else { 0 }
@@ -432,8 +497,8 @@ return { .result = result }
     size: 8,
     align: 8,
     cases: [
-      { name: "set_0", tag_value: 0, payload: { tag: "i32" } },
-      { name: "set_1", tag_value: 1, payload: { tag: "i32" } },
+      { name: "Set0", tag_value: 0, payload: { tag: "i32" } },
+      { name: "Set1", tag_value: 1, payload: { tag: "i32" } },
     ],
   });
 });
@@ -482,8 +547,9 @@ if value is Int { value } else { 0 }
 
 Deno.test("record intersections merge compatible fields", () => {
   const wat = Source.wat(`
-type HasX = [.x = Int]
-type HasY = [.y = Int]
+const { struct } = import "duck:prelude" ()
+type HasX = struct {.x = Int}
+type HasY = struct {.y = Int}
 type Point = HasX :& HasY
 let point: Point = [.x = 40, .y = 2]
 point.x + point.y

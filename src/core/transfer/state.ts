@@ -4,6 +4,7 @@ export function clone_transfer_state<ctx>(
   state: CoreTransferState<ctx>,
 ): CoreTransferState<ctx> {
   return {
+    collect_local_facts: state.collect_local_facts,
     next_transfer: state.next_transfer,
     next_temporary: state.next_temporary,
     transfers: state.transfers.slice(),
@@ -57,6 +58,7 @@ export function merge_conditional_transfer_states<ctx>(
   path_count: number,
 ): void {
   const base_transferred = new Map(target.transferred);
+  let next_temporary = target.next_temporary;
 
   record_conditional_transfer_issues(
     target,
@@ -66,8 +68,13 @@ export function merge_conditional_transfer_states<ctx>(
   );
 
   for (const source of sources) {
+    if (source.next_temporary > next_temporary) {
+      next_temporary = source.next_temporary;
+    }
     merge_transfer_state(target, source);
   }
+
+  target.next_temporary = next_temporary;
 }
 
 export function merge_transfer_issues<ctx>(

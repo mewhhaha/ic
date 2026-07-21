@@ -200,6 +200,24 @@ export function core_expr_ownership<ctx>(
     }
   }
 
+  if (expr.tag === "var" && hooks.borrowed_local) {
+    if (hooks.borrowed_local(expr.name, ctx)) {
+      const source = core_expr_ownership(expr, ctx, {
+        ...hooks,
+        borrowed_local: undefined,
+      });
+
+      if (
+        source.tag === "scalar_local" || source.tag === "frozen_shareable" ||
+        source.tag === "borrow_view"
+      ) {
+        return source;
+      }
+
+      return { tag: "borrow_view", source };
+    }
+  }
+
   if (expr.tag === "var" && hooks.frozen_local) {
     if (hooks.frozen_local(expr.name, ctx)) {
       return { tag: "frozen_shareable", reason: "freeze" };

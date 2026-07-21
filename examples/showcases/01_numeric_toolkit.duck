@@ -1,4 +1,4 @@
-const { compose, pipe } = comptime import "duck:prelude/functional" ()
+const { compose, pipe } = import "duck:prelude/functional" ()
 
 const double = value => value * 2
 const increment = value => value + 1

@@ -230,7 +230,9 @@ function compile_source(request: CompileRequest): {
   return { wat: Source.wat(source), abi: undefined };
 }
 
-async function wasm_from_wat(wat: string): Promise<Uint8Array<ArrayBuffer>> {
+export async function wasm_from_wat(
+  wat: string,
+): Promise<Uint8Array<ArrayBuffer>> {
   const command = new Deno.Command("wat2wasm", {
     args: ["-o", "-", "-"],
     stdin: "piped",

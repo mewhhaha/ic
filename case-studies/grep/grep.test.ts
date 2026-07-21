@@ -145,7 +145,7 @@ Deno.test("grep rejects extra arguments", async () => {
     assert_equals(await main(runner), { code: 2 });
     assert_equals(runner.stdout, []);
     assert_equals(call(runner.init.file_reader, "open", "input.bin"), {
-      tag: "ok",
+      tag: "Ok",
     });
     assert_equals(call(runner.init.file_reader, "close"), undefined);
   } finally {
@@ -160,7 +160,7 @@ Deno.test("grep returns an I/O error for a typed FileReader.read error", async (
   });
   runner.init.file_reader.read = function read_error(): DuckValue {
     return {
-      tag: "err",
+      tag: "Err",
       value: [5, "input.bin", "mock read failure"],
     };
   };
@@ -169,7 +169,7 @@ Deno.test("grep returns an I/O error for a typed FileReader.read error", async (
     assert_equals(await main(runner), { code: 2 });
     assert_equals(runner.stdout, []);
     assert_equals(call(runner.init.file_reader, "open", "input.bin"), {
-      tag: "ok",
+      tag: "Ok",
     });
     assert_equals(call(runner.init.file_reader, "close"), undefined);
   } finally {
@@ -187,7 +187,7 @@ Deno.test("grep treats a closed Stdout as a successful match and stops output", 
   let writes = 0;
   runner.init.stdout.write = function closed_output(): DuckValue {
     writes += 1;
-    return { tag: "closed" };
+    return { tag: "Closed" };
   };
 
   try {
@@ -206,7 +206,7 @@ Deno.test("grep returns an I/O error for a typed Stdout.write error", async () =
   });
   runner.init.stdout.write = function output_error(): DuckValue {
     return {
-      tag: "err",
+      tag: "Err",
       value: [5, "<stdout>", "mock output failure"],
     };
   };
@@ -294,17 +294,17 @@ Deno.test("mock FileReader streams chunks and reports EOF", () => {
 
   try {
     assert_equals(call(runner.init.file_reader, "open", "input.bin"), {
-      tag: "ok",
+      tag: "Ok",
     });
     assert_equals(
       call(runner.init.file_reader, "read", 2),
-      { tag: "chunk", value: new Uint8Array([1, 2]) },
+      { tag: "Chunk", value: new Uint8Array([1, 2]) },
     );
     assert_equals(
       call(runner.init.file_reader, "read", 2),
-      { tag: "chunk", value: new Uint8Array([3]) },
+      { tag: "Chunk", value: new Uint8Array([3]) },
     );
-    assert_equals(call(runner.init.file_reader, "read", 2), { tag: "eof" });
+    assert_equals(call(runner.init.file_reader, "read", 2), { tag: "Eof" });
     assert_equals(call(runner.init.file_reader, "close"), undefined);
   } finally {
     runner.dispose();
@@ -321,14 +321,14 @@ Deno.test("mock Walk yields raw DFS events and honors prune", () => {
   });
 
   try {
-    assert_equals(call(runner.init.walk, "begin", "root"), { tag: "ok" });
-    assert_equals(event_tag(call(runner.init.walk, "next")), "enter");
+    assert_equals(call(runner.init.walk, "begin", "root"), { tag: "Ok" });
+    assert_equals(event_tag(call(runner.init.walk, "next")), "Enter");
     assert_equals(event_path(call(runner.init.walk, "next")), "root/a.txt");
-    assert_equals(event_tag(call(runner.init.walk, "next")), "enter");
+    assert_equals(event_tag(call(runner.init.walk, "next")), "Enter");
     assert_equals(call(runner.init.walk, "prune"), undefined);
-    assert_equals(event_tag(call(runner.init.walk, "next")), "leave");
+    assert_equals(event_tag(call(runner.init.walk, "next")), "Leave");
     assert_equals(event_path(call(runner.init.walk, "next")), "root");
-    assert_equals(call(runner.init.walk, "next"), { tag: "done" });
+    assert_equals(call(runner.init.walk, "next"), { tag: "Done" });
   } finally {
     runner.dispose();
   }

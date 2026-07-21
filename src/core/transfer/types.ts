@@ -46,6 +46,11 @@ export type CoreTransferValidation = {
 };
 
 export type CoreTransferHooks<ctx> = CoreOwnershipHooks<ctx> & {
+  bind_annotation_fact?: (
+    name: string,
+    annotation: string,
+    ctx: ctx,
+  ) => void;
   closure_body_ctx?: (
     expr: Extract<CoreExpr, { tag: "lam" | "rec" }>,
     ctx: ctx,
@@ -63,6 +68,7 @@ export type CoreTransferFunction =
   };
 
 export type CoreTransferState<ctx> = {
+  collect_local_facts: boolean;
   next_transfer: number;
   next_temporary: number;
   transfers: CoreTransferEdge[];

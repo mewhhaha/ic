@@ -126,6 +126,11 @@ export const diagnostic_registry = {
     "types_and_effects",
     "error",
   ),
+  default_handler_resolution: diagnostic_definition(
+    "DUCK2313",
+    "types_and_effects",
+    "error",
+  ),
   borrow_proof_rejected: diagnostic_definition(
     "DUCK2401",
     "ownership_and_proof",

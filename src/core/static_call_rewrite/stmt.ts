@@ -60,6 +60,7 @@ function scoped_static_core_call_stmt(
         kind: stmt.kind,
         name,
         is_linear: stmt.is_linear,
+        force_materialized: stmt.force_materialized,
         annotation: stmt.annotation,
         value,
       };

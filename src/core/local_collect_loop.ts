@@ -143,6 +143,13 @@ function collect_static_collection_loop_stmt_locals(
   if (item_type) {
     clear_loop_binding(stmt.item, ctx);
     set_local(ctx.locals, stmt.item, item_type);
+    const first = fields[0];
+
+    if (first !== undefined) {
+      hooks.bind_core_struct_type(stmt.item, first.value, undefined, ctx);
+      hooks.bind_core_union_type(stmt.item, first.value, undefined, ctx);
+    }
+
     bind_static_collection_item_text_fact(stmt.item, fields, ctx, hooks);
   }
 
@@ -197,14 +204,6 @@ function reject_static_carried_loop_values(
   kind: "range" | "collection",
 ): void {
   for (const name of carried) {
-    if (ctx.struct_locals.has(name) || ctx.union_locals.has(name)) {
-      throw new Error(
-        "Cannot carry static aggregate/union core value through dynamic " +
-          kind +
-          " loop yet: " + name,
-      );
-    }
-
     const value = ctx.statics.get(name);
 
     if (

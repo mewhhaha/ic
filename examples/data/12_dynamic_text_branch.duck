@@ -1,6 +1,6 @@
 module (!init: Init) where
 
-const { length } = comptime import "duck:prelude/runtime" ()
+const { length } = import "duck:prelude/runtime" ()
 
 declare effect Input {
   flag: () => Bool

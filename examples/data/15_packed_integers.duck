@@ -1,4 +1,4 @@
-const { packed } = comptime import "duck:prelude" ()
+const { packed } = import "duck:prelude" ()
 
 type Header = packed struct {
   .kind = U3,

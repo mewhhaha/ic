@@ -10,6 +10,8 @@ import {
 } from "../type_static.ts";
 import { find_core_type_field } from "../union_static.ts";
 import type { CoreClosureTypeCtx, CoreClosureTypeHooks } from "./types.ts";
+import { same_core_fn_type } from "./compare.ts";
+import { core_lam_fn_type_with_expected } from "./lambda.ts";
 
 export function check_closure_call_args(
   expr: Extract<CoreExpr, { tag: "app" }>,
@@ -31,6 +33,7 @@ export function check_closure_call_args(
     const expected_constraint = fn_type.param_constraints?.[index];
     const expected_struct = fn_type.param_structs?.[index];
     const expected_union = fn_type.param_unions?.[index];
+    const expected_fn = fn_type.param_fns?.[index];
     expect(arg, "Missing core closure call argument " + index.toString());
     expect(expected, "Missing core closure call parameter " + index.toString());
     expect(
@@ -106,6 +109,27 @@ export function check_closure_call_args(
           " expects aggregate parameter",
       );
     }
+
+    if (expected_fn) {
+      let actual_fn: CoreFnType | undefined;
+
+      if (arg.tag === "lam") {
+        actual_fn = core_lam_fn_type_with_expected(
+          arg,
+          expected_fn,
+          ctx,
+          hooks,
+        );
+      } else if (arg.tag === "var" || arg.tag === "linear") {
+        actual_fn = ctx.fn_types.get(arg.name);
+      }
+
+      expect(
+        actual_fn && same_core_fn_type(actual_fn, expected_fn),
+        "Core closure call argument " + index.toString() +
+          " expects function parameter",
+      );
+    }
   }
 }
 
@@ -158,7 +182,7 @@ function closure_call_arg_struct_type(
     return closure_call_arg_struct_type(expr.body, ctx, hooks, expected);
   }
 
-  return undefined;
+  return hooks.runtime_aggregate_type_expr(expr, ctx);
 }
 
 function closure_struct_literal_matches_expected(

@@ -418,7 +418,7 @@ export function code_actions(
 
     if (diagnostic.code === diagnostic_codes.sum_payload_mismatch) {
       const mismatch =
-        /^Union case [A-Za-z_][A-Za-z0-9_]* expects (Bool|Int), got /
+        /^Union case [A-Za-z_][A-Za-z0-9_]* expects (Bool|Char|Int), got /
           .exec(diagnostic.message);
 
       if (mismatch === null) {
@@ -780,7 +780,7 @@ export function code_actions(
       syntax.text,
       uri,
       version,
-      "Add explicit ." + missing.name + " branch",
+      "Add explicit `" + missing.name + " branch",
       "refactor.rewrite",
       expr_span.start,
       expr_span.end,
@@ -1024,6 +1024,10 @@ function default_front_expr(type_name: string): FrontExpr | undefined {
     return { tag: "bool", value: false };
   }
 
+  if (type_name === "Char") {
+    return { tag: "num", type: "i32", value: 32, character: " " };
+  }
+
   if (type_name === "Int" || type_name === "I32" || type_name === "U32") {
     return { tag: "num", type: "i32", value: 0 };
   }
@@ -1099,6 +1103,10 @@ function remove_statements(text: string, statements: Stmt[]): string {
 function default_value(type_name: string): string | undefined {
   if (type_name === "Bool") {
     return "false";
+  }
+
+  if (type_name === "Char") {
+    return "' '";
   }
 
   if (type_name === "Int" || type_name === "I32" || type_name === "U32") {

@@ -9,6 +9,7 @@ import type {
   Stmt,
 } from "./ast.ts";
 import type { FrontEffectAnalysis } from "./effect_analysis.ts";
+import { specialize_effect_operation } from "./effect_operation.ts";
 import { substitute_front_expr } from "./substitute.ts";
 import { prim_returns_bool } from "./numeric.ts";
 
@@ -690,12 +691,12 @@ function compile_expr(
       );
     }
 
-    const resume_function = resume_function_call(expr, ctx, elaboration);
+    const cps_function = cps_function_call(expr, ctx, elaboration);
 
-    if (resume_function) {
-      return compile_resume_function_call(
+    if (cps_function) {
+      return compile_cps_function_call(
         expr,
-        resume_function,
+        cps_function,
         ctx,
         cont,
         elaboration,
@@ -703,6 +704,41 @@ function compile_expr(
     }
 
     const application = application_parts(expr);
+    const inline_callback = application.func;
+
+    if (inline_callback.tag === "lam") {
+      expect(
+        inline_callback.params.length === application.args.length,
+        "Inline resume callback argument count mismatch",
+      );
+      return compile_expr_list(
+        application.args,
+        ctx,
+        [],
+        (args, args_ctx) => {
+          const replacements = new Map<string, FrontExpr>();
+
+          for (
+            let index = 0;
+            index < inline_callback.params.length;
+            index += 1
+          ) {
+            const param = inline_callback.params[index];
+            const arg = args[index];
+            expect(param, "Missing inline resume callback parameter");
+            expect(arg, "Missing inline resume callback argument");
+            replacements.set(param.name, arg);
+          }
+
+          const body = substitute_front_expr(
+            inline_callback.body,
+            replacements,
+          );
+          return compile_expr(body, args_ctx, cont, elaboration);
+        },
+        elaboration,
+      );
+    }
 
     if (
       application.func.tag === "var" &&
@@ -840,7 +876,7 @@ function compile_expr(
   }
 
   if (expr.tag === "union_case") {
-    if (!expr.value) {
+    if (!expr.value || expr.value.tag === "unit") {
       return cont(expr, ctx);
     }
 
@@ -852,6 +888,32 @@ function compile_expr(
 
         if (expr.type_expr) {
           type_expr = rewrite_pure_expr(expr.type_expr, next_ctx, elaboration);
+        } else {
+          const declarations = elaboration.source.declarations;
+          let inferred: string | undefined;
+
+          if (declarations !== undefined) {
+            for (const declaration of declarations) {
+              if (
+                declaration.tag !== "type" ||
+                declaration.body.tag !== "sum" ||
+                !declaration.body.cases.some((item) => item.name === expr.name)
+              ) {
+                continue;
+              }
+
+              if (inferred !== undefined) {
+                inferred = undefined;
+                break;
+              }
+
+              inferred = declaration.name;
+            }
+          }
+
+          if (inferred !== undefined) {
+            type_expr = { tag: "var", name: inferred };
+          }
         }
 
         return cont({ ...expr, value, type_expr }, next_ctx);
@@ -986,16 +1048,26 @@ function compile_try_with(
     "Cannot handle host-declared effect: " + declaration.name,
   );
   consume_handler_recipe(recipe, elaboration);
+  let output_type: string | undefined;
+
+  if (declaration.name === "Do") {
+    output_type = expr.handler_output_type;
+  }
+
+  if (output_type === undefined) {
+    output_type = handler_use_output_type(
+      expr.body,
+      recipe.handler,
+      elaboration,
+    );
+  }
+
   const frame: ActiveHandler = {
     id: elaboration.next_handler,
     recipe,
     effect: declaration,
     state_names: new Set(recipe.handler.state.map((state) => state.name)),
-    output_type: handler_use_output_type(
-      expr.body,
-      recipe.handler,
-      elaboration,
-    ),
+    output_type,
     outer_ctx: clone_compile_ctx(ctx),
     continue_after: cont,
   };
@@ -1067,7 +1139,7 @@ function compile_handler_return(
 
   if (clause.param.annotation && input_type) {
     expect(
-      same_handler_type(clause.param.annotation, input_type),
+      same_handler_type(clause.param.annotation, input_type, elaboration),
       "Handler return parameter " + clause.param.name + " expects " +
         clause.param.annotation + ", got " + input_type,
     );
@@ -1082,7 +1154,15 @@ function compile_handler_return(
   );
   const replacements = new Map<string, FrontExpr>();
   replacements.set(clause.param.name, { tag: "var", name: parameter_name });
-  const clause_body = substitute_front_expr(clause.body, replacements);
+  let clause_body = substitute_front_expr(clause.body, replacements);
+
+  if (frame.effect.name === "Do" && frame.output_type !== undefined) {
+    clause_body = contextualize_handler_result(
+      clause_body,
+      frame.output_type,
+      elaboration,
+    );
+  }
   const output_type = simple_expr_type_name(
     clause_body,
     new Map(),
@@ -1091,7 +1171,7 @@ function compile_handler_return(
 
   if (frame.output_type && output_type) {
     expect(
-      same_handler_type(frame.output_type, output_type),
+      same_handler_type(frame.output_type, output_type, elaboration),
       "Handler return clause produces " + output_type + ", expected " +
         frame.output_type,
     );
@@ -1160,7 +1240,18 @@ function compile_statement_at(
         const operation = operation_from_state_bind(stmt, elaboration.index);
         const declaration = elaboration.index.effects.get(operation.effect);
         expect(declaration, "Missing effect declaration: " + operation.effect);
-        const operation_decl = find_operation(declaration, operation.operation);
+        const declared_operation = find_operation(
+          declaration,
+          operation.operation,
+        );
+        expect(
+          stmt.value.tag === "app",
+          "Effect state binding must contain a call",
+        );
+        const operation_decl = specialize_effect_operation(
+          declared_operation,
+          stmt.value,
+        );
         rest_ctx.values.set(
           stmt.value_name,
           kind_from_type_name(operation_decl.result.type_name),
@@ -1400,8 +1491,9 @@ function compile_effect_statement(
   const ref = operation_from_state_bind(stmt, elaboration.index);
   const declaration = elaboration.index.effects.get(ref.effect);
   expect(declaration, "Missing effect declaration: " + ref.effect);
-  const operation = find_operation(declaration, ref.operation);
+  const declared_operation = find_operation(declaration, ref.operation);
   expect(stmt.value.tag === "app", "Effect state binding must contain a call");
+  const operation = specialize_effect_operation(declared_operation, stmt.value);
   const application = application_parts(stmt.value);
 
   if (declaration.implementation === "host") {
@@ -1515,10 +1607,6 @@ function invoke_handler_clause(
   );
   const resume_param = clause.params[clause.params.length - 1];
   expect(resume_param, "Missing resumption parameter: " + effect_text(ref));
-  expect(
-    resume_param.is_linear,
-    "Handler resumption parameter must be affine: " + resume_param.name,
-  );
   const resume_name = resume_param.name;
   const resume_spec: ResumeSpec = {
     name: resume_name,
@@ -1543,9 +1631,25 @@ function invoke_handler_clause(
   };
   const clause_ctx = handler_clause_ctx(frame, operation_ctx);
   clause_ctx.active = operation_ctx.active.slice(0, frame_index);
-  clause_ctx.resumptions.set(resume_name, resume_spec);
-  clause_ctx.values.set(resume_name, "resume");
   const param_stmts: Stmt[] = [];
+
+  if (resume_param.is_linear) {
+    clause_ctx.resumptions.set(resume_name, resume_spec);
+    clause_ctx.values.set(resume_name, "resume");
+  } else {
+    const reusable_resume = reusable_resume_value(resume_spec, elaboration);
+    resume_spec.used = true;
+    clause_ctx.unavailable_state.add(resume_spec.handler_id);
+    clause_ctx.values.set(resume_name, "frozen");
+    param_stmts.push({
+      tag: "bind",
+      kind: "let",
+      name: resume_name,
+      is_linear: false,
+      annotation: undefined,
+      value: reusable_resume,
+    });
+  }
 
   for (let index = 0; index < operation.params.length; index += 1) {
     const declared = operation.params[index];
@@ -1565,8 +1669,18 @@ function invoke_handler_clause(
     });
   }
 
+  let clause_body = clause.body;
+
+  if (frame.effect.name === "Do" && frame.output_type !== undefined) {
+    clause_body = contextualize_handler_result(
+      clause_body,
+      frame.output_type,
+      elaboration,
+    );
+  }
+
   const clause_result = compile_expr(
-    clause.body,
+    clause_body,
     clause_ctx,
     (output, output_ctx) => targeted_result(output, frame.id, output_ctx),
     elaboration,
@@ -1579,7 +1693,7 @@ function invoke_handler_clause(
 
   if (frame.output_type && clause_output_type) {
     expect(
-      same_handler_type(frame.output_type, clause_output_type),
+      same_handler_type(frame.output_type, clause_output_type, elaboration),
       "Handler clause " + ref.effect + "." + ref.operation + " produces " +
         clause_output_type + ", expected " + frame.output_type,
     );
@@ -1846,6 +1960,64 @@ function duplicated_resume_spec(
   };
 }
 
+function reusable_resume_value(
+  resume: ResumeSpec,
+  elaboration: Elaboration,
+): FrontExpr {
+  const branch = duplicated_resume_spec(resume, resume.name);
+  const parameter_name = "__duck_multi_resume_value_" +
+    elaboration.next_resume.toString();
+  elaboration.next_resume += 1;
+  const body_result = resume_continuation_result(branch, {
+    tag: "var",
+    name: parameter_name,
+  });
+  assert_reusable_resume_duplicable(resume, body_result.expr, elaboration);
+  expect(
+    body_result.target === resume.handler_id,
+    "Multi-shot resumption crossed an incompatible handler delimiter",
+  );
+  return {
+    tag: "lam",
+    params: [{
+      name: parameter_name,
+      is_const: false,
+      is_linear: false,
+      annotation: runtime_annotation(resume.input_type),
+    }],
+    body: body_result.expr,
+  };
+}
+
+function assert_reusable_resume_duplicable(
+  resume: ResumeSpec,
+  continuation: FrontExpr,
+  elaboration: Elaboration,
+): void {
+  const handler_state = new Set(
+    duplicated_handler_state(resume).map((state) => state.name),
+  );
+
+  for (const [name, kind] of resume.captures) {
+    if (!handler_state.has(name) && !expr_uses_name(continuation, name)) {
+      continue;
+    }
+
+    if (elaboration.static_names.has(name)) {
+      continue;
+    }
+
+    if (kind === "scalar" || kind === "frozen") {
+      continue;
+    }
+
+    throw new Error(
+      "Cannot duplicate resumption " + resume.name + ": capture " + name +
+        " is " + kind,
+    );
+  }
+}
+
 function duplicated_handler_state(
   resume: ResumeSpec,
 ): { name: string; annotation: string | undefined }[] {
@@ -1950,7 +2122,7 @@ function compile_duck_function_call(
   );
 }
 
-function compile_resume_function_call(
+function compile_cps_function_call(
   expr: Extract<FrontExpr, { tag: "app" }>,
   binding: EffectFunction,
   ctx: CompileCtx,
@@ -1958,14 +2130,14 @@ function compile_resume_function_call(
   elaboration: Elaboration,
 ): CpsResult {
   const application = application_parts(expr);
-  expect(binding.value.tag === "lam", "Resume helper cannot be recursive");
+  expect(binding.value.tag === "lam", "CPS helper cannot be recursive");
   expect(
     binding.value.params.length === application.args.length,
-    "Resume helper argument count mismatch: " + binding.name,
+    "CPS helper argument count mismatch: " + binding.name,
   );
   expect(
     !ctx.active_calls.has(binding.name),
-    "Recursive Resume helper is not supported: " + binding.name,
+    "Recursive CPS helper is not supported: " + binding.name,
   );
   const replacements = new Map<string, FrontExpr>();
 
@@ -1984,7 +2156,24 @@ function compile_resume_function_call(
 
   const body_ctx = clone_compile_ctx(ctx);
   body_ctx.active_calls.add(binding.name);
-  const body = substitute_front_expr(binding.value.body, replacements);
+  let body = substitute_front_expr(binding.value.body, replacements);
+
+  if (binding.name.startsWith("_duck_extension#")) {
+    let active: ActiveHandler | undefined = body_ctx.active[0];
+
+    if (active === undefined) {
+      active = body_ctx.delimiters.at(-1);
+    }
+
+    if (active?.output_type !== undefined) {
+      body = contextualize_handler_result(
+        body,
+        active.output_type,
+        elaboration,
+      );
+    }
+  }
+
   const result = compile_expr(body, body_ctx, cont, elaboration);
   result.ctx.active_calls.delete(binding.name);
   return result;
@@ -2072,6 +2261,58 @@ function rewrite_pure_expr(
         duck_function_for_name(expr.func.name, ctx, elaboration)),
       "Duck effect function call requires CPS elaboration",
     );
+    const application = application_parts(expr);
+
+    if (application.func.tag === "lam") {
+      expect(
+        application.func.params.length === application.args.length,
+        "Inline callback argument count mismatch",
+      );
+      const replacements = new Map<string, FrontExpr>();
+
+      for (let index = 0; index < application.func.params.length; index += 1) {
+        const param = application.func.params[index];
+        const arg = application.args[index];
+        expect(param, "Missing inline callback parameter");
+        expect(arg, "Missing inline callback argument");
+        replacements.set(param.name, rewrite_pure_expr(arg, ctx, elaboration));
+      }
+
+      const body = substitute_front_expr(
+        application.func.body,
+        replacements,
+      );
+      return rewrite_pure_expr(body, ctx, elaboration);
+    }
+    const extension = cps_function_call(expr, ctx, elaboration);
+
+    if (
+      extension !== undefined &&
+      extension.name.startsWith("_duck_extension#") &&
+      !ctx.active_calls.has(extension.name)
+    ) {
+      const application = application_parts(expr);
+      expect(extension.value.tag === "lam", "Extension cannot be recursive");
+      expect(
+        extension.value.params.length === application.args.length,
+        "Extension argument count mismatch: " + extension.name,
+      );
+      const replacements = new Map<string, FrontExpr>();
+
+      for (let index = 0; index < extension.value.params.length; index += 1) {
+        const param = extension.value.params[index];
+        const arg = application.args[index];
+        expect(param, "Missing extension parameter");
+        expect(arg, "Missing extension argument");
+        replacements.set(param.name, rewrite_pure_expr(arg, ctx, elaboration));
+      }
+
+      const body_ctx = clone_compile_ctx(ctx);
+      body_ctx.active_calls.add(extension.name);
+      const body = substitute_front_expr(extension.value.body, replacements);
+      return rewrite_pure_expr(body, body_ctx, elaboration);
+    }
+
     return {
       ...expr,
       func: rewrite_pure_expr(expr.func, ctx, elaboration),
@@ -2200,12 +2441,39 @@ function rewrite_pure_expr(
     let value: FrontExpr | undefined;
     let type_expr: FrontExpr | undefined;
 
-    if (expr.value) {
+    if (expr.value?.tag === "unit") {
+      value = expr.value;
+    } else if (expr.value) {
       value = rewrite_pure_expr(expr.value, ctx, elaboration);
     }
 
     if (expr.type_expr) {
       type_expr = rewrite_pure_expr(expr.type_expr, ctx, elaboration);
+    } else {
+      const declarations = elaboration.source.declarations;
+      let inferred: string | undefined;
+
+      if (declarations !== undefined) {
+        for (const declaration of declarations) {
+          if (
+            declaration.tag !== "type" || declaration.body.tag !== "sum" ||
+            !declaration.body.cases.some((item) => item.name === expr.name)
+          ) {
+            continue;
+          }
+
+          if (inferred !== undefined) {
+            inferred = undefined;
+            break;
+          }
+
+          inferred = declaration.name;
+        }
+      }
+
+      if (inferred !== undefined) {
+        type_expr = { tag: "var", name: inferred };
+      }
     }
 
     return { ...expr, value, type_expr };
@@ -2345,11 +2613,20 @@ function handler_recipe_from_expr(
     return elaboration.handlers.get(expr.name);
   }
 
-  if (expr.tag !== "app" || expr.func.tag !== "var") {
+  if (expr.tag !== "app") {
     return undefined;
   }
 
-  const factory = find_handler_factory(expr.func.name, elaboration);
+  let factory: EffectFunction | undefined;
+
+  if (expr.func.tag === "var") {
+    factory = find_handler_factory(expr.func.name, elaboration);
+  } else if (expr.func.tag === "lam") {
+    factory = {
+      name: "DefaultHandler.make",
+      value: expr.func,
+    };
+  }
 
   if (!factory) {
     return undefined;
@@ -2377,6 +2654,22 @@ function handler_recipe_from_expr(
   const result = handler_result_expr(body);
 
   if (!result) {
+    if (expr.func.tag === "lam") {
+      const recipe = handler_recipe_from_expr(
+        body,
+        "__factory_" + elaboration.next_factory.toString(),
+        elaboration,
+        seen,
+      );
+      elaboration.next_factory += 1;
+
+      if (!recipe) {
+        return undefined;
+      }
+
+      return { ...recipe, affine: false };
+    }
+
     return undefined;
   }
 
@@ -2802,7 +3095,7 @@ function duck_function_for_name(
   return elaboration.functions.get(name);
 }
 
-function resume_function_call(
+function cps_function_call(
   expr: Extract<FrontExpr, { tag: "app" }>,
   ctx: CompileCtx,
   elaboration: Elaboration,
@@ -2829,11 +3122,23 @@ function resume_function_call(
     return undefined;
   }
 
+  if (binding.name.startsWith("_duck_extension#")) {
+    return {
+      name: binding.name,
+      value: binding.value,
+    };
+  }
+
   let carries_resume = false;
 
   for (let index = 0; index < binding.value.params.length; index += 1) {
     const param = binding.value.params[index];
     const arg = application.args[index];
+
+    if (arg !== undefined && expression_calls_resumption(arg, ctx)) {
+      carries_resume = true;
+      break;
+    }
 
     if (!param || param.annotation !== "Resume" || !arg) {
       continue;
@@ -2874,6 +3179,40 @@ function resume_function_call(
     name: binding.name,
     value: binding.value,
   };
+}
+
+function expression_calls_resumption(
+  value: unknown,
+  ctx: CompileCtx,
+  seen: WeakSet<object> = new WeakSet(),
+): boolean {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+
+  if (seen.has(value)) {
+    return false;
+  }
+
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    return value.some((entry) => expression_calls_resumption(entry, ctx, seen));
+  }
+
+  const node = value as Record<string, unknown>;
+
+  if (
+    node.tag === "app" &&
+    resumption_call(node as Extract<FrontExpr, { tag: "app" }>, ctx) !==
+      undefined
+  ) {
+    return true;
+  }
+
+  return Object.values(node).some((child) => {
+    return expression_calls_resumption(child, ctx, seen);
+  });
 }
 
 function operation_from_state_bind(
@@ -3409,10 +3748,9 @@ function merge_branch_ctx(left: CompileCtx, right: CompileCtx): CompileCtx {
       continue;
     }
 
-    expect(
-      left_resume.used === right_resume.used,
-      "Resumption " + name + " is consumed on only one branch",
-    );
+    const merged_resume = result.resumptions.get(name);
+    expect(merged_resume, "Missing merged resumption " + name);
+    merged_resume.used = left_resume.used || right_resume.used;
   }
 
   for (const id of right.unavailable_state) {
@@ -3427,10 +3765,9 @@ function merge_branch_ctx(left: CompileCtx, right: CompileCtx): CompileCtx {
       continue;
     }
 
-    expect(
-      left_resume.used === right_resume.used,
-      "Escaped resumption " + name + " is consumed on only one branch",
-    );
+    const merged_resume = result.escaped_resumptions.get(name);
+    expect(merged_resume, "Missing merged escaped resumption " + name);
+    merged_resume.used = left_resume.used || right_resume.used;
   }
 
   return result;
@@ -3698,8 +4035,8 @@ function kind_from_type_name(name: string | undefined): ValueKind {
   }
 
   if (
-    name === "Unit" || name === "Bool" || name === "Int" ||
-    name === "I32" || name === "U32" || name === "I64"
+    name === "Unit" || name === "Bool" || name === "Char" ||
+    name === "Int" || name === "I32" || name === "U32" || name === "I64"
   ) {
     return "scalar";
   }
@@ -3749,6 +4086,10 @@ function simple_expr_type_name(
   }
 
   if (expr.tag === "num") {
+    if (expr.character !== undefined) {
+      return "Char";
+    }
+
     if (expr.type === "i64") {
       return "I64";
     }
@@ -3798,6 +4139,34 @@ function simple_expr_type_name(
       (expr.type_expr.tag === "var" || expr.type_expr.tag === "type_name")
     ) {
       return expr.type_expr.name;
+    }
+
+    if (elaboration) {
+      const declarations = elaboration.source.declarations;
+
+      if (declarations === undefined) {
+        return undefined;
+      }
+
+      let inferred: string | undefined;
+
+      for (const declaration of declarations) {
+        if (declaration.tag !== "type" || declaration.body.tag !== "sum") {
+          continue;
+        }
+
+        if (!declaration.body.cases.some((item) => item.name === expr.name)) {
+          continue;
+        }
+
+        if (inferred !== undefined) {
+          return undefined;
+        }
+
+        inferred = declaration.name;
+      }
+
+      return inferred;
     }
 
     return undefined;
@@ -3877,7 +4246,15 @@ function simple_expr_type_name(
         const ref = operation_from_state_bind(stmt, elaboration.index);
         const effect = elaboration.index.effects.get(ref.effect);
         expect(effect, "Missing typed effect: " + ref.effect);
-        const operation = find_operation(effect, ref.operation);
+        const declared_operation = find_operation(effect, ref.operation);
+        expect(
+          stmt.value.tag === "app",
+          "Effect state binding must contain a call",
+        );
+        const operation = specialize_effect_operation(
+          declared_operation,
+          stmt.value,
+        );
         local.set(stmt.value_name, operation.result.type_name);
       }
     }
@@ -3915,13 +4292,145 @@ function simple_expr_type_name(
   return undefined;
 }
 
-function same_handler_type(left: string, right: string): boolean {
+function same_handler_type(
+  left: string,
+  right: string,
+  elaboration: Elaboration,
+): boolean {
   if (left === right) {
     return true;
   }
 
   const i32_names = new Set(["Int", "I32", "U32"]);
-  return i32_names.has(left) && i32_names.has(right);
+
+  if (i32_names.has(left) && i32_names.has(right)) {
+    return true;
+  }
+
+  const resolved_left = resolve_handler_alias(left, elaboration);
+  const resolved_right = resolve_handler_alias(right, elaboration);
+
+  if (resolved_left === resolved_right) {
+    return true;
+  }
+
+  if (
+    resolved_right === handler_type_constructor(resolved_left) &&
+    !resolved_right.includes(" ")
+  ) {
+    return true;
+  }
+
+  return resolved_left === handler_type_constructor(resolved_right) &&
+    !resolved_left.includes(" ");
+}
+
+function contextualize_handler_result(
+  expr: FrontExpr,
+  type_name: string,
+  elaboration: Elaboration,
+): FrontExpr {
+  if (expr.tag === "union_case" && expr.type_expr === undefined) {
+    const name = "__duck_handler_result_" +
+      elaboration.next_resume.toString();
+    elaboration.next_resume += 1;
+    let value = expr.value;
+
+    if (value?.tag === "unit") {
+      value = undefined;
+    }
+
+    return {
+      tag: "block",
+      statements: [
+        {
+          tag: "bind",
+          kind: "let",
+          name,
+          is_linear: false,
+          annotation: type_name,
+          value: { ...expr, value },
+        },
+        { tag: "expr", expr: { tag: "var", name } },
+      ],
+    };
+  }
+
+  if (expr.tag === "if" || expr.tag === "if_let") {
+    return {
+      ...expr,
+      then_branch: contextualize_handler_result(
+        expr.then_branch,
+        type_name,
+        elaboration,
+      ),
+      else_branch: contextualize_handler_result(
+        expr.else_branch,
+        type_name,
+        elaboration,
+      ),
+    };
+  }
+
+  if (expr.tag === "block") {
+    const statements = [...expr.statements];
+    const final = statements[statements.length - 1];
+
+    if (final?.tag === "expr") {
+      statements[statements.length - 1] = {
+        ...final,
+        expr: contextualize_handler_result(
+          final.expr,
+          type_name,
+          elaboration,
+        ),
+      };
+    } else if (final?.tag === "return") {
+      statements[statements.length - 1] = {
+        ...final,
+        value: contextualize_handler_result(
+          final.value,
+          type_name,
+          elaboration,
+        ),
+      };
+    }
+
+    return { ...expr, statements };
+  }
+
+  if (expr.tag === "scratch") {
+    return {
+      ...expr,
+      body: contextualize_handler_result(expr.body, type_name, elaboration),
+    };
+  }
+
+  return expr;
+}
+
+function resolve_handler_alias(
+  name: string,
+  elaboration: Elaboration,
+): string {
+  const declaration = elaboration.source.declarations?.find((candidate) => {
+    return candidate.tag === "type" && candidate.name === name;
+  });
+
+  if (
+    declaration === undefined || declaration.tag !== "type" ||
+    declaration.body.tag !== "alias" || declaration.body.opaque
+  ) {
+    return name;
+  }
+
+  return declaration.body.type_name;
+}
+
+function handler_type_constructor(name: string): string {
+  const match = name.match(/[A-Za-z_][A-Za-z0-9_]*/);
+  expect(match, "Invalid handler type name: " + name);
+  return match[0];
 }
 
 function runtime_annotation(name: string): string {

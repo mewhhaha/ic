@@ -1,6 +1,13 @@
 import type { DataSegment } from "../../mod.ts";
 import { expect } from "../../expect.ts";
-import type { CoreExpr, CoreField, CoreParam, CoreStmt } from "../ast.ts";
+import type {
+  Core,
+  CoreExpr,
+  CoreField,
+  CoreFnType,
+  CoreParam,
+  CoreStmt,
+} from "../ast.ts";
 import { set_local } from "../emit/local.ts";
 import { closure_param_info } from "../closure_type/param.ts";
 import { align_to } from "../memory.ts";
@@ -13,6 +20,7 @@ import {
 } from "../text_static.ts";
 import {
   core_val_type_from_type_name,
+  static_type_level_value,
   static_type_value,
 } from "../type_static.ts";
 import { dynamic_if_let_can_match } from "../union_static.ts";
@@ -20,6 +28,7 @@ import { core_text_layout_param_type } from "./param.ts";
 import type { CoreTextLayoutHooks, TextLayout } from "./types.ts";
 import { core_runtime_buffer_builtin } from "../runtime_buffer.ts";
 import { core_runtime_slice_fact } from "../runtime_slice.ts";
+import { core_mutable_bindings } from "../mutable_bindings.ts";
 
 type TextLayoutBranchCtx =
   | { tag: "scan"; ctx: StaticTextCtx }
@@ -27,7 +36,7 @@ type TextLayoutBranchCtx =
   | { tag: "unknown" };
 
 export function build_text_layout(
-  core: { statements: CoreStmt[] },
+  core: Core,
   initial_ctx: StaticTextCtx,
   hooks: CoreTextLayoutHooks,
 ): TextLayout {
@@ -41,12 +50,13 @@ export function build_text_layout(
   } satisfies StaticTextHooks;
   const ctx: StaticTextCtx = {
     ...initial_ctx,
-    locals: initial_ctx.locals,
+    locals: new Map(initial_ctx.locals),
     statics: new Map(),
     fn_types: new Map(initial_ctx.fn_types),
     text_locals: new Set(initial_ctx.text_locals),
     struct_locals: new Map(initial_ctx.struct_locals),
     union_locals: new Map(initial_ctx.union_locals),
+    borrowed_locals: clone_optional_set(initial_ctx.borrowed_locals),
   };
   let offset = 0;
   const visiting_static_functions = new Set<string>();
@@ -143,7 +153,22 @@ export function build_text_layout(
     switch (stmt.tag) {
       case "bind":
         {
-          const value = hooks.core_binding_value(stmt, ctx);
+          let value: CoreExpr;
+          try {
+            value = hooks.core_binding_value(stmt, ctx);
+          } catch (error) {
+            if (
+              stmt.annotation !== undefined &&
+              text_layout_generated_local_probe_error(error)
+            ) {
+              value = stmt.value;
+            } else {
+              throw new Error(
+                "Core text layout cannot resolve binding " + stmt.name,
+                { cause: error },
+              );
+            }
+          }
           const type_value = hooks.core_type_const_value(stmt, value, ctx);
 
           if (type_value) {
@@ -151,7 +176,15 @@ export function build_text_layout(
             return;
           }
 
-          if (visit_static_binding(stmt.name, value)) {
+          const mutable_binding = ctx.mutable_bindings?.has(stmt.name) === true;
+          const runtime_shape_annotation = text_layout_runtime_shape_annotation(
+            stmt.annotation,
+          );
+
+          if (
+            !mutable_binding && !runtime_shape_annotation &&
+            visit_static_binding(stmt.name, value)
+          ) {
             return;
           }
 
@@ -232,6 +265,7 @@ export function build_text_layout(
             text_locals: new Set(ctx.text_locals),
             struct_locals: new Map(ctx.struct_locals),
             union_locals: new Map(ctx.union_locals),
+            borrowed_locals: clone_optional_set(ctx.borrowed_locals),
           };
           const else_ctx: StaticTextCtx = {
             locals: ctx.locals,
@@ -240,6 +274,7 @@ export function build_text_layout(
             text_locals: new Set(ctx.text_locals),
             struct_locals: new Map(ctx.struct_locals),
             union_locals: new Map(ctx.union_locals),
+            borrowed_locals: clone_optional_set(ctx.borrowed_locals),
           };
           const outer_statics = ctx.statics;
           const outer_fn_types = ctx.fn_types;
@@ -337,7 +372,28 @@ export function build_text_layout(
     annotation: string | undefined,
   ): void {
     ctx.statics.delete(name);
-    const union_type = hooks.runtime_union_type_expr(value, ctx);
+    let member_annotation = annotation;
+    if (
+      member_annotation !== undefined &&
+      (member_annotation.startsWith("&") ||
+        member_annotation.startsWith("^"))
+    ) {
+      member_annotation = member_annotation.slice(1);
+    }
+    let annotation_type: CoreExpr | undefined;
+    if (member_annotation !== undefined) {
+      annotation_type = static_type_value(
+        { tag: "var", name: member_annotation },
+        ctx,
+      );
+    }
+    let union_type: CoreExpr | undefined;
+    if (annotation_type?.tag === "union_type") {
+      expect(member_annotation, "Missing text layout union annotation");
+      union_type = { tag: "var", name: member_annotation };
+    } else if (annotation_type === undefined && annotation === undefined) {
+      union_type = hooks.runtime_union_type_expr(value, ctx);
+    }
 
     if (union_type) {
       ctx.union_locals.set(name, union_type);
@@ -345,7 +401,13 @@ export function build_text_layout(
       ctx.union_locals.delete(name);
     }
 
-    const struct_type = hooks.runtime_aggregate_type_expr(value, ctx);
+    let struct_type: CoreExpr | undefined;
+    if (annotation_type?.tag === "struct_type") {
+      expect(member_annotation, "Missing text layout struct annotation");
+      struct_type = { tag: "var", name: member_annotation };
+    } else if (annotation_type === undefined && annotation === undefined) {
+      struct_type = hooks.runtime_aggregate_type_expr(value, ctx);
+    }
 
     if (struct_type) {
       ctx.struct_locals.set(name, struct_type);
@@ -354,19 +416,39 @@ export function build_text_layout(
     }
 
     if (annotation) {
-      const type = core_val_type_from_type_name(annotation);
+      expect(member_annotation, "Missing text layout member annotation");
+      const type = core_val_type_from_type_name(member_annotation);
 
       if (type) {
         set_local(ctx.locals, name, type);
       }
 
-      const type_value = static_type_value(
-        { tag: "var", name: annotation },
-        ctx,
-      );
+      if (annotation_type?.tag === "union_type") {
+        set_local(ctx.locals, name, "i32");
+        ctx.union_locals.set(name, {
+          tag: "var",
+          name: member_annotation,
+        });
+      }
 
-      if (type_value && type_value.tag === "union_type") {
-        ctx.union_locals.set(name, { tag: "var", name: annotation });
+      if (annotation_type?.tag === "struct_type") {
+        set_local(ctx.locals, name, "i32");
+        ctx.struct_locals.set(name, {
+          tag: "var",
+          name: member_annotation,
+        });
+      }
+    }
+
+    if (ctx.borrowed_locals) {
+      if (
+        annotation?.startsWith("&") || value.tag === "borrow" ||
+        ((value.tag === "var" || value.tag === "linear") &&
+          ctx.borrowed_locals.has(value.name))
+      ) {
+        ctx.borrowed_locals.add(name);
+      } else {
+        ctx.borrowed_locals.delete(name);
       }
     }
 
@@ -388,6 +470,18 @@ export function build_text_layout(
         }
 
         if (value.tag === "prim") {
+          set_local(ctx.locals, name, hooks.expr_type(value, ctx));
+        }
+
+        if (
+          value.tag === "index" && value.object.tag === "var" &&
+          (ctx.struct_locals.has(value.object.name) ||
+            ctx.text_locals.has(value.object.name))
+        ) {
+          set_local(ctx.locals, name, hooks.expr_type(value, ctx));
+        }
+
+        if (value.tag === "field") {
           set_local(ctx.locals, name, hooks.expr_type(value, ctx));
         }
 
@@ -415,6 +509,13 @@ export function build_text_layout(
               set_local(ctx.locals, name, fn_type.result);
             }
           }
+        }
+
+        if (
+          !ctx.locals.has(name) &&
+          static_type_level_value(value, ctx) === undefined
+        ) {
+          set_local(ctx.locals, name, hooks.expr_type(value, ctx));
         }
       }
     }
@@ -468,12 +569,48 @@ export function build_text_layout(
       return true;
     }
 
+    if (text_layout_runtime_shape_annotation(annotation)) {
+      return false;
+    }
+
+    if (value.tag === "app") {
+      const fn_type = hooks.closure_fn_type(value.func, ctx);
+      if (fn_type?.result_text === true) {
+        return true;
+      }
+    }
+
+    if (value.tag === "index") {
+      const aggregate_type = hooks.runtime_aggregate_type_expr(
+        value.object,
+        ctx,
+      );
+      let aggregate_value: ReturnType<typeof static_type_value>;
+
+      if (aggregate_type !== undefined) {
+        aggregate_value = static_type_value(aggregate_type, ctx);
+      }
+
+      if (
+        aggregate_value?.tag === "struct_type" &&
+        hooks.core_expr_is_text(value, ctx)
+      ) {
+        return true;
+      }
+    }
+
     if (static_text_value(value, ctx, text_hooks)) {
       return true;
     }
 
     if (value.tag === "var") {
       return ctx.text_locals.has(value.name);
+    }
+
+    if (
+      value.tag === "field" && hooks.core_expr_is_text(value, ctx)
+    ) {
+      return true;
     }
 
     if (value.tag === "app" && value.func.tag === "var") {
@@ -556,7 +693,15 @@ export function build_text_layout(
     return false;
   }
 
-  function visit_closure_body(params: CoreParam[], body: CoreExpr): void {
+  function visit_closure_body(
+    params: CoreParam[],
+    body: CoreExpr,
+    mutable_bindings?: Set<string>,
+  ): void {
+    let body_mutable_bindings = ctx.mutable_bindings;
+    if (mutable_bindings !== undefined) {
+      body_mutable_bindings = mutable_bindings;
+    }
     const body_ctx: StaticTextCtx = {
       locals: new Map(ctx.locals),
       statics: new Map(ctx.statics),
@@ -564,6 +709,8 @@ export function build_text_layout(
       text_locals: new Set(ctx.text_locals),
       struct_locals: new Map(ctx.struct_locals),
       union_locals: new Map(ctx.union_locals),
+      borrowed_locals: clone_optional_set(ctx.borrowed_locals),
+      mutable_bindings: body_mutable_bindings,
     };
 
     for (const param of params) {
@@ -571,9 +718,20 @@ export function build_text_layout(
       let is_text = false;
       let struct_type: CoreExpr | undefined;
       let union_type: CoreExpr | undefined;
+      let fn_type: CoreFnType | undefined;
 
       if (param.annotation) {
-        const info = closure_param_info(param, body_ctx, {
+        let layout_param = param;
+        if (
+          param.annotation.startsWith("&") ||
+          param.annotation.startsWith("^")
+        ) {
+          layout_param = {
+            ...param,
+            annotation: param.annotation.slice(1),
+          };
+        }
+        const info = closure_param_info(layout_param, body_ctx, {
           static_annotation_type_value: (annotation, annotation_ctx) =>
             static_type_value(
               { tag: "var", name: annotation },
@@ -586,12 +744,18 @@ export function build_text_layout(
           is_text = info.is_text;
           struct_type = info.struct_type;
           union_type = info.union_type;
+          fn_type = info.fn_type;
         }
       }
 
       if (type) {
+        body_ctx.locals.delete(param.name);
         body_ctx.statics.delete(param.name);
-        body_ctx.fn_types.delete(param.name);
+        if (fn_type) {
+          body_ctx.fn_types.set(param.name, fn_type);
+        } else {
+          body_ctx.fn_types.delete(param.name);
+        }
         set_local(body_ctx.locals, param.name, type);
 
         if (is_text) {
@@ -611,6 +775,14 @@ export function build_text_layout(
         } else {
           body_ctx.union_locals.delete(param.name);
         }
+
+        if (body_ctx.borrowed_locals) {
+          if (param.annotation?.startsWith("&")) {
+            body_ctx.borrowed_locals.add(param.name);
+          } else {
+            body_ctx.borrowed_locals.delete(param.name);
+          }
+        }
       }
     }
 
@@ -620,6 +792,8 @@ export function build_text_layout(
     const outer_text_locals = ctx.text_locals;
     const outer_struct_locals = ctx.struct_locals;
     const outer_union_locals = ctx.union_locals;
+    const outer_borrowed_locals = ctx.borrowed_locals;
+    const outer_mutable_bindings = ctx.mutable_bindings;
 
     ctx.locals = body_ctx.locals;
     ctx.statics = body_ctx.statics;
@@ -627,6 +801,8 @@ export function build_text_layout(
     ctx.text_locals = body_ctx.text_locals;
     ctx.struct_locals = body_ctx.struct_locals;
     ctx.union_locals = body_ctx.union_locals;
+    ctx.borrowed_locals = body_ctx.borrowed_locals;
+    ctx.mutable_bindings = body_ctx.mutable_bindings;
 
     try {
       visit_expr(body);
@@ -637,6 +813,8 @@ export function build_text_layout(
       ctx.text_locals = outer_text_locals;
       ctx.struct_locals = outer_struct_locals;
       ctx.union_locals = outer_union_locals;
+      ctx.borrowed_locals = outer_borrowed_locals;
+      ctx.mutable_bindings = outer_mutable_bindings;
     }
   }
 
@@ -864,6 +1042,26 @@ export function build_text_layout(
     visit_stmt(stmt);
   }
 
+  if (core.recFunctions !== undefined) {
+    for (const name in core.recFunctions) {
+      const definition = core.recFunctions[name];
+      expect(definition, "Missing named recursive function: " + name);
+      expect(
+        definition.body_stmt,
+        "Named recursive function has no prepared body: " + name,
+      );
+      const mutable_bindings = core_mutable_bindings({
+        tag: "program",
+        statements: [definition.body_stmt],
+      });
+      visit_closure_body(
+        definition.params,
+        definition.body,
+        mutable_bindings,
+      );
+    }
+  }
+
   return { offsets, data, heap_start: align_to(offset, 8) };
 
   function if_let_branch_ctx(
@@ -934,6 +1132,7 @@ export function build_text_layout(
       text_locals: new Set(source.text_locals),
       struct_locals: new Map(source.struct_locals),
       union_locals: new Map(source.union_locals),
+      borrowed_locals: clone_optional_set(source.borrowed_locals),
     };
   }
 
@@ -947,6 +1146,7 @@ export function build_text_layout(
     const outer_text_locals = ctx.text_locals;
     const outer_struct_locals = ctx.struct_locals;
     const outer_union_locals = ctx.union_locals;
+    const outer_borrowed_locals = ctx.borrowed_locals;
 
     ctx.locals = next_ctx.locals;
     ctx.statics = next_ctx.statics;
@@ -954,6 +1154,7 @@ export function build_text_layout(
     ctx.text_locals = next_ctx.text_locals;
     ctx.struct_locals = next_ctx.struct_locals;
     ctx.union_locals = next_ctx.union_locals;
+    ctx.borrowed_locals = next_ctx.borrowed_locals;
 
     try {
       visit();
@@ -964,6 +1165,43 @@ export function build_text_layout(
       ctx.text_locals = outer_text_locals;
       ctx.struct_locals = outer_struct_locals;
       ctx.union_locals = outer_union_locals;
+      ctx.borrowed_locals = outer_borrowed_locals;
     }
+  }
+
+  function clone_optional_set<value>(
+    source: Set<value> | undefined,
+  ): Set<value> | undefined {
+    if (!source) {
+      return undefined;
+    }
+
+    return new Set(source);
+  }
+
+  function text_layout_generated_local_probe_error(
+    error: unknown,
+  ): boolean {
+    return error instanceof Error &&
+      error.message.startsWith("Unbound core local: _local_");
+  }
+
+  function text_layout_runtime_shape_annotation(
+    annotation: string | undefined,
+  ): boolean {
+    if (annotation === undefined) {
+      return false;
+    }
+
+    let member_annotation = annotation;
+    if (annotation.startsWith("&") || annotation.startsWith("^")) {
+      member_annotation = annotation.slice(1);
+    }
+    const type_value = static_type_value(
+      { tag: "var", name: member_annotation },
+      ctx,
+    );
+    return type_value?.tag === "struct_type" ||
+      type_value?.tag === "union_type";
   }
 }

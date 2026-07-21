@@ -2,7 +2,8 @@ import type { FrontExpr, Source, TypeExpr, TypeField } from "./frontend/ast.ts";
 import { analyze_front_effects } from "./frontend/effect_analysis.ts";
 import { resolve_front_type_value } from "./frontend/type_set_elaborate.ts";
 import { tokenize } from "./frontend/tokenize.ts";
-import { parse_type_expr } from "./frontend/type_expr.ts";
+import { format_type_expr, parse_type_expr } from "./frontend/type_expr.ts";
+import { substitute_front_expr } from "./frontend/substitute.ts";
 import { align_to } from "./core/memory.ts";
 import type { Func, Mod } from "./mod.ts";
 import {
@@ -220,6 +221,7 @@ export function build_abi_manifest(
     { element: AbiTypeRef; length: number }
   >();
   const resolving = new Set<string>();
+  const resolving_shapes = new Map<string, "struct" | "union">();
   let next_schema_id = 1;
 
   function resolve_fixed_array(
@@ -238,6 +240,7 @@ export function build_abi_manifest(
 
   function resolve_named(name: string): AbiType {
     reject_resume_abi_type(name);
+    materialize_applied_abi_type_value(name, values);
     const existing = types[name];
 
     if (existing) {
@@ -300,6 +303,7 @@ export function build_abi_manifest(
       }
 
       if (resolved_value.tag === "struct_type") {
+        resolving_shapes.set(name, "struct");
         let offset = 0;
         let max_align = 1;
         const fields: AbiStructField[] = [];
@@ -310,8 +314,13 @@ export function build_abi_manifest(
             values,
             resolve_named,
             resolve_fixed_array,
+            resolving,
           );
-          const layout = abi_type_ref_layout(type, resolve_named);
+          const layout = abi_type_ref_layout(
+            type,
+            resolve_named,
+            (type_name) => abi_named_shape(type_name, values, resolving_shapes),
+          );
           offset = align_to(offset, layout.align);
           fields.push({ name: field.name, type, offset });
           offset += layout.size;
@@ -335,6 +344,7 @@ export function build_abi_manifest(
       }
 
       if (resolved_value.tag === "union_type") {
+        resolving_shapes.set(name, "union");
         let max_payload = 0;
         const cases = [];
 
@@ -350,17 +360,31 @@ export function build_abi_manifest(
             values,
             resolve_named,
             resolve_fixed_array,
+            resolving,
           );
           if (payload.tag === "named") {
-            const payload_schema = resolve_named(payload.name);
-            if (
-              payload_schema.tag === "struct" ||
-              payload_schema.tag === "array"
-            ) {
+            const payload_shape = abi_named_shape(
+              payload.name,
+              values,
+              resolving_shapes,
+            );
+            if (payload_shape === "struct") {
               payload = { ...payload, indirect: true };
+            } else if (payload_shape === undefined) {
+              const payload_schema = resolve_named(payload.name);
+              if (
+                payload_schema.tag === "struct" ||
+                payload_schema.tag === "array"
+              ) {
+                payload = { ...payload, indirect: true };
+              }
             }
           }
-          const layout = abi_type_ref_layout(payload, resolve_named);
+          const layout = abi_type_ref_layout(
+            payload,
+            resolve_named,
+            (type_name) => abi_named_shape(type_name, values, resolving_shapes),
+          );
 
           if (layout.size > max_payload) {
             max_payload = layout.size;
@@ -389,6 +413,7 @@ export function build_abi_manifest(
       throw new Error("ABI type value must be a struct or union: " + name);
     } finally {
       resolving.delete(name);
+      resolving_shapes.delete(name);
     }
   }
 
@@ -849,7 +874,7 @@ function abi_entry(
 
 export function managed_abi_mod(mod: Mod, manifest: AbiManifest): Mod {
   const funcs: Record<string, Func> = { ...mod.funcs };
-  const allocator = runtime_allocator_funcs();
+  const allocator = runtime_allocator_funcs(0);
   Object.assign(funcs, allocator);
 
   funcs[manifest.exports.alloc] = {
@@ -1095,6 +1120,7 @@ function abi_type_ref(
   values: Map<string, FrontExpr>,
   resolve_named: (name: string) => AbiType,
   resolve_fixed_array: (element: AbiTypeRef, length: number) => AbiType,
+  resolving?: ReadonlySet<string>,
 ): AbiTypeRef {
   const primitive = primitive_abi_type_ref(name);
 
@@ -1121,12 +1147,118 @@ function abi_type_ref(
     }
   }
 
+  materialize_applied_abi_type_value(name, values);
+
   if (!values.has(name)) {
     throw new Error("Missing ABI type reference: " + name);
   }
 
-  resolve_named(name);
+  if (!resolving?.has(name)) {
+    resolve_named(name);
+  }
   return { tag: "named", name };
+}
+
+function materialize_applied_abi_type_value(
+  name: string,
+  values: Map<string, FrontExpr>,
+): void {
+  if (values.has(name)) {
+    return;
+  }
+
+  const parsed = parse_type_expr(tokenize(name));
+  const args: TypeExpr[] = [];
+  let constructor_expr = parsed;
+
+  while (constructor_expr.tag === "apply") {
+    args.unshift(constructor_expr.arg);
+    constructor_expr = constructor_expr.func;
+  }
+
+  if (constructor_expr.tag !== "name" || args.length === 0) {
+    return;
+  }
+
+  const constructor = values.get(constructor_expr.name);
+
+  if (!constructor || constructor.tag !== "lam") {
+    return;
+  }
+
+  if (constructor.params.length !== args.length) {
+    throw new Error(
+      "ABI type constructor " + constructor_expr.name + " expects " +
+        constructor.params.length.toString() + " arguments, got " +
+        args.length.toString(),
+    );
+  }
+
+  const replacements = new Map<string, FrontExpr>();
+
+  for (let index = 0; index < constructor.params.length; index += 1) {
+    const param = constructor.params[index];
+    const arg = args[index];
+
+    if (!param || !arg) {
+      throw new Error(
+        "Missing ABI type constructor argument " + index.toString(),
+      );
+    }
+
+    replacements.set(param.name, {
+      tag: "var",
+      name: format_type_expr(arg),
+    });
+  }
+
+  values.set(name, substitute_front_expr(constructor.body, replacements));
+}
+
+function abi_named_shape(
+  name: string,
+  values: Map<string, FrontExpr>,
+  resolving_shapes: ReadonlyMap<string, "struct" | "union">,
+): "struct" | "union" | undefined {
+  const resolving = resolving_shapes.get(name);
+
+  if (resolving) {
+    return resolving;
+  }
+
+  materialize_applied_abi_type_value(name, values);
+  const seen = new Set<string>();
+  let current = name;
+
+  while (!seen.has(current)) {
+    seen.add(current);
+    const value = values.get(current);
+
+    if (!value) {
+      return undefined;
+    }
+
+    if (value.tag === "struct_type") {
+      return "struct";
+    }
+
+    if (value.tag === "union_type") {
+      return "union";
+    }
+
+    if (value.tag !== "var") {
+      return undefined;
+    }
+
+    current = value.name;
+    const current_resolving = resolving_shapes.get(current);
+
+    if (current_resolving) {
+      return current_resolving;
+    }
+  }
+
+  return undefined;
 }
 
 function abi_fixed_array_type_ref(
@@ -1228,7 +1360,8 @@ function primitive_abi_type_ref(name: string): AbiTypeRef | undefined {
   }
 
   if (
-    name === "Bool" || name === "Int" || name === "I32" || name === "U32"
+    name === "Bool" || name === "Char" || name === "Int" ||
+    name === "I32" || name === "U32"
   ) {
     return { tag: "i32" };
   }
@@ -1277,6 +1410,7 @@ function reject_resume_abi_type(name: string): void {
 function abi_type_ref_layout(
   type: AbiTypeRef,
   resolve_named: (name: string) => AbiType,
+  named_shape?: (name: string) => "struct" | "union" | undefined,
 ): { size: number; align: number } {
   if (type.tag === "i64" || type.tag === "f64") {
     return { size: 8, align: 8 };
@@ -1292,6 +1426,9 @@ function abi_type_ref_layout(
 
   if (type.tag === "named") {
     if (type.indirect) {
+      return { size: 4, align: 4 };
+    }
+    if (named_shape?.(type.name) === "union") {
       return { size: 4, align: 4 };
     }
     const named = resolve_named(type.name);

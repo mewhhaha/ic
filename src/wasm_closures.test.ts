@@ -186,16 +186,16 @@ f(41)
 
   const if_let_matching_wat = wat_from_core_source(`
 let flag = true
-type ResultType = | .ok = Int | .err = Int
+type ResultType = | \`Ok Int | \`Err Int
 const result_type = ResultType
 
 let result: result_type = if flag {
-  .ok(40)
+  \`Ok (40)
 } else {
-  .err(1)
+  \`Err (1)
 }
 
-let f = if let .ok(value) = result {
+let f = if let \`Ok value = result {
   (x: Int) => x + value
 } else {
   x => x + 1
@@ -227,16 +227,16 @@ f(2)
 
   const if_let_fallback_wat = wat_from_core_source(`
 let flag = false
-type ResultType = | .ok = Int | .err = Int
+type ResultType = | \`Ok Int | \`Err Int
 const result_type = ResultType
 
 let result: result_type = if flag {
-  .ok(40)
+  \`Ok (40)
 } else {
-  .err(1)
+  \`Err (1)
 }
 
-let f = if let .ok(value) = result {
+let f = if let \`Ok value = result {
   (x: Int) => x + value
 } else {
   x => x + 1

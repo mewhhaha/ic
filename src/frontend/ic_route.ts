@@ -283,7 +283,7 @@ function validate_ic_route_expr(
       return;
 
     case "union_case":
-      if (expr.value) {
+      if (expr.value && expr.value.tag !== "unit") {
         validate_ic_route_expr(expr.value, diagnostics);
       }
 

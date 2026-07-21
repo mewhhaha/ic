@@ -1,11 +1,11 @@
-type NumberCalc = | .literal = Int | .add = Int
-type TextCalc = | .literal = Text
+type NumberCalc = | `Literal Int | `Add Int
+type TextCalc = `Literal Text
 
 let eval_number = expression => {
-  if let .literal(value) = expression {
+  if let `Literal value = expression {
     value
   } else {
-    if let .add(left) = expression {
+    if let `Add left = expression {
       left + 22
     } else {
       0
@@ -13,6 +13,6 @@ let eval_number = expression => {
   }
 }
 
-let expression: NumberCalc = NumberCalc.add(20)
+let expression: NumberCalc = `Add (20)
 
 eval_number(expression)

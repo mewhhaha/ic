@@ -12,7 +12,10 @@ import {
   static_core_call_branch_app,
   type StaticCoreCallCtx,
 } from "./static_call.ts";
-import { core_val_type_from_type_name } from "./type_static.ts";
+import {
+  core_val_type_from_type_name,
+  static_type_value,
+} from "./type_static.ts";
 import {
   core_bytes_generate_args,
   core_bytes_generator_call,
@@ -93,7 +96,7 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
       const arg = expr.args[index];
       expect(param, "Missing named recursive parameter " + index.toString());
       expect(arg, "Missing named recursive argument " + index.toString());
-      const param_type = named_rec_param_type(param);
+      const param_type = named_rec_param_type(param, ctx);
       const arg_type = hooks.expr_type(arg, ctx);
       expect(
         arg_type === param_type,
@@ -102,7 +105,14 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
       );
     }
 
-    return "i32";
+    if (expr.func.result_annotation === undefined) {
+      return "i32";
+    }
+    return named_rec_annotation_type(
+      expr.func.result_annotation,
+      ctx,
+      "result",
+    );
   }
 
   let name: string | undefined;
@@ -291,9 +301,18 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
     expect(left, "Missing core append left argument");
     expect(right, "Missing core append right argument");
     expect(hooks.core_expr_is_text(left, ctx), "Core append left must be Text");
+    let right_subject = right.tag;
+    if (
+      right.tag === "app" &&
+      (right.func.tag === "var" || right.func.tag === "rec_ref")
+    ) {
+      right_subject += "(" + right.func.name + ")";
+    } else if (right.tag === "app") {
+      right_subject += "(" + right.func.tag + ")";
+    }
     expect(
       hooks.core_expr_is_text(right, ctx),
-      "Core append right must be Text",
+      "Core append right must be Text: " + right_subject,
     );
     return "i32";
   }
@@ -347,15 +366,42 @@ export function app_type<ctx extends CoreHostImportCtx & StaticCoreCallCtx>(
   throw new Error("Cannot type core app expression yet");
 }
 
-function named_rec_param_type(param: CoreParam): ValType {
+function named_rec_param_type(
+  param: CoreParam,
+  ctx: { statics: Map<string, CoreExpr> },
+): ValType {
   if (!param.annotation) {
     return "i32";
   }
 
-  const type = core_val_type_from_type_name(param.annotation);
-  expect(
-    type,
-    "Cannot type named recursive parameter annotation: " + param.annotation,
+  return named_rec_annotation_type(param.annotation, ctx, "parameter");
+}
+
+function named_rec_annotation_type(
+  annotation: string,
+  ctx: { statics: Map<string, CoreExpr> },
+  position: "parameter" | "result",
+): ValType {
+  let member_annotation = annotation;
+  if (annotation.startsWith("&") || annotation.startsWith("^")) {
+    member_annotation = annotation.slice(1);
+  }
+  const scalar_type = core_val_type_from_type_name(member_annotation);
+  if (scalar_type !== undefined) {
+    return scalar_type;
+  }
+
+  const type_value = static_type_value(
+    { tag: "var", name: member_annotation },
+    ctx,
   );
-  return type;
+  if (
+    type_value?.tag === "struct_type" || type_value?.tag === "union_type"
+  ) {
+    return "i32";
+  }
+
+  throw new Error(
+    "Cannot type named recursive " + position + " annotation: " + annotation,
+  );
 }

@@ -125,6 +125,10 @@ type NavigationRequest = {
   offset: number;
 };
 
+const lsp_source_import_meta = {
+  mode: { atom: "test" },
+} as const;
+
 export function create_state(options?: ServerOptions): ServerState {
   let debounce_ms = 75;
   let now = (): number => Date.now();
@@ -766,6 +770,7 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
     const resolved = resolve_code_action(action, {
       analyze: (text) =>
         Source.analyze(text, {
+          import_meta: lsp_source_import_meta,
           route: analysis_route(
             action.data.uri,
             Source.parse_with_diagnostics(text).source,
@@ -1367,6 +1372,7 @@ function semantic_document(
             return resolve_document_import(state, dependency_uri);
           },
         ),
+        import_meta: lsp_source_import_meta,
         route: analysis_route(uri, parsed.source),
         uri,
         resolve_import: (dependency_uri) => {
@@ -1412,6 +1418,7 @@ function workspace_semantic_document(
       uri,
       (dependency_uri) => resolve_document_import(state, dependency_uri),
     ),
+    import_meta: lsp_source_import_meta,
     route: analysis_route(uri, parsed.source),
     uri,
     resolve_import: (dependency_uri) =>

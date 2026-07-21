@@ -96,7 +96,7 @@ user.age + user.bonus
   }
 
   const annotated_scratch_free_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int,
   .name= Text
@@ -134,7 +134,7 @@ user.age + @len(user.name)
   }
 
   const block_setup_scratch_free_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int,
   .name= Text
@@ -172,7 +172,7 @@ user.age + @len(user.name)
   }
 
   const block_alias_scratch_free_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int,
   .name= Text
@@ -269,7 +269,7 @@ let i = 1
 
 Deno.test("core runtime aggregate collection facts compile through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -313,12 +313,12 @@ for index, value in pair {
   }
 
   const nested_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const scores_type = struct {
   .first= Int,
   .second= Int
 }
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .scores= scores_type,
   .bonus= Int
@@ -366,7 +366,7 @@ total + user.bonus
   }
 
   const control_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -423,7 +423,7 @@ total
 
 Deno.test("core runtime aggregate scalar index assignment compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -463,7 +463,7 @@ pair.first + pair.second
   }
 
   const trap_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -512,7 +512,7 @@ pair.first
 
 Deno.test("core runtime aggregate Text index assignment compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const names_type = struct {
   .first= Text,
   .second= Text
@@ -554,13 +554,13 @@ names[i] = names.first + " Hopper"
 
 Deno.test("core runtime aggregate nested index assignment compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .left= Int,
   .right= Int
 }
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const slots_type = struct {
   .first= pair_type,
   .second= pair_type
@@ -604,13 +604,13 @@ Deno.test("core rejects first-class runtime aggregate nested mutation capture", 
   assert_throws(
     () =>
       wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .left= Int,
   .right= Int
 }
 
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const slots_type = struct {
   .first= pair_type,
   .second= pair_type
@@ -648,7 +648,7 @@ Deno.test("core rejects first-class runtime aggregate Text mutation capture", ()
   assert_throws(
     () =>
       wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const names_type = struct {
   .first= Text,
   .second= Text
@@ -685,7 +685,7 @@ Deno.test("core rejects first-class runtime aggregate scalar mutation capture", 
   assert_throws(
     () =>
       wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const pair_type = struct {
   .first= Int,
   .second= Int
@@ -720,7 +720,7 @@ write(0, 40) + write(1, 2)
 
 Deno.test("core runtime aggregate text collection facts compile through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const names_type = struct {
   .first= Text,
   .second= Text
@@ -798,9 +798,9 @@ xs[0] + xs[1]
 
   const union_wat = wat_from_core_source(`
 let payload = 41
-let result = .ok(payload)
+let result = \`Ok (payload)
 payload = 1
-if let .ok(x) = result {
+if let \`Ok x = result {
   x
 } else {
   0
@@ -829,7 +829,7 @@ if let .ok(x) = result {
 
 Deno.test("core runtime aggregate field loads compile through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= Text,
   .age= Int
@@ -866,7 +866,7 @@ let user: user_type = make("Ada")
   }
 
   const frozen_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= Text,
   .age= Int
@@ -904,7 +904,7 @@ let frozen: user_type = freeze user
   }
 
   const scratch_frozen_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= Text,
   .age= Int
@@ -941,7 +941,7 @@ let user: user_type = scratch {
   }
 
   const bound_scratch_frozen_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= Text,
   .age= Int
@@ -981,7 +981,7 @@ let user: user_type = scratch {
   }
 
   const existing_alias_scratch_frozen_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= Text,
   .age= Int
@@ -1024,7 +1024,7 @@ let user: user_type = scratch {
   }
 
   const branch_assignment_scratch_frozen_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= Text,
   .age= Int
@@ -1073,12 +1073,12 @@ let user: user_type = scratch {
   }
 
   const nested_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const name_type = struct {
   .first= Text,
   .last= Text
 }
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .age= Int,
   .name= name_type
@@ -1116,7 +1116,7 @@ let name: name_type = user.name
   }
 
   const captured_wat = wat_from_core_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct {
   .name= Text,
   .age= Int
@@ -1223,14 +1223,14 @@ user.age + user.score
 let flag = true
 let payload = 41
 let result = if flag {
-  .ok(payload)
+  \`Ok (payload)
 } else {
-  .err(7)
+  \`Err (7)
 }
 
 flag = false
 payload = 1
-if let .ok(value) = result {
+if let \`Ok value = result {
   value + 1
 } else {
   0
@@ -1322,14 +1322,14 @@ let flag = false
 let left = 41
 let right = 32
 let result = if flag {
-  .ok(left)
+  \`Ok (left)
 } else {
-  .ok(right)
+  \`Ok (right)
 }
 
 left = 1
 right = 2
-if let .ok(value) = result {
+if let \`Ok value = result {
   value
 } else {
   0
@@ -1508,24 +1508,25 @@ next = "Nope"
 
 Deno.test("core generic type constructors compile through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
-type OptionType t = | .some = t | .none
+type OptionType t = | \`Some t | \`None Unit
 const option_type = OptionType
+const option_int_type = option_type(Int)
 
-type ResultType e t = | .ok = t | .err = e
+type ResultType e t = | \`Ok t | \`Err e
 const result_type = ResultType
 
 const parse_result_type = result_type(Text)(Int)
 
-let direct = option_type(Int).some(40)
-let typed: parse_result_type = .ok(1)
+let direct: option_int_type = \`Some 40
+let typed: parse_result_type = \`Ok (1)
 
-let total = if let .some(x) = direct {
+let total = if let \`Some x = direct {
   x
 } else {
   0
 }
 
-if let .ok(value) = typed {
+if let \`Ok value = typed {
   total + value + 1
 } else {
   0

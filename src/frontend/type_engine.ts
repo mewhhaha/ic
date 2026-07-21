@@ -1,5 +1,6 @@
 export type TypeScalar =
   | "Bool"
+  | "Char"
   | "Unit"
   | "Int"
   | "I32"
@@ -1617,15 +1618,12 @@ export class TypeEngine {
         return true;
       }
 
-      const left_is_bool = left.name === "Bool";
-      const right_is_bool = right.name === "Bool";
-      const left_is_i32 = left.name === "Int" || left.name === "I32" ||
-        left.name === "U32";
-      const right_is_i32 = right.name === "Int" || right.name === "I32" ||
-        right.name === "U32";
+      const left_is_i32 = left.name === "Bool" || left.name === "Char" ||
+        left.name === "Int" || left.name === "I32" || left.name === "U32";
+      const right_is_i32 = right.name === "Bool" || right.name === "Char" ||
+        right.name === "Int" || right.name === "I32" || right.name === "U32";
 
-      return (left_is_bool && right_is_i32) ||
-        (left_is_i32 && right_is_bool);
+      return left_is_i32 && right_is_i32;
     }
 
     if (left.tag === "union" || left.tag === "intersection") {

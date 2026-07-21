@@ -9,6 +9,7 @@ import type {
 } from "./ast.ts";
 import { capture_const_ref, capture_expr } from "./capture.ts";
 import { resolve_const_call_target } from "./call_const.ts";
+import { parameter_arguments } from "./call_args.ts";
 import { is_deferred_frontend_value } from "./call_deferred.ts";
 import {
   resolve_call_target_with_env,
@@ -140,19 +141,16 @@ function inline_resolved_call_target(
   env: Env,
   hooks: CallSpecializeHooks,
 ): ResolvedFrontExpr | undefined {
-  if (args.length !== target.expr.params.length) {
+  const bindings = parameter_arguments(target.expr.params, args);
+
+  if (bindings === undefined) {
     return undefined;
   }
 
   const replacements = new Map<string, FrontExpr>();
   const prefix: Stmt[] = [];
 
-  for (let index = 0; index < target.expr.params.length; index += 1) {
-    const param = target.expr.params[index];
-    const arg = args[index];
-    expect(param, "Missing inline parameter " + index);
-    expect(arg, "Missing inline argument " + index);
-
+  for (const { param, arg } of bindings) {
     if (param.is_linear) {
       return undefined;
     }

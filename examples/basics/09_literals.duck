@@ -1,4 +1,4 @@
-const { get } = comptime import "duck:prelude/runtime" ()
+const { get } = import "duck:prelude/runtime" ()
 
 let message = "answer"
 let answer = 0

@@ -41,14 +41,26 @@ return { .result = result }
         (identifier)
         (host_parameter_list)
         (host_result
-          (type_reference)))
+          (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier)))))))
       (effect_operation
         (identifier)
         (host_parameter_list
           (host_parameter
-            (type_reference)))
+            (type_reference
+              (type_union
+                (type_intersection
+                  (type_difference
+                    (identifier)))))))
         (host_result
-          (type_reference)))))
+          (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier)))))))))
   (declare_record_statement
     (identifier)
     (type_field_block
@@ -242,6 +254,23 @@ answer
       (identifier))))
 
 ==================
+Inferred default handlers
+==================
+
+try run()
+
+---
+
+(source_file
+  (expression_statement
+    (try_with_expression
+      (application_expression
+        (postfix_expression
+          (identifier))
+        (parenthesized_or_product
+          (unit_pattern))))))
+
+==================
 Duck handler and resumptions
 ==================
 
@@ -286,14 +315,26 @@ return { .result = result }
         (identifier)
         (host_parameter_list)
         (host_result
-          (type_reference)))
+          (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier)))))))
       (effect_operation
         (identifier)
         (host_parameter_list
           (host_parameter
-            (type_reference)))
+            (type_reference
+              (type_union
+                (type_intersection
+                  (type_difference
+                    (identifier)))))))
         (host_result
-          (type_reference)))))
+          (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier)))))))))
   (binding_statement
     (identifier)
     (postfix_expression

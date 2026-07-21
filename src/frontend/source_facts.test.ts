@@ -44,11 +44,64 @@ Deno.test("source facts expose canonical types as semantic evidence", () => {
   assert_equals(fact?.canonical_type(), { tag: "scalar", name: "Bool" });
 });
 
-Deno.test("@as accepts only representation-identical target types", () => {
+Deno.test("source facts accept borrowed values for borrowed parameters", () => {
+  const source = parse_source(`
+type Point = struct { .x = I32 }
+let read: &Point -> I32 = (point: &Point) => point.x
+let point = Point.new { .x = 42 }
+read(&point)
+`);
+  const facts = source_facts(source);
+  assert_equals(source_inference_diagnostics(source, facts), []);
+});
+
+Deno.test("source facts retain the distinct Char type", () => {
+  assert_equals(expression_type_names("'c'", "num"), ["Char"]);
+});
+
+Deno.test("applied source types preserve function argument grouping", () => {
+  const source = parse_source(`
+type Maybe value = | \`Just value | \`Nothing Unit
+let callback: Maybe (I32 -> I32) = \`Nothing ()
+callback
+`);
+  const facts = source_facts(source);
+  const callback_binding = source.statements.find((statement) =>
+    statement.tag === "bind" && statement.name === "callback"
+  );
+
+  if (callback_binding === undefined) {
+    throw new Error("Missing callback binding");
+  }
+
+  assert_equals(
+    binding_type_name(callback_binding, facts),
+    "Maybe (I32 -> I32)",
+  );
+});
+
+Deno.test("type_of records a type-value describing its operand", () => {
+  const source = parse_source('let value: Text = "duck"\n@type_of(value)');
+  const facts = source_facts(source);
+  const call = facts.expressions.find((expression) => {
+    return expression.tag === "app" && expression.func.tag === "var" &&
+      expression.func.name === "@type_of";
+  });
+
+  if (call === undefined) {
+    throw new Error("Missing type_of call");
+  }
+
+  const type = recorded_type(facts, call);
+  assert_equals(type?.name, "Type");
+  assert_equals(type?.constructed?.name, "Text");
+});
+
+Deno.test("@cast accepts only representation-identical target types", () => {
   const valid = parse_source(`
 type UserId = I32
 let value: UserId = 41
-@as(value, I32)
+@cast(value, I32)
 `);
   const valid_facts = source_facts(valid);
   const valid_call = valid_facts.expressions.find((expression) =>
@@ -62,17 +115,17 @@ let value: UserId = 41
   assert_equals(recorded_type(valid_facts, valid_call)?.name, "I32");
   assert_equals(source_inference_diagnostics(valid, valid_facts), []);
 
-  const bool_cast = parse_source("@as(1, Bool)");
+  const bool_cast = parse_source("@cast(1, Bool)");
   const bool_cast_facts = source_facts(bool_cast);
   assert_equals(source_inference_diagnostics(bool_cast, bool_cast_facts), []);
 
-  const invalid = parse_source("@as(1, I64)");
+  const invalid = parse_source("@cast(1, I64)");
   const invalid_facts = source_facts(invalid);
   assert_equals(
     source_inference_diagnostics(invalid, invalid_facts).map((diagnostic) =>
       diagnostic.message
     ),
-    ["@as cannot cast I32 to I64 because their runtime representations differ"],
+    ["@cast cannot cast I32 to I64 because their runtime representations differ"],
   );
 });
 
@@ -99,7 +152,7 @@ time
 
   const direct_cast = parse_source(`
 type Centimeter = newtype I32
-@as(42, Centimeter)
+@cast(42, Centimeter)
 `);
   const direct_cast_facts = source_facts(direct_cast);
   assert_equals(
@@ -107,14 +160,14 @@ type Centimeter = newtype I32
       (diagnostic) => diagnostic.message,
     ),
     [
-      "@as cannot cast I32 to Centimeter because their runtime representations differ",
+      "@cast cannot cast I32 to Centimeter because their runtime representations differ",
     ],
   );
 });
 
 Deno.test("source facts specialize generic product aliases recursively", () => {
   const source = parse_source(`
-type Box a = [.value = a]
+type Box a = struct {.value = a}
 type Alias a = Box a
 type Nested a = Alias a
 let box: Nested Bool = [.value = true]
@@ -362,7 +415,7 @@ Deno.test("source facts validate text builtins and runtime type tests", () => {
 
 Deno.test("source facts invalidate malformed aggregates and handlers", () => {
   const duplicate = parse_source(`
-type Pair = [.ready = Bool, .wide = I64]
+type Pair = struct {.ready = Bool, .wide = I64}
 let pair: Pair = [.ready = true, .ready = false]
 pair.ready
 `);
@@ -429,7 +482,7 @@ Deno.test("source facts validate handler inputs against handled values", () => {
 
 Deno.test("source facts do not infer annotated updates from unknown bases", () => {
   const source = parse_source(`
-type Pair = [.ready = Bool]
+type Pair = struct {.ready = Bool}
 let bad: Pair = missing :+ { .ready = false }
 bad.ready
 `);
@@ -508,8 +561,8 @@ Deno.test("source facts require valid runtime type targets", () => {
   const invalid = [
     "effect Check { test: () => Bool }\n1 is Check",
     "type Alias = missing_type\n1 is Alias",
-    "type Box a = [.value = a]\n1 is Box",
-    "type Box a = [.value = a]\n1 is Box Bool Bool",
+    "type Box a = struct {.value = a}\n1 is Box",
+    "type Box a = struct {.value = a}\n1 is Box Bool Bool",
     "1 is missing_type",
     "1 is (I32 -> <missing_effect> Bool)",
     "1 is (I32 -> <effect_row> Bool)",
@@ -525,7 +578,7 @@ Deno.test("source facts require valid runtime type targets", () => {
 
   assert_equals(
     expression_type_names(
-      "type Box a = [.value = a]\n1 is Box Bool",
+      "type Box a = struct {.value = a}\n1 is Box Bool",
       "is",
     ),
     ["Bool"],
@@ -535,7 +588,7 @@ Deno.test("source facts require valid runtime type targets", () => {
 Deno.test("source facts expose unresolved declared types only as unknown", () => {
   const source = parse_source(`
 type Alias = missing_type
-type Broken = [.value = missing_type]
+type Broken = struct {.value = missing_type}
 effect Bad { run: (missing_type) => Bool }
 let identity = (value: Alias) => value
 Broken.value
@@ -630,7 +683,7 @@ Deno.test("source facts poison contextual parameters after arity errors", () => 
 
 Deno.test("source facts resolve canonical labeled product fields", () => {
   const valid = parse_source(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 type Flags = struct { .ready = Bool }
 let flags: Flags = [true]
 flags.ready
@@ -644,7 +697,7 @@ flags.ready
   assert_equals(
     expression_type_names(
       `
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 type Flags = struct { .ready = Bool }
 let flags: Flags = [true]
 flags.ready
@@ -657,21 +710,19 @@ flags.ready
 
 Deno.test("source facts preserve declared sum constructors", () => {
   const text = `
-type ResultType = | .ok = Int | .err = Int
-let constructor = ResultType.ok
-let qualified = constructor(40)
-let result: ResultType = .ok(41)
-if let .ok(value) = result { value } else { 0 }
+type ResultType = | \`Ok Int | \`Err Int
+let result: ResultType = \`Ok 41
+if let \`Ok value = result { value } else { 0 }
 `;
   const source = parse_source(text);
   const facts = source_facts(source);
-  const conditional = source.statements[3];
+  const conditional = source.statements[1];
 
   assert_equals(
-    source.statements.slice(0, 3).map((statement) =>
+    source.statements.slice(0, 1).map((statement) =>
       binding_type_name(statement, facts)
     ),
-    ["(Int) -> ResultType", "ResultType", "ResultType"],
+    ["ResultType"],
   );
   assert_equals(expression_type_names(text, "union_case"), ["ResultType"]);
 
@@ -687,10 +738,10 @@ if let .ok(value) = result { value } else { 0 }
     "Int",
   );
 
-  for (const value of [".ok(true)", ".missing(1)"]) {
+  for (const value of ["`Ok true", "`Missing 1"]) {
     assert_equals(
       expression_type_names(
-        "type ResultType = | .ok = Int | .err = Int\n" +
+        "type ResultType = | `Ok Int | `Err Int\n" +
           "const result_type = ResultType\n" +
           "let result: result_type = " + value,
         "union_case",

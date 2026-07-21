@@ -1,0 +1,48 @@
+==================
+Newline-separated extension members
+==================
+
+extend Option {
+  type Handled = Option
+  .make = _ => make()
+  .output = _ => Identity
+  .order = _ => 10
+}
+
+---
+
+(source_file
+  (extension_declaration_statement
+    (identifier)
+    (extension_member_block
+      (extension_type_member
+        (identifier)
+        (type_reference
+          (type_union
+            (type_intersection
+              (type_difference
+                (identifier))))))
+      (shape_field
+        (identifier)
+        (arrow_function
+          (parameter
+            (wildcard))
+          (application_expression
+            (postfix_expression
+              (identifier))
+            (parenthesized_or_product
+              (unit_pattern)))))
+      (shape_field
+        (identifier)
+        (arrow_function
+          (parameter
+            (wildcard))
+          (postfix_expression
+            (identifier))))
+      (shape_field
+        (identifier)
+        (arrow_function
+          (parameter
+            (wildcard))
+          (postfix_expression
+            (number)))))))

@@ -1,5 +1,14 @@
 module () where
 
+const {} = import "duck:prelude/types" ()
+
+duck DefaultHandler Effect {
+  type Handled
+  .make = _ -> _
+  .output = _ -> Type
+  .order = _ -> I32
+}
+
 effect State value {
   get: () => value
   put: (value) => Unit
@@ -17,6 +26,10 @@ effect Raise error {
   raise: (error) => Unit
 }
 
+effect Do monad {
+  unwrap: forall value. (monad value) => value
+}
+
 effect Clock {
   wall_time_ms: () => I64
   monotonic_ms: () => I64
@@ -30,12 +43,12 @@ effect Random {
 
 effect Console {
   read_line: () => Text
-  write: (# Text) => Unit
-  write_line: (# Text) => Unit
+  write: (#Text) => Unit
+  write_line: (#Text) => Unit
 }
 
 effect Environment value {
-  lookup: (# Text) => value
+  lookup: (#Text) => value
 }
 
 effect Resource resource {

@@ -6,9 +6,11 @@ import {
 } from "../op.ts";
 import { Callable } from "../trait.ts";
 import { expect } from "../expect.ts";
+import { specialize_effect_operation } from "./effect_operation.ts";
 import type { DiagnosticCode } from "../diagnostic.ts";
 import type {
   ArrayLengthExpr,
+  AttributeGroup,
   Binding,
   Declaration,
   EffectDeclaration,
@@ -24,10 +26,12 @@ import type {
   TypeDeclaration,
   TypeExpr,
   TypeField,
+  TypeLiteral,
 } from "./ast.ts";
 import { elaborate_product_expr } from "./aggregate.ts";
 import { call_message, lookup_type_field } from "./fields.ts";
 import { validate_const_expr } from "./constness.ts";
+import { parameter_arguments } from "./call_args.ts";
 import { clone_env, create_env, push_binding } from "./env.ts";
 import { is_no_demand_name } from "./names.ts";
 import { require_struct_field } from "./struct_access.ts";
@@ -41,10 +45,14 @@ import {
   prim_returns_bool,
 } from "./numeric.ts";
 import { dynamic_index_type_from_fields } from "./runtime_struct.ts";
-import { format_type_expr, function_type_expr } from "./type_expr.ts";
+import {
+  format_type_expr,
+  function_type_expr,
+  parse_type_expr,
+} from "./type_expr.ts";
 import { front_type_from_type_name, same_type } from "./types.ts";
 import { f32x4_builtin_call, validate_f32x4_lane_argument } from "./f32x4.ts";
-import { scan_source, source_tokens } from "./tokenize.ts";
+import { scan_source, source_tokens, tokenize } from "./tokenize.ts";
 import { validate_union_payload_type } from "./union_payload.ts";
 import {
   expanded_type_product_entries,
@@ -68,6 +76,7 @@ type SemanticEnv = {
   all_bindings: SemanticBinding[];
   bindings: Map<string, SemanticBinding>;
   const_env: Env;
+  has_compiletime_locals: boolean;
   declarations: Map<string, TypeDeclaration>;
   effects: Map<string, EffectDeclaration>;
   records: Map<string, RecordDeclaration>;
@@ -121,6 +130,7 @@ export function validate_frontend_semantics(
     all_bindings: [],
     bindings: new Map(),
     const_env,
+    has_compiletime_locals: false,
     declarations: declaration_index(declarations),
     effects: effect_index(declarations),
     records: record_index(declarations),
@@ -129,6 +139,10 @@ export function validate_frontend_semantics(
   const diagnostics: SourceDiagnostic[] = [];
 
   validate_statements(source.statements, env, diagnostics);
+
+  for (const declaration of declarations) {
+    validate_attribute_groups(declaration.attribute_groups, env, diagnostics);
+  }
 
   if (options.warnings === true) {
     append_unused_binding_warnings(env.all_bindings, diagnostics);
@@ -294,6 +308,7 @@ function validate_statement(
   }
 
   if (stmt.tag === "bind") {
+    validate_attribute_groups(stmt.attribute_groups, env, diagnostics);
     mark_annotation_use(stmt.annotation, stmt.type_annotation, env);
     let binding: SemanticBinding | undefined;
 
@@ -312,7 +327,7 @@ function validate_statement(
       };
       env.bindings.set(stmt.name, binding);
       env.all_bindings.push(binding);
-      bind_constness(env.const_env, stmt, binding.type);
+      bind_constness(env, stmt, binding.type);
     }
 
     const value_env = child_env(env);
@@ -444,7 +459,7 @@ function validate_statement(
         used: false,
       };
       env.all_bindings.push(binding);
-      bind_constness(env.const_env, stmt, type);
+      bind_constness(env, stmt, type);
     } else {
       binding.type = type;
       binding.type_annotation = stmt.type_annotation;
@@ -471,7 +486,7 @@ function validate_statement(
     }
 
     if (diagnostics.length !== before) {
-      bind_assignment_constness(env.const_env, stmt.name);
+      bind_assignment_constness(env, stmt.name, stmt.value);
       return;
     }
 
@@ -506,7 +521,7 @@ function validate_statement(
       declaration: undefined,
       used: false,
     });
-    bind_assignment_constness(env.const_env, stmt.name);
+    bind_assignment_constness(env, stmt.name, stmt.value);
     return;
   }
 
@@ -867,6 +882,39 @@ function validate_statement(
   }
 }
 
+function validate_attribute_groups(
+  groups: AttributeGroup[] | undefined,
+  env: SemanticEnv,
+  diagnostics: SourceDiagnostic[],
+): void {
+  if (groups === undefined) {
+    return;
+  }
+
+  for (const group of groups) {
+    for (const attribute of group.attributes) {
+      validate_expr(attribute, env, diagnostics);
+
+      try {
+        validate_const_expr(
+          attribute,
+          env.const_env,
+          new Set(),
+          "Attribute captures runtime value",
+        );
+      } catch (error) {
+        if (error instanceof Error) {
+          diagnostics.push(
+            source_diagnostic("DUCK2101", error.message, attribute),
+          );
+        } else {
+          throw error;
+        }
+      }
+    }
+  }
+}
+
 function validate_expr(
   expr: FrontExpr,
   env: SemanticEnv,
@@ -900,20 +948,37 @@ function validate_expr(
       return;
     }
 
-    if (left_type.tag === "bool" || right_type.tag === "bool") {
+    if (
+      left_type.tag === "bool" || right_type.tag === "bool" ||
+      left_type.tag === "char" || right_type.tag === "char"
+    ) {
       const equality = expr.prim === "i32.eq" || expr.prim === "i32.ne";
 
       if (
-        equality && left_type.tag === "bool" && right_type.tag === "bool"
+        equality && left_type.tag === right_type.tag &&
+        (left_type.tag === "bool" || left_type.tag === "char")
       ) {
         return;
       }
 
+      let scalar_name = "Bool";
+
+      if (left_type.tag === "char" || right_type.tag === "char") {
+        scalar_name = "Char";
+      }
+
       let message = "Primitive " + expr.prim +
-        " expects numeric operands, got Bool";
+        " expects numeric operands, got " + scalar_name;
 
       if (equality) {
-        message = "Boolean equality requires Bool operands";
+        let equality_name = scalar_name;
+
+        if (scalar_name === "Bool") {
+          equality_name = "Boolean";
+        }
+
+        message = equality_name + " equality requires " + scalar_name +
+          " operands";
       }
 
       diagnostics.push(bool_route_diagnostic(
@@ -1092,7 +1157,13 @@ function validate_expr(
     validate_expr(expr.func, env, diagnostics, check_comptime);
 
     for (const arg of expr.args) {
-      validate_expr(arg, env, diagnostics, check_comptime);
+      validate_expr(
+        arg,
+        env,
+        diagnostics,
+        check_comptime,
+        expr.operator_syntax !== undefined,
+      );
     }
 
     if (diagnostics.length === before) {
@@ -1142,6 +1213,11 @@ function validate_expr(
 
   if (expr.tag === "lam" || expr.tag === "rec") {
     const body = child_env(env);
+
+    if (expr.params.some((param) => param.is_const)) {
+      body.has_compiletime_locals = true;
+    }
+
     bind_params(body, expr.params);
 
     if (expr.tag === "rec") {
@@ -1177,6 +1253,12 @@ function validate_expr(
   }
 
   if (expr.tag === "borrow" || expr.tag === "freeze") {
+    validate_expr(expr.value, env, diagnostics, check_comptime);
+    return;
+  }
+
+  if (expr.tag === "as") {
+    mark_type_expr_uses(expr.type_expr, env);
     validate_expr(expr.value, env, diagnostics, check_comptime);
     return;
   }
@@ -1423,8 +1505,11 @@ function validate_expr(
     return;
   }
 
-  if (expr.tag === "product") {
-    if (expr.value_pack === true && !accepts_value_pack) {
+  if (expr.tag === "product" || expr.tag === "shape") {
+    if (
+      expr.tag === "product" && expr.value_pack === true &&
+      !accepts_value_pack
+    ) {
       diagnostics.push(source_diagnostic(
         "DUCK2307",
         "Value packs may only be passed, returned, or destructured immediately; use `[...]` to store a tuple",
@@ -1961,12 +2046,18 @@ function validate_call_arguments(
         return;
       }
 
+      const specialized_operation = specialize_effect_operation(
+        operation,
+        expr,
+      );
+
       for (
         let index = 0;
-        index < operation.params.length && index < expr.args.length;
+        index < specialized_operation.params.length &&
+        index < expr.args.length;
         index += 1
       ) {
-        const param = operation.params[index];
+        const param = specialized_operation.params[index];
         const arg = expr.args[index];
 
         if (param === undefined || arg === undefined) {
@@ -2003,6 +2094,7 @@ function validate_call_arguments(
   }
 
   if (
+    expr.operator_syntax === undefined &&
     callable.target?.pattern?.tag === "product" &&
     callable.target.pattern.entries.length > 0
   ) {
@@ -2037,12 +2129,19 @@ function validate_call_arguments(
     callable.target_env,
   );
   let parameter_count = contextual_params.length;
+  const variadic_param = callable.target?.params.find((param) =>
+    param.is_variadic === true
+  );
 
   if (
     callable.target !== undefined &&
     callable.target.params.length > parameter_count
   ) {
     parameter_count = callable.target.params.length;
+  }
+
+  if (variadic_param !== undefined) {
+    parameter_count = expr.args.length;
   }
 
   for (
@@ -2052,7 +2151,9 @@ function validate_call_arguments(
   ) {
     let param: Param | undefined;
 
-    if (callable.target !== undefined) {
+    if (variadic_param !== undefined) {
+      param = variadic_param;
+    } else if (callable.target !== undefined) {
       param = callable.target.params[index];
     }
 
@@ -2060,6 +2161,26 @@ function validate_call_arguments(
 
     if (arg === undefined) {
       continue;
+    }
+
+    if (param?.is_const === true) {
+      try {
+        validate_const_expr(
+          arg,
+          env.const_env,
+          new Set(),
+          "Const parameter " + param.name +
+            " requires compile-time argument",
+        );
+      } catch (error) {
+        if (error instanceof Error) {
+          diagnostics.push(
+            source_diagnostic("DUCK2101", error.message, arg),
+          );
+        } else {
+          throw error;
+        }
+      }
     }
 
     const contextual_type = contextual_params[index];
@@ -2437,6 +2558,16 @@ function validate_struct_field_values(
 
     if (representation_diagnostic) {
       diagnostics.push(representation_diagnostic);
+      continue;
+    }
+
+    if (actual.tag !== "unknown" && !same_type(expected, actual)) {
+      diagnostics.push(source_diagnostic(
+        "DUCK2306",
+        "Struct field " + value.name + " expects " + type_name(expected) +
+          ", got " + type_name(actual),
+        value.value,
+      ));
     }
   }
 }
@@ -2583,13 +2714,21 @@ function validate_numeric_boundary(
   env: SemanticEnv,
   diagnostics: SourceDiagnostic[],
 ): void {
-  if (infer_type(expr, env).tag !== "bool") {
+  const type = infer_type(expr, env);
+
+  if (type.tag !== "bool" && type.tag !== "char") {
     return;
+  }
+
+  let name = "Bool";
+
+  if (type.tag === "char") {
+    name = "Char";
   }
 
   diagnostics.push(bool_route_diagnostic(
     "DUCK2302",
-    label + " expects numeric value, got Bool",
+    label + " expects numeric value, got " + name,
     expr,
   ));
 }
@@ -2605,7 +2744,10 @@ function bool_representation_mismatch(
     return false;
   }
 
-  if (expected.tag === "bool" || actual.tag === "bool") {
+  if (
+    expected.tag === "bool" || actual.tag === "bool" ||
+    expected.tag === "char" || actual.tag === "char"
+  ) {
     return expected.tag !== actual.tag;
   }
 
@@ -3042,6 +3184,10 @@ function infer_type(
   }
 
   if (expr.tag === "num") {
+    if (expr.character !== undefined) {
+      return { tag: "char" };
+    }
+
     return { tag: "int", type: expr.type, integer: expr.integer };
   }
 
@@ -3241,7 +3387,14 @@ function infer_type(
         );
 
         if (operation !== undefined) {
-          return resolve_type_name(operation.result.type_name, env);
+          const specialized_operation = specialize_effect_operation(
+            operation,
+            expr,
+          );
+          return resolve_type_name(
+            specialized_operation.result.type_name,
+            env,
+          );
         }
       }
     }
@@ -3991,6 +4144,8 @@ function infer_struct_value_type(
 
     if (field_type.tag === "bool") {
       field_type_name = "Bool";
+    } else if (field_type.tag === "char") {
+      field_type_name = "Char";
     } else if (field_type.tag === "atom") {
       if (field_type.name === semantic_unit_atom_name) {
         field_type_name = "Unit";
@@ -4307,10 +4462,15 @@ function callable_body_env(
     return body_env;
   }
 
+  if (callable.target.params.some((param) => param.is_const)) {
+    body_env.has_compiletime_locals = true;
+  }
+
   const contextual_params = arrow_parameter_types(
     callable.type_annotation,
     callable.target_env,
   );
+  const bindings = parameter_arguments(callable.target.params, args);
 
   for (let index = 0; index < callable.target.params.length; index += 1) {
     const param = callable.target.params[index];
@@ -4338,7 +4498,12 @@ function callable_body_env(
     }
 
     if (param_type.tag === "unknown") {
-      const arg = args[index];
+      let arg = args[index];
+      const binding = bindings?.find((candidate) => candidate.param === param);
+
+      if (binding !== undefined) {
+        arg = binding.arg;
+      }
 
       if (arg !== undefined) {
         param_type = infer_type(arg, call_env, active_calls);
@@ -4406,6 +4571,26 @@ function type_from_type_expr(
 
   if (type.tag === "atom") {
     return { tag: "atom", name: type.name };
+  }
+
+  if (type.tag === "literal") {
+    if (type.value.tag === "bool") {
+      return { tag: "bool" };
+    }
+
+    if (type.value.tag === "text") {
+      return { tag: "text" };
+    }
+
+    if (type.value.character !== undefined) {
+      return { tag: "char" };
+    }
+
+    return {
+      tag: "int",
+      type: type.value.type,
+      integer: type.value.integer,
+    };
   }
 
   if (type.tag === "never") {
@@ -4564,6 +4749,7 @@ function resolve_handler_expr(
 function static_i32_index(expr: FrontExpr): number | undefined {
   if (
     expr.tag === "num" && expr.type === "i32" &&
+    expr.character === undefined &&
     typeof expr.value === "number" && Number.isInteger(expr.value)
   ) {
     return expr.value;
@@ -4767,6 +4953,15 @@ function bind_pattern_types(
     bind_pattern_types(nested, item_type, env, binding_is_const);
   }
 
+  if (pattern.tag === "product" && pattern.rest !== undefined) {
+    bind_pattern_types(
+      pattern.rest,
+      { tag: "unknown" },
+      env,
+      binding_is_const,
+    );
+  }
+
   if (pattern.tag === "array" && pattern.rest !== undefined) {
     bind_pattern_types(
       pattern.rest,
@@ -4792,6 +4987,7 @@ function child_env(env: SemanticEnv): SemanticEnv {
     all_bindings: env.all_bindings,
     bindings: new Map(env.bindings),
     const_env: clone_env(env.const_env),
+    has_compiletime_locals: env.has_compiletime_locals,
     declarations: env.declarations,
     effects: env.effects,
     records: env.records,
@@ -5162,6 +5358,7 @@ function append_unused_binding_warnings(
 
     if (
       declaration === undefined || binding.used || declaration.is_linear ||
+      declaration.managed_export === true ||
       is_no_demand_name(declaration.name)
     ) {
       continue;
@@ -5182,32 +5379,61 @@ function append_unused_binding_warnings(
 }
 
 function bind_constness(
-  env: Env,
+  env: SemanticEnv,
   stmt: Extract<Stmt, { tag: "bind" }>,
   type: FrontType,
 ): void {
+  let is_const = stmt.kind === "const";
+
+  if (!is_const && env.has_compiletime_locals) {
+    is_const = expression_is_const(stmt.value, env.const_env);
+  }
+
   const binding: Binding = {
     name: stmt.name,
     ic_name: stmt.name,
     type,
-    is_const: stmt.kind === "const",
+    is_const,
     is_linear: stmt.is_linear,
     value: stmt.value,
     value_env: undefined,
   };
-  push_binding(env, binding);
+  push_binding(env.const_env, binding);
 }
 
-function bind_assignment_constness(env: Env, name: string): void {
-  push_binding(env, {
+function bind_assignment_constness(
+  env: SemanticEnv,
+  name: string,
+  value: FrontExpr,
+): void {
+  let is_const = false;
+
+  if (env.has_compiletime_locals) {
+    is_const = expression_is_const(value, env.const_env);
+  }
+
+  push_binding(env.const_env, {
     name,
     ic_name: name,
     type: { tag: "unknown" },
-    is_const: false,
+    is_const,
     is_linear: false,
     value: undefined,
     value_env: undefined,
   });
+}
+
+function expression_is_const(expr: FrontExpr, env: Env): boolean {
+  try {
+    validate_const_expr(expr, env, new Set(), "Expression is not compile time");
+    return true;
+  } catch (error) {
+    if (error instanceof Error) {
+      return false;
+    }
+
+    throw error;
+  }
 }
 
 function resolve_type_name(
@@ -5338,6 +5564,12 @@ function resolve_type_name(
   }
 
   resolving.add(name);
+  const alias = parse_type_expr(tokenize(declaration.body.type_name));
+
+  if (alias.tag === "literal") {
+    return type_from_type_expr(alias, env);
+  }
+
   return resolve_type_name(declaration.body.type_name, env, resolving);
 }
 
@@ -5391,6 +5623,30 @@ function validate_basic_annotation(
     return;
   }
 
+  const literal_annotation = binding_literal_annotation(stmt, env);
+  const literal_value = direct_type_literal(stmt.value);
+
+  if (literal_annotation !== undefined && literal_value !== undefined) {
+    const expected_literal = format_type_expr({
+      tag: "literal",
+      value: literal_annotation,
+    });
+    const actual_literal = format_type_expr({
+      tag: "literal",
+      value: literal_value,
+    });
+
+    if (expected_literal !== actual_literal) {
+      diagnostics.push(source_diagnostic(
+        "DUCK2306",
+        "Binding annotation expects " + annotation + ", got " +
+          actual_literal,
+        stmt.value,
+      ));
+      return;
+    }
+  }
+
   if (
     expected.tag === "struct" &&
     (stmt.value.tag === "struct_value" || stmt.value.tag === "product")
@@ -5412,6 +5668,8 @@ function validate_basic_annotation(
 
   if (expected.tag === "bool") {
     matches = type.tag === "bool";
+  } else if (expected.tag === "char") {
+    matches = type.tag === "char";
   } else if (expected.tag === "text") {
     if (expected.encoding === "bytes") {
       matches = type.tag === "text" && type.encoding === "bytes";
@@ -5441,6 +5699,71 @@ function validate_basic_annotation(
     message,
     stmt.value,
   ));
+}
+
+function binding_literal_annotation(
+  stmt: Extract<Stmt, { tag: "bind" }>,
+  env: SemanticEnv,
+): TypeLiteral | undefined {
+  if (stmt.type_annotation !== undefined) {
+    return resolve_literal_type_expr(stmt.type_annotation, env, new Set());
+  }
+
+  if (stmt.annotation === undefined) {
+    return undefined;
+  }
+
+  return resolve_literal_type_expr(
+    parse_type_expr(tokenize(stmt.annotation)),
+    env,
+    new Set(),
+  );
+}
+
+function resolve_literal_type_expr(
+  type: TypeExpr,
+  env: SemanticEnv,
+  resolving: Set<string>,
+): TypeLiteral | undefined {
+  if (type.tag === "literal") {
+    return type.value;
+  }
+
+  if (type.tag !== "name" || resolving.has(type.name)) {
+    return undefined;
+  }
+
+  const declaration = env.declarations.get(type.name);
+
+  if (
+    declaration === undefined || declaration.params.length !== 0 ||
+    declaration.body.tag !== "alias"
+  ) {
+    return undefined;
+  }
+
+  resolving.add(type.name);
+  return resolve_literal_type_expr(
+    parse_type_expr(tokenize(declaration.body.type_name)),
+    env,
+    resolving,
+  );
+}
+
+function direct_type_literal(expr: FrontExpr): TypeLiteral | undefined {
+  if (expr.tag === "bool") {
+    return expr;
+  }
+
+  if (expr.tag === "text" && expr.encoding !== "bytes") {
+    return { tag: "text", value: expr.value };
+  }
+
+  if (expr.tag === "num" && (expr.type === "i32" || expr.type === "i64")) {
+    return expr;
+  }
+
+  return undefined;
 }
 
 function validate_fixed_array_annotation(
@@ -5640,6 +5963,7 @@ function semantic_const_i32_expr(
 ): number | undefined {
   if (
     expr.tag === "num" && expr.type === "i32" &&
+    expr.character === undefined &&
     typeof expr.value === "number"
   ) {
     return expr.value;
@@ -5698,6 +6022,10 @@ function semantic_const_i32_expr(
 function type_name(type: FrontType): string {
   if (type.tag === "bool") {
     return "Bool";
+  }
+
+  if (type.tag === "char") {
+    return "Char";
   }
 
   if (type.tag === "f32x4") {

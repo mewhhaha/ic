@@ -22,11 +22,11 @@ Counter {
       Source.effects(`
 effect Counter { get: () => I32 }
 Counter {
-  get: (resume) => resume(0),
+  get: (resume: I32) => resume(0),
   return: value => value,
 }
 `),
-    "Handler clause Counter.get requires a final affine resumption parameter",
+    "Handler resumption parameter resume expects Resume, got I32",
   );
 
   assert_throws(
@@ -95,7 +95,7 @@ Deno.test("managed ABI rejects Resume nested in an aggregate", () => {
     () =>
       build_abi_manifest(elaborate_front_type_sets(
         resolve_bundled_source_imports(Source.parse(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const continuation_box = struct { .continuation= Resume }
 const duck_entry_result_type = continuation_box
 0
@@ -133,7 +133,7 @@ Counter {
   assert_throws(
     () =>
       Source.effects(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const wanted = struct { .x= I32 }
 effect Read { read: () => wanted }
 Read {
@@ -147,7 +147,7 @@ Read {
   assert_throws(
     () =>
       Source.effects(`
-type Outcome = | .suspended = Resume | .done = I32
+type Outcome = | \`Suspended Resume | \`Done I32
 const outcome = Outcome
 effect Suspend { pause: () => I32 }
 Suspend {

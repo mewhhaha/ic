@@ -54,25 +54,53 @@ function bind_core_text_block_stmt<ctx extends CoreTextFactCtx>(
   ) => boolean,
 ): void {
   if (stmt.tag === "bind") {
+    const value = hooks.core_binding_value(stmt, ctx);
     bind_core_text_block_value(
       stmt.name,
-      stmt.value,
+      value,
       stmt.annotation,
       ctx,
       hooks,
       check_text,
     );
+    hooks.bind_core_fn_type(stmt.name, value, ctx);
+    hooks.bind_core_struct_type(
+      stmt.name,
+      value,
+      stmt.annotation,
+      ctx,
+    );
+    hooks.bind_core_union_type(
+      stmt.name,
+      value,
+      stmt.annotation,
+      ctx,
+    );
     return;
   }
 
   if (stmt.tag === "assign") {
+    const value = hooks.core_assignment_value(stmt, ctx);
     bind_core_text_block_value(
       stmt.name,
-      stmt.value,
+      value,
       undefined,
       ctx,
       hooks,
       check_text,
+    );
+    hooks.bind_core_fn_type(stmt.name, value, ctx);
+    hooks.bind_core_assignment_struct_type(
+      stmt.name,
+      value,
+      stmt.mode,
+      ctx,
+    );
+    hooks.bind_core_assignment_union_type(
+      stmt.name,
+      value,
+      stmt.mode,
+      ctx,
     );
   }
 }
@@ -126,7 +154,7 @@ function bind_core_text_block_value<ctx extends CoreTextFactCtx>(
     }
   }
 
-  if (value.tag === "prim") {
+  if (value.tag === "prim" || value.tag === "index") {
     set_local(ctx.locals, name, hooks.expr_type(value, ctx));
   }
 

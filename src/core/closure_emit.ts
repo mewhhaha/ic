@@ -92,8 +92,25 @@ export function emit_dynamic_closure_call<ctx extends CoreClosureEmitCtx>(
     "local.get $" + name,
   ];
 
-  for (const arg of expr.args) {
-    lines.push(hooks.emit_expr(arg, ctx));
+  for (let index = 0; index < expr.args.length; index += 1) {
+    const arg = expr.args[index];
+    const expected_fn = fn_type.param_fns?.[index];
+    expect(arg, "Missing core closure call argument " + index.toString());
+
+    if (expected_fn && arg.tag === "lam") {
+      const actual_fn = hooks.closure_fn_type_with_expected(
+        arg,
+        expected_fn,
+        ctx,
+      );
+      expect(
+        actual_fn,
+        "Cannot emit function-typed core closure argument " + index.toString(),
+      );
+      lines.push(emit_runtime_closure_with_type(arg, actual_fn, ctx, hooks));
+    } else {
+      lines.push(hooks.emit_expr(arg, ctx));
+    }
   }
 
   lines.push(

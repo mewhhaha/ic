@@ -166,11 +166,24 @@ function dynamic_loop_control_assignment_keeps_type(
     return false;
   }
 
+  const inferred = hooks.infer_expr(stmt.value, env);
+
+  if (
+    previous_type.tag === "union_value" && inferred.tag === "union_value" &&
+    inferred.cases.every((inferred_case) =>
+      previous_type.cases.some((previous_case) =>
+        previous_case.name === inferred_case.name &&
+        (inferred_case.type_name === "unknown" ||
+          previous_case.type_name === inferred_case.type_name)
+      )
+    )
+  ) {
+    return true;
+  }
+
   if (!same_type(previous_type, assignment_type)) {
     return false;
   }
-
-  const inferred = hooks.infer_expr(stmt.value, env);
 
   if (inferred.tag !== "unknown") {
     return same_type(previous_type, inferred);
@@ -194,6 +207,26 @@ function dynamic_loop_control_assignment_type(
   const inferred = hooks.infer_expr(stmt.value, env);
 
   if (previous_type.tag !== "unknown") {
+    if (
+      previous_type.tag === "union_value" && inferred.tag === "union" &&
+      previous_type.cases.some((item) => item.name === inferred.case_name)
+    ) {
+      return previous_type;
+    }
+
+    if (
+      previous_type.tag === "union_value" && inferred.tag === "union_value" &&
+      inferred.cases.every((inferred_case) =>
+        previous_type.cases.some((previous_case) =>
+          previous_case.name === inferred_case.name &&
+          (inferred_case.type_name === "unknown" ||
+            previous_case.type_name === inferred_case.type_name)
+        )
+      )
+    ) {
+      return previous_type;
+    }
+
     if (inferred.tag !== "unknown" && !same_type(previous_type, inferred)) {
       throw new Error("Assignment changes type for " + stmt.name);
     }

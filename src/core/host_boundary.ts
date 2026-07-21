@@ -121,7 +121,19 @@ function scan_host_boundary_stmt<
 
     case "if_let_stmt":
       scan_host_boundary_expr(stmt.target, ctx, hooks, state);
-      scan_host_boundary_stmts(stmt.body, ctx, hooks, state);
+      {
+        const branch = hooks.if_let_stmt_branch_ctx(
+          stmt.case_name,
+          stmt.value_name,
+          stmt.target,
+          ctx,
+        );
+        if (branch.tag === "scan") {
+          scan_host_boundary_stmts(stmt.body, branch.ctx, hooks, state);
+        } else if (branch.tag === "unknown") {
+          scan_host_boundary_stmts(stmt.body, ctx, hooks, state);
+        }
+      }
       return;
 
     case "type_check":
@@ -250,8 +262,25 @@ function scan_host_boundary_expr<
 
     case "if_let":
       scan_host_boundary_expr(expr.target, ctx, hooks, state);
-      scan_host_boundary_expr(expr.then_branch, ctx, hooks, state);
-      scan_host_boundary_expr(expr.else_branch, ctx, hooks, state);
+      {
+        const branch = hooks.if_let_stmt_branch_ctx(
+          expr.case_name,
+          expr.value_name,
+          expr.target,
+          ctx,
+        );
+        if (branch.tag === "scan") {
+          scan_host_boundary_expr(
+            expr.then_branch,
+            branch.ctx,
+            hooks,
+            state,
+          );
+        } else if (branch.tag === "unknown") {
+          scan_host_boundary_expr(expr.then_branch, ctx, hooks, state);
+        }
+        scan_host_boundary_expr(expr.else_branch, ctx, hooks, state);
+      }
       return;
 
     case "field":
@@ -289,17 +318,32 @@ function collect_host_boundary_stmt_locals<
     return;
   }
 
+  if (stmt.tag !== "bind" && stmt.tag !== "assign") {
+    return;
+  }
+  if (stmt.tag === "bind" && stmt.kind === "const") {
+    return;
+  }
   try {
     hooks.collect_stmt_locals(stmt, ctx);
-  } catch (_error) {
-    return;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === "Cannot type core lam expression yet" ||
+        error.message === "Cannot type core rec expression yet" ||
+        error.message.startsWith("Unbound core local: "))
+    ) {
+      return;
+    }
+    throw new Error(
+      "Host-boundary scan could not collect statement " + stmt.tag,
+      {
+        cause: error,
+      },
+    );
   }
 
   if (state.scratch_depth === 0) {
-    return;
-  }
-
-  if (stmt.tag !== "bind" && stmt.tag !== "assign") {
     return;
   }
 

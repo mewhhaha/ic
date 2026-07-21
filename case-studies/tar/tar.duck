@@ -1,17 +1,17 @@
 module (!init: Init) where
 
-const { struct } = comptime import "duck:prelude" ()
-const { append, generate_bytes, get, length, panic, slice } = comptime import "duck:prelude/runtime" ()
+const { struct } = import "duck:prelude" ()
+const { append, generate_bytes, get, length, panic, slice } = import "duck:prelude/runtime" ()
 
 type TarSummary = struct { .entry_count = I32, .file_count = I32, .directory_count = I32, .other_count = I32, .total_size = I32, .names = Bytes }
 
 type TarError = struct { .code = I32, .offset = I32 }
 
-type ArchiveResult = | .bytes = Bytes
+type ArchiveResult = `Bytes Bytes
 
-type InspectResult = | .ok = TarSummary | .err = TarError
+type InspectResult = | `Ok TarSummary | `Err TarError
 
-type OctalResult = | .ok = I32 | .invalid | .range
+type OctalResult = | `Ok I32 | `Invalid Unit | `Range Unit
 
 let block_size = 512
 let checksum_start = 148
@@ -85,11 +85,11 @@ let parse_octal: [Bytes, I32, I32] -> OctalResult =
     }
 
     if invalid {
-      OctalResult.invalid()
+      `Invalid ()
     } else if range {
-      OctalResult.range()
+      `Range ()
     } else {
-      OctalResult.ok(value)
+      `Ok (value)
     }
   }
 
@@ -151,7 +151,7 @@ let inspect: Bytes -> InspectResult = (archive: Bytes) => {
     let checksum = parse_octal(archive, cursor + checksum_start, checksum_width)
     let stored_checksum = 0
 
-    if let .ok(parsed_checksum) = checksum {
+    if let `Ok parsed_checksum = checksum {
       stored_checksum = parsed_checksum
     }
 
@@ -164,15 +164,15 @@ let inspect: Bytes -> InspectResult = (archive: Bytes) => {
     let size_result = parse_octal(archive, cursor + size_start, size_width)
     let size = 0
 
-    if let .invalid = size_result {
+    if let `Invalid () = size_result {
       error_code = error_invalid_size
       error_offset = cursor
       break
-    } else if let .range = size_result {
+    } else if let `Range () = size_result {
       error_code = error_size_out_of_range
       error_offset = cursor
       break
-    } else if let .ok(parsed_size) = size_result {
+    } else if let `Ok parsed_size = size_result {
       size = parsed_size
     }
 
@@ -240,15 +240,15 @@ let inspect: Bytes -> InspectResult = (archive: Bytes) => {
 
   if valid {
     let summary: TarSummary = [entry_count, file_count, directory_count, other_count, total_size, names]
-    InspectResult.ok(summary)
+    `Ok (summary)
   } else {
     let error: TarError = [error_code, error_offset]
-    InspectResult.err(error)
+    `Err (error)
   }
 }
 
 archive_result <- Archive.read()
-let archive: Bytes = if let .bytes(bytes) = archive_result {
+let archive: Bytes = if let `Bytes bytes = archive_result {
   bytes
 } else {
   panic "Archive.read returned an unsupported result"

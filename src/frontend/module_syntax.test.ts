@@ -47,11 +47,13 @@ return { a, .message = b }
       operations: [
         {
           name: "print",
+          type_params: [],
           params: [{ type_name: "Text", ownership: "bounded_borrow" }],
           result: { type_name: "Unit", ownership: "scalar" },
         },
         {
           name: "read",
+          type_params: [],
           params: [],
           result: { type_name: "Text", ownership: "unique_heap" },
         },
@@ -99,7 +101,7 @@ let _ = 1
 const _ = 2
 let pair = (_, const _) => 0
 let count = rec (_, const _) => 0
-let selected = if let .ok(_) = result { 1 } else { 0 }
+let selected = if let \`Ok _ = result { 1 } else { 0 }
 let (_, value) = source
 `);
 
@@ -136,7 +138,7 @@ let (_, value) = source
   assert_includes(formatted, "const _ = 2");
   assert_includes(formatted, "let pair = (_, const _) => 0");
   assert_includes(formatted, "let count = rec (_, const _) => 0");
-  assert_includes(formatted, "if let .ok(_) = result");
+  assert_includes(formatted, "if let `Ok _ = result");
   assert_includes(formatted, "let (_, value) = source");
 });
 
@@ -238,11 +240,13 @@ result
     operations: [
       {
         name: "get",
+        type_params: [],
         params: [],
         result: { type_name: "I32", ownership: "scalar" },
       },
       {
         name: "add",
+        type_params: [],
         params: [{ type_name: "I32", ownership: "scalar" }],
         result: { type_name: "Unit", ownership: "scalar" },
       },
@@ -439,6 +443,28 @@ Deno.test("module imports bind dependency initializers", () => {
   }
 });
 
+Deno.test("nullary module aliases specialize before Core lowering", () => {
+  const dir = Deno.makeTempDirSync();
+
+  try {
+    Deno.writeTextFileSync(
+      dir + "/dependency.duck",
+      "module () where\nconst value: I32 = 42\nreturn { value }\n",
+    );
+    Deno.writeTextFileSync(
+      dir + "/main.duck",
+      'module () where\nconst dependency = import "./dependency.duck"\n' +
+        "const { .value = value } = dependency()\n" +
+        "return { .value = value }\n",
+    );
+
+    const wat = Source.wat(load_source(dir + "/main.duck"));
+    assert_includes(wat, "i32.const 42");
+  } finally {
+    Deno.removeSync(dir, { recursive: true });
+  }
+});
+
 Deno.test("module imports specialize explicit const build parameters", () => {
   const dir = Deno.makeTempDirSync();
 
@@ -458,6 +484,71 @@ Deno.test("module imports specialize explicit const build parameters", () => {
 
     const wat = Source.wat(load_source(dir + "/main.duck"));
     assert_includes(wat, "i32.const 42");
+  } finally {
+    Deno.removeSync(dir, { recursive: true });
+  }
+});
+
+Deno.test("imported modules retain source-defined type initializers", () => {
+  const dir = Deno.makeTempDirSync();
+
+  try {
+    Deno.writeTextFileSync(
+      dir + "/dependency.duck",
+      'module () where\nconst { struct } = import "duck:prelude/types" ()\n' +
+        "type Pair = struct { .left = I32, .right = I32 }\n" +
+        "const sum: () -> I32 = () => {\n" +
+        "  let pair: Pair = [20, 22]\n" +
+        "  pair.left + pair.right\n" +
+        "}\n" +
+        "return { sum }\n",
+    );
+    Deno.writeTextFileSync(
+      dir + "/main.duck",
+      'module () where\nconst { sum } = import "./dependency.duck" ()\n' +
+        "return { .value = sum() }\n",
+    );
+
+    const wat = Source.wat(load_source(dir + "/main.duck"));
+    assert_includes(wat, "i32.const 20");
+    assert_includes(wat, "i32.const 22");
+    assert_includes(wat, "i32.add");
+  } finally {
+    Deno.removeSync(dir, { recursive: true });
+  }
+});
+
+Deno.test("imported modules retain recursive runtime exports", () => {
+  const dir = Deno.makeTempDirSync();
+
+  try {
+    Deno.writeTextFileSync(
+      dir + "/dependency.duck",
+      "module () where\n" +
+        "let rec decrement: I32 -> I32 = value => {\n" +
+        "  if value == 0 { 0 } else { decrement(value - 1) }\n" +
+        "}\n" +
+        "let rec sum_to: I32 -> I32 = value => {\n" +
+        "  if value == 0 { 0 } else { value + sum_to(decrement(value - 1)) }\n" +
+        "}\n" +
+        "return { sum_to }\n",
+    );
+    Deno.writeTextFileSync(
+      dir + "/main.duck",
+      'module () where\nconst { sum_to } = import "./dependency.duck" ()\n' +
+        "return { .value = sum_to(9) }\n",
+    );
+
+    const diagnostics = Source.analyze_file(dir + "/main.duck").diagnostics;
+    assert_equals(
+      diagnostics.filter((diagnostic) => diagnostic.severity === "error"),
+      [],
+    );
+    const core = Source.core_file(dir + "/main.duck");
+    assert_equals(Object.keys(core.recFunctions || {}).sort(), [
+      "sum_to",
+      "sum_to#module#decrement",
+    ]);
   } finally {
     Deno.removeSync(dir, { recursive: true });
   }

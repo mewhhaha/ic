@@ -23,6 +23,7 @@ export type StaticCtx = {
   text_locals: Set<string>;
   struct_locals: Map<string, CoreExpr>;
   union_locals: Map<string, CoreExpr>;
+  borrowed_locals?: Set<string>;
   frozen_locals?: Set<string>;
   host_imports?: Map<string, CoreHostImport>;
   scratch_depth?: number;

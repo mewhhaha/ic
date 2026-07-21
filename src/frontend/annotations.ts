@@ -30,19 +30,17 @@ export function apply_runtime_binding_annotation(
   env: Env,
   hooks: AnnotationHooks,
 ): { value: FrontExpr; type: FrontType } {
-  let next_value = value;
-  let next_type = hooks.infer_expr(value, env);
+  const next_value = apply_annotation_context(annotation, value, env, hooks);
+  let next_type = hooks.infer_expr(next_value, env);
   const annotation_type = resolve_annotation_type(annotation, env, hooks);
 
   if (next_type.tag !== "unknown" || !annotation_type) {
-    check_binding_annotation(annotation, value, env, hooks);
+    check_binding_annotation(annotation, next_value, env, hooks);
   }
 
   if (annotation_type) {
     next_type = annotation_type;
   }
-
-  next_value = apply_annotation_context(annotation, value, env, hooks);
 
   return { value: next_value, type: next_type };
 }

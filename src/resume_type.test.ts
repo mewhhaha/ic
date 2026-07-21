@@ -75,7 +75,7 @@ Deno.test("Resume uses an internal wasm32 pointer representation", () => {
 
 Deno.test("runtime aggregates and unions store Resume closure pointers", () => {
   const aggregate_wat = Source.wat(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const resume_box_type = struct { .resume= Resume }
 [.resume = (value: I32) => value + 1] as resume_box_type
 `);
@@ -83,9 +83,9 @@ const resume_box_type = struct { .resume= Resume }
   assert_includes(aggregate_wat, "i32.store offset=0");
 
   const union_wat = Source.wat(`
-type Suspended = | .more = Resume | .done = I32
+type Suspended = | \`More Resume | \`Done I32
 const suspended = Suspended
-suspended.more((value: I32) => value + 1)
+\`More ((value: I32) => value + 1)
 `);
   assert_includes(union_wat, "(type $closure_i32_i32_to_i32");
   assert_includes(union_wat, "i32.store offset=4");

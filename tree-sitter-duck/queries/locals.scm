@@ -20,5 +20,6 @@
 (for_statement second: (identifier) @local.definition.var)
 (union_pattern value: (identifier) @local.definition.var)
 (named_shape_pattern_field pattern: (identifier) @local.definition.var)
+(product_rest_pattern name: (identifier) @local.definition.var)
 
 (identifier) @local.reference

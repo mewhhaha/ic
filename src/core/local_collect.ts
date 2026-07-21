@@ -20,6 +20,7 @@ import {
   core_materialized_bindings,
   core_mutable_bindings,
 } from "./mutable_bindings.ts";
+import { bind_core_function_params } from "./function_params.ts";
 
 export type {
   CoreCtx,
@@ -37,6 +38,7 @@ export function create_rec_call_ctx(ctx: StaticCtx): StaticCtx {
     text_locals: new Set(ctx.text_locals),
     struct_locals: new Map(ctx.struct_locals),
     union_locals: new Map(ctx.union_locals),
+    borrowed_locals: clone_optional_set(ctx.borrowed_locals),
     frozen_locals: clone_optional_set(ctx.frozen_locals),
     host_imports: clone_core_host_imports(ctx.host_imports),
     scratch_depth: ctx.scratch_depth,
@@ -54,6 +56,7 @@ export function create_core_block_ctx(ctx: StaticCtx): CoreCtx {
     text_locals: new Set(ctx.text_locals),
     struct_locals: new Map(ctx.struct_locals),
     union_locals: new Map(ctx.union_locals),
+    borrowed_locals: clone_optional_set(ctx.borrowed_locals),
     frozen_locals: clone_optional_set(ctx.frozen_locals),
     host_imports: clone_core_host_imports(ctx.host_imports),
     scratch_depth: ctx.scratch_depth,
@@ -75,6 +78,7 @@ export function collect_core_ctx(
   const text_locals = new Set<string>();
   const struct_locals = new Map<string, CoreExpr>();
   const union_locals = new Map<string, CoreExpr>();
+  const borrowed_locals = new Set<string>();
   const frozen_locals = new Set<string>();
   const ctx: CoreCtx = {
     locals,
@@ -84,6 +88,7 @@ export function collect_core_ctx(
     text_locals,
     struct_locals,
     union_locals,
+    borrowed_locals,
     frozen_locals,
     host_imports: core_host_import_map(core),
     scratch_depth: 0,
@@ -93,7 +98,20 @@ export function collect_core_ctx(
     next_temp: 0,
   };
 
-  for (const stmt of core.statements) {
+  for (let index = 0; index < core.statements.length; index += 1) {
+    const stmt = core.statements[index];
+
+    if (!stmt) {
+      throw new Error("Missing core statement " + index.toString());
+    }
+
+    if (
+      core.function_params !== undefined &&
+      index + 1 === core.statements.length
+    ) {
+      bind_core_function_params(core.function_params, ctx);
+    }
+
     collect_stmt_locals(stmt, ctx, hooks);
   }
 

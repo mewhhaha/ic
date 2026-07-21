@@ -21,7 +21,7 @@ export function emit_lifted_closure_funcs<ctx extends CoreClosureEmitCtx>(
   closures: ClosureEmitCtx,
   heap: RuntimeTextHeap,
   scratch: CoreScratchHeap,
-  allocation_permits:
+  _allocation_permits:
     import("./allocation_emission.ts").CoreAllocationPermitState,
   hooks: CoreClosureEmitHooks<ctx>,
 ): Func[] {
@@ -37,7 +37,6 @@ export function emit_lifted_closure_funcs<ctx extends CoreClosureEmitCtx>(
         closures,
         heap,
         scratch,
-        allocation_permits,
         hooks,
       ),
     );
@@ -52,8 +51,6 @@ function emit_lifted_closure_func<ctx extends CoreClosureEmitCtx>(
   closures: ClosureEmitCtx,
   heap: RuntimeTextHeap,
   scratch: CoreScratchHeap,
-  allocation_permits:
-    import("./allocation_emission.ts").CoreAllocationPermitState,
   hooks: CoreClosureEmitHooks<ctx>,
 ): Func {
   const replacements = new Map<string, CoreExpr>();
@@ -156,7 +153,7 @@ function emit_lifted_closure_func<ctx extends CoreClosureEmitCtx>(
     closures,
     heap,
     scratch,
-    allocation_permits,
+    allocation_permits: lift.allocation_permits,
   });
 
   for (const [name, value] of lift.statics) {
@@ -195,8 +192,13 @@ function emit_lifted_closure_func<ctx extends CoreClosureEmitCtx>(
     const param = lift.lam.params[index];
     const struct_type = lift.fn_type.param_structs?.[index];
     const union_type = lift.fn_type.param_unions?.[index];
+    const param_fn = lift.fn_type.param_fns?.[index];
     expect(param, "Missing lifted closure body parameter " + index.toString());
-    body_ctx.fn_types.delete(param.name);
+    if (param_fn) {
+      body_ctx.fn_types.set(param.name, param_fn);
+    } else {
+      body_ctx.fn_types.delete(param.name);
+    }
 
     if (struct_type) {
       body_ctx.struct_locals.set(param.name, struct_type);

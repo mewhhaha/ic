@@ -41,6 +41,7 @@ export function create_core_artifact_emit_ctx(
     text_locals: new Set(input.core_ctx.text_locals),
     struct_locals: new Map(input.core_ctx.struct_locals),
     union_locals: new Map(input.core_ctx.union_locals),
+    borrowed_locals: clone_optional_set(input.core_ctx.borrowed_locals),
     frozen_locals: clone_optional_set(input.core_ctx.frozen_locals),
     materialized_bindings: clone_optional_set(
       input.core_ctx.materialized_bindings,
@@ -102,6 +103,7 @@ export function create_core_rec_body_emit_ctx(ctx: CoreEmitCtx): CoreEmitCtx {
     text_locals: ctx.text_locals,
     struct_locals: ctx.struct_locals,
     union_locals: ctx.union_locals,
+    borrowed_locals: ctx.borrowed_locals,
     frozen_locals: ctx.frozen_locals,
     materialized_bindings: ctx.materialized_bindings,
     mutable_bindings: ctx.mutable_bindings,
@@ -130,6 +132,7 @@ export function create_core_branch_emit_ctx(ctx: CoreEmitCtx): CoreEmitCtx {
     text_locals: new Set(ctx.text_locals),
     struct_locals: new Map(ctx.struct_locals),
     union_locals: new Map(ctx.union_locals),
+    borrowed_locals: clone_optional_set(ctx.borrowed_locals),
     frozen_locals: clone_optional_set(ctx.frozen_locals),
     materialized_bindings: clone_optional_set(ctx.materialized_bindings),
     mutable_bindings: clone_optional_set(ctx.mutable_bindings),

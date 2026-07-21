@@ -1,0 +1,56 @@
+==================
+Polymorphic do effect
+==================
+
+effect Do monad {
+  unwrap: forall value. (monad value) => value
+}
+
+let run = wrapped => {
+  value <- do wrapped
+  value
+}
+
+---
+
+(source_file
+  (effect_statement
+    (effect_identifier)
+    (identifier)
+    (effect_operation_block
+      (effect_operation
+        (identifier)
+        (effect_operation_forall
+          (identifier))
+        (host_parameter_list
+          (host_parameter
+            (type_reference
+              (type_union
+                (type_intersection
+                  (type_difference
+                    (type_application
+                      (identifier)
+                      (identifier))))))))
+        (host_result
+          (type_reference
+            (type_union
+              (type_intersection
+                (type_difference
+                  (identifier)))))))))
+  (binding_statement
+    (identifier)
+    (arrow_function
+      (parameter
+        (identifier))
+      (postfix_expression
+        (block
+          (effect_binding_statement
+            (identifier)
+            (application_expression
+              (postfix_expression
+                (identifier))
+              (postfix_expression
+                (identifier))))
+          (expression_statement
+            (postfix_expression
+              (identifier))))))))

@@ -6,6 +6,7 @@ import { validate_const_expr } from "./constness.ts";
 import { clone_env, lookup, push_binding } from "./env.ts";
 import { format_expr } from "./format.ts";
 import { is_rec_call } from "./rec_validate.ts";
+import { parameter_arguments } from "./call_args.ts";
 
 type ResolvedConstEvalTarget = {
   expr: Extract<FrontExpr, { tag: "lam" | "rec" }>;
@@ -72,7 +73,9 @@ export function can_eval_const_call(
     return false;
   }
 
-  if (expr.args.length !== target.expr.params.length) {
+  const bindings = parameter_arguments(target.expr.params, expr.args);
+
+  if (bindings === undefined) {
     return false;
   }
 
@@ -86,8 +89,8 @@ export function can_eval_const_call(
     }
   }
 
-  for (const arg of expr.args) {
-    if (!is_const_expr_known(arg, env, new Set())) {
+  for (const binding of bindings) {
+    if (!is_const_expr_known(binding.arg, env, new Set())) {
       return false;
     }
   }
@@ -107,7 +110,7 @@ export function eval_const_call(
     return undefined;
   }
 
-  if (expr.args.length !== target.expr.params.length) {
+  if (parameter_arguments(target.expr.params, expr.args) === undefined) {
     return undefined;
   }
 
@@ -134,11 +137,10 @@ function bind_const_call_args(
   call_env: Env,
   hooks: CallConstHooks,
 ): void {
-  for (let index = 0; index < target.params.length; index += 1) {
-    const param = target.params[index];
-    const arg = args[index];
-    expect(param, "Missing const call parameter " + index);
-    expect(arg, "Missing const call argument " + index);
+  const bindings = parameter_arguments(target.params, args);
+  expect(bindings, "Const call arguments do not match parameters");
+
+  for (const { param, arg } of bindings) {
     validate_const_expr(
       arg,
       env,

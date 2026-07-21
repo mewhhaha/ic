@@ -38,6 +38,8 @@ export type LiftedClosure = {
   frozen_locals?: Set<string>;
   materialized_bindings?: Set<string>;
   host_imports?: Map<string, CoreHostImport>;
+  allocation_permits:
+    import("./allocation_emission.ts").CoreAllocationPermitState;
 };
 
 export type ClosureEmitCtx = {
@@ -46,6 +48,9 @@ export type ClosureEmitCtx = {
   lifts: LiftedClosure[];
   types: Map<string, FuncType>;
   table_elements: string[];
+  allocation_permit_states: Set<
+    import("./allocation_emission.ts").CoreAllocationPermitState
+  >;
 };
 
 export type CoreClosureEmitCtx = {
@@ -96,6 +101,11 @@ export type CoreClosureEmitHooks<ctx extends CoreClosureEmitCtx> = {
     expr: CoreExpr,
     ctx: ctx,
   ) => CoreFnType | undefined;
+  closure_fn_type_with_expected: (
+    expr: CoreExpr,
+    expected: CoreFnType,
+    ctx: ctx,
+  ) => CoreFnType | undefined;
   collect_expr_locals: (expr: CoreExpr, ctx: ctx) => void;
   core_lam_capture_names: (
     expr: Extract<CoreExpr, { tag: "lam" }>,
@@ -112,5 +122,6 @@ export function create_closure_emit_ctx(): ClosureEmitCtx {
     lifts: [],
     types: new Map(),
     table_elements: [],
+    allocation_permit_states: new Set(),
   };
 }

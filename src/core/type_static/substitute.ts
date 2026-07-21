@@ -394,6 +394,7 @@ function substitute_core_type_set_member(
       };
 
     case "atom":
+    case "literal":
     case "top":
     case "never":
       return type;
@@ -478,6 +479,20 @@ function substitute_core_type_name(
 
   if (type_name) {
     return type_name;
+  }
+
+  const names = name.split(" ");
+
+  if (names.length > 1) {
+    return names.map((part) => {
+      const replacement = type_args.get(part);
+
+      if (replacement) {
+        return replacement;
+      }
+
+      return part;
+    }).join(" ");
   }
 
   return name;

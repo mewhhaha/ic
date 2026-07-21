@@ -58,7 +58,7 @@ const completion_kind = {
 const statement_keywords = [
   keyword("let", "runtime binding"),
   keyword("const", "compile-time binding"),
-  snippet("if let", "if let .${1:case}(${2:value}) = ${3:target} {\n\t$0\n}"),
+  snippet("if let", "if let `${1:Case} ${2:value} = ${3:target} {\n\t$0\n}"),
   snippet("for", "for ${1:item} in ${2:collection} {\n\t$0\n}"),
   snippet("effect", "effect ${1:Name} {\n\t${2:operation}: () => Unit\n}"),
   snippet("type", "type ${1:Name} = ${2:Int}"),
@@ -71,10 +71,19 @@ const expression_keywords = [
   keyword("comptime", "evaluate at compile time"),
   snippet("scratch", "scratch {\n\t$0\n}"),
   keyword("freeze", "make a value shareable"),
-  snippet("try", "try ${1:body} with ${2:handler}"),
+  snippet("try", "try ${1:body}"),
 ];
 
-const builtin_types = ["Bool", "Bytes", "I32", "I64", "Int", "Text", "Unit"];
+const builtin_types = [
+  "Bool",
+  "Bytes",
+  "Char",
+  "I32",
+  "I64",
+  "Int",
+  "Text",
+  "Unit",
+];
 
 export function completions(
   source: Source,
@@ -652,7 +661,7 @@ function shorthand_context(
   const line_start = text.lastIndexOf("\n", offset - 1) + 1;
   const line = text.slice(line_start, offset);
   const match =
-    /\b(?:let|const)\s+[a-z][a-z0-9_]*\s*:\s*([A-Z][A-Za-z0-9]*)\s*=\s*\.([a-z0-9_]*)$/
+    /\b(?:let|const)\s+[a-z][a-z0-9_]*\s*:\s*([A-Z][A-Za-z0-9]*)\s*=\s*`([A-Z][A-Za-z0-9_]*)?$/
       .exec(
         line,
       );
@@ -662,9 +671,13 @@ function shorthand_context(
   }
 
   const type_name = match[1];
-  const prefix = match[2];
+  let prefix = match[2];
 
-  if (type_name === undefined || prefix === undefined) {
+  if (prefix === undefined) {
+    prefix = "";
+  }
+
+  if (type_name === undefined) {
     throw new Error("Missing shorthand completion context");
   }
 

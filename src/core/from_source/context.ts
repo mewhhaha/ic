@@ -14,10 +14,12 @@ import type {
 } from "../ast.ts";
 import type { IntegerType } from "../../integer.ts";
 import { integer_type_from_name, integer_type_name } from "../../integer.ts";
+import type { ValType } from "../../op.ts";
 
 export type CoreNamedRecSource = {
   params: CoreParam[];
   body: CoreExpr | undefined;
+  result_annotation: string | undefined;
 };
 
 export type CoreFromSourceCtx = {
@@ -29,10 +31,12 @@ export type CoreFromSourceCtx = {
   host_import_type_values: Map<string, CoreHostImportOwnerReason>;
   linear_names: Set<string>;
   integer_types: Map<string, IntegerType>;
+  numeric_types: Map<string, ValType>;
   wide_integer_types: Map<string, IntegerType>;
   lower_stmt: (stmt: Stmt, ctx: CoreFromSourceCtx) => CoreStmt;
   fresh: { next: number };
   namedRecs: Map<string, CoreNamedRecSource>;
+  runtime_aggregate_type_names: Set<string>;
   scalar_annotation_aliases: Map<string, string>;
   type_set_aliases: Map<string, TypeExpr>;
 };
@@ -49,10 +53,12 @@ export function create_core_from_source_ctx(
     host_import_type_values: new Map(),
     linear_names: new Set(),
     integer_types: new Map(),
+    numeric_types: new Map(),
     wide_integer_types: new Map(),
     lower_stmt,
     fresh: { next: 0 },
     namedRecs: new Map(),
+    runtime_aggregate_type_names: new Set(),
     scalar_annotation_aliases: new Map(),
     type_set_aliases: new Map(),
   };
@@ -70,10 +76,12 @@ export function fork_core_from_source_ctx(
     host_import_type_values: new Map(ctx.host_import_type_values),
     linear_names: new Set(ctx.linear_names),
     integer_types: new Map(ctx.integer_types),
+    numeric_types: new Map(ctx.numeric_types),
     wide_integer_types: ctx.wide_integer_types,
     lower_stmt: ctx.lower_stmt,
     fresh: ctx.fresh,
-    namedRecs: new Map(ctx.namedRecs),
+    namedRecs: ctx.namedRecs,
+    runtime_aggregate_type_names: new Set(ctx.runtime_aggregate_type_names),
     scalar_annotation_aliases: new Map(ctx.scalar_annotation_aliases),
     type_set_aliases: new Map(ctx.type_set_aliases),
   };
@@ -117,6 +125,17 @@ export function record_core_from_source_type_value(
     }
 
     ctx.type_set_aliases.set(stmt.name, alias);
+  }
+
+  if (
+    stmt.value.tag === "struct_type" || stmt.value.tag === "union_type"
+  ) {
+    ctx.runtime_aggregate_type_names.add(stmt.name);
+  } else if (
+    stmt.value.tag === "var" &&
+    ctx.runtime_aggregate_type_names.has(stmt.value.name)
+  ) {
+    ctx.runtime_aggregate_type_names.add(stmt.name);
   }
 
   const scalar_base_name = core_scalar_type_value_base(stmt.value);
@@ -173,6 +192,7 @@ function core_scalar_type_value_base(expr: FrontExpr): string | undefined {
 
 const core_builtin_scalar_annotation_names = new Set([
   "Bool",
+  "Char",
   "I32",
   "I64",
   "F32",
@@ -345,6 +365,10 @@ function expand_core_annotation_aliases(
     return { type: { ...type, body: body.type }, changed: true };
   }
 
+  if (type.tag === "literal") {
+    return { type, changed: false };
+  }
+
   if (type.tag !== "arrow") {
     const unreachable: never = type;
     void unreachable;
@@ -423,6 +447,7 @@ export function resolve_bound_core_value_name(
 
 const core_builtin_value_names = new Set([
   "Bool",
+  "Char",
   "@Bytes.generate",
   "@Utf8.decode",
   "@Utf8.encode",

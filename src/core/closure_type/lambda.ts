@@ -7,6 +7,7 @@ import { clone_core_host_imports } from "../host_import.ts";
 import { same_runtime_aggregate_type_expr } from "../runtime_aggregate.ts";
 import { same_runtime_union_type_expr } from "../runtime_union.ts";
 import { closure_param_info } from "./param.ts";
+import { same_core_fn_type } from "./compare.ts";
 import type { CoreClosureTypeCtx, CoreClosureTypeHooks } from "./types.ts";
 
 export function core_lam_fn_type(
@@ -19,6 +20,7 @@ export function core_lam_fn_type(
   const param_constraints: (string | undefined)[] = [];
   const param_structs: (CoreExpr | undefined)[] = [];
   const param_unions: (CoreExpr | undefined)[] = [];
+  const param_fns: (CoreFnType | undefined)[] = [];
 
   for (const param of expr.params) {
     const info = closure_param_info(param, ctx, hooks);
@@ -32,6 +34,7 @@ export function core_lam_fn_type(
     param_constraints.push(info.constraint);
     param_structs.push(info.struct_type);
     param_unions.push(info.union_type);
+    param_fns.push(info.fn_type);
   }
 
   const captures = hooks.core_lam_capture_names(expr, ctx);
@@ -48,13 +51,23 @@ export function core_lam_fn_type(
     const is_text = param_texts[index];
     const struct_type = param_structs[index];
     const union_type = param_unions[index];
+    const fn_type = param_fns[index];
     expect(param, "Missing core closure parameter " + index.toString());
     expect(type, "Missing core closure parameter type " + index.toString());
     expect(
       is_text !== undefined,
       "Missing core closure parameter text fact " + index.toString(),
     );
-    set_lam_param(body_ctx, param.name, type, is_text, struct_type, union_type);
+    set_lam_param(
+      body_ctx,
+      param.name,
+      type,
+      is_text,
+      struct_type,
+      union_type,
+      fn_type,
+    );
+    bind_lam_param_borrowed_fact(body_ctx, param.name, param.annotation);
   }
 
   const result = hooks.expr_type(expr.body, body_ctx);
@@ -67,6 +80,7 @@ export function core_lam_fn_type(
     ...optional_param_constraints(param_constraints),
     ...optional_param_structs(param_structs),
     ...optional_param_unions(param_unions),
+    ...optional_param_fns(param_fns),
     result,
     result_text,
     result_struct: hooks.runtime_aggregate_type_expr(expr.body, body_ctx),
@@ -99,6 +113,7 @@ export function core_lam_fn_type_with_expected(
     const expected_constraint = expected.param_constraints?.[index];
     const expected_struct = expected.param_structs?.[index];
     const expected_union = expected.param_unions?.[index];
+    const expected_fn = expected.param_fns?.[index];
     expect(param, "Missing core closure parameter " + index.toString());
     expect(
       expected_type,
@@ -110,6 +125,7 @@ export function core_lam_fn_type_with_expected(
     );
 
     const actual = closure_param_info(param, ctx, hooks);
+    let param_fn = expected_fn;
 
     if (!actual && expected_constraint) {
       throw new Error(
@@ -139,6 +155,16 @@ export function core_lam_fn_type_with_expected(
         same_runtime_union_type_expr(actual.union_type, expected_union, ctx),
         "Core closure if branch parameter union mismatch",
       );
+
+      if (actual.fn_type || expected_fn) {
+        expect(
+          actual.fn_type && expected_fn &&
+            same_core_fn_type(actual.fn_type, expected_fn),
+          "Core closure if branch parameter function mismatch",
+        );
+      }
+
+      param_fn = actual.fn_type;
     }
 
     set_lam_param(
@@ -148,7 +174,9 @@ export function core_lam_fn_type_with_expected(
       expected_text,
       expected_struct,
       expected_union,
+      param_fn,
     );
+    bind_lam_param_borrowed_fact(body_ctx, param.name, param.annotation);
   }
 
   const result = hooks.expr_type(expr.body, body_ctx);
@@ -181,6 +209,7 @@ export function core_lam_fn_type_with_expected(
     ...optional_param_constraints(expected.param_constraints),
     ...optional_param_structs(expected.param_structs),
     ...optional_param_unions(expected.param_unions),
+    ...optional_param_fns(expected.param_fns),
     result,
     result_text: expected.result_text,
     result_struct: expected.result_struct,
@@ -189,14 +218,41 @@ export function core_lam_fn_type_with_expected(
 }
 
 function create_lam_body_ctx(ctx: CoreClosureTypeCtx): CoreClosureTypeCtx {
+  let static_capture_values: Map<string, CoreExpr> | undefined;
+  if (ctx.static_capture_values !== undefined) {
+    static_capture_values = new Map(ctx.static_capture_values);
+  }
+  let frozen_locals: Set<string> | undefined;
+  if (ctx.frozen_locals !== undefined) {
+    frozen_locals = new Set(ctx.frozen_locals);
+  }
+  let borrowed_locals: Set<string> | undefined;
+  if (ctx.borrowed_locals !== undefined) {
+    borrowed_locals = new Set(ctx.borrowed_locals);
+  }
+  let mutable_bindings: Set<string> | undefined;
+  if (ctx.mutable_bindings !== undefined) {
+    mutable_bindings = new Set(ctx.mutable_bindings);
+  }
+  let materialized_bindings: Set<string> | undefined;
+  if (ctx.materialized_bindings !== undefined) {
+    materialized_bindings = new Set(ctx.materialized_bindings);
+  }
+
   return {
     locals: new Map(ctx.locals),
+    static_capture_values,
     statics: new Map(ctx.statics),
     fn_types: new Map(ctx.fn_types),
     text_locals: new Set(ctx.text_locals),
     struct_locals: new Map(ctx.struct_locals),
     union_locals: new Map(ctx.union_locals),
+    borrowed_locals,
+    frozen_locals,
     host_imports: clone_core_host_imports(ctx.host_imports),
+    scratch_depth: ctx.scratch_depth,
+    mutable_bindings,
+    materialized_bindings,
   };
 }
 
@@ -207,9 +263,14 @@ function set_lam_param(
   is_text: boolean,
   struct_type: CoreExpr | undefined,
   union_type: CoreExpr | undefined,
+  fn_type: CoreFnType | undefined,
 ): void {
   ctx.statics.delete(name);
-  ctx.fn_types.delete(name);
+  if (fn_type) {
+    ctx.fn_types.set(name, fn_type);
+  } else {
+    ctx.fn_types.delete(name);
+  }
   set_local(ctx.locals, name, type);
 
   if (is_text) {
@@ -229,6 +290,23 @@ function set_lam_param(
   } else {
     ctx.union_locals.delete(name);
   }
+}
+
+function bind_lam_param_borrowed_fact(
+  ctx: CoreClosureTypeCtx,
+  name: string,
+  annotation: string | undefined,
+): void {
+  if (!ctx.borrowed_locals) {
+    return;
+  }
+
+  if (annotation?.startsWith("&")) {
+    ctx.borrowed_locals.add(name);
+    return;
+  }
+
+  ctx.borrowed_locals.delete(name);
 }
 
 function optional_param_structs(
@@ -273,6 +351,22 @@ function optional_param_unions(
   for (const value of values) {
     if (value) {
       return { param_unions: [...values] };
+    }
+  }
+
+  return {};
+}
+
+function optional_param_fns(
+  values: (CoreFnType | undefined)[] | undefined,
+): { param_fns: (CoreFnType | undefined)[] } | Record<string, never> {
+  if (!values) {
+    return {};
+  }
+
+  for (const value of values) {
+    if (value) {
+      return { param_fns: [...values] };
     }
   }
 

@@ -166,12 +166,12 @@ Deno.test("Core emits scalar value-producing loops with nested labels", () => {
 
 Deno.test("Core preserves Bytes facts through runtime union loop bodies", () => {
   const wat = Source.wat(Source.parse(`
-type ResultType = | .chunk = Bytes | .eof
+type ResultType = | \`Chunk Bytes | \`Eof Unit
 const result_type = ResultType
 host_import read from "env.read" () => result_type
 
 let result: result_type = read()
-if let .chunk(first_bytes) = result {
+if let \`Chunk first_bytes = result {
   let pending: Bytes = @slice(first_bytes, 0, @len(first_bytes))
 
   loop {
@@ -295,7 +295,7 @@ value
 
 Deno.test("Core types runtime match payloads in value-producing loops", () => {
   const core = Source.core(Source.parse(`
-type ReadResultType = | .chunk = Bytes | .eof | .err = I32
+type ReadResultType = | \`Chunk Bytes | \`Eof Unit | \`Err I32
 const read_result_type = ReadResultType
 host_import read from "env.read" () => read_result_type
 host_import write from "env.write" (&Bytes) => I32
@@ -303,13 +303,13 @@ let prefix: Bytes = @Utf8.encode("prefix")
 let value = loop {
   let read_result: read_result_type = read()
   match read_result {
-    | .chunk(bytes) => {
+    | \`Chunk bytes => {
       let pending: Bytes = @append(prefix, bytes)
       write(&pending)
       @len(pending)
     }
-    | .eof => { break 0 }
-    | .err(code) => { break code }
+    | \`Eof () => { break 0 }
+    | \`Err code => { break code }
   }
 }
 value
@@ -320,7 +320,7 @@ value
 
 Deno.test("Core moves a linear runtime aggregate into one-shot closure slots", () => {
   const source = `
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct { .age= Int }
 let make = (age: Int) => [.age = age] as user_type
 let !user: user_type = make(41)
@@ -385,9 +385,9 @@ user = take_once()
 
 Deno.test("Core moves a linear runtime union into one-shot closure slots", () => {
   const source = `
-type ResultType = | .ok = Int | .err = Int
+type ResultType = | \`Ok Int | \`Err Int
 const result_type = ResultType
-let !result: result_type = result_type.ok(41)
+let !result: result_type = \`Ok (41)
 let flag = true
 let take_once = if flag { () => !result } else { () => !result }
 result = take_once()
@@ -574,21 +574,21 @@ scratch { suffix(prefix) }
 
 Deno.test("Core promotes nested aggregate union Text out of scratch", () => {
   const source = `
-type ResultType = | .ok = Text | .err
+type ResultType = | \`Ok Text | \`Err Unit
 const result_type = ResultType
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const inner_type = struct { .result= result_type }
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const outer_type = struct { .inner= inner_type, .age= Int }
 
 let start = 0
 let prefix: Text = @slice("Ada", start, 1)
 let frozen = scratch {
-  let temp = [.inner = [.result = result_type.ok(@append(prefix, "da"))] as inner_type, .age = 2] as outer_type
+  let temp = [.inner = [.result = \`Ok (@append(prefix, "da"))] as inner_type, .age = 2] as outer_type
   freeze temp
 }
 
-if let .ok(text) = frozen.inner.result { @len(text) } else { 0 }
+if let \`Ok text = frozen.inner.result { @len(text) } else { 0 }
 `;
   const core = Source.core(Source.parse(source));
   const proof = Core.proof(core);
@@ -655,7 +655,7 @@ if let .ok(text) = frozen.inner.result { @len(text) } else { 0 }
 
 Deno.test("Core links aggregate Text child destructors before outer cleanup", () => {
   const source = `
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct { .name= Text, .age= Int }
 let flag = true
 let make = if flag {
@@ -873,17 +873,17 @@ for value in @runtime_text_slice(1, dynamic) {
 
 Deno.test("Core persistent allocation facts carry reusable-layout metadata", () => {
   const core = Source.core(Source.parse(`
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct { .name= Text, .age= Int }
-type ResultType = | .ok = Int | .err = Int
+type ResultType = | \`Ok Int | \`Err Int
 const result_type = ResultType
 let text: Text = @append("A", "da")
 let user: user_type = [.name = text, .age = 40] as user_type
 let flag = true
 let make = if flag {
-  (value: Int) => result_type.ok(value)
+  (value: Int) => \`Ok (value)
 } else {
-  (value: Int) => result_type.err(value)
+  (value: Int) => \`Err (value)
 }
 let result: result_type = make(user.age)
 let sum = 0
@@ -1075,17 +1075,17 @@ if flag {
 Deno.test("Core anchors no-else conditional transfer cleanup on fallthrough", () => {
   const prefix = `
 host_import branch_flag from "env.flag" () => I32
-type GateType = | .go = Int | .stop = Int
+type GateType = | \`Go Int | \`Stop Int
 const gate_type = GateType
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct { .age= Int }
-type ResultType = | .ok = user_type | .err
+type ResultType = | \`Ok user_type | \`Err Unit
 const result_type = ResultType
 let flag = branch_flag()
 let gate: gate_type = if flag {
-  gate_type.go(1)
+  \`Go (1)
 } else {
-  gate_type.stop(0)
+  \`Stop (0)
 }
 let make = if flag {
   (age: Int) => [.age = age] as user_type
@@ -1096,13 +1096,13 @@ let user: user_type = make(40)
 `;
   const fixtures = [
     {
-      source: prefix + "if flag { result_type.ok(user) }\n0",
+      source: prefix + "if flag { `Ok (user) }\n0",
       transfer_scope: "program#0/if",
       cleanup_scope: "program#0/if_fallthrough",
     },
     {
       source: prefix +
-        "if let .go(value) = gate { result_type.ok(user) }\n0",
+        "if let `Go value = gate { `Ok (user) }\n0",
       transfer_scope: "program#0/if_let",
       cleanup_scope: "program#0/if_let_fallthrough",
     },
@@ -1166,7 +1166,7 @@ let flag = true
     {
       reason: "runtime_aggregate",
       source: `
-const { struct } = comptime import "duck:prelude" ()
+const { struct } = import "duck:prelude" ()
 const user_type = struct { .age= Int }
 let age = 1
 [.age = age] as user_type
@@ -1176,11 +1176,11 @@ let age = 1
     {
       reason: "runtime_union",
       source: `
-type ResultType = | .ok = Int | .err = Int
+type ResultType = | \`Ok Int | \`Err Int
 const result_type = ResultType
 let value = 1
-result_type.ok(value)
-result_type.err(value)
+\`Ok (value)
+\`Err (value)
 `,
     },
     {
@@ -1218,6 +1218,24 @@ let offset = 1
         "    call $__free",
     );
   }
+});
+
+Deno.test("Core releases an owned temporary after a primitive reads it", () => {
+  const core = Source.core(Source.parse(`
+let choose_left = true
+if @append(if choose_left { "a" } else { "b" }, "!") == "a!" { 1 } else { 0 }
+`));
+  const proof = Core.proof(core);
+  const wat = Emit.emit(Mod, Core.mod(core));
+  const drop = proof.drops.steps.find((step) => {
+    return step.tag === "heap_drop" && step.edge === "discarded_expr" &&
+      step.owner === undefined && step.ownership.reason === "text";
+  });
+
+  assert_equals(proof.ok, true);
+  assert_equals(drop?.allocation_id !== undefined, true);
+  assert_includes(wat, "local.tee $_cleanup_" + drop?.id);
+  assert_includes(wat, "call $__free");
 });
 
 Deno.test("Core cleanup emission keeps repeated assignment anchors isolated", () => {

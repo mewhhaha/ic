@@ -1,5 +1,15 @@
-import type { Field, FrontExpr, Param, Stmt } from "./ast.ts";
+import type {
+  Field,
+  FrontExpr,
+  Param,
+  Pattern,
+  Stmt,
+  TypeExpr,
+  TypeField,
+} from "./ast.ts";
 import { pattern_bindings } from "./pattern.ts";
+import { format_type_expr, parse_type_expr } from "./type_expr.ts";
+import { tokenize } from "./tokenize.ts";
 
 export function substitute_front_expr(
   expr: FrontExpr,
@@ -12,24 +22,39 @@ export function substitute_front_expr(
     case "unit":
     case "text":
     case "type_name":
-    case "set_type":
-    case "struct_type":
-    case "union_type":
     case "unsupported":
       return expr;
+
+    case "set_type":
+      return {
+        tag: "set_type",
+        type_expr: substitute_front_type_expr(expr.type_expr, replacements),
+      };
+
+    case "struct_type":
+      return {
+        tag: "struct_type",
+        fields: substitute_front_type_fields(expr.fields, replacements),
+      };
+
+    case "union_type":
+      return {
+        tag: "union_type",
+        cases: substitute_front_type_fields(expr.cases, replacements),
+      };
 
     case "is":
       return {
         tag: "is",
         value: substitute_front_expr(expr.value, replacements),
-        type_expr: expr.type_expr,
+        type_expr: substitute_front_type_expr(expr.type_expr, replacements),
       };
 
     case "as":
       return {
         tag: "as",
         value: substitute_front_expr(expr.value, replacements),
-        type_expr: expr.type_expr,
+        type_expr: substitute_front_type_expr(expr.type_expr, replacements),
       };
 
     case "linear": {
@@ -61,17 +86,23 @@ export function substitute_front_expr(
       };
 
     case "lam": {
-      const local = shadow_params(replacements, expr.params);
+      const params = substitute_front_params(expr.params, replacements);
+      const local = shadow_params(replacements, params);
       return {
         ...expr,
+        pattern: substitute_optional_front_pattern(expr.pattern, replacements),
+        params,
         body: substitute_front_expr(expr.body, local),
       };
     }
 
     case "rec": {
-      const local = shadow_params(replacements, expr.params);
+      const params = substitute_front_params(expr.params, replacements);
+      const local = shadow_params(replacements, params);
       return {
         ...expr,
+        pattern: substitute_optional_front_pattern(expr.pattern, replacements),
+        params,
         body: substitute_front_expr(expr.body, local),
       };
     }
@@ -238,7 +269,7 @@ export function substitute_front_expr(
 
     case "try_with":
       return {
-        tag: "try_with",
+        ...expr,
         body: substitute_front_expr(expr.body, replacements),
         handler: substitute_front_expr(expr.handler, replacements),
       };
@@ -329,14 +360,13 @@ export function substitute_front_expr(
 
     case "field":
       return {
-        tag: "field",
+        ...expr,
         object: substitute_front_expr(expr.object, replacements),
-        name: expr.name,
       };
 
     case "index":
       return {
-        tag: "index",
+        ...expr,
         object: substitute_front_expr(expr.object, replacements),
         index: substitute_front_expr(expr.index, replacements),
       };
@@ -360,6 +390,338 @@ export function substitute_front_expr(
       };
     }
   }
+}
+
+function substitute_front_type_fields(
+  fields: TypeField[],
+  replacements: Map<string, FrontExpr>,
+): TypeField[] {
+  return fields.map((field) => ({
+    ...field,
+    type_name: format_type_expr(
+      substitute_front_type_expr(
+        parse_type_expr(tokenize(field.type_name)),
+        replacements,
+      ),
+    ),
+    set_member: substitute_optional_front_type_expr(
+      field.set_member,
+      replacements,
+    ),
+  }));
+}
+
+function substitute_front_params(
+  params: Param[],
+  replacements: Map<string, FrontExpr>,
+): Param[] {
+  return params.map((param) => ({
+    ...param,
+    annotation: substitute_front_annotation(param.annotation, replacements),
+    type_annotation: substitute_optional_front_type_expr(
+      param.type_annotation,
+      replacements,
+    ),
+  }));
+}
+
+function substitute_optional_front_pattern(
+  pattern: Pattern | undefined,
+  replacements: Map<string, FrontExpr>,
+): Pattern | undefined {
+  if (pattern === undefined) {
+    return undefined;
+  }
+
+  return substitute_front_pattern(pattern, replacements);
+}
+
+function substitute_front_pattern(
+  pattern: Pattern,
+  replacements: Map<string, FrontExpr>,
+): Pattern {
+  switch (pattern.tag) {
+    case "binding":
+      return {
+        ...pattern,
+        annotation: substitute_front_annotation(
+          pattern.annotation,
+          replacements,
+        ),
+        type_annotation: substitute_optional_front_type_expr(
+          pattern.type_annotation,
+          replacements,
+        ),
+      };
+
+    case "or":
+      return {
+        ...pattern,
+        alternatives: pattern.alternatives.map((alternative) => {
+          return substitute_front_pattern(alternative, replacements);
+        }),
+      };
+
+    case "union_case":
+      return {
+        ...pattern,
+        value: substitute_optional_front_pattern(pattern.value, replacements),
+      };
+
+    case "product":
+      return {
+        ...pattern,
+        entries: pattern.entries.map((entry) => ({
+          ...entry,
+          pattern: substitute_front_pattern(entry.pattern, replacements),
+        })),
+        rest: substitute_optional_front_pattern(pattern.rest, replacements),
+      };
+
+    case "record":
+      return {
+        ...pattern,
+        fields: pattern.fields.map((field) => ({
+          ...field,
+          pattern: substitute_front_pattern(field.pattern, replacements),
+        })),
+        rest: substitute_optional_front_pattern(pattern.rest, replacements),
+      };
+
+    case "array":
+      return {
+        ...pattern,
+        items: pattern.items.map((item) => {
+          return substitute_front_pattern(item, replacements);
+        }),
+        rest: substitute_optional_front_pattern(pattern.rest, replacements),
+      };
+
+    case "wildcard":
+    case "unit":
+    case "literal":
+    case "text_capture":
+    case "value":
+    case "type":
+      return pattern;
+  }
+}
+
+function substitute_front_annotation(
+  annotation: string | undefined,
+  replacements: Map<string, FrontExpr>,
+): string | undefined {
+  if (annotation === undefined) {
+    return undefined;
+  }
+
+  return format_type_expr(
+    substitute_front_type_expr(
+      parse_type_expr(tokenize(annotation)),
+      replacements,
+    ),
+  );
+}
+
+function substitute_optional_front_type_expr(
+  type: TypeExpr | undefined,
+  replacements: Map<string, FrontExpr>,
+): TypeExpr | undefined {
+  if (type === undefined) {
+    return undefined;
+  }
+
+  return substitute_front_type_expr(type, replacements);
+}
+
+function substitute_front_type_expr(
+  type: TypeExpr,
+  replacements: Map<string, FrontExpr>,
+): TypeExpr {
+  if (type.tag === "name") {
+    const replacement = replacements.get(type.name);
+
+    if (replacement !== undefined) {
+      const replacement_type = front_type_value_expr(replacement);
+
+      if (replacement_type !== undefined) {
+        return replacement_type;
+      }
+    }
+
+    return type;
+  }
+
+  if (type.tag === "forall") {
+    const local = new Map(replacements);
+
+    for (const param of type.params) {
+      local.delete(param);
+    }
+
+    return {
+      ...type,
+      body: substitute_front_type_expr(type.body, local),
+    };
+  }
+
+  if (
+    type.tag === "atom" || type.tag === "top" || type.tag === "never"
+  ) {
+    return type;
+  }
+
+  if (type.tag === "frozen" || type.tag === "borrow") {
+    return {
+      ...type,
+      value: substitute_front_type_expr(type.value, replacements),
+    };
+  }
+
+  if (
+    type.tag === "union" || type.tag === "intersection" ||
+    type.tag === "difference"
+  ) {
+    return {
+      ...type,
+      left: substitute_front_type_expr(type.left, replacements),
+      right: substitute_front_type_expr(type.right, replacements),
+    };
+  }
+
+  if (type.tag === "apply") {
+    return {
+      tag: "apply",
+      func: substitute_front_type_expr(type.func, replacements),
+      arg: substitute_front_type_expr(type.arg, replacements),
+    };
+  }
+
+  if (type.tag === "tuple") {
+    return {
+      tag: "tuple",
+      items: type.items.map((item) =>
+        substitute_front_type_expr(item, replacements)
+      ),
+    };
+  }
+
+  if (type.tag === "product") {
+    return {
+      tag: "product",
+      entries: type.entries.map((entry) => ({
+        ...entry,
+        type_expr: substitute_front_type_expr(
+          entry.type_expr,
+          replacements,
+        ),
+      })),
+    };
+  }
+
+  if (type.tag === "array") {
+    return {
+      ...type,
+      element: substitute_front_type_expr(type.element, replacements),
+    };
+  }
+
+  if (type.tag === "arrow") {
+    return {
+      ...type,
+      param: substitute_front_type_expr(type.param, replacements),
+      result: substitute_front_type_expr(type.result, replacements),
+    };
+  }
+
+  if (type.tag === "literal") {
+    return type;
+  }
+
+  const unreachable: never = type;
+  void unreachable;
+  throw new Error("Unknown type expression substitution");
+}
+
+function front_type_value_expr(value: FrontExpr): TypeExpr | undefined {
+  if (value.tag === "var" || value.tag === "type_name") {
+    return { tag: "name", name: value.name };
+  }
+
+  if (value.tag === "set_type") {
+    return value.type_expr;
+  }
+
+  if (value.tag === "struct_type") {
+    return {
+      tag: "product",
+      entries: value.fields.map((field) => {
+        let type_expr = field.set_member;
+
+        if (type_expr === undefined) {
+          type_expr = parse_type_expr(tokenize(field.type_name));
+        }
+
+        return { label: field.name, type_expr };
+      }),
+    };
+  }
+
+  if (value.tag === "with") {
+    return front_type_value_expr(value.base);
+  }
+
+  if (value.tag === "product") {
+    const entries: Extract<TypeExpr, { tag: "product" }>["entries"] = [];
+
+    for (const entry of value.entries) {
+      const entry_type = front_type_value_expr(entry.value);
+
+      if (entry_type === undefined) {
+        return undefined;
+      }
+
+      entries.push({ label: entry.label, type_expr: entry_type });
+    }
+
+    return { tag: "product", entries };
+  }
+
+  if (value.tag === "borrow" || value.tag === "freeze") {
+    const inner = front_type_value_expr(value.value);
+
+    if (inner === undefined) {
+      return undefined;
+    }
+
+    if (value.tag === "borrow") {
+      return { tag: "borrow", value: inner };
+    }
+
+    return { tag: "frozen", value: inner };
+  }
+
+  if (value.tag !== "app") {
+    return undefined;
+  }
+
+  let result = front_type_value_expr(value.func);
+
+  if (result === undefined) {
+    return undefined;
+  }
+
+  for (const arg of value.args) {
+    const arg_type = front_type_value_expr(arg);
+
+    if (arg_type === undefined) {
+      return undefined;
+    }
+
+    result = { tag: "apply", func: result, arg: arg_type };
+  }
+
+  return result;
 }
 
 function substitute_front_block(
@@ -405,6 +767,24 @@ export function substitute_front_stmt(
     case "bind":
       return {
         ...stmt,
+        attribute_groups: stmt.attribute_groups?.map((group) => ({
+          ...group,
+          attributes: group.attributes.map((attribute) =>
+            substitute_front_expr(attribute, replacements)
+          ),
+        })),
+        pattern: substitute_optional_front_pattern(
+          stmt.pattern,
+          replacements,
+        ),
+        annotation: substitute_front_annotation(
+          stmt.annotation,
+          replacements,
+        ),
+        type_annotation: substitute_optional_front_type_expr(
+          stmt.type_annotation,
+          replacements,
+        ),
         value: substitute_front_expr(stmt.value, replacements),
       };
 
@@ -470,6 +850,7 @@ export function substitute_front_stmt(
         tag: "for_collection",
         index: stmt.index,
         item: stmt.item,
+        pattern: stmt.pattern,
         collection: substitute_front_expr(stmt.collection, replacements),
         body: substitute_front_block(stmt.body, body_replacements),
       };

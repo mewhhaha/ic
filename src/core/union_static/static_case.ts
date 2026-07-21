@@ -1,5 +1,6 @@
 import { expect } from "../../expect.ts";
 import type { CoreExpr, CoreStmt } from "../ast.ts";
+import { find_core_field } from "../analysis/field.ts";
 import { static_core_call_branch_app } from "../static_call.ts";
 import { record_core_expr_provenance } from "../subject_provenance.ts";
 import { find_core_type_field } from "./field.ts";
@@ -32,6 +33,17 @@ export function static_union_case<ctx extends CoreUnionCtx>(
 
   if (expr.tag === "block") {
     return undefined;
+  }
+
+  if (expr.tag === "field") {
+    const object = hooks.static_struct_value(expr.object, ctx);
+    if (!object) {
+      return undefined;
+    }
+
+    const field = find_core_field(object.fields, expr.name);
+    expect(field, "Missing static core field: " + expr.name);
+    return static_union_case(field.value, ctx, hooks);
   }
 
   const inlined = hooks.static_core_call_value(expr, ctx);

@@ -4,6 +4,7 @@ import type {
   EffectRowExpr,
   FrontType,
   TypeExpr,
+  TypeLiteral,
 } from "./ast.ts";
 import { parse_type_expr } from "./type_expr.ts";
 import { tokenize } from "./tokenize.ts";
@@ -16,6 +17,7 @@ export type SemType =
   | { tag: "scalar"; name: string }
   | { tag: "named"; name: string }
   | { tag: "atom"; name: string }
+  | { tag: "literal"; value: TypeLiteral }
   | { tag: "frozen"; value: SemType }
   | { tag: "borrow"; value: SemType }
   | { tag: "apply"; func: SemType; arg: SemType }
@@ -48,6 +50,7 @@ export type SemTypeNameResolver = (name: string) => SemType | undefined;
 
 const scalar_names = new Set([
   "Bool",
+  "Char",
   "Unit",
   "Int",
   "I32",
@@ -96,6 +99,9 @@ export function sem_type_from_expr(
 
     case "atom":
       return { tag: "atom", name: expr.name };
+
+    case "literal":
+      return { tag: "literal", value: expr.value };
 
     case "name": {
       if (scalar_names.has(expr.name)) {
@@ -200,6 +206,9 @@ export function sem_type_from_front_type(type: FrontType): SemType {
 
     case "bool":
       return { tag: "scalar", name: "Bool" };
+
+    case "char":
+      return { tag: "scalar", name: "Char" };
 
     case "f32x4":
       return { tag: "scalar", name: "F32x4" };
@@ -518,18 +527,66 @@ export function subtract_sem_type(base: SemType, removed: SemType): SemType {
 }
 
 export function sem_type_subtype(left: SemType, right: SemType): boolean {
+  const source = normalize_sem_type(left);
+  const target = normalize_sem_type(right);
+
+  if (source.tag === "literal") {
+    if (target.tag === "literal") {
+      return type_literal_key(source.value) === type_literal_key(target.value);
+    }
+
+    if (target.tag === "union") {
+      return target.members.some((member) => {
+        return sem_type_subtype(source, member);
+      });
+    }
+
+    if (target.tag === "intersection") {
+      return target.members.every((member) => {
+        return sem_type_subtype(source, member);
+      });
+    }
+
+    return sem_type_subtype(literal_base_type(source.value), target);
+  }
+
+  if (source.tag === "union") {
+    return source.members.every((member) => {
+      return sem_type_subtype(member, target);
+    });
+  }
+
+  if (target.tag === "literal") {
+    return false;
+  }
+
   const engine = new TypeEngine();
   return engine.subtype(
-    canonical_type_from_sem_type(left),
-    canonical_type_from_sem_type(right),
+    canonical_type_from_sem_type(source),
+    canonical_type_from_sem_type(target),
   );
 }
 
 export function sem_types_are_disjoint(left: SemType, right: SemType): boolean {
+  const source = normalize_sem_type(left);
+  const target = normalize_sem_type(right);
+
+  if (source.tag === "literal" && target.tag === "literal") {
+    return type_literal_key(source.value) !== type_literal_key(target.value);
+  }
+
+  if (source.tag === "literal") {
+    return sem_types_are_disjoint(literal_base_type(source.value), target);
+  }
+
+  if (target.tag === "literal") {
+    return sem_types_are_disjoint(source, literal_base_type(target.value));
+  }
+
   const engine = new TypeEngine();
   return engine.disjoint(
-    canonical_type_from_sem_type(left),
-    canonical_type_from_sem_type(right),
+    canonical_type_from_sem_type(source),
+    canonical_type_from_sem_type(target),
   );
 }
 
@@ -548,7 +605,8 @@ function sem_type_is_scalar(type: SemType): boolean {
 
   return type.name === "Unit" || type.name === "Int" || type.name === "I32" ||
     type.name === "U32" || type.name === "I64" || type.name === "F32" ||
-    type.name === "F64" || type.name === "Resume" || type.name === "Bool";
+    type.name === "F64" || type.name === "Resume" || type.name === "Bool" ||
+    type.name === "Char";
 }
 
 export function sem_type_key(type: SemType): string {
@@ -613,7 +671,8 @@ function canonical_type_from_sem_type_at(
       const name = canonical_scalar_name(type.name);
 
       if (
-        name === "Bool" || name === "Unit" || name === "Int" ||
+        name === "Bool" || name === "Char" || name === "Unit" ||
+        name === "Int" ||
         name === "I32" || name === "U32" || name === "I64" ||
         name === "F32" || name === "F64" || name === "F32x4" ||
         name === "Text" ||
@@ -637,6 +696,13 @@ function canonical_type_from_sem_type_at(
 
     case "atom":
       return { tag: "named", name: "#" + type.name, args: [] };
+
+    case "literal":
+      return {
+        tag: "named",
+        name: "$literal:" + type_literal_key(type.value),
+        args: [],
+      };
 
     case "frozen":
       return {
@@ -812,4 +878,55 @@ export function sem_type_finite_members(type: SemType): SemType[] | undefined {
   }
 
   return [normalized];
+}
+
+function literal_base_type(literal: TypeLiteral): SemType {
+  if (literal.tag === "bool") {
+    return { tag: "scalar", name: "Bool" };
+  }
+
+  if (literal.tag === "text") {
+    return { tag: "scalar", name: "Text" };
+  }
+
+  if (literal.character !== undefined) {
+    return { tag: "scalar", name: "Char" };
+  }
+
+  if (literal.integer !== undefined) {
+    return {
+      tag: "named",
+      name: (literal.integer.signed ? "I" : "U") +
+        literal.integer.width.toString(),
+    };
+  }
+
+  if (literal.type === "i64") {
+    return { tag: "scalar", name: "I64" };
+  }
+
+  return { tag: "scalar", name: "I32" };
+}
+
+function type_literal_key(literal: TypeLiteral): string {
+  if (literal.tag === "bool") {
+    return "bool:" + literal.value.toString();
+  }
+
+  if (literal.tag === "text") {
+    return "text:" + JSON.stringify(literal.value);
+  }
+
+  if (literal.character !== undefined) {
+    return "char:" + literal.value.toString();
+  }
+
+  let suffix = literal.type;
+
+  if (literal.integer !== undefined) {
+    suffix = (literal.integer.signed ? "i" : "u") +
+      literal.integer.width.toString();
+  }
+
+  return "num:" + suffix + ":" + literal.value.toString();
 }

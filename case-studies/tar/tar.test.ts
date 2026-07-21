@@ -42,7 +42,7 @@ Deno.test("tar summarizes ustar headers, payload blocks, and raw path bytes", as
   try {
     const result = await main(runner);
 
-    if (result.tag !== "ok") {
+    if (result.tag !== "Ok") {
       throw new Error("Expected tar summary");
     }
 
@@ -69,7 +69,7 @@ Deno.test("tar rejects a header whose checksum does not match its bytes", async 
 
   try {
     assert_equals(await main(runner), {
-      tag: "err",
+      tag: "Err",
       value: { code: tar_error_code.checksum, offset: 0 },
     });
   } finally {
@@ -88,7 +88,7 @@ Deno.test("tar rejects a checksum-valid header with a malformed octal size", asy
 
   try {
     assert_equals(await main(runner), {
-      tag: "err",
+      tag: "Err",
       value: { code: tar_error_code.invalid_size, offset: 0 },
     });
   } finally {
@@ -106,7 +106,7 @@ Deno.test("tar rejects payloads that end before their declared block", async () 
 
   try {
     assert_equals(await main(runner), {
-      tag: "err",
+      tag: "Err",
       value: { code: tar_error_code.truncated_data, offset: 0 },
     });
   } finally {
@@ -120,7 +120,7 @@ Deno.test("tar requires the two zero-block end marker", async () => {
 
   try {
     assert_equals(await main(runner), {
-      tag: "err",
+      tag: "Err",
       value: { code: tar_error_code.end_marker, offset: 0 },
     });
   } finally {

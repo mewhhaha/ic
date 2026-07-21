@@ -26,8 +26,8 @@ export type TarSummary = {
 };
 
 export type TarResult =
-  | { tag: "ok"; value: TarSummary }
-  | { tag: "err"; value: { code: number; offset: number } };
+  | { tag: "Ok"; value: TarSummary }
+  | { tag: "Err"; value: { code: number; offset: number } };
 
 export async function main(runner: TarRunner): Promise<TarResult> {
   const artifact = Source.artifact_file(source_url.href, {
@@ -56,7 +56,7 @@ function decode_result(value: DuckValue): TarResult {
   const tag = expect_string(result.tag, "tar result is missing a tag");
   const payload = result.value;
 
-  if (tag === "ok") {
+  if (tag === "Ok") {
     const summary = expect_product(payload, 6, "tar summary is missing");
 
     return {
@@ -72,7 +72,7 @@ function decode_result(value: DuckValue): TarResult {
     };
   }
 
-  if (tag === "err") {
+  if (tag === "Err") {
     const error = expect_product(payload, 2, "tar error is missing");
 
     return {

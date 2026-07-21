@@ -6,11 +6,16 @@ import type {
   Source,
   Stmt,
 } from "./ast.ts";
+import { expect } from "../expect.ts";
 import {
   source_diagnostic,
   SourceDiagnosticError,
 } from "./semantic_diagnostic.ts";
 import { source_facts, type SourceTypeFact } from "./source_facts.ts";
+import {
+  infer_effect_operation_type_arguments,
+  substitute_effect_operation,
+} from "./effect_operation.ts";
 
 type EffectSpecialization = {
   declaration: EffectDeclaration;
@@ -201,6 +206,15 @@ export function specialize_front_effects(source: Source): Source {
       inferred = fact.nominal;
     }
 
+    bind_type_name(specialization, param, inferred, subject);
+  }
+
+  function bind_type_name(
+    specialization: EffectSpecialization,
+    param: string,
+    inferred: string,
+    subject: object,
+  ): void {
     const previous = specialization.types.get(param);
 
     if (previous === undefined) {
@@ -244,34 +258,36 @@ export function specialize_front_effects(source: Source): Source {
 
     specialization.used = true;
 
-    for (let index = 0; index < operation.params.length; index += 1) {
-      const declared = operation.params[index];
-      const arg = expr.args[index];
+    const args = expr.args.map((arg) => facts.editor_type_of.get(arg));
+    const inferred = infer_effect_operation_type_arguments(
+      specialization.declaration,
+      operation,
+      args,
+      facts.editor_type_of.get(expr),
+    );
 
-      if (declared === undefined || arg === undefined) {
-        continue;
-      }
+    for (const param of specialization.declaration.params) {
+      const type_name = inferred.get(param);
 
-      if (specialization.declaration.params.includes(declared.type_name)) {
-        bind(
+      if (type_name !== undefined) {
+        bind_type_name(
           specialization,
-          declared.type_name,
-          facts.editor_type_of.get(arg),
-          arg,
+          param,
+          type_name,
+          expr,
         );
       }
     }
 
-    if (
-      specialization.declaration.params.includes(operation.result.type_name)
-    ) {
-      bind(
-        specialization,
-        operation.result.type_name,
-        facts.editor_type_of.get(expr),
-        expr,
-      );
-    }
+    expr.effect_type_arguments = operation.type_params.flatMap((param) => {
+      const type_name = inferred.get(param);
+
+      if (type_name === undefined) {
+        return [];
+      }
+
+      return [{ name: param, type_name }];
+    });
   }
 
   function bind_handler(expr: Extract<FrontExpr, { tag: "handler" }>): void {
@@ -486,6 +502,11 @@ export function specialize_front_effects(source: Source): Source {
     specialized_declarations.push({
       ...declaration,
       params: [],
+      type_arguments: declaration.params.map((param) => {
+        const type_name = specialization.types.get(param);
+        expect(type_name !== undefined, "Missing specialized effect argument");
+        return { name: param, type_name };
+      }),
       operations: specialize_effect_operations(
         declaration,
         specialization.types,
@@ -618,65 +639,7 @@ function specialize_effect_operations(
   declaration: EffectDeclaration,
   substitutions: Map<string, string>,
 ): EffectOperation[] {
-  return declaration.operations.map((operation) => {
-    const result_type_name = substitute_effect_type(
-      operation.result.type_name,
-      substitutions,
-    );
-    let result_ownership = operation.result.ownership;
-
-    if (
-      result_ownership === "unique_heap" &&
-      is_effect_scalar_type(result_type_name)
-    ) {
-      result_ownership = "scalar";
-    }
-
-    return {
-      ...operation,
-      params: operation.params.map((param) => {
-        const type_name = substitute_effect_type(
-          param.type_name,
-          substitutions,
-        );
-        let ownership = param.ownership;
-
-        if (
-          ownership === "ownership_transfer" &&
-          is_effect_scalar_type(type_name)
-        ) {
-          ownership = "scalar";
-        }
-
-        return { ...param, type_name, ownership };
-      }),
-      result: {
-        ...operation.result,
-        type_name: result_type_name,
-        ownership: result_ownership,
-      },
-    };
-  });
-}
-
-function substitute_effect_type(
-  type_name: string,
-  substitutions: Map<string, string>,
-): string {
-  let specialized = type_name;
-
-  for (const [param, concrete] of substitutions) {
-    specialized = specialized.replace(
-      new RegExp("\\b" + param + "\\b", "g"),
-      concrete,
-    );
-  }
-
-  return specialized;
-}
-
-function is_effect_scalar_type(type_name: string): boolean {
-  return type_name === "Unit" || type_name === "Bool" ||
-    type_name === "Int" || type_name === "I32" || type_name === "U32" ||
-    type_name === "I64" || type_name === "F32" || type_name === "F64";
+  return declaration.operations.map((operation) =>
+    substitute_effect_operation(operation, substitutions)
+  );
 }

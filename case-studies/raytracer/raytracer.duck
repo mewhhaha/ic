@@ -1,6 +1,6 @@
 module () where
 
-const { f32_from_i32, generate_bytes, i32_from_f32, sqrt_f32 } = comptime import "duck:prelude/runtime" ()
+const { f32_from_i32, generate_bytes, i32_from_f32, sqrt_f32 } = import "duck:prelude/runtime" ()
 
 // A fixed-camera scalar ray tracer. The only allocation is the final PPM byte
 // buffer; every channel is computed independently by generate_bytes.
@@ -30,14 +30,14 @@ let trace_channel: [F32, F32, F32, I32] -> F32 =
         let point_x = direction_x * distance
         let point_y = direction_y * distance
         let point_z = direction_z * distance + 3.0f32
-        let normal_length = sqrt_f32 (point_x * point_x + point_y * point_y + point_z * point_z)
+        let normal_length = sqrt_f32(point_x * point_x + point_y * point_y + point_z * point_z)
         let normal_x = point_x / normal_length
         let normal_y = point_y / normal_length
         let normal_z = point_z / normal_length
         let light_x = 0.0f32 - 0.6f32
         let light_y = 0.8f32
         let light_z = 0.0f32 - 0.5f32
-        let light_length = sqrt_f32 (light_x * light_x + light_y * light_y + light_z * light_z)
+        let light_length = sqrt_f32(light_x * light_x + light_y * light_y + light_z * light_z)
         let diffuse = normal_x * (light_x / light_length) + normal_y * (light_y / light_length) + normal_z * (light_z / light_length)
         let light_amount = 0.0f32
 
@@ -68,7 +68,7 @@ let camera_channel: [I32, I32, I32] -> F32 =
     let raw_x = horizontal * 1.6f32
     let raw_y = 0.75f32 - vertical * 1.2f32
     let raw_z = 0.0f32 - 1.0f32
-    let direction_length = sqrt_f32 (raw_x * raw_x + raw_y * raw_y + raw_z * raw_z)
+    let direction_length = sqrt_f32(raw_x * raw_x + raw_y * raw_y + raw_z * raw_z)
     trace_channel(raw_x / direction_length, raw_y / direction_length, raw_z / direction_length, channel)
   }
 
@@ -81,7 +81,7 @@ let colour_byte: F32 -> I32 = (value: F32) => {
     clamped = 1.0f32
   }
 
-  i32_from_f32 (clamped * 255.0f32)
+  i32_from_f32(clamped * 255.0f32)
 }
 
 let header_byte: I32 -> I32 = (index: I32) => {

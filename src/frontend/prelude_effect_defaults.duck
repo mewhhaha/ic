@@ -1,6 +1,7 @@
 module () where
 
-const _ = comptime import "duck:prelude/effects" ()
+const _ = import "duck:prelude/effects" ()
+const {} = import "duck:prelude/functional" ()
 
 const default_state = initial => {
   let current = initial
@@ -30,6 +31,26 @@ const handle_writer = write_output => Writer {
 const handle_raise = on_error => Raise {
   raise: (error, !resume) => on_error error,
   return: value => value,
+}
+
+extend Do {
+  type Handled = Do
+  .make = _ => Do {
+    unwrap: (wrapped, resume) => Monad.bind([wrapped, value => resume(value)]),
+    return: value => Monad.pure(value),
+  }
+  .output = monad => monad
+  .order = _ => 100
+}
+
+extend Option {
+  type Handled = Do
+  .make = _ => Do {
+    unwrap: (wrapped, !resume) => AffineMonad.bind_affine([wrapped, value => !resume(value)]),
+    return: value => AffineMonad.pure_affine(value),
+  }
+  .output = monad => monad
+  .order = _ => 100
 }
 
 const deterministic_clock = [start: I64, step: I64] => {

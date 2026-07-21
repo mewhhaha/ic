@@ -9,6 +9,11 @@ export type {
 export type { ParseSourceResult } from "./frontend/parser.ts";
 export type { SourceImportResolver } from "./frontend/import_diagnostic.ts";
 export type {
+  SourceImportMeta,
+  SourceImportMetaAtom,
+  SourceImportMetaLiteral,
+} from "./frontend/import_meta.ts";
+export type {
   SourcePosition,
   SourceSpan,
   SourceSyntax,
@@ -71,3 +76,6 @@ export type {
   DuckStateToken,
   DuckValue,
 } from "./host.ts";
+
+export { run_duck_tests } from "./testing.ts";
+export type { DuckTestResult } from "./testing.ts";

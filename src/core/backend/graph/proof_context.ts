@@ -6,7 +6,10 @@ import { closure_param_info } from "../../closure_type/param.ts";
 import { runtime_union_match_info } from "../../runtime_union.ts";
 import type { RuntimeUnionMatchInfo } from "../../runtime_union.ts";
 import { bind_runtime_union_match_payload_temps } from "../../runtime_union_match.ts";
-import { static_type_value } from "../../type_static.ts";
+import {
+  core_val_type_from_type_name,
+  static_type_value,
+} from "../../type_static.ts";
 import { create_child_core_ctx } from "./context.ts";
 import { core_probe_index_assign_error } from "./proof_unsupported.ts";
 import type { CoreBackendGraph } from "./types.ts";
@@ -51,6 +54,12 @@ export function core_borrow_closure_body_ctx(
     }
 
     closure_ctx.locals.set(param.name, info.type);
+
+    if (info.fn_type) {
+      closure_ctx.fn_types.set(param.name, info.fn_type);
+    } else {
+      closure_ctx.fn_types.delete(param.name);
+    }
 
     if (info.is_text) {
       closure_ctx.text_locals.add(param.name);
@@ -128,6 +137,51 @@ export function core_drop_closure_body_ctx(
       return undefined;
     }
 
+    if (annotation.startsWith("&") || annotation.startsWith("^")) {
+      const member = annotation.slice(1);
+      const type_expr = { tag: "var", name: member } as const;
+      const type_value = static_type_value(type_expr, ctx);
+      const value_type = core_val_type_from_type_name(member);
+      closure_ctx.locals.set(param.name, value_type || "i32");
+      closure_ctx.fn_types.delete(param.name);
+
+      if (member === "Text" || member === "Bytes") {
+        closure_ctx.text_locals.add(param.name);
+      } else {
+        closure_ctx.text_locals.delete(param.name);
+      }
+
+      if (type_value?.tag === "struct_type") {
+        closure_ctx.struct_locals.set(param.name, type_expr);
+      } else {
+        closure_ctx.struct_locals.delete(param.name);
+      }
+
+      if (type_value?.tag === "union_type") {
+        closure_ctx.union_locals.set(param.name, type_expr);
+      } else {
+        closure_ctx.union_locals.delete(param.name);
+      }
+
+      if (closure_ctx.frozen_locals) {
+        if (annotation.startsWith("^")) {
+          closure_ctx.frozen_locals.add(param.name);
+        } else {
+          closure_ctx.frozen_locals.delete(param.name);
+        }
+      }
+
+      if (closure_ctx.borrowed_locals) {
+        if (annotation.startsWith("&")) {
+          closure_ctx.borrowed_locals.add(param.name);
+        } else {
+          closure_ctx.borrowed_locals.delete(param.name);
+        }
+      }
+
+      continue;
+    }
+
     const info = closure_param_info(param, ctx, {
       static_annotation_type_value: (type_annotation, annotation_ctx) =>
         static_type_value(
@@ -141,6 +195,12 @@ export function core_drop_closure_body_ctx(
     }
 
     closure_ctx.locals.set(param.name, info.type);
+
+    if (info.fn_type) {
+      closure_ctx.fn_types.set(param.name, info.fn_type);
+    } else {
+      closure_ctx.fn_types.delete(param.name);
+    }
 
     if (info.is_text) {
       closure_ctx.text_locals.add(param.name);
@@ -162,6 +222,10 @@ export function core_drop_closure_body_ctx(
 
     if (closure_ctx.frozen_locals) {
       closure_ctx.frozen_locals.delete(param.name);
+    }
+
+    if (closure_ctx.borrowed_locals) {
+      closure_ctx.borrowed_locals.delete(param.name);
     }
   }
 

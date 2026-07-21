@@ -37,7 +37,7 @@ export function mock_runner(archive: Uint8Array): MockTarRunner {
           );
         }
 
-        return { tag: "bytes", value: bytes.slice() };
+        return { tag: "Bytes", value: bytes.slice() };
       },
     },
   };

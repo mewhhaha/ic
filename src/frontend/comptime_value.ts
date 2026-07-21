@@ -6,6 +6,7 @@ import type {
   TypeExpr,
 } from "./ast.ts";
 import { is_builtin_type_name } from "./types.ts";
+import { integer_type_name } from "../integer.ts";
 
 export type ComptimeTypeField = {
   name: string | undefined;
@@ -420,6 +421,24 @@ function comptime_type_from_type_expr(
 
     case "atom":
       return { tag: "atom", name: expr.name, source };
+
+    case "literal": {
+      let name = "I32";
+
+      if (expr.value.tag === "bool") {
+        name = "Bool";
+      } else if (expr.value.tag === "text") {
+        name = "Text";
+      } else if (expr.value.character !== undefined) {
+        name = "Char";
+      } else if (expr.value.integer !== undefined) {
+        name = integer_type_name(expr.value.integer);
+      } else if (expr.value.type === "i64") {
+        name = "I64";
+      }
+
+      return { tag: "scalar", name, source };
+    }
 
     case "name": {
       const resolved = comptime_type_from_expr(

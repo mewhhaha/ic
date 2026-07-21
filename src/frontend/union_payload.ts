@@ -9,7 +9,7 @@ export function infer_untyped_union_case(
   env: Env,
   hooks: UnionValueHooks,
 ): TypeField {
-  if (!expr.value) {
+  if (!expr.value || expr.value.tag === "unit") {
     return { name: expr.name, type_name: "Unit" };
   }
 
@@ -105,6 +105,17 @@ export function validate_union_payload_type(
     return;
   }
 
+  if (expected === "Char") {
+    if (actual.tag !== "char") {
+      throw new Error(
+        "Union case " + name + " expects Char, got " +
+          front_type_name(actual),
+      );
+    }
+
+    return;
+  }
+
   if (expected === "Int" || expected === "I32" || expected === "U32") {
     if (
       actual.tag !== "int" ||
@@ -179,8 +190,14 @@ export function check_union_case_value(
   }
 
   if (declared.type_name === "Unit") {
-    if (value.value) {
-      throw new Error("Union case " + value.name + " expects no payload");
+    let payload = value.value;
+
+    while (payload !== undefined && payload.tag === "captured") {
+      payload = payload.expr;
+    }
+
+    if (!payload || payload.tag !== "unit") {
+      throw new Error("Union case " + value.name + " expects Unit");
     }
 
     return;

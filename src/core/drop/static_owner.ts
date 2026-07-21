@@ -34,11 +34,7 @@ export function should_skip_drop_owner_bind<ctx>(
     kind === "let" && drop_owner_ctx_materializes(name, ctx) &&
     expr.tag !== "scratch" &&
     !drop_owner_ctx_is_scratch(ctx) &&
-    static_value.tag === "struct_value" &&
-    !(
-      static_value.type_expr.tag === "var" &&
-      static_value.type_expr.name === "object_type"
-    )
+    materialized_static_owner_value(static_value)
   ) {
     return false;
   }
@@ -56,6 +52,19 @@ export function should_skip_drop_owner_bind<ctx>(
   }
 
   return is_drop_static_non_runtime_closure(static_value, ctx, hooks);
+}
+
+function materialized_static_owner_value(value: CoreExpr): boolean {
+  if (value.tag === "union_case") {
+    return value.type_expr !== undefined;
+  }
+
+  if (value.tag !== "struct_value") {
+    return false;
+  }
+
+  return !(value.type_expr.tag === "var" &&
+    value.type_expr.name === "object_type");
 }
 
 export function drop_owner_ctx_is_scratch(ctx: unknown): boolean {

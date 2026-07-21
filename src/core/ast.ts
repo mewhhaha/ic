@@ -4,6 +4,7 @@ import type { IntegerType } from "../integer.ts";
 
 export type Core = {
   tag: "program";
+  function_params?: CoreParam[];
   cleanup_emission?: CoreCleanupEmission[];
   capability_methods?: CoreCapabilityMethodFact[];
   host_imports?: Record<string, CoreHostImport>;
@@ -35,6 +36,8 @@ export type CoreCleanupEmission = {
   alignment: 4 | 8 | 16;
   layout: import("./model/allocation.ts").CoreAllocationLayout;
   owned_children: import("./model/allocation.ts").CoreAllocationOwnedChild[];
+  destructor_type_expr?: CoreExpr;
+  destructor?: string;
 };
 
 export type CoreCapabilityMethodFact = {
@@ -47,6 +50,9 @@ export type CoreCapabilityMethodFact = {
 export type CoreRecFunction = {
   params: CoreParam[];
   body: CoreExpr;
+  result_annotation?: string;
+  body_stmt?: Extract<CoreStmt, { tag: "expr" }>;
+  allocation_permit_plan?: import("./model/allocation.ts").CoreAllocationPlan;
 };
 
 export type CoreHostImportArgContract =
@@ -87,6 +93,7 @@ export type CoreFnType = {
   param_constraints?: (string | undefined)[];
   param_structs?: (CoreExpr | undefined)[];
   param_unions?: (CoreExpr | undefined)[];
+  param_fns?: (CoreFnType | undefined)[];
   result: ValType;
   result_text: boolean;
   result_struct: CoreExpr | undefined;
@@ -149,6 +156,7 @@ export type CoreExpr =
     type: NumType;
     value: number | bigint;
     atom_name?: string;
+    character?: string;
     integer?: IntegerType;
   }
   | { tag: "text"; value: string }
@@ -162,8 +170,18 @@ export type CoreExpr =
     body: CoreExpr;
     is_linear_closure?: boolean;
   }
-  | { tag: "rec"; params: CoreParam[]; body: CoreExpr }
-  | { tag: "rec_ref"; name: string; params: CoreParam[] }
+  | {
+    tag: "rec";
+    params: CoreParam[];
+    body: CoreExpr;
+    result_annotation?: string;
+  }
+  | {
+    tag: "rec_ref";
+    name: string;
+    params: CoreParam[];
+    result_annotation?: string;
+  }
   | {
     tag: "app";
     func: CoreExpr;
@@ -201,9 +219,10 @@ export type CoreExpr =
     tag: "field";
     object: CoreExpr;
     name: string;
+    move?: true;
     resume_signature?: ResumeSignature;
   }
-  | { tag: "index"; object: CoreExpr; index: CoreExpr }
+  | { tag: "index"; object: CoreExpr; index: CoreExpr; move?: true }
   | {
     tag: "union_case";
     name: string;

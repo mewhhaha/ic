@@ -19,6 +19,7 @@ declare effect Io {
     operations: [
       {
         name: "write",
+        type_params: [],
         params: [
           { type_name: "Text", ownership: "bounded_borrow" },
           { type_name: "Bytes", ownership: "frozen_shareable" },
@@ -30,6 +31,7 @@ declare effect Io {
       },
       {
         name: "read",
+        type_params: [],
         params: [],
         result: { type_name: "Text", ownership: "unique_heap" },
       },

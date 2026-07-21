@@ -141,6 +141,12 @@ export function static_type_level_value(
         return { tag: "type_name", name: expr.name };
       }
 
+      const applied = static_applied_type_expr(expr.name);
+
+      if (applied !== undefined) {
+        return static_type_level_value(applied, ctx);
+      }
+
       const value = ctx.statics.get(expr.name);
 
       if (!value) {
@@ -168,6 +174,36 @@ export function static_type_level_value(
     case "unsupported":
       return undefined;
   }
+}
+
+function static_applied_type_expr(name: string): CoreExpr | undefined {
+  const names = name.split(" ");
+
+  if (names.length < 2) {
+    return undefined;
+  }
+
+  for (const part of names) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(part)) {
+      return undefined;
+    }
+  }
+
+  const constructor = names[0];
+  expect(constructor, "Missing applied Core type constructor");
+  const args: CoreExpr[] = [];
+
+  for (let index = 1; index < names.length; index += 1) {
+    const arg = names[index];
+    expect(arg, "Missing applied Core type argument " + index.toString());
+    args.push({ tag: "var", name: arg });
+  }
+
+  return {
+    tag: "app",
+    func: { tag: "var", name: constructor },
+    args,
+  };
 }
 
 function static_type_extension_field_value(

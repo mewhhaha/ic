@@ -66,6 +66,7 @@ import type { CoreBackendGraph } from "./types.ts";
 import { core_runtime_slice_facts } from "../../runtime_slice.ts";
 import { record_core_diagnostic_subject } from "../../source_origin.ts";
 import { static_owner_value_materializes } from "../../mutable_static_owner.ts";
+import { core_val_type_from_type_name } from "../../type_static/names.ts";
 
 export function core_backend_host_boundaries(
   backend: CoreBackendGraph,
@@ -76,6 +77,14 @@ export function core_backend_host_boundaries(
     ...graph_core_ownership_hooks(backend),
     closure_body_ctx: (expr, ctx) =>
       graph_core_host_boundary_closure_body_ctx(backend, expr, ctx),
+    if_let_stmt_branch_ctx: (case_name, value_name, target, ctx) =>
+      graph_core_drop_if_let_branch_ctx(
+        backend,
+        case_name,
+        value_name,
+        target,
+        ctx,
+      ),
     static_core_call_target: backend.static_call.static_core_call_target,
     static_core_call_value: backend.static_call.static_core_call_value,
     static_core_rec_target: backend.static_call.static_core_rec_target,
@@ -145,19 +154,28 @@ export function core_backend_proof(
       scan_ctx = previous;
     },
     observe_stmt: (stmt) => {
-      // Only annotated binds contribute facts; unannotated binds are
-      // skipped so the scan does not re-collect large inlined block
-      // values at every nesting level.
-      if (stmt.tag !== "bind" || !stmt.annotation) {
+      if (stmt.tag !== "bind" || stmt.kind !== "let") {
+        return;
+      }
+
+      const probe_value = stmt.value.tag === "num" ||
+        stmt.value.tag === "text" || stmt.value.tag === "var" ||
+        stmt.value.tag === "linear" || stmt.value.tag === "index" ||
+        stmt.value.tag === "field" || stmt.value.tag === "app";
+
+      if (stmt.annotation === undefined && !probe_value) {
         return;
       }
 
       try {
-        backend.local_collect.collect_stmt_locals(stmt, scan_ctx);
-      } catch (_error) {
-        // A statement whose facts cannot be collected leaves them
-        // unknown for later support probes; the statement itself is
-        // still validated by the ordinary analysis passes.
+        graph_collect_stmt_locals_for_proof(backend, stmt, scan_ctx);
+      } catch (error) {
+        throw new Error(
+          "Unsupported-codegen scan could not collect bind " + stmt.name,
+          {
+            cause: error,
+          },
+        );
       }
     },
   });
@@ -260,6 +278,65 @@ export function core_backend_proof(
     const host_boundaries = core_backend_host_boundaries(backend, core);
     const transfer_hooks = {
       ...graph_core_ownership_hooks(backend),
+      bind_annotation_fact: (
+        name: string,
+        annotation: string,
+        annotation_ctx: CoreCtx,
+      ) => {
+        let member_annotation = annotation;
+        if (annotation.startsWith("&") || annotation.startsWith("^")) {
+          member_annotation = annotation.slice(1);
+        }
+        const type = core_val_type_from_type_name(member_annotation);
+
+        if (type !== undefined) {
+          annotation_ctx.locals.set(name, type);
+        }
+
+        if (
+          member_annotation === "Text" || member_annotation === "Bytes"
+        ) {
+          annotation_ctx.text_locals.add(name);
+        }
+
+        if (annotation_ctx.borrowed_locals) {
+          if (annotation.startsWith("&")) {
+            annotation_ctx.borrowed_locals.add(name);
+          } else {
+            annotation_ctx.borrowed_locals.delete(name);
+          }
+        }
+
+        if (annotation_ctx.frozen_locals) {
+          if (annotation.startsWith("^")) {
+            annotation_ctx.frozen_locals.add(name);
+          } else {
+            annotation_ctx.frozen_locals.delete(name);
+          }
+        }
+
+        const struct_type = backend.local_facts
+          .core_annotation_struct_type_expr(
+            member_annotation,
+            annotation_ctx,
+          );
+
+        if (struct_type !== undefined) {
+          annotation_ctx.locals.set(name, "i32");
+          annotation_ctx.struct_locals.set(name, struct_type);
+        }
+
+        const union_type = backend.local_facts
+          .core_annotation_union_type_expr(
+            member_annotation,
+            annotation_ctx,
+          );
+
+        if (union_type !== undefined) {
+          annotation_ctx.locals.set(name, "i32");
+          annotation_ctx.union_locals.set(name, union_type);
+        }
+      },
       closure_body_ctx: (
         expr: Extract<CoreExpr, { tag: "lam" | "rec" }>,
         ctx: CoreCtx,

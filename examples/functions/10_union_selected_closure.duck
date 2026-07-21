@@ -6,17 +6,17 @@ declare effect Input {
 
 declare Init { input: Input }
 
-type Choice = | .add = Int | .multiply = Int
+type Choice = | `Add Int | `Multiply Int
 
 let _ = 0
 flag <- Input.flag()
 let choice: Choice = if flag {
-  Choice.add(21)
+  `Add (21)
 } else {
-  Choice.multiply(2)
+  `Multiply (2)
 }
 
-let operation = if let .add(amount) = choice {
+let operation = if let `Add amount = choice {
   (value: Int) => value + amount
 } else {
   (value: Int) => value * 2

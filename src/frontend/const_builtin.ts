@@ -10,6 +10,7 @@ import {
   describe_comptime_type,
 } from "./comptime_descriptor.ts";
 import { resolve_comptime_type } from "./comptime_value.ts";
+import { text_byte_length } from "./text.ts";
 
 export type ConstBuiltinHooks = {
   capture_expr: (expr: FrontExpr, env: Env) => FrontExpr;
@@ -60,9 +61,16 @@ export function eval_const_builtin(
     expr.func.name !== "@describe_fields" &&
     expr.func.name !== "@describe_cases" &&
     expr.func.name !== "@len" &&
-    expr.func.name !== "@get"
+    expr.func.name !== "@get" &&
+    expr.func.name !== "@include"
   ) {
     return undefined;
+  }
+
+  if (expr.func.name === "@include") {
+    throw new Error(
+      "include requires source file context; use a file-loading compiler API",
+    );
   }
 
   if (expr.func.name === "@len") {
@@ -70,6 +78,10 @@ export function eval_const_builtin(
     const collection = expr.args[0];
     expect(collection, "Missing len argument");
     const array = hooks.resolve_const_expr_with_env(collection, env);
+
+    if (array !== undefined && array.expr.tag === "text") {
+      return i32_expr(text_byte_length(array.expr.value));
+    }
 
     if (
       array !== undefined && array.expr.tag === "array" &&

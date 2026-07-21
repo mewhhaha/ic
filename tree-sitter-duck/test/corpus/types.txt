@@ -255,10 +255,11 @@ let unit: () -> Text = () => ()
 Inline and multiline type sums
 ==================
 
-type Maybe a = | .just = a | .nothing
+type Maybe a = | `Just a | `Nothing Unit
 type Maybe2 a =
-  | .just = a
-  | .nothing
+  | `Just a
+  | `Nothing Unit
+type X = `X I32
 
 ---
 
@@ -268,29 +269,43 @@ type Maybe2 a =
     parameter: (identifier)
     definition: (type_sum
       (type_case
-        name: (identifier)
+        name: (constructor_identifier)
         payload: (type_reference
           (type_difference
             (identifier))))
       (type_case
-        name: (identifier))))
+        name: (constructor_identifier)
+        payload: (type_reference
+          (type_difference
+            (identifier))))))
   (type_declaration_statement
     name: (identifier)
     parameter: (identifier)
     definition: (type_sum
       (type_case
-        name: (identifier)
+        name: (constructor_identifier)
         payload: (type_reference
           (type_difference
             (identifier))))
       (type_case
-        name: (identifier)))))
+        name: (constructor_identifier)
+        payload: (type_reference
+          (type_difference
+            (identifier))))))
+  (type_declaration_statement
+    name: (identifier)
+    definition: (type_sum
+      (type_case
+        name: (constructor_identifier)
+        payload: (type_reference
+          (type_difference
+            (identifier)))))))
 
 ==================
-Named and positional products
+Struct and positional products
 ==================
 
-type Vec3 = [.x = Int, .y = Int, .z = Int]
+type Vec3 = struct {.x = Int, .y = Int, .z = Int}
 type Pair a = (a, List a)
 type Nested a = (Maybe a, List a)
 
@@ -299,8 +314,8 @@ type Nested a = (Maybe a, List a)
 (source_file
   (type_declaration_statement
     name: (identifier)
-    definition: (type_product
-      (named_type_product
+    definition: (struct_type
+      fields: (type_field_block
         (named_type_field
           name: (identifier)
           type: (type_reference
@@ -497,3 +512,63 @@ if marker is #ready { 1 } else { 0 }
         (expression_statement
           (postfix_expression
             (number)))))))
+
+==================
+Literal types
+==================
+
+type One = 1
+type Truth = true :| false
+type Method = "GET" :| "POST"
+type Letter = 'c' :| 'C'
+
+---
+
+(source_file
+  (type_declaration_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_intersection
+          (type_difference
+            (type_literal
+              (number)))))))
+  (type_declaration_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_union
+          (type_intersection
+            (type_difference
+              (type_literal
+                (boolean)))))
+        (type_intersection
+          (type_difference
+            (type_literal
+              (boolean)))))))
+  (type_declaration_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_union
+          (type_intersection
+            (type_difference
+              (type_literal
+                (string)))))
+        (type_intersection
+          (type_difference
+            (type_literal
+              (string)))))))
+  (type_declaration_statement
+    (identifier)
+    (type_reference
+      (type_union
+        (type_union
+          (type_intersection
+            (type_difference
+              (type_literal
+                (character)))))
+        (type_intersection
+          (type_difference
+            (type_literal
+              (character))))))))

@@ -6,9 +6,12 @@ import {
 import { canonical_core_expr } from "./subject_provenance.ts";
 import type { CoreDropPlan } from "./drop.ts";
 import { scan_allocation_stmts } from "./allocation/scan.ts";
+import { record_allocation } from "./allocation/record.ts";
 import {
   core_allocation_fact_destinations,
   core_allocation_fact_subject,
+  register_core_allocation_fact_lifetime_subject,
+  set_core_allocation_fact_external,
 } from "./allocation/metadata.ts";
 import type {
   CoreAllocationFact,
@@ -21,6 +24,8 @@ import {
   core_materialized_bindings,
   core_mutable_bindings,
 } from "./mutable_bindings.ts";
+import { core_expr_ownership } from "./ownership.ts";
+import { static_type_value } from "./type_static.ts";
 
 export type {
   CoreAllocationByteSize,
@@ -65,6 +70,8 @@ export function core_allocation_plan<ctx>(
     mutable_bindings: core_mutable_bindings(core),
   };
 
+  seed_function_parameter_allocations(core, ctx, hooks, state);
+
   scan_allocation_stmts(
     core.statements,
     { name: "program#0", scratch: undefined },
@@ -76,6 +83,124 @@ export function core_allocation_plan<ctx>(
   const plan = { facts: state.facts };
   value_allocations_by_plan.set(plan, state.value_allocations);
   return plan;
+}
+
+function seed_function_parameter_allocations<ctx>(
+  core: Core,
+  ctx: ctx,
+  hooks: CoreAllocationHooks<ctx>,
+  state: CoreAllocationState,
+): void {
+  if (core.function_params === undefined) {
+    return;
+  }
+
+  const function_body = core.statements[core.statements.length - 1];
+  if (function_body === undefined) {
+    throw new Error("Function parameter allocation requires a function body");
+  }
+
+  for (const param of core.function_params) {
+    const parameter = { tag: "var", name: param.name } as const;
+    const ownership = core_expr_ownership(parameter, ctx, hooks);
+
+    if (ownership.tag !== "unique_heap") {
+      continue;
+    }
+
+    let reason: CoreAllocationFact["reason"];
+
+    if (ownership.reason === "runtime_aggregate") {
+      reason = "runtime_aggregate";
+    } else if (ownership.reason === "runtime_union") {
+      reason = "runtime_union";
+    } else if (ownership.reason === "closure") {
+      reason = "closure";
+    } else if (ownership.reason === "bytes") {
+      reason = "runtime_bytes";
+    } else {
+      reason = "runtime_text";
+    }
+
+    const subject = function_parameter_allocation_subject(
+      parameter,
+      param.annotation,
+      reason,
+      ctx,
+    );
+    const fact = record_allocation(
+      subject,
+      reason,
+      { name: "function_param:" + param.name, scratch: undefined },
+      state,
+      "function_param:" + param.name,
+    );
+
+    if (fact === undefined) {
+      throw new Error(
+        "Missing function parameter allocation fact: " + param.name,
+      );
+    }
+
+    fact.owner = param.name;
+    register_core_allocation_fact_lifetime_subject(fact, function_body);
+    set_core_allocation_fact_external(fact);
+    state.binding_allocations.set(param.name, [fact]);
+    state.runtime_bindings.add(param.name);
+    state.value_allocations.set(parameter, [fact]);
+  }
+}
+
+function function_parameter_allocation_subject<ctx>(
+  parameter: Extract<CoreExpr, { tag: "var" }>,
+  annotation: string | undefined,
+  reason: CoreAllocationFact["reason"],
+  ctx: ctx,
+): CoreExpr {
+  if (
+    annotation === undefined ||
+    (reason !== "runtime_aggregate" && reason !== "runtime_union")
+  ) {
+    return parameter;
+  }
+
+  const type_expr = { tag: "var", name: annotation } as const;
+  const type_value = static_type_value(
+    type_expr,
+    ctx as ctx & import("./type_static.ts").TypeStaticCtx,
+  );
+
+  if (reason === "runtime_aggregate") {
+    if (type_value?.tag !== "struct_type") {
+      throw new Error(
+        "Function parameter " + parameter.name +
+          " requires a static struct type",
+      );
+    }
+
+    return { tag: "struct_value", type_expr, fields: [] };
+  }
+
+  if (type_value?.tag !== "union_type") {
+    throw new Error(
+      "Function parameter " + parameter.name +
+        " requires a static union type",
+    );
+  }
+
+  const first_case = type_value.cases[0];
+  if (first_case === undefined) {
+    throw new Error(
+      "Function parameter " + parameter.name + " has an empty union type",
+    );
+  }
+
+  return {
+    tag: "union_case",
+    name: first_case.name,
+    value: undefined,
+    type_expr,
+  };
 }
 
 export function core_allocation_facts_for_value(
@@ -120,7 +245,14 @@ export function link_drop_allocations(
       }
 
       if (fact.ownership.reason !== step.ownership.reason) {
-        return false;
+        const text_bytes_match = (fact.ownership.reason === "bytes" &&
+          step.ownership.reason === "text") ||
+          (fact.ownership.reason === "text" &&
+            step.ownership.reason === "bytes");
+
+        if (!text_bytes_match) {
+          return false;
+        }
       }
 
       return true;
@@ -143,10 +275,7 @@ export function link_drop_allocations(
           explicit_ids.add(fact.allocation_id);
         }
       }
-      let exact_candidates = matching;
-      if (step.edge === "assignment_replace") {
-        exact_candidates = all_matching;
-      }
+      const exact_candidates = all_matching;
       let exact = exact_candidates.filter((fact) => {
         return explicit_ids.has(fact.allocation_id);
       });
@@ -158,6 +287,14 @@ export function link_drop_allocations(
             return false;
           }
           return canonical_core_expr(fact_subject) === canonical_subject;
+        });
+      }
+      if (
+        exact.length === 0 &&
+        (drop_subject.tag === "var" || drop_subject.tag === "linear")
+      ) {
+        exact = exact_candidates.filter((fact) => {
+          return fact.owner === drop_subject.name;
         });
       }
       if (
@@ -212,9 +349,14 @@ export function link_drop_allocations(
 
       if (candidates.length === 0) {
         const unowned = matching.filter((fact) => !fact.owner);
+        const linked_owner_allocations = all_matching.filter((fact) => {
+          return fact.owner === step.owner && linked.has(fact.allocation_id);
+        });
 
         if (unowned.length === 1) {
           candidates = unowned;
+        } else if (linked_owner_allocations.length > 0) {
+          candidates = linked_owner_allocations;
         } else {
           const allocation_owners = new Set(
             matching.map((fact) => fact.owner).filter((owner) => {

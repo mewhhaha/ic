@@ -180,6 +180,12 @@ export class ParserCursor {
     return no_demand_name(index);
   }
 
+  protected fresh_internal_name(prefix: string): string {
+    const index = this.next_no_demand_name;
+    this.next_no_demand_name += 1;
+    return "@" + prefix + "_" + index.toString();
+  }
+
   protected reserve_declaration_name(name: string, label: string): void {
     expect(
       !is_builtin_type_reference_name(name),

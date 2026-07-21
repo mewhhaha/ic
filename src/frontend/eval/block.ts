@@ -79,12 +79,12 @@ export function eval_front_block_impl(
 
       if (stmt.annotation) {
         if (stmt.kind === "const") {
-          hooks.check_binding_annotation(stmt.annotation, value, value_env);
           value = hooks.apply_annotation_context(
             stmt.annotation,
             value,
             value_env,
           );
+          hooks.check_binding_annotation(stmt.annotation, value, value_env);
           value_type = hooks.infer_expr(value, value_env);
         } else {
           const annotated = hooks.apply_runtime_binding_annotation(

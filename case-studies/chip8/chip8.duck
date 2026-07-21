@@ -1,6 +1,6 @@
 module () where
 
-const { panic } = comptime import "duck:prelude/runtime" ()
+const { panic } = import "duck:prelude/runtime" ()
 
 let initialize: [Bytes, I32] -> Bytes = (state: Bytes, key_mask: I32) => {
   state[6192] = 0x02

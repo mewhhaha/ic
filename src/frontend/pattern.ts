@@ -48,6 +48,10 @@ export function pattern_bindings(
       bindings.push(...pattern_bindings(entry.pattern));
     }
 
+    if (pattern.rest !== undefined) {
+      bindings.push(...pattern_bindings(pattern.rest));
+    }
+
     return bindings;
   }
 
