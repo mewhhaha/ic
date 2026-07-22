@@ -1,10 +1,12 @@
 module () where
 
 const { decode_utf8, generate_bytes, text_append, text_byte_is_ascii_digit, text_byte_is_ascii_whitespace, text_get, text_length, text_slice } = import "duck:prelude/runtime" ()
+const { text_copy } = import "duck:prelude/text" ()
 const { json_array, json_array_empty, json_array_prepend, json_bool, json_bool_field, json_field, json_null, json_nullable_string_field, json_number, json_object, json_object_append, json_object_contains, json_object_empty, json_object_get, json_object_key_count, json_object_length, json_object_prepend, json_object_reverse, json_optional_string_field, json_string, json_string_field, merge_json } = import "duck:prelude/json/values" ()
 const { encode_json_ascii, encode_json_string_ascii } = import "duck:prelude/json/encode" ()
 
 type JsonEncoderObject = JsonObject
+type JsonFailure = Option JsonError
 
 const json_error: [I32, Text] -> (JsonError) = (position, message) => {
   [position, message]
@@ -18,7 +20,7 @@ const json_string_parsed: [Text, I32] -> (JsonStringParsed) = (value, next) => {
   [value, next]
 }
 
-const skip_json_whitespace = (text: Text, start: I32) => {
+let skip_json_whitespace: [Text, I32] -> I32 = (text: Text, start: I32) => {
   let index = start
 
   loop {
@@ -228,7 +230,7 @@ const parse_json_string: [Text, I32] -> (JsonStringResult) = (text: Text, start:
   }
 }
 
-const number_end = (text: Text, start: I32) => {
+let number_end: [Text, I32] -> I32 = (text: Text, start: I32) => {
   let length = text_length(text)
   let index = start
   let valid = true
@@ -299,7 +301,7 @@ const number_end = (text: Text, start: I32) => {
 }
 
 let rec parse_json: [Text, I32] -> (JsonParseResult) = (text: Text, start: I32) => {
-  let index = skip_json_whitespace(text, start)
+  let index = skip_json_whitespace(text_copy(&text), start)
 
   if index >= text_length(text) {
     `Err (json_error(index, "Expected JSON value"))
@@ -307,22 +309,21 @@ let rec parse_json: [Text, I32] -> (JsonParseResult) = (text: Text, start: I32) 
     let byte = text_get([text, index])
 
     if byte == 34 {
-      let parsed = parse_json_string(text, index)
+      let parsed = parse_json_string(text_copy(&text), index)
 
       if let `Ok string_value = parsed {
         let [value, next] = string_value
         `Ok (json_parsed(`String (value), next))
-      } else if let `Err error = parsed {
-        `Err error
+      } else if let `Err string_error = parsed {
+        `Err string_error
       } else {
         `Err (json_error(index, "Invalid JSON string result"))
       }
     } else if byte == 91 {
-      index = skip_json_whitespace(text, index + 1)
+      index = skip_json_whitespace(text_copy(&text), index + 1)
       let values = json_array_empty()
       let done = false
-      let failed = false
-      let failure = json_error(start, "Invalid JSON array")
+      let failure: JsonFailure = `None ()
 
       if index < text_length(text) && text_get([text, index]) == 93 {
         done = true
@@ -330,37 +331,35 @@ let rec parse_json: [Text, I32] -> (JsonParseResult) = (text: Text, start: I32) 
       }
 
       loop {
+        let failed = if let `Some _ = failure { true } else { false }
         if done || failed {
           break
         }
 
-        let parsed = parse_json(text, index)
+        let parsed = parse_json(text_copy(&text), index)
 
         if let `Ok parsed_value = parsed {
           let [value, next] = parsed_value
           values = json_array_prepend(value, values)
-          index = skip_json_whitespace(text, next)
+          index = skip_json_whitespace(text_copy(&text), next)
 
           if index >= text_length(text) {
-            failed = true
-            failure = json_error(index, "Unterminated JSON array")
+            failure = `Some (json_error(index, "Unterminated JSON array"))
           } else if text_get([text, index]) == 93 {
             done = true
             index = index + 1
           } else if text_get([text, index]) == 44 {
-            index = skip_json_whitespace(text, index + 1)
+            index = skip_json_whitespace(text_copy(&text), index + 1)
           } else {
-            failed = true
-            failure = json_error(index, "Expected comma or closing bracket")
+            failure = `Some (json_error(index, "Expected comma or closing bracket"))
           }
-        } else if let `Err error = parsed {
-          failed = true
-          failure = error
+        } else if let `Err array_error = parsed {
+          failure = `Some array_error
         }
       }
 
-      if failed {
-        `Err failure
+      if let `Some error = failure {
+        `Err error
       } else {
         let current = values
         let ordered = json_array_empty()
@@ -383,11 +382,10 @@ let rec parse_json: [Text, I32] -> (JsonParseResult) = (text: Text, start: I32) 
         `Ok (json_parsed(`Array (ordered), index))
       }
     } else if byte == 123 {
-      index = skip_json_whitespace(text, index + 1)
+      index = skip_json_whitespace(text_copy(&text), index + 1)
       let members = json_object_empty()
       let done = false
-      let failed = false
-      let failure = json_error(start, "Invalid JSON object")
+      let failure: JsonFailure = `None ()
 
       if index < text_length(text) && text_get([text, index]) == 125 {
         done = true
@@ -395,52 +393,48 @@ let rec parse_json: [Text, I32] -> (JsonParseResult) = (text: Text, start: I32) 
       }
 
       loop {
+        let failed = if let `Some _ = failure { true } else { false }
         if done || failed {
           break
         }
 
-        let parsed_key = parse_json_string(text, index)
+        let parsed_key = parse_json_string(text_copy(&text), index)
 
         if let `Ok parsed_string = parsed_key {
           let [key, after_key] = parsed_string
-          index = skip_json_whitespace(text, after_key)
+          index = skip_json_whitespace(text_copy(&text), after_key)
 
           if index >= text_length(text) || text_get([text, index]) != 58 {
-            failed = true
-            failure = json_error(index, "Expected colon after JSON object key")
+            failure = `Some (json_error(index, "Expected colon after JSON object key"))
           } else {
-            let parsed_value = parse_json(text, index + 1)
+            let parsed_value = parse_json(text_copy(&text), index + 1)
 
             if let `Ok value_and_index = parsed_value {
               let [value, next] = value_and_index
-              members = json_object_prepend(key, value, members)
-              index = skip_json_whitespace(text, next)
+              members = json_object_prepend(text_copy(&key), value, members)
+              index = skip_json_whitespace(text_copy(&text), next)
 
               if index >= text_length(text) {
-                failed = true
-                failure = json_error(index, "Unterminated JSON object")
+                failure = `Some (json_error(index, "Unterminated JSON object"))
               } else if text_get([text, index]) == 125 {
                 done = true
                 index = index + 1
               } else if text_get([text, index]) == 44 {
-                index = skip_json_whitespace(text, index + 1)
+                index = skip_json_whitespace(text_copy(&text), index + 1)
               } else {
-                failed = true
-                failure = json_error(index, "Expected comma or closing brace")
+                failure = `Some (json_error(index, "Expected comma or closing brace"))
               }
-            } else if let `Err error = parsed_value {
-              failed = true
-              failure = error
+            } else if let `Err object_value_error = parsed_value {
+              failure = `Some object_value_error
             }
           }
-        } else if let `Err error = parsed_key {
-          failed = true
-          failure = error
+        } else if let `Err object_key_error = parsed_key {
+          failure = `Some object_key_error
         }
       }
 
-      if failed {
-        `Err failure
+      if let `Some error = failure {
+        `Err error
       } else {
         let current = members
         let ordered = json_object_empty()
@@ -450,7 +444,7 @@ let rec parse_json: [Text, I32] -> (JsonParseResult) = (text: Text, start: I32) 
           if let `Cons node = current {
             let [member, tail] = node
             let [key, value] = member
-            ordered = json_object_prepend(key, value, ordered)
+            ordered = json_object_prepend(text_copy(&key), value, ordered)
             current = tail
           } else {
             reversed = true
@@ -464,25 +458,43 @@ let rec parse_json: [Text, I32] -> (JsonParseResult) = (text: Text, start: I32) 
         `Ok (json_parsed(`Object (ordered), index))
       }
     } else if byte == 116 {
-      if index + 4 <= text_length(text) && text_slice([text, index, index + 4]) == "true" {
-        `Ok (json_parsed(`Bool (true), index + 4))
-      } else {
+      if index + 4 > text_length(text) {
         `Err (json_error(index, "Invalid JSON literal"))
+      } else {
+        let true_literal = text_slice([text, index, index + 4])
+
+        if true_literal == "true" {
+          `Ok (json_parsed(`Bool (true), index + 4))
+        } else {
+          `Err (json_error(index, "Invalid JSON literal"))
+        }
       }
     } else if byte == 102 {
-      if index + 5 <= text_length(text) && text_slice([text, index, index + 5]) == "false" {
-        `Ok (json_parsed(`Bool (false), index + 5))
-      } else {
+      if index + 5 > text_length(text) {
         `Err (json_error(index, "Invalid JSON literal"))
+      } else {
+        let false_literal = text_slice([text, index, index + 5])
+
+        if false_literal == "false" {
+          `Ok (json_parsed(`Bool (false), index + 5))
+        } else {
+          `Err (json_error(index, "Invalid JSON literal"))
+        }
       }
     } else if byte == 110 {
-      if index + 4 <= text_length(text) && text_slice([text, index, index + 4]) == "null" {
-        `Ok (json_parsed(`Null (), index + 4))
-      } else {
+      if index + 4 > text_length(text) {
         `Err (json_error(index, "Invalid JSON literal"))
+      } else {
+        let null_literal = text_slice([text, index, index + 4])
+
+        if null_literal == "null" {
+          `Ok (json_parsed(`Null (), index + 4))
+        } else {
+          `Err (json_error(index, "Invalid JSON literal"))
+        }
       }
     } else if byte == 45 || text_byte_is_ascii_digit(byte) {
-      let next = number_end(text, index)
+      let next = number_end(text_copy(&text), index)
 
       if next < 0 {
         `Err (json_error(index, "Invalid JSON number"))
@@ -496,19 +508,19 @@ let rec parse_json: [Text, I32] -> (JsonParseResult) = (text: Text, start: I32) 
 }
 
 let parse_json_document: Text -> (JsonParseResult) = text => {
-  let parsed = parse_json(text, 0)
+  let parsed = parse_json(text_copy(&text), 0)
 
   if let `Ok value_and_index = parsed {
     let [value, index] = value_and_index
-    let next = skip_json_whitespace(text, index)
+    let next = skip_json_whitespace(text_copy(&text), index)
 
     if next == text_length(text) {
       `Ok (json_parsed(value, next))
     } else {
       `Err (json_error(next, "Unexpected bytes after JSON value"))
     }
-  } else if let `Err error = parsed {
-    `Err error
+  } else if let `Err document_error = parsed {
+    `Err document_error
   } else {
     `Err (json_error(0, "Invalid JSON parse result"))
   }

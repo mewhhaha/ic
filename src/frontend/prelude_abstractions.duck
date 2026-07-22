@@ -46,7 +46,7 @@ type Overflow =
   | `Reject Unit
 
 type Authority capability = `Authority capability
-type Once = `Once Bool
+type Once = Bool
 type Comparison value = [value, value]
 type Reduction state value = [state, value]
 type TransitionInput state event = [state, event]
@@ -63,13 +63,16 @@ const exit_code: I32 -> ExitCode = value => `ExitCode value
 const exit_code_value: ExitCode -> I32 = value => if let `ExitCode code = value { code } else { panic("Invalid ExitCode") }
 const duration_ms: I64 -> DurationMs = value => `DurationMs value
 const duration_ms_value: DurationMs -> I64 = value => if let `DurationMs milliseconds = value { milliseconds } else { panic("Invalid DurationMs") }
+const read_duration_ms: &DurationMs -> I64 = (value: &DurationMs) => if let `DurationMs milliseconds = value { milliseconds } else { panic("Invalid DurationMs") }
 const unix_time_ms: I64 -> UnixTimeMs = value => `UnixTimeMs value
 const unix_time_ms_value: UnixTimeMs -> I64 = value => if let `UnixTimeMs milliseconds = value { milliseconds } else { panic("Invalid UnixTimeMs") }
 const unix_time_seconds: I64 -> UnixTimeSeconds = value => `UnixTimeSeconds value
 const unix_time_seconds_value: UnixTimeSeconds -> I64 = value => if let `UnixTimeSeconds seconds = value { seconds } else { panic("Invalid UnixTimeSeconds") }
+const read_unix_time_seconds: &UnixTimeSeconds -> I64 = (value: &UnixTimeSeconds) => if let `UnixTimeSeconds seconds = value { seconds } else { panic("Invalid UnixTimeSeconds") }
 const unix_time_seconds_from_ms: UnixTimeMs -> UnixTimeSeconds = value => unix_time_seconds(unix_time_ms_value(value) / 1000i64)
 const monotonic_ms: I64 -> MonotonicMs = value => if value > 0i64 { `MonotonicMs value } else { `MonotonicMs 0i64 }
 const monotonic_ms_value: MonotonicMs -> I64 = value => if let `MonotonicMs milliseconds = value { milliseconds } else { panic("Invalid MonotonicMs") }
+const read_monotonic_ms: &MonotonicMs -> I64 = (value: &MonotonicMs) => if let `MonotonicMs milliseconds = value { milliseconds } else { panic("Invalid MonotonicMs") }
 
 const duration_add: [DurationMs, DurationMs] -> DurationMs = (left: DurationMs, right: DurationMs) => {
   duration_ms(saturating_add_i64(duration_ms_value(left), duration_ms_value(right)))
@@ -222,19 +225,11 @@ const with_authority = [authorized, use] => if let `Authority capability = autho
   panic("Invalid Authority")
 }
 
-const once = () => `Once false
+const once = () => false
 
-const once_is_claimed: Once -> Bool = value => if let `Once claimed = value {
-  claimed
-} else {
-  panic("Invalid Once")
-}
+const once_is_claimed: Once -> Bool = value => value
 
-const once_claim: Once -> OnceClaim = value => if let `Once claimed = value {
-  [.state = `Once true, .granted = !(claimed)]
-} else {
-  panic("Invalid Once")
-}
+const once_claim: Once -> OnceClaim = value => [.state = true, .granted = !(value)]
 
 const predicate: forall value.(value -> Bool) -> (value -> Bool) =
   (const test) => test
@@ -350,14 +345,17 @@ return {
   exit_code_value,
   duration_ms,
   duration_ms_value,
+  read_duration_ms,
   exponential_backoff,
   unix_time_ms,
   unix_time_ms_value,
   unix_time_seconds,
   unix_time_seconds_value,
+  read_unix_time_seconds,
   unix_time_seconds_from_ms,
   monotonic_ms,
   monotonic_ms_value,
+  read_monotonic_ms,
   duration_add,
   duration_between,
   fuel,

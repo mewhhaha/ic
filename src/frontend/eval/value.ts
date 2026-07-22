@@ -1,7 +1,7 @@
 import type { Env, FrontExpr, Stmt } from "../ast.ts";
 import { capture_deferred_expr, capture_expr } from "../capture.ts";
 import { validate_const_expr } from "../constness.ts";
-import { call_message } from "../fields.ts";
+import { call_message } from "../call_message.ts";
 import {
   comptime_type_key,
   type ComptimeType,

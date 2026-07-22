@@ -4,7 +4,7 @@ import { structured_core_route } from "./diagnostic.ts";
 import type { ExprLowerHooks, LowerExprFn } from "./expr_lower_types.ts";
 import { format_expr } from "./format.ts";
 import { lower_expr_as_front_type } from "./typed_lower.ts";
-import { compiler_builtin_args } from "./call_args.ts";
+import { compiler_builtin_args } from "./compiler_builtin_args.ts";
 import { expect } from "../expect.ts";
 import { compiler_intrinsic_for_operator_target } from "./fixity.ts";
 

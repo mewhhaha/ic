@@ -153,6 +153,31 @@ Deno.test("server handles the core lifecycle", () => {
   assert_equals(state.exited, true);
 });
 
+Deno.test("document formatting canonicalizes atomic unary calls", () => {
+  const state = create_state();
+  const uri = "file:///calls.duck";
+  handle_message(state, {
+    method: "textDocument/didOpen",
+    params: {
+      textDocument: {
+        uri,
+        version: 1,
+        text: "let called=func(argument)\nlet passed=func\n",
+      },
+    },
+  });
+  const formatting = handle_message(state, {
+    id: 1,
+    method: "textDocument/formatting",
+    params: { textDocument: { uri } },
+  }) as [{ result: [{ newText: string }] }];
+
+  assert_equals(
+    formatting[0]?.result[0]?.newText,
+    "let called = func argument\nlet passed = func\n",
+  );
+});
+
 Deno.test("server keeps externally supplied host modules responsive", async () => {
   const source_url = new URL(
     "../../case-studies/grep/grep.duck",
@@ -384,6 +409,7 @@ Deno.test("server defaults to UTF-16 and advertises incremental sync", () => {
               "modification",
               "linear",
               "comptime",
+              "call",
             ],
           },
           range: true,
@@ -479,6 +505,7 @@ Deno.test("server selects the first client-supported position encoding", () => {
               "modification",
               "linear",
               "comptime",
+              "call",
             ],
           },
           range: true,

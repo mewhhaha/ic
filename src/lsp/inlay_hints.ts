@@ -8,7 +8,8 @@ import type {
 } from "../frontend/ast.ts";
 import { name_sites } from "../frontend/name_site.ts";
 import { prim_returns_bool } from "../frontend/numeric.ts";
-import { source_facts } from "../frontend/source_facts.ts";
+import { editor_source_facts } from "../frontend/editor_source_facts.ts";
+import { source_type_display_name } from "../frontend/source_facts.ts";
 import {
   source_span,
   type SourceSpan,
@@ -82,7 +83,7 @@ export function inlay_hints(
   const parameter_types = inferred_parameter_types(source, index);
   const editor_facts = editor_binding_facts(source, index);
   const effects = editor_effect_analysis(source);
-  const type_facts = source_facts(source);
+  const type_facts = editor_source_facts(source);
 
   const add = (
     offset: number,
@@ -248,7 +249,11 @@ export function inlay_hints(
         let inferred = entity_type_name(index, entity);
 
         if (inferred === undefined || inferred === "unknown") {
-          inferred = type_facts.editor_type_of.get(statement.value)?.name;
+          const state_type = type_facts.editor_type_of.get(statement.value);
+
+          if (state_type !== undefined) {
+            inferred = source_type_display_name(state_type);
+          }
         }
 
         if (inferred !== undefined && inferred !== "unknown") {
@@ -905,6 +910,14 @@ function entity_type_name(
 
   if (facts.nominal !== undefined) {
     return index.entities.get(facts.nominal)?.name;
+  }
+
+  if (
+    facts.editor_type !== undefined && facts.editor_type !== "unknown" &&
+    facts.editor_type !== "function" &&
+    facts.editor_type !== "inferred recursive function"
+  ) {
+    return facts.editor_type;
   }
 
   if (facts.type !== undefined) {

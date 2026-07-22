@@ -143,7 +143,13 @@ function format_stmt_without_attributes(
       head += format_binding_name(stmt.index) + " in ";
     }
 
-    return head + format_expr(stmt.start) + ".." +
+    let range_operator = "..";
+
+    if (stmt.end_bound === "inclusive") {
+      range_operator = "..=";
+    }
+
+    return head + format_expr(stmt.start) + range_operator +
       format_expr(stmt.end) + " by " + format_expr(stmt.step) + " " +
       "{ " + stmt.body.map((item) => format_stmt_with_expr(item, format_expr))
       .join("; ") + " }";

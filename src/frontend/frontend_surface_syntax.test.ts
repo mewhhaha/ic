@@ -435,6 +435,24 @@ let enriched = product_type :+ (field.name, value => value[index])
   assert_equals(parse_source(format_source(source)), source);
 });
 
+Deno.test("generic extensions retain their type parameters", () => {
+  const source = parse_source(
+    "extend List Element { type Item = Element, .next = value => value }\n",
+  );
+  const declaration = source.declarations?.[0];
+
+  if (declaration?.tag !== "extend") {
+    throw new Error("Expected extension declaration");
+  }
+
+  assert_equals(declaration.params, ["Element"]);
+  assert_equals(
+    format_source(source),
+    "extend List Element { type Item = Element, .next = value => value }",
+  );
+  assert_equals(parse_source(format_source(source)), source);
+});
+
 Deno.test("removed computed member operator is undeclared", () => {
   assert_throws(
     () => parse_source('let enriched = product_type :. ("name", I32)'),

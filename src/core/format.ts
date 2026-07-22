@@ -50,8 +50,15 @@ function format_stmt(stmt: CoreStmt, depth: number): string {
         "\n",
       );
       const carried = stmt.carried.join(", ");
+      let range_operator = "..";
+
+      if (stmt.end_bound === "inclusive") {
+        range_operator = "..=";
+      }
+
       return pad + "range_loop " + stmt.index + " in " +
-        format_expr(stmt.start) + ".." + format_expr(stmt.end) + " by " +
+        format_expr(stmt.start) + range_operator + format_expr(stmt.end) +
+        " by " +
         format_expr(stmt.step) + " carry [" + carried + "] {\n" + body +
         "\n" + pad + "}";
     }

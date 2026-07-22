@@ -68,6 +68,7 @@ export type DuckMember = {
 export type ExtensionDeclaration = {
   tag: "extend";
   type_name: string;
+  params: string[];
   types: ExtensionTypeMember[];
   fields: Field[];
 };
@@ -262,6 +263,7 @@ export type Stmt =
     index: string;
     start: FrontExpr;
     end: FrontExpr;
+    end_bound: "exclusive" | "inclusive";
     step: FrontExpr;
     body: Stmt[];
   }

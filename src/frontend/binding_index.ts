@@ -15,9 +15,10 @@ import { expect } from "../expect.ts";
 import { name_sites, type NameSite } from "./name_site.ts";
 import type { ParseSourceResult } from "./parser.ts";
 import { has_source_span, source_span, type SourceSpan } from "./syntax.ts";
-import { source_facts, type SourceFacts } from "./source_facts.ts";
+import { source_type_display_name, type SourceFacts } from "./source_facts.ts";
 import { front_type_from_type_name } from "./types.ts";
 import { is_const_builtin_name } from "./constness.ts";
+import { editor_source_facts } from "./editor_source_facts.ts";
 
 export type EntityId = string;
 export type ScopeId = string;
@@ -201,7 +202,7 @@ export function build_binding_index(
   };
   const state: State = {
     index,
-    facts: source_facts(parsed.source),
+    facts: editor_source_facts(parsed.source),
     next_entity: 0,
     next_scope: 1,
     next_occurrence: 0,
@@ -1418,7 +1419,11 @@ function define(
   const definition_types = state.facts.definition_type_of.get(owner);
 
   if (definition_types !== undefined) {
-    editor_type = definition_types.get(slot)?.name;
+    const definition_type = definition_types.get(slot);
+
+    if (definition_type !== undefined) {
+      editor_type = source_type_display_name(definition_type);
+    }
   }
 
   if (
@@ -1428,7 +1433,7 @@ function define(
     const value_editor_type = state.facts.editor_type_of.get(owner.value);
 
     if (editor_type === undefined && value_editor_type !== undefined) {
-      editor_type = value_editor_type.name;
+      editor_type = source_type_display_name(value_editor_type);
     }
     const nominal_name = state.facts.nominal_of.get(owner.value);
     if (nominal_name !== undefined) {

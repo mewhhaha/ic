@@ -133,6 +133,7 @@ function scoped_static_core_call_stmt(
         index: index_name,
         start: rewrite_expr(stmt.start, replacements, ctx),
         end: rewrite_expr(stmt.end, replacements, ctx),
+        end_bound: stmt.end_bound,
         step: rewrite_expr(stmt.step, replacements, ctx),
         carried: scoped_static_core_call_names(stmt.carried, replacements),
         body: scoped_static_core_call_block(

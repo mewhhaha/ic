@@ -1080,6 +1080,38 @@ sum
   assert_equals(Ic.reduce(descending), { tag: "num", type: "i32", value: 6 });
 });
 
+Deno.test("Source expands inclusive static ranges in both directions", () => {
+  const ascending = compile(`
+let sum = 0
+
+for i in 0..=4 by 2 {
+  sum = sum + i
+}
+
+sum
+`);
+  assert_equals(Ic.reduce(ascending), {
+    tag: "num",
+    type: "i32",
+    value: 6,
+  });
+
+  const descending = compile(`
+let sum = 0
+
+for i in 4..=0 by -2 {
+  sum = sum + i
+}
+
+sum
+`);
+  assert_equals(Ic.reduce(descending), {
+    tag: "num",
+    type: "i32",
+    value: 6,
+  });
+});
+
 Deno.test("Source lowers static range break and continue", () => {
   const break_ic = compile(`
 let sum = 0

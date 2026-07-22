@@ -21,6 +21,11 @@ export const diagnostic_registry = {
     "names_and_liveness",
     "warning",
   ),
+  raw_intrinsic: diagnostic_definition(
+    "DUCK2004",
+    "names_and_liveness",
+    "warning",
+  ),
   const_expression_required: diagnostic_definition(
     "DUCK2101",
     "compile_time_restriction",

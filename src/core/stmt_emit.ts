@@ -718,11 +718,21 @@ function emit_owned_child_cleanup(
 ): void {
   for (const child of children) {
     const offsets = [...parent_offsets, child.offset];
+    const nested = child.owned_children || [];
+
+    if (nested.length > 0) {
+      lines.push(pointer);
+      for (const offset of offsets) {
+        lines.push("i32.load offset=" + offset.toString());
+      }
+      lines.push("if");
+    }
+
     emit_owned_child_cleanup(
       lines,
       pointer,
       offsets,
-      child.owned_children || [],
+      nested,
     );
     lines.push(pointer);
     for (const offset of offsets) {
@@ -730,6 +740,10 @@ function emit_owned_child_cleanup(
     }
     lines.push("call $__free");
     lines.push("drop");
+
+    if (nested.length > 0) {
+      lines.push("end");
+    }
   }
 }
 

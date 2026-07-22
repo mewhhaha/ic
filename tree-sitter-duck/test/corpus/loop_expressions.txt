@@ -27,11 +27,36 @@ for _ in 0..2 {
 for 0..2 {
   ()
 }
+for value in 0..=2 {
+  ()
+}
+for 0..=2 {
+  ()
+}
 ---
 
 (source_file
   (for_statement
     (wildcard)
+    (condition_expression
+      (number))
+    (condition_expression
+      (number))
+    (block
+      (expression_statement
+        (postfix_expression
+          (unit_pattern)))))
+  (for_statement
+    (condition_expression
+      (number))
+    (condition_expression
+      (number))
+    (block
+      (expression_statement
+        (postfix_expression
+          (unit_pattern)))))
+  (for_statement
+    (identifier)
     (condition_expression
       (number))
     (condition_expression

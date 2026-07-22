@@ -206,6 +206,91 @@ sum
   }
 });
 
+Deno.test("core dynamic inclusive range includes its runtime endpoint", async () => {
+  const wat_text = wat_from_core_source(`
+let n = 4
+let sum = 0
+
+for i in 0..=n {
+  sum = sum + i
+}
+
+sum
+`);
+  const instance = await instantiate_wat(
+    wat_text,
+    "core_inclusive_range_loop",
+    {},
+  );
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("Missing main export");
+  }
+
+  const result = instance.exports.main();
+
+  if (result !== 10) {
+    throw new Error("Expected main() -> 10, got " + result);
+  }
+});
+
+Deno.test("core descending inclusive range includes its runtime endpoint", async () => {
+  const wat_text = wat_from_core_source(`
+let start = 4
+let stop = 0
+let step = -2
+let digits = 0
+
+for i in start..=stop by step {
+  digits = digits * 10 + i
+}
+
+digits
+`);
+  const instance = await instantiate_wat(
+    wat_text,
+    "core_descending_inclusive_range_loop",
+    {},
+  );
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("Missing main export");
+  }
+
+  const result = instance.exports.main();
+
+  if (result !== 420) {
+    throw new Error("Expected main() -> 420, got " + result);
+  }
+});
+
+Deno.test("core inclusive range stops at the maximum i32 endpoint", async () => {
+  const wat_text = wat_from_core_source(`
+let count = 0
+
+for i in 2147483647..=2147483647 {
+  count = count + 1
+}
+
+count
+`);
+  const instance = await instantiate_wat(
+    wat_text,
+    "core_inclusive_max_i32_range_loop",
+    {},
+  );
+
+  if (typeof instance.exports.main !== "function") {
+    throw new Error("Missing main export");
+  }
+
+  const result = instance.exports.main();
+
+  if (result !== 1) {
+    throw new Error("Expected main() -> 1, got " + result);
+  }
+});
+
 Deno.test("core dynamic range step compiles through WAT to Wasm", async () => {
   const wat_text = wat_from_core_source(`
 let n = 6

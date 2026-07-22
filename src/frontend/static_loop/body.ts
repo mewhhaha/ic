@@ -171,7 +171,7 @@ export function range_body_needs_dynamic_loop_control(
 ): boolean {
   let current = start;
 
-  while (continues_range(current, end, step)) {
+  while (continues_range(current, end, step, stmt.end_bound)) {
     const loop_env = clone_env(env);
     bind_loop_static_value(
       loop_env,

@@ -278,7 +278,12 @@ export function scan_source(text: string): SourceSyntax {
         () => index,
       );
     } else {
-      if (text.startsWith("..", index)) {
+      if (text.startsWith("..=", index)) {
+        advance();
+        advance();
+        advance();
+        add_token("symbol", "..=", start, start_line, start_column);
+      } else if (text.startsWith("..", index)) {
         advance();
         advance();
         add_token("symbol", "..", start, start_line, start_column);

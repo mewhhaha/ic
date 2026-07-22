@@ -3,7 +3,7 @@ import type { CoreExpr, CoreField, CoreFnType, CoreHostImport } from "./ast.ts";
 import { fresh_temp_local } from "./emit/name.ts";
 import { set_local } from "./emit/local.ts";
 import { clone_core_host_imports } from "./host_import.ts";
-import type { RuntimeUnionMatchInfo } from "./runtime_union.ts";
+import type { RuntimeUnionMatchInfo } from "./runtime_union/types.ts";
 import type {
   RuntimeUnionPayload,
   RuntimeUnionPayloadField,

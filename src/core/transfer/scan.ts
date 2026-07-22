@@ -78,6 +78,7 @@ function observe_transfer_stmt_facts<ctx>(
   }
 
   let destructured_projection = false;
+  let struct_alias = false;
   const inferred_text = hooks.core_expr_is_text(stmt.value, state.ctx);
 
   if (
@@ -90,7 +91,18 @@ function observe_transfer_stmt_facts<ctx>(
   }
 
   if (
+    (stmt.value.tag === "var" || stmt.value.tag === "linear") &&
+    hooks.runtime_aggregate_type_expr
+  ) {
+    struct_alias = hooks.runtime_aggregate_type_expr(
+      stmt.value,
+      state.ctx,
+    ) !== undefined;
+  }
+
+  if (
     !destructured_projection &&
+    !struct_alias &&
     !inferred_text &&
     stmt.value.tag !== "app" &&
     stmt.value.tag !== "struct_update" &&

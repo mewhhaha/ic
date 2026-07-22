@@ -30,6 +30,41 @@ type JsonLookupResult =
   | `Found Json
   | `Missing Unit
 
+let rec json_object_key_count_borrowed: [Text, &JsonObject] -> I32 = (key: Text, object: &JsonObject) => {
+  let current: &JsonObject = object
+  let count = 0
+  let done = false
+  loop {
+    if let `Cons node = current {
+      let [member, tail] = node
+      let [member_key, _] = member
+      if member_key == key { count = count + 1 }
+      current = &tail
+    } else {
+      done = true
+    }
+    if done { break }
+  }
+  count
+}
+
+let rec json_object_length_borrowed: &JsonObject -> I32 = (object: &JsonObject) => {
+  let current: &JsonObject = object
+  let length = 0
+  let done = false
+  loop {
+    if let `Cons node = current {
+      let [_, tail] = node
+      length = length + 1
+      current = &tail
+    } else {
+      done = true
+    }
+    if done { break }
+  }
+  length
+}
+
 const json_object_get: [Text, JsonObject] -> JsonLookupResult = (key: Text, object: JsonObject) => {
   let current = object
   let result: JsonLookupResult = `Missing ()
@@ -240,7 +275,9 @@ return {
   json_object_get,
   json_object_contains,
   json_object_key_count,
+  json_object_key_count_borrowed,
   json_object_length,
+  json_object_length_borrowed,
   json_object_reverse,
   json_object_append,
   merge_json,

@@ -63,7 +63,13 @@ function format_declaration_without_attributes(
     fields.push(...declaration.fields.map((field) => {
       return "." + field.name + " = " + format_expr(field.value);
     }));
-    return "extend " + declaration.type_name + " { " +
+    let head = "extend " + declaration.type_name;
+
+    if (declaration.params.length > 0) {
+      head += " " + declaration.params.join(" ");
+    }
+
+    return head + " { " +
       fields.join(", ") + " }";
   }
 

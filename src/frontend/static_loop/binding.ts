@@ -38,9 +38,18 @@ export function continues_range(
   current: number,
   end: number,
   step: number,
+  end_bound: "exclusive" | "inclusive",
 ): boolean {
   if (step > 0) {
+    if (end_bound === "inclusive") {
+      return current <= end;
+    }
+
     return current < end;
+  }
+
+  if (end_bound === "inclusive") {
+    return current >= end;
   }
 
   return current > end;

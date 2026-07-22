@@ -194,11 +194,11 @@ class DuckCoreLowering {
 
   lower(): LoweredDuckGpufuckModule {
     const environment = new Map<string, FunctionalTypeSchema>();
-    let body = this.lower_statements(this.#core.statements, 0, environment);
+    const body = this.lower_statements(this.#core.statements, 0, environment);
     const entry_type = this.entry_type(body.type);
     const definitions = this.callable_definitions();
     const entry_parameters: string[] = [];
-    let entry_annotation: FunctionalTypeSchema | null = entry_type;
+    const entry_annotation: FunctionalTypeSchema | null = entry_type;
 
     const runtime_capability = this.runtime_capability();
     if (runtime_capability !== undefined) {
@@ -2362,6 +2362,7 @@ class DuckCoreLowering {
       index: index_name,
       start: { tag: "num", type: "i32", value: 0 },
       end,
+      end_bound: "exclusive",
       step: { tag: "num", type: "i32", value: 1 },
       carried: statement.carried,
       body: [element_binding, ...statement.body],
@@ -5257,6 +5258,26 @@ class DuckCoreLowering {
           parse_type_expr(tokenize(expression.name)),
           new Set(),
         ),
+      );
+    }
+    if (expression.tag === "app") {
+      if (expression.args.length === 0) {
+        throw new Error(
+          "Duck gpufuck lowering found an empty type application",
+        );
+      }
+      let applied = parse_type_expr(tokenize(
+        this.type_expression_name(expression.func),
+      ));
+      for (const arg of expression.args) {
+        applied = {
+          tag: "apply",
+          func: applied,
+          arg: parse_type_expr(tokenize(this.type_expression_name(arg))),
+        };
+      }
+      return format_type_expr(
+        this.resolve_type_expr_aliases(applied, new Set()),
       );
     }
     if (expression.tag === "union_type") {

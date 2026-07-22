@@ -85,6 +85,7 @@ export type SourceAnalyzeOptions = {
   uri?: string;
   resolve_import?: SourceImportResolver;
   warnings?: boolean;
+  allow_intrinsics?: boolean;
 };
 
 export type SourceAnalysis = {

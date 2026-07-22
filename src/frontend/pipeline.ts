@@ -15,6 +15,10 @@ import {
   specialize_front_effects,
 } from "./effect_specialize.ts";
 import { elaborate_front_ducks } from "./duck_elaborate.ts";
+import {
+  apply_front_function_signatures,
+  infer_front_function_signatures,
+} from "./signature_inference.ts";
 import { erase_undemanded_front_bindings } from "./demand.ts";
 import {
   type SourceImportResolver,
@@ -53,6 +57,7 @@ export type FrontendAnalysisOptions = {
   resolve_import?: SourceImportResolver;
   uri?: string;
   warnings?: boolean;
+  allow_intrinsics?: boolean;
 };
 
 export type FrontendAnalysis = {
@@ -105,15 +110,29 @@ export function analyze_frontend(
   }
 
   const facts = source_facts(analyzed_source);
+  const allow_intrinsics = options.allow_intrinsics === true ||
+    source_uri_allows_intrinsics(options.uri);
   const semantic_diagnostics = validate_frontend_semantics(analyzed_source, {
     warnings: options.warnings,
+    allow_intrinsics: true,
   });
   diagnostics.push(...semantic_diagnostics);
 
+  if (options.warnings === true && !allow_intrinsics) {
+    diagnostics.push(
+      ...validate_frontend_semantics(parsed.source, {
+        warnings: true,
+      }).filter((diagnostic) => diagnostic.code === "DUCK2004"),
+    );
+  }
+
   if (!contains_error(diagnostics)) {
-    const inference_source = specialize_const_module_imports(
+    let inference_source = specialize_const_module_imports(
       resolve_bundled_source_imports(analyzed_source),
     );
+    inference_source = infer_front_function_signatures(inference_source);
+    inference_source = elaborate_front_ducks(inference_source);
+    inference_source = infer_front_function_signatures(inference_source);
     const inference_facts = source_facts(inference_source);
     diagnostics.push(
       ...source_inference_diagnostics(inference_source, inference_facts),
@@ -122,6 +141,15 @@ export function analyze_frontend(
 
   append_affine_diagnostics(analyzed_source, diagnostics);
   return { source: analyzed_source, facts, diagnostics };
+}
+
+function source_uri_allows_intrinsics(uri: string | undefined): boolean {
+  if (uri === undefined) {
+    return false;
+  }
+
+  const name = uri.slice(uri.lastIndexOf("/") + 1);
+  return name === "prelude.duck" || name.startsWith("prelude_");
 }
 
 export function source_for_ic_route(source: Source): Source {
@@ -161,7 +189,20 @@ export function source_with_expanded_attributes(
   import_meta: SourceImportMeta = {},
 ): Source {
   source = source_with_import_meta(source, import_meta);
-  source = resolve_bundled_source_imports(source);
+  const imported_source = resolve_bundled_source_imports(source);
+  const inferred_source = infer_front_function_signatures(imported_source);
+  const contextual_source = apply_front_function_signatures(
+    source,
+    inferred_source,
+  );
+
+  if (contextual_source === source) {
+    source = imported_source;
+  } else {
+    source = resolve_bundled_source_imports(contextual_source);
+  }
+
+  source = infer_front_function_signatures(source);
   source = specialize_const_module_imports(source);
   derive_missing_source_spans(source, { start: 0, end: 0 });
   return expand_source_attributes(source);
@@ -210,7 +251,9 @@ function append_affine_diagnostics(
 }
 
 function elaborate_source(source: Source): Source {
+  source = infer_front_function_signatures(source);
   source = elaborate_front_ducks(source);
+  source = infer_front_function_signatures(source);
   source = elaborate_front_effects(source);
   return elaborate_front_type_sets(source);
 }

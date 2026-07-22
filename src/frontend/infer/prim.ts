@@ -12,7 +12,7 @@ import type { InferExprFn, InferHooks } from "./types.ts";
 import { Callable } from "../../trait.ts";
 import { infer_f32x4_builtin_call } from "../f32x4.ts";
 import { front_type_from_type_name } from "../types.ts";
-import { compiler_builtin_args } from "../call_args.ts";
+import { compiler_builtin_args } from "../compiler_builtin_args.ts";
 
 export function infer_prim_result_type(
   expr: Extract<FrontExpr, { tag: "prim" }>,

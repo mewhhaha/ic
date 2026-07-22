@@ -10,6 +10,7 @@ export {
 export {
   runtime_aggregate_field_access,
   runtime_aggregate_field_info,
+  runtime_aggregate_index_field,
   runtime_aggregate_type_expr,
   runtime_struct_update_value,
   type RuntimeAggregateFieldAccess,

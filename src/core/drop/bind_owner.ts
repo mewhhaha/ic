@@ -1,5 +1,10 @@
 import type { CoreExpr } from "../ast.ts";
 import {
+  runtime_aggregate_field_base_offset,
+  runtime_aggregate_layout_for_type,
+} from "../runtime_aggregate.ts";
+import type { TypeStaticCtx } from "../type_static.ts";
+import {
   frozen_expr_consumed_owner,
   moved_expr_owner,
   unique_heap_ownership,
@@ -49,7 +54,33 @@ export function bind_drop_owner<ctx>(
     return;
   }
 
+  if (expr.tag === "field" && expr.move) {
+    let field_moves_base_pointer = false;
+    const object_type = hooks.runtime_aggregate_type_expr?.(expr.object, ctx);
+    if (object_type !== undefined) {
+      const layout = runtime_aggregate_layout_for_type(
+        object_type,
+        ctx as ctx & TypeStaticCtx,
+      );
+      const field = layout.fields.find((candidate) => {
+        return candidate.name === expr.name;
+      });
+      field_moves_base_pointer = field?.tag === "struct" &&
+        runtime_aggregate_field_base_offset(field) === 0;
+    }
+    const object_owner = moved_expr_owner(expr.object, owners, state);
+
+    if (
+      field_moves_base_pointer &&
+      object_owner?.ownership.reason === "runtime_aggregate"
+    ) {
+      state.aliases.set(name, object_owner.name);
+      return;
+    }
+  }
+
   const moved_owner = moved_expr_owner(expr, owners, state);
+  state.aliases.delete(name);
 
   if (moved_owner) {
     owners.delete(moved_owner.name);

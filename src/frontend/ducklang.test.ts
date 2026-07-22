@@ -1119,6 +1119,105 @@ extend I32 {
   assert_includes(wat, "i32.add");
 });
 
+Deno.test("duck members preserve borrowed receiver signatures", () => {
+  Source.core(`
+duck Length Self {
+  .length = &Self -> I32
+}
+extend Bytes {
+  .length = (value: &Bytes) => @len(value)
+}
+comptime Length Bytes
+let bytes: Bytes = @Utf8.encode("duck")
+bytes.length() + @len(bytes)
+`);
+});
+
+Deno.test("index syntax dispatches through source-defined collection ducks", async () => {
+  const text = `
+const {} = import "duck:prelude" ()
+type Counter = I32
+extend Counter {
+  type Item = I32
+  .get = (counter: &Counter, index: I32) => counter + index
+  .set = (counter: Counter, index: I32, value: I32) => value + index
+  .length = (counter: &Counter) => 3
+}
+let counter: Counter = 5
+let read = counter[2]
+counter[2] = 40
+read + counter
+`;
+  const instance = await instantiate_wat(
+    Source.wat(text),
+    "duck_collection_index",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing collection index main export");
+  }
+
+  assert_equals(main(), 49);
+});
+
+Deno.test("collection loops dispatch through source-defined iterable ducks", async () => {
+  const text = `
+const {} = import "duck:prelude" ()
+type Counter = I32
+extend Counter {
+  type Item = I32
+  .get = (counter: &Counter, index: I32) => counter + index
+  .set = (counter: Counter, index: I32, value: I32) => value + index
+  .length = (counter: &Counter) => 3
+}
+let counter: Counter = 5
+let total = 0
+for value in counter {
+  total = total + value
+}
+total
+`;
+  const instance = await instantiate_wat(
+    Source.wat(text),
+    "duck_collection_loop",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing collection loop main export");
+  }
+
+  assert_equals(main(), 18);
+});
+
+Deno.test("collection loops traverse recursive lists through source-defined iterators", async () => {
+  const text = `
+const {} = import "duck:prelude" ()
+type IntList = List I32
+let values: IntList = \`Cons [10, \`Cons [20, \`Nil ()]]
+let total = 0
+for index, value in values {
+  total = total + value + index
+}
+total
+`;
+  const instance = await instantiate_wat(
+    Source.wat(text),
+    "duck_cursor_collection_loop",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Missing cursor collection loop main export");
+  }
+
+  assert_equals(main(), 31);
+});
+
 Deno.test("explicit duck checks reject missing and incompatible members", () => {
   assert_throws(
     () =>

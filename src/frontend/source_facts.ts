@@ -2,6 +2,7 @@ import type {
   ArrayLengthExpr,
   Declaration,
   EffectRowExpr,
+  ExtensionDeclaration,
   FrontExpr,
   FrontType,
   Param,
@@ -40,7 +41,7 @@ import {
 import { tokenize } from "./tokenize.ts";
 import { f32x4_builtin_prim, numeric_builtin_prim } from "../op.ts";
 import { diagnostic_codes, type DiagnosticCode } from "../diagnostic.ts";
-import { compiler_builtin_args } from "./call_args.ts";
+import { compiler_builtin_args } from "./compiler_builtin_args.ts";
 import { expect } from "../expect.ts";
 
 function array_length_is_known(
@@ -197,6 +198,8 @@ export type SourceTypeSetFact = {
   right: SourceTypeFact;
 };
 
+export type SourceTypeModality = "owned" | "borrowed" | "frozen";
+
 /** A source-level type fact that keeps editor-only structure unavailable in FrontType. */
 export type SourceTypeFact = {
   canonical_type: () => Type | undefined;
@@ -215,7 +218,9 @@ export type SourceTypeFact = {
   alias_target: SourceTypeFact | undefined;
   type_set: SourceTypeSetFact | undefined;
   inference_variable: boolean;
+  modality: SourceTypeModality;
   quantified_variables: SourceTypeFact[] | undefined;
+  recursive_inference: boolean;
 };
 
 /** Small, best-effort facts safe to use while a document has syntax errors. */
@@ -228,6 +233,7 @@ export type SourceFacts = {
   definition_type_of: WeakMap<object, Map<string, SourceTypeFact>>;
   inference_diagnostics: SourceDiagnostic[];
   expressions: FrontExpr[];
+  statements: Stmt[];
 };
 
 type Scope = Map<string, SourceTypeFact>;
@@ -256,6 +262,35 @@ export function source_facts(source: Source): SourceFacts {
 
 export function invalidate_source_facts(source: Source): void {
   cached_source_facts.delete(source);
+}
+
+export function source_type_display_name(
+  type: SourceTypeFact,
+  seen = new Set<SourceTypeFact>(),
+): string {
+  if (type.name !== "struct" || type.fields === undefined || seen.has(type)) {
+    return type.name;
+  }
+
+  seen.add(type);
+  const fields = type.fields.map((field) => {
+    if (field.type === undefined) {
+      return "unknown";
+    }
+
+    return source_type_display_name(field.type, seen);
+  });
+  seen.delete(type);
+
+  if (type.positional_fields) {
+    return "[" + fields.join(", ") + "]";
+  }
+
+  return "struct { " + type.fields.map((field, index) => {
+    const field_type = fields[index];
+    expect(field_type, "Missing source field display type");
+    return "." + field.name + " = " + field_type;
+  }).join(", ") + " }";
 }
 
 export function source_inference_diagnostics(
@@ -535,6 +570,8 @@ function collect_unresolved_annotation_names(
 
 function runtime_prelude_intrinsic(name: string): string | undefined {
   switch (name) {
+    case "cast":
+      return "@cast";
     case "append":
       return "@append";
     case "length":
@@ -602,8 +639,11 @@ class SourceFactRecorder {
     definition_type_of: new WeakMap(),
     inference_diagnostics: [],
     expressions: [],
+    statements: [],
   };
+  readonly recorded_statements = new WeakSet<Stmt>();
   readonly declarations = new Map<string, Declaration>();
+  readonly extensions = new Map<string, ExtensionDeclaration[]>();
   readonly declaration_types = new Map<string, SourceTypeFact>();
   readonly applied_declaration_types = new Map<string, SourceTypeFact>();
   readonly namespaces = new Map<string, SourceTypeFact>();
@@ -644,6 +684,21 @@ class SourceFactRecorder {
             this.add_case_owner(union_case.name, declaration.name);
           }
         }
+      }
+
+      for (const declaration of source.declarations) {
+        if (declaration.tag !== "extend") {
+          continue;
+        }
+
+        let extensions = this.extensions.get(declaration.type_name);
+
+        if (extensions === undefined) {
+          extensions = [];
+          this.extensions.set(declaration.type_name, extensions);
+        }
+
+        extensions.push(declaration);
       }
     }
 
@@ -726,78 +781,98 @@ class SourceFactRecorder {
     this.replaying_closure = true;
 
     try {
-      for (const context of this.closure_calls) {
-        if (context.calls.length === 0) {
-          continue;
-        }
+      for (let round = 0; round <= this.closure_calls.length; round += 1) {
+        let changed = false;
 
-        const parameter_types: SourceTypeFact[] = [];
-        let needs_inference = false;
-
-        for (let index = 0; index < context.closure.params.length; index += 1) {
-          const param = context.closure.params[index];
-
-          if (param === undefined) {
-            throw new Error("Missing source closure parameter " + index);
-          }
-
-          const annotated = this.parameter_type(param);
-
-          if (annotated !== undefined) {
-            parameter_types.push(annotated);
+        for (const context of this.closure_calls) {
+          if (context.calls.length === 0) {
             continue;
           }
 
-          needs_inference = true;
-          const observed_types = context.calls.map((call) => call[index]);
-          const inferred = common_type_facts(observed_types);
+          const previous = source_callable_signature_key(context.callable);
 
-          if (inferred === undefined) {
-            parameter_types.length = 0;
-            break;
+          const parameter_types: SourceTypeFact[] = [];
+          let needs_inference = false;
+
+          for (
+            let index = 0;
+            index < context.closure.params.length;
+            index += 1
+          ) {
+            const param = context.closure.params[index];
+
+            if (param === undefined) {
+              throw new Error("Missing source closure parameter " + index);
+            }
+
+            const annotated = this.parameter_type(param);
+
+            if (annotated !== undefined) {
+              parameter_types.push(annotated);
+              continue;
+            }
+
+            needs_inference = true;
+            const observed_types = context.calls.map((call) => call[index]);
+            const inferred = common_call_parameter_type(observed_types);
+
+            if (inferred === undefined) {
+              parameter_types.length = 0;
+              break;
+            }
+
+            if (
+              observed_types.some((observed) =>
+                observed === undefined || observed.name !== inferred.name
+              )
+            ) {
+              parameter_types.length = 0;
+              break;
+            }
+
+            if (!source_type_fact_is_resolved(inferred)) {
+              parameter_types.length = 0;
+              break;
+            }
+
+            parameter_types.push(inferred);
           }
 
           if (
-            observed_types.some((observed) =>
-              observed === undefined || observed.name !== inferred.name
-            )
+            !needs_inference ||
+            parameter_types.length !== context.closure.params.length
           ) {
-            parameter_types.length = 0;
-            break;
+            continue;
           }
 
-          if (!source_type_fact_is_resolved(inferred)) {
-            parameter_types.length = 0;
-            break;
+          const callable = this.record_closure(
+            context.closure,
+            new Map(context.scope),
+            undefined,
+            undefined,
+            parameter_types,
+          );
+
+          if (
+            callable === undefined || callable.call_params === undefined
+          ) {
+            continue;
           }
 
-          parameter_types.push(inferred);
+          context.callable.call_params = callable.call_params;
+
+          if (callable.call_result !== undefined) {
+            context.callable.call_result = callable.call_result;
+          }
+
+          if (source_callable_signature_key(context.callable) !== previous) {
+            changed = true;
+          }
         }
 
-        if (
-          !needs_inference ||
-          parameter_types.length !== context.closure.params.length
-        ) {
-          continue;
+        if (!changed) {
+          break;
         }
-
-        const callable = this.record_closure(
-          context.closure,
-          new Map(context.scope),
-          undefined,
-          undefined,
-          parameter_types,
-        );
-
-        if (
-          callable === undefined || callable.call_params === undefined ||
-          callable.call_result === undefined
-        ) {
-          continue;
-        }
-
-        context.callable.call_params = callable.call_params;
-        context.callable.call_result = callable.call_result;
       }
     } finally {
       this.replaying_closure = false;
@@ -927,24 +1002,51 @@ class SourceFactRecorder {
     break_types: (SourceTypeFact | undefined)[] | undefined,
     expected?: SourceTypeFact,
   ): SourceTypeFact | undefined {
+    if (!this.recorded_statements.has(statement)) {
+      this.recorded_statements.add(statement);
+      this.facts.statements.push(statement);
+    }
+
     if (statement.tag === "bind" && statement.mutual !== undefined) {
       const group = [
-        { ...statement, mutual: undefined },
-        ...statement.mutual.map((member): Extract<Stmt, { tag: "bind" }> => ({
-          tag: "bind",
-          kind: "let",
-          is_recursive: true,
-          ...member,
+        {
+          owner: statement,
+          statement: { ...statement, mutual: undefined },
+        },
+        ...statement.mutual.map((member) => ({
+          owner: member,
+          statement: {
+            tag: "bind" as const,
+            kind: "let" as const,
+            is_recursive: true,
+            ...member,
+          },
         })),
       ];
 
-      for (const member of group) {
+      for (const entry of group) {
+        const member = entry.statement;
         const declared = this.type_from_annotation(
           member.annotation,
           member.type_annotation,
         );
         if (declared !== undefined) {
           scope.set(member.name, declared);
+        } else if (
+          member.value.tag === "lam" || member.value.tag === "rec"
+        ) {
+          const result = inference_type();
+          result.recursive_inference = true;
+          scope.set(
+            member.name,
+            callable_type(
+              "inferred recursive function",
+              member.value.params.map((param) => {
+                return this.parameter_type(param) || inference_type();
+              }),
+              result,
+            ),
+          );
         } else {
           scope.set(member.name, named_type("unknown"));
         }
@@ -952,18 +1054,44 @@ class SourceFactRecorder {
 
       let result: SourceTypeFact | undefined;
 
-      for (const member of group) {
+      for (const entry of group) {
+        const member = entry.statement;
         result = this.record_statement(member, scope, break_types);
+        const definitions = this.facts.definition_type_of.get(member);
+
+        if (definitions !== undefined) {
+          this.facts.definition_type_of.set(entry.owner, definitions);
+        }
       }
 
       return result;
     }
 
     if (statement.tag === "bind") {
-      const declared = this.type_from_annotation(
+      let declared = this.type_from_annotation(
         statement.annotation,
         statement.type_annotation,
       );
+
+      if (
+        declared === undefined && statement.is_recursive &&
+        (statement.value.tag === "lam" || statement.value.tag === "rec")
+      ) {
+        declared = scope.get(statement.name);
+
+        if (declared?.call_params === undefined) {
+          const result = inference_type();
+          result.recursive_inference = true;
+          declared = callable_type(
+            "inferred recursive function",
+            statement.value.params.map((param) => {
+              return this.parameter_type(param) || inference_type();
+            }),
+            result,
+          );
+          scope.set(statement.name, declared);
+        }
+      }
 
       if (statement.is_recursive && declared !== undefined) {
         scope.set(statement.name, declared);
@@ -1172,6 +1300,7 @@ class SourceFactRecorder {
     }
 
     if (statement.tag === "index_assign") {
+      this.record_definition(statement, "object", scope.get(statement.name));
       this.record_expr(statement.index, scope, undefined, break_types);
       return this.record_expr(statement.value, scope, undefined, break_types);
     }
@@ -1290,6 +1419,10 @@ class SourceFactRecorder {
 
       let element = this.homogeneous_field_type(collection);
 
+      if (element === undefined || element.name === "unknown") {
+        element = this.iterator_element_type(collection);
+      }
+
       if (
         collection !== undefined &&
         (collection.resolved_name === "Text" ||
@@ -1399,7 +1532,9 @@ class SourceFactRecorder {
         type !== undefined && expected !== undefined &&
         is_type_variable(type) && !is_type_variable(expected)
       ) {
+        const modality = type.modality;
         Object.assign(type, expected);
+        type.modality = modality;
       }
 
       if (type === undefined && expr.resume_signature !== undefined) {
@@ -1490,6 +1625,11 @@ class SourceFactRecorder {
         !scope.has(expr.func.name)
       ) {
         cast_name = expr.func.name;
+      } else if (
+        expr.func.tag === "var" &&
+        this.builtin_aliases.get(expr.func.name) === "@cast"
+      ) {
+        cast_name = "@cast";
       } else if (expr.operator_syntax?.target === "seal") {
         cast_name = "@seal";
       } else if (expr.operator_syntax?.target === "representation") {
@@ -1676,7 +1816,7 @@ class SourceFactRecorder {
         args.push(this.record_expr(arg, scope, expected_arg, break_types));
       }
 
-      if (func !== undefined && !this.replaying_closure) {
+      if (func !== undefined) {
         const context = this.closure_call_contexts.get(func);
 
         if (
@@ -1773,7 +1913,21 @@ class SourceFactRecorder {
     } else if (expr.tag === "comptime" || expr.tag === "captured") {
       type = this.record_expr(expr.expr, scope, expected, break_types);
     } else if (expr.tag === "borrow" || expr.tag === "freeze") {
-      type = this.record_expr(expr.value, scope, expected, break_types);
+      let value = this.record_expr(expr.value, scope, expected, break_types);
+
+      if (value === undefined) {
+        value = expected;
+      }
+
+      if (value !== undefined) {
+        let modality: SourceTypeModality = "borrowed";
+
+        if (expr.tag === "freeze") {
+          modality = "frozen";
+        }
+
+        type = source_type_with_modality(value, modality);
+      }
     } else if (expr.tag === "scratch") {
       type = this.record_expr(expr.body, new Map(scope), expected, break_types);
     } else if (expr.tag === "if") {
@@ -1871,6 +2025,23 @@ class SourceFactRecorder {
       }
     }
 
+    if (
+      type !== undefined && expected !== undefined &&
+      is_type_variable(type) && !is_type_variable(expected)
+    ) {
+      const modality = type.modality;
+      Object.assign(type, expected);
+      type.modality = modality;
+    } else if (
+      type !== undefined && expected !== undefined &&
+      !is_type_variable(type) && is_type_variable(expected) &&
+      expected.recursive_inference
+    ) {
+      const modality = expected.modality;
+      Object.assign(expected, type);
+      expected.modality = modality;
+    }
+
     if (type === undefined) {
       this.store_expr_type(expr, named_type("unknown"));
     } else {
@@ -1914,6 +2085,10 @@ class SourceFactRecorder {
 
     if (operator_intrinsic !== undefined) {
       return operator_intrinsic;
+    }
+
+    if (is_bytes_generate_target(expr.func)) {
+      return "@Bytes.generate";
     }
 
     if (expr.func.tag !== "var") {
@@ -1965,13 +2140,26 @@ class SourceFactRecorder {
   record_runtime_prelude_aliases(
     statement: Extract<Stmt, { tag: "bind" }>,
   ): void {
-    if (
-      statement.pattern?.tag !== "product" ||
-      statement.value.tag !== "comptime" ||
-      statement.value.expr.tag !== "app" ||
-      statement.value.expr.func.tag !== "import" ||
-      statement.value.expr.func.path !== "duck:prelude/runtime"
-    ) {
+    if (statement.pattern?.tag !== "product") {
+      return;
+    }
+
+    let imported = statement.value;
+
+    if (imported.tag === "comptime") {
+      imported = imported.expr;
+    }
+
+    const imported_runtime = imported.tag === "app" &&
+      imported.func.tag === "import" &&
+      imported.func.path === "duck:prelude/runtime";
+    const imported_prelude = imported.tag === "app" &&
+      imported.func.tag === "import" &&
+      imported.func.path === "duck:prelude";
+    const bundled_prelude = imported.tag === "app" &&
+      imported.func.tag === "lam";
+
+    if (!imported_runtime && !imported_prelude && !bundled_prelude) {
       return;
     }
 
@@ -1980,7 +2168,13 @@ class SourceFactRecorder {
         continue;
       }
 
-      const intrinsic = runtime_prelude_intrinsic(entry.label);
+      let intrinsic: string | undefined;
+
+      if (imported_runtime || bundled_prelude) {
+        intrinsic = runtime_prelude_intrinsic(entry.label);
+      } else if (entry.label === "cast" || entry.label === "slice") {
+        intrinsic = runtime_prelude_intrinsic(entry.label);
+      }
 
       if (intrinsic !== undefined) {
         this.builtin_aliases.set(entry.pattern.name, intrinsic);
@@ -2287,6 +2481,12 @@ class SourceFactRecorder {
 
     if (left === undefined || right === undefined) {
       return undefined;
+    }
+
+    if (is_type_variable(left) && !is_type_variable(right)) {
+      Object.assign(left, right);
+    } else if (is_type_variable(right) && !is_type_variable(left)) {
+      Object.assign(right, left);
     }
 
     let contextual = contextual_integer_literal_type(expr.left, left, right);
@@ -2647,17 +2847,118 @@ class SourceFactRecorder {
       return undefined;
     }
 
+    if (is_type_variable(object)) {
+      const candidates: SourceTypeFact[] = [];
+
+      for (const name of this.declarations.keys()) {
+        const candidate = this.type_from_name(name);
+        const fields = source_fields(candidate);
+
+        if (fields?.some((field) => field.name === expr.name)) {
+          candidates.push(candidate);
+        }
+      }
+
+      for (const name of this.type_values.keys()) {
+        const candidate = this.type_from_name(name);
+        const fields = source_fields(candidate);
+
+        if (
+          fields?.some((field) => field.name === expr.name) &&
+          !candidates.some((existing) => existing.name === candidate.name)
+        ) {
+          candidates.push(candidate);
+        }
+      }
+
+      if (candidates.length === 1) {
+        const candidate = candidates[0];
+        expect(candidate, "Missing inferred field owner");
+        Object.assign(object, candidate);
+      }
+    }
+
     if (object.members !== undefined) {
-      return object.members.get(expr.name);
+      return projected_source_type(object, object.members.get(expr.name));
     }
 
     const fields = source_fields(object);
 
     if (fields !== undefined) {
-      return fields.find((field) => field.name === expr.name)?.type;
+      const field = projected_source_type(
+        object,
+        fields.find((field) => field.name === expr.name)?.type,
+      );
+
+      if (field !== undefined) {
+        return field;
+      }
     }
 
-    return undefined;
+    return this.record_extension_member(
+      object,
+      expr.name,
+      scope,
+      break_types,
+    );
+  }
+
+  record_extension_member(
+    object: SourceTypeFact,
+    member_name: string,
+    scope: Scope,
+    break_types: (SourceTypeFact | undefined)[] | undefined,
+  ): SourceTypeFact | undefined {
+    const owner_names = new Set([object.name, object.resolved_name]);
+    const matches: FrontExpr[] = [];
+
+    for (const owner_name of owner_names) {
+      const extensions = this.extensions.get(owner_name);
+
+      if (extensions === undefined) {
+        continue;
+      }
+
+      for (const extension of extensions) {
+        const field = extension.fields.find((candidate) => {
+          return candidate.name === member_name;
+        });
+
+        if (
+          field !== undefined &&
+          !matches.some((candidate) => candidate === field.value)
+        ) {
+          matches.push(field.value);
+        }
+      }
+    }
+
+    if (matches.length !== 1) {
+      return undefined;
+    }
+
+    const implementation = matches[0];
+    expect(implementation, "Missing source extension implementation");
+    const implementation_type = this.record_expr(
+      implementation,
+      new Map(scope),
+      undefined,
+      break_types,
+    );
+
+    if (
+      implementation_type?.call_params === undefined ||
+      implementation_type.call_result === undefined ||
+      implementation_type.call_params.length === 0
+    ) {
+      return undefined;
+    }
+
+    return callable_type(
+      "function",
+      implementation_type.call_params.slice(1),
+      implementation_type.call_result,
+    );
   }
 
   record_index(
@@ -2703,7 +3004,7 @@ class SourceFactRecorder {
       const numeric_index = Number(expr.index.value);
 
       if (Number.isInteger(numeric_index) && numeric_index >= 0) {
-        return fields[numeric_index]?.type;
+        return projected_source_type(object, fields[numeric_index]?.type);
       }
 
       return undefined;
@@ -2713,7 +3014,10 @@ class SourceFactRecorder {
       return undefined;
     }
 
-    return this.homogeneous_field_type(object);
+    return projected_source_type(
+      object,
+      this.homogeneous_field_type(object),
+    );
   }
 
   record_struct_value(
@@ -3384,6 +3688,11 @@ class SourceFactRecorder {
       for (const field of declaration.body.fields) {
         members.set(field.name, this.type_from_name(field.type_name));
       }
+
+      members.set(
+        "new",
+        callable_type("(Shape) -> " + instance.name, [shape_type()], instance),
+      );
     } else if (declaration.tag === "type" && declaration.body.tag === "sum") {
       for (const union_case of declaration.body.cases) {
         const payload = this.type_from_name(union_case.type_name);
@@ -3484,6 +3793,11 @@ class SourceFactRecorder {
       for (const field of value.fields) {
         members.set(field.name, this.type_from_name(field.type_name));
       }
+
+      members.set(
+        "new",
+        callable_type("(Shape) -> " + instance.name, [shape_type()], instance),
+      );
     } else {
       for (const union_case of value.cases) {
         const payload = this.type_from_name(union_case.type_name);
@@ -3637,6 +3951,61 @@ class SourceFactRecorder {
     return undefined;
   }
 
+  iterator_element_type(
+    collection: SourceTypeFact | undefined,
+  ): SourceTypeFact | undefined {
+    if (
+      collection === undefined || collection.resolved_name === "" ||
+      collection.resolved_name === "unknown"
+    ) {
+      return undefined;
+    }
+
+    const args: TypeExpr[] = [];
+    let owner = parse_type_expr(tokenize(collection.resolved_name));
+
+    while (owner.tag === "apply") {
+      args.unshift(owner.arg);
+      owner = owner.func;
+    }
+
+    if (owner.tag !== "name") {
+      return undefined;
+    }
+
+    const extension = this.extensions.get(owner.name)?.find((candidate) => {
+      return candidate.fields.some((field) => field.name === "has_next") &&
+        candidate.fields.some((field) => field.name === "next");
+    });
+
+    if (
+      extension === undefined || extension.params.length !== args.length
+    ) {
+      return undefined;
+    }
+
+    const item = extension.types.find((member) => member.name === "Item");
+
+    if (item === undefined) {
+      return undefined;
+    }
+
+    const substitutions = new Map<string, SourceTypeFact>();
+
+    for (let index = 0; index < extension.params.length; index += 1) {
+      const param = extension.params[index];
+      const arg = args[index];
+
+      if (param === undefined || arg === undefined) {
+        return undefined;
+      }
+
+      substitutions.set(param, this.type_from_type_expr(arg));
+    }
+
+    return this.resolve_type_expr(item.type_expr, substitutions, new Set());
+  }
+
   type_from_type_expr(type_expr: TypeExpr): SourceTypeFact {
     return this.resolve_type_expr(type_expr, new Map(), new Set());
   }
@@ -3784,7 +4153,13 @@ class SourceFactRecorder {
         return named_type("unknown");
       }
 
-      return value;
+      let modality: SourceTypeModality = "borrowed";
+
+      if (type_expr.tag === "frozen") {
+        modality = "frozen";
+      }
+
+      return source_type_with_modality(value, modality);
     }
 
     if (type_expr.tag === "tuple") {
@@ -4074,6 +4449,35 @@ class SourceFactRecorder {
     target: SourceTypeFact | undefined,
     case_name: string,
   ): SourceTypeFact | undefined {
+    if (target !== undefined && is_type_variable(target)) {
+      const candidates: SourceTypeFact[] = [];
+
+      for (const name of this.declarations.keys()) {
+        const candidate = this.type_from_name(name);
+
+        if (source_cases(candidate)?.has(case_name)) {
+          candidates.push(candidate);
+        }
+      }
+
+      for (const name of this.type_values.keys()) {
+        const candidate = this.type_from_name(name);
+
+        if (
+          source_cases(candidate)?.has(case_name) &&
+          !candidates.some((existing) => existing.name === candidate.name)
+        ) {
+          candidates.push(candidate);
+        }
+      }
+
+      if (candidates.length === 1) {
+        const candidate = candidates[0];
+        expect(candidate, "Missing inferred union case owner");
+        Object.assign(target, candidate);
+      }
+    }
+
     const cases = source_cases(target);
 
     if (cases === undefined) {
@@ -4250,6 +4654,11 @@ function expression_returns(expr: FrontExpr): boolean {
   }
 
   return false;
+}
+
+function is_bytes_generate_target(expr: FrontExpr): boolean {
+  return expr.tag === "field" && expr.name === "generate" &&
+    expr.object.tag === "var" && expr.object.name === "Bytes";
 }
 
 function builtin_call_result(
@@ -4567,7 +4976,9 @@ function builtin_call_result(
       args[1] !== undefined && is_i32_family(args[1]) &&
       args[2] !== undefined && is_i32_family(args[2])
     ) {
-      return args[0];
+      const value = args[0];
+      expect(value, "Missing @slice source type");
+      return source_type_with_modality(value, "owned");
     }
 
     return undefined;
@@ -4578,7 +4989,7 @@ function builtin_call_result(
     is_text_family(args[1]) && args[0] !== undefined &&
     args[1] !== undefined && args[0].resolved_name === args[1].resolved_name
   ) {
-    return args[0];
+    return source_type_with_modality(args[0], "owned");
   }
 
   return undefined;
@@ -4724,7 +5135,9 @@ function named_type(name: string, nominal?: string): SourceTypeFact {
     alias_target: undefined,
     type_set: undefined,
     inference_variable: false,
+    modality: "owned",
     quantified_variables: undefined,
+    recursive_inference: false,
   };
   return type;
 }
@@ -5491,6 +5904,8 @@ function clone_source_type(
   const result = named_type(source.name, source.nominal);
   result.resolved_name = source.resolved_name;
   result.inference_variable = source.inference_variable;
+  result.modality = source.modality;
+  result.recursive_inference = source.recursive_inference;
   result.positional_fields = source.positional_fields;
   copied.set(source, result);
 
@@ -6146,6 +6561,78 @@ function common_type_facts(
   }
 
   return first;
+}
+
+function common_call_parameter_type(
+  types: (SourceTypeFact | undefined)[],
+): SourceTypeFact | undefined {
+  const common = common_type_facts(types);
+
+  if (common === undefined) {
+    return undefined;
+  }
+
+  let modality: SourceTypeModality = "owned";
+
+  if (types.some((type) => type?.modality === "borrowed")) {
+    modality = "borrowed";
+  } else if (
+    types.length > 0 && types.every((type) => type?.modality === "frozen")
+  ) {
+    modality = "frozen";
+  }
+
+  return source_type_with_modality(common, modality);
+}
+
+function source_callable_signature_key(type: SourceTypeFact): string {
+  const params = type.call_params?.map((param) => {
+    if (param === undefined) {
+      return "missing";
+    }
+
+    return param.modality + " " + param.name;
+  }).join(",");
+  let result = "missing";
+
+  if (type.call_result !== undefined) {
+    result = type.call_result.modality + " " + type.call_result.name;
+  }
+
+  return params + " -> " + result;
+}
+
+function projected_source_type(
+  object: SourceTypeFact,
+  field: SourceTypeFact | undefined,
+): SourceTypeFact | undefined {
+  if (
+    field === undefined || object.modality === "owned" ||
+    source_type_is_copy(field)
+  ) {
+    return field;
+  }
+
+  return source_type_with_modality(field, object.modality);
+}
+
+function source_type_is_copy(type: SourceTypeFact): boolean {
+  return is_numeric_type(type) || type.resolved_name === "Bool" ||
+    type.resolved_name === "Char" || type.resolved_name === "Unit" ||
+    type.resolved_name.startsWith("#");
+}
+
+function source_type_with_modality(
+  type: SourceTypeFact,
+  modality: SourceTypeModality,
+): SourceTypeFact {
+  if (type.modality === modality) {
+    return type;
+  }
+
+  const result = clone_source_type(type, new Map(), new Map());
+  result.modality = modality;
+  return result;
 }
 
 function source_type_fact_is_resolved(

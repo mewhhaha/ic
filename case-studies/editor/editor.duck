@@ -1,6 +1,6 @@
 module (!init: Init) where
 
-const { cast, not, struct } = import "duck:prelude" ()
+const { cast, not, slice, struct } = import "duck:prelude" ()
 
 type Piece = Bytes
 type Pieces = List Piece
@@ -28,73 +28,48 @@ const one_piece: Bytes -> Pieces = bytes => {
 }
 
 let reverse_pieces: Pieces -> Pieces = (pieces: Pieces) => {
-  let current: Pieces = pieces
   let reversed: Pieces = empty_pieces()
 
-  loop {
-    if let `Cons payload = current {
-      let node: ListNode Bytes = payload
-      let [piece, tail] = node
-      let next: ListNode Bytes = [piece, reversed]
-      reversed = `Cons next
-      current = tail
-    } else {
-      break
-    }
+  for piece in pieces {
+    let next = [piece, reversed]
+    reversed = `Cons next
   }
 
   reversed
 }
 
 let append_pieces: [Pieces, Pieces] -> Pieces = (left: Pieces, right: Pieces) => {
-  let current: Pieces = reverse_pieces(left)
-  let appended: Pieces = right
+  let appended = right
 
-  loop {
-    if let `Cons payload = current {
-      let node: ListNode Bytes = payload
-      let [piece, tail] = node
-      let next: ListNode Bytes = [piece, appended]
-      appended = `Cons next
-      current = tail
-    } else {
-      break
-    }
+  for piece in reverse_pieces(left) {
+    let next = [piece, appended]
+    appended = `Cons next
   }
 
   appended
 }
 
-let piece_table: Bytes -> PieceTable = bytes => {
-  if @len(bytes) == 0 {
+let piece_table = bytes => {
+  if bytes.length() == 0 {
     PieceTable.new { .pieces = empty_pieces(), .length = 0 }
   } else {
-    PieceTable.new { .pieces = one_piece(bytes), .length = @len(bytes) }
+    PieceTable.new { .pieces = one_piece(bytes), .length = bytes.length() }
   }
 }
 
-let byte_at: [&PieceTable, I32] -> I32 = (table: &PieceTable, wanted: I32) => {
-  let current: Pieces = table.pieces
+let byte_at = (table, wanted) => {
   let remaining = wanted
   let found = 0
 
-  loop {
-    if let `Cons payload = current {
-      let node: ListNode Bytes = payload
-      let [piece, tail] = node
-      let piece_bytes: Bytes = piece
-      let piece_length = @len(piece_bytes)
+  for piece in table.pieces {
+    let piece_length = piece.length()
 
-      if remaining < piece_length {
-        found = piece_bytes[remaining]
-        break
-      }
-
-      remaining = remaining - piece_length
-      current = tail
-    } else {
+    if remaining < piece_length {
+      found = piece[remaining]
       break
     }
+
+    remaining = remaining - piece_length
   }
 
   found
@@ -102,32 +77,30 @@ let byte_at: [&PieceTable, I32] -> I32 = (table: &PieceTable, wanted: I32) => {
 
 let split_pieces: [Pieces, I32] -> PieceSplit = (pieces: Pieces, position: I32) => {
   let remaining = position
-  let current: Pieces = pieces
-  let reversed_left: Pieces = empty_pieces()
-  let right: Pieces = empty_pieces()
+  let current = pieces
+  let reversed_left = empty_pieces()
+  let right = empty_pieces()
 
   loop {
     if let `Cons payload = current {
-      let node: ListNode Bytes = payload
-      let [piece, tail] = node
-      let piece_bytes: Bytes = piece
-      let piece_length = @len(piece_bytes)
+      let [piece, tail] = payload
+      let piece_length = piece.length()
 
       if remaining == 0 {
-        let right_node: ListNode Bytes = [piece_bytes, tail]
+        let right_node = [piece, tail]
         right = `Cons right_node
         break
       } else if remaining < piece_length {
-        let left_bytes = @slice(&piece_bytes, 0, remaining)
-        let right_bytes = @slice(&piece_bytes, remaining, piece_length)
-        let left_node: ListNode Bytes = [left_bytes, reversed_left]
-        let right_node: ListNode Bytes = [right_bytes, tail]
+        let left_bytes = slice(&piece, 0, remaining)
+        let right_bytes = slice(&piece, remaining, piece_length)
+        let left_node = [left_bytes, reversed_left]
+        let right_node = [right_bytes, tail]
         reversed_left = `Cons left_node
         right = `Cons right_node
         break
       } else {
         remaining = remaining - piece_length
-        let left_node: ListNode Bytes = [piece_bytes, reversed_left]
+        let left_node = [piece, reversed_left]
         reversed_left = `Cons left_node
         current = tail
       }
@@ -136,65 +109,55 @@ let split_pieces: [Pieces, I32] -> PieceSplit = (pieces: Pieces, position: I32) 
     }
   }
 
-  [reverse_pieces(reversed_left), right] as PieceSplit
+  [reverse_pieces(reversed_left), right]
 }
 
-let insert_bytes: [PieceTable, I32, Bytes] -> PieceTable = (table: PieceTable, position: I32, bytes: Bytes) => {
-  if @len(bytes) == 0 {
+let insert_bytes = (table, position, bytes) => {
+  if bytes.length() == 0 {
     table
   } else {
     let [left, right] = split_pieces(table.pieces, position)
-    let inserted: Pieces = one_piece(bytes)
-    let inserted_right: Pieces = append_pieces(inserted, right)
-    let pieces: Pieces = append_pieces(left, inserted_right)
-    PieceTable.new { .pieces = pieces, .length = table.length + @len(bytes) }
+    let inserted = one_piece(bytes)
+    let inserted_right = append_pieces(inserted, right)
+    let pieces = append_pieces(left, inserted_right)
+    PieceTable.new { .pieces = pieces, .length = table.length + bytes.length() }
   }
 }
 
-let delete_bytes: [PieceTable, I32, I32] -> PieceTable = (table: PieceTable, start: I32, end: I32) => {
+let delete_bytes = (table, start, end) => {
   if start >= end {
     table
   } else {
     let [prefix, suffix] = split_pieces(table.pieces, end)
     let [left, removed] = split_pieces(prefix, start)
     let _ = removed
-    let pieces: Pieces = append_pieces(left, suffix)
+    let pieces = append_pieces(left, suffix)
     PieceTable.new { .pieces = pieces, .length = table.length - (end - start) }
   }
 }
 
-let materialize: &PieceTable -> Bytes = (table: &PieceTable) => {
-  let output: Bytes = @Bytes.generate(table.length, _ => 0)
-  let current: Pieces = table.pieces
+let materialize = table => {
+  let output = Bytes.generate(table.length, _ => 0)
   let output_offset = 0
 
-  loop {
-    if let `Cons payload = current {
-      let node: ListNode Bytes = payload
-      let [piece, tail] = node
-      let piece_bytes: Bytes = piece
-
-      for index in 0..@len(piece_bytes) {
-        output[output_offset + index] = piece_bytes[index]
-      }
-
-      output_offset = output_offset + @len(piece_bytes)
-      current = tail
-    } else {
-      break
+  for piece in table.pieces {
+    for index in 0..piece.length() {
+      output[output_offset + index] = piece[index]
     }
+
+    output_offset = output_offset + piece.length()
   }
 
   output
 }
 
-let selection_start: &Selection -> I32 = (selection: &Selection) => {
+let selection_start = selection => {
   if selection.anchor < selection.head { selection.anchor } else { selection.head }
 }
 
-let is_utf8_continuation: I32 -> Bool = byte => byte >= 0x80 && byte < 0xc0
+let is_utf8_continuation = byte => byte >= 0x80 && byte < 0xc0
 
-let next_character: [&PieceTable, I32] -> I32 = (table: &PieceTable, position: I32) => {
+let next_character = (table, position) => {
   let next = position + 1
   let table_length = table.length
 
@@ -208,7 +171,7 @@ let next_character: [&PieceTable, I32] -> I32 = (table: &PieceTable, position: I
   next
 }
 
-let previous_character: [&PieceTable, I32] -> I32 = (table: &PieceTable, position: I32) => {
+let previous_character = (table, position) => {
   let previous = position - 1
 
   loop {
@@ -221,7 +184,7 @@ let previous_character: [&PieceTable, I32] -> I32 = (table: &PieceTable, positio
   previous
 }
 
-let clamp_character: [&PieceTable, I32] -> I32 = (table: &PieceTable, position: I32) => {
+let clamp_character = (table, position) => {
   if table.length == 0 {
     0
   } else if position < 0 {
@@ -233,7 +196,7 @@ let clamp_character: [&PieceTable, I32] -> I32 = (table: &PieceTable, position: 
   }
 }
 
-let selection_head_end: [&PieceTable, &Selection] -> I32 = (table: &PieceTable, selection: &Selection) => {
+let selection_head_end = (table, selection) => {
   if table.length == 0 {
     0
   } else {
@@ -242,13 +205,13 @@ let selection_head_end: [&PieceTable, &Selection] -> I32 = (table: &PieceTable, 
   }
 }
 
-let move_head: [Editor, I32] -> Editor = (editor: Editor, position: I32) => {
+let move_head = (editor, position) => {
   let head = clamp_character(&editor.document, position)
   let anchor = if editor.extend { editor.selection.anchor } else { head }
   editor :+ { .selection = Selection.new { .anchor = anchor, .head = head } }
 }
 
-let collapse: [Editor, I32] -> Editor = (editor: Editor, position: I32) => {
+let collapse = (editor, position) => {
   let cursor = clamp_character(&editor.document, position)
   editor :+ {
     .selection = Selection.new { .anchor = cursor, .head = cursor },
@@ -256,7 +219,7 @@ let collapse: [Editor, I32] -> Editor = (editor: Editor, position: I32) => {
   }
 }
 
-let delete_selection: Editor -> Editor = (editor: Editor) => {
+let delete_selection = editor => {
   let start = selection_start(&editor.selection)
   let end = selection_head_end(&editor.document, &editor.selection)
   let document = delete_bytes(editor.document, start, end)
@@ -264,15 +227,15 @@ let delete_selection: Editor -> Editor = (editor: Editor) => {
   collapse(updated, start)
 }
 
-let insert_byte: [Editor, I32] -> Editor = (editor: Editor, byte: I32) => {
-  let bytes: Bytes = @Bytes.generate(1, _ => byte)
+let insert_byte = (editor, byte) => {
+  let bytes = Bytes.generate(1, _ => byte)
   let position = editor.selection.head
   let document = insert_bytes(editor.document, position, bytes)
   let updated = editor :+ { .document = document }
   collapse(updated, position + 1)
 }
 
-let apply_normal_byte: [Editor, I32] -> Editor = (editor: Editor, byte: I32) => {
+let apply_normal_byte = (editor, byte) => {
   if byte == cast('h', I32) {
     move_head(editor, previous_character(&editor.document, editor.selection.head))
   } else if byte == cast('l', I32) {
@@ -300,7 +263,7 @@ let apply_normal_byte: [Editor, I32] -> Editor = (editor: Editor, byte: I32) => 
   }
 }
 
-let apply_insert_byte: [Editor, I32] -> Editor = (editor: Editor, byte: I32) => {
+let apply_insert_byte = (editor, byte) => {
   if byte == 27 {
     editor :+ { .insert_mode = false }
   } else if byte == 8 || byte == 127 {
@@ -319,7 +282,7 @@ let apply_insert_byte: [Editor, I32] -> Editor = (editor: Editor, byte: I32) => 
   }
 }
 
-let apply_key_byte: [Editor, I32] -> Editor = (editor: Editor, byte: I32) => {
+let apply_key_byte = (editor, byte) => {
   if editor.insert_mode {
     apply_insert_byte(editor, byte)
   } else {
@@ -327,13 +290,13 @@ let apply_key_byte: [Editor, I32] -> Editor = (editor: Editor, byte: I32) => {
   }
 }
 
-let apply_keys: [Editor, Bytes] -> Editor = (editor: Editor, keys: Bytes) => {
+let apply_keys = (editor, keys) => {
   let updated = editor
   let index = 0
 
   loop {
-    if index >= @len(keys) { break }
-    if keys[index] == 27 && index + 2 < @len(keys) && keys[index + 1] == cast('[', I32) {
+    if index >= keys.length() { break }
+    if keys[index] == 27 && index + 2 < keys.length() && keys[index + 1] == cast('[', I32) {
       let arrow = keys[index + 2]
 
       if arrow == cast('D', I32) {
@@ -352,25 +315,25 @@ let apply_keys: [Editor, Bytes] -> Editor = (editor: Editor, keys: Bytes) => {
   updated
 }
 
-let append_escape: [Bytes, I32, I32] -> Bytes = (output: Bytes, used: I32, code: I32) => {
+let append_escape = (output, used, code) => {
   output[used] = 27
   output[used + 1] = 91
   output[used + 2] = code
   output
 }
 
-let render: [Bytes, I32, I32, Bool, Bool, Bool, I32, I32] -> Bytes = (
-  document: Bytes,
-  selected_start: I32,
-  selected_end: I32,
-  insert_mode: Bool,
-  extend: Bool,
-  save_failed: Bool,
-  columns: I32,
-  rows: I32) => {
+let render = (
+  document,
+  selected_start,
+  selected_end,
+  insert_mode,
+  extend,
+  save_failed,
+  columns,
+    rows) => {
     let visible_rows = if rows > 2 { rows - 1 } else { 1 }
     let visible_columns = if columns > 8 { columns } else { 8 }
-    let output: Bytes = @Bytes.generate(@len(document) + visible_rows * 8 + visible_columns + 128, _ => 0)
+    let output = Bytes.generate(document.length() + visible_rows * 8 + visible_columns + 128, _ => 0)
     let used = 0
     output = append_escape(output, used, 72)
     used = used + 3
@@ -382,7 +345,7 @@ let render: [Bytes, I32, I32, Bool, Bool, Bool, I32, I32] -> Bytes = (
     let column = 0
 
     loop {
-      if position >= @len(document) || row >= visible_rows { break }
+      if position >= document.length() || row >= visible_rows { break }
       if position == selected_start {
         output = append_escape(output, used, 55)
         output[used + 3] = 109
@@ -434,7 +397,7 @@ let render: [Bytes, I32, I32, Bool, Bool, Bool, I32, I32] -> Bytes = (
     output = append_escape(output, used, 55)
     output[used + 3] = 109
     used = used + 4
-    let label: Text = if save_failed {
+    let label = if save_failed {
       " SAVE FAILED  w retry  q quit "
     } else if insert_mode {
       " INSERT  esc normal "
@@ -444,7 +407,7 @@ let render: [Bytes, I32, I32, Bool, Bool, Bool, I32, I32] -> Bytes = (
       " NORMAL  h/l move  v extend  d delete  i/a insert  w save  q quit "
     }
 
-    for label_index in 0..@len(label) {
+    for label_index in 0..label.length() {
       if label_index < visible_columns {
         output[used] = label[label_index]
         used = used + 1
@@ -454,12 +417,12 @@ let render: [Bytes, I32, I32, Bool, Bool, Bool, I32, I32] -> Bytes = (
     output = append_escape(output, used, 48)
     output[used + 3] = 109
     used = used + 4
-    @slice(&output, 0, used)
+    slice(&output, 0, used)
   }
 
 document <- Terminal.load()
 let initial_document = piece_table(document)
-let editor: Editor = Editor.new {
+let editor = Editor.new {
   .document = initial_document,
   .selection = Selection.new { .anchor = 0, .head = 0 },
   .insert_mode = false,
@@ -474,10 +437,10 @@ loop {
   if not(running) { break }
   columns <- Terminal.columns()
   rows <- Terminal.rows()
-  let rendered_document: Bytes = materialize(&editor.document)
+  let rendered_document = materialize(&editor.document)
   let rendered_start = selection_start(&editor.selection)
   let rendered_end = selection_head_end(&editor.document, &editor.selection)
-  let frame: Bytes = render(
+  let frame = render(
     rendered_document,
     rendered_start,
     rendered_end,
@@ -494,7 +457,7 @@ loop {
     editor = apply_keys(editor, keys)
 
     if editor.save_requested {
-      let contents: Bytes = materialize(&editor.document)
+      let contents = materialize(&editor.document)
       save_result <- Terminal.save(&contents)
       editor = editor :+ { .save_requested = false }
 

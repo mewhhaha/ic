@@ -10,7 +10,11 @@ import {
 } from "../frontend/effect_analysis.ts";
 import { format_expr, format_source } from "../frontend/format.ts";
 import { name_sites } from "../frontend/name_site.ts";
-import { source_facts, type SourceFacts } from "../frontend/source_facts.ts";
+import { editor_source_facts } from "../frontend/editor_source_facts.ts";
+import {
+  source_type_display_name,
+  type SourceFacts,
+} from "../frontend/source_facts.ts";
 import {
   has_source_span,
   source_span,
@@ -87,7 +91,7 @@ export function hover(
   offset: number,
   encoding: PositionEncoding,
 ): LspHover | undefined {
-  const facts = source_facts(source);
+  const facts = editor_source_facts(source);
   const occurrence = index.occurrence_at(offset);
 
   if (occurrence === undefined || occurrence.entity === undefined) {
@@ -434,7 +438,7 @@ function editor_expr_type_name(
   const editor_type = facts.editor_type_of.get(expr);
 
   if (editor_type !== undefined) {
-    return editor_type.name;
+    return source_type_display_name(editor_type);
   }
 
   if (expr.tag === "bool") {
@@ -764,8 +768,11 @@ function editor_entity_type_name(
     const definition_type = facts.definition_type_of.get(binding.statement)
       ?.get(slot);
 
-    if (definition_type !== undefined) {
-      return definition_type.name;
+    if (
+      definition_type !== undefined &&
+      definition_type.resolved_name !== "unknown"
+    ) {
+      return source_type_display_name(definition_type);
     }
   }
 
@@ -777,7 +784,7 @@ function editor_entity_type_name(
     inferred_definition !== undefined &&
     inferred_definition.resolved_name !== "unknown"
   ) {
-    return inferred_definition.name;
+    return source_type_display_name(inferred_definition);
   }
 
   const entity_facts = index.facts.get(entity.id);

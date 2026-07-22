@@ -17,6 +17,23 @@ Deno.test("format_text keeps unary sigils tight", () => {
   );
 });
 
+Deno.test("format_text uses whitespace for atomic unary calls", () => {
+  assert_equals(
+    format_text(
+      "let direct=func(a)\n" +
+        "let spaced=func (a)\n" +
+        "let passed=func\n" +
+        "let grouped=func(a+b)\n" +
+        "let packed=func(a,b)\n",
+    ),
+    "let direct = func a\n" +
+      "let spaced = func a\n" +
+      "let passed = func\n" +
+      "let grouped = func(a + b)\n" +
+      "let packed = func(a, b)\n",
+  );
+});
+
 Deno.test("format_text separates prefix operators from fixity assignment", () => {
   assert_equals(
     format_text("prefix 80 ! = @syntax.not\n"),

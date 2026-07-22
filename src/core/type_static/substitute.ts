@@ -256,6 +256,7 @@ function substitute_core_type_stmt(
         index: stmt.index,
         start: substitute_core_type_expr(stmt.start, type_args),
         end: substitute_core_type_expr(stmt.end, type_args),
+        end_bound: stmt.end_bound,
         step: substitute_core_type_expr(stmt.step, type_args),
         carried: stmt.carried,
         body: stmt.body.map((item) =>

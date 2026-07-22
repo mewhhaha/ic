@@ -220,6 +220,24 @@ Deno.test("semantic validation optionally reports unused binding warnings", () =
   }]);
 });
 
+Deno.test("semantic validation warns when prelude intrinsics escape", () => {
+  const source = parse_source('@len("duck")');
+  assert_equals(validate_frontend_semantics(source, { warnings: true }), [{
+    code: "DUCK2004",
+    severity: "warning",
+    message:
+      "Raw intrinsic @len is reserved for prelude and compiler-facing source",
+    span: { start: 0, end: 4 },
+  }]);
+  assert_equals(
+    validate_frontend_semantics(source, {
+      warnings: true,
+      allow_intrinsics: true,
+    }),
+    [],
+  );
+});
+
 Deno.test("semantic validation counts cast operands as binding uses", () => {
   const source = parse_source("let value = 1\nvalue as I32");
   assert_equals(validate_frontend_semantics(source, { warnings: true }), []);

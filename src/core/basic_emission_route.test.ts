@@ -123,6 +123,18 @@ choose(1)
   assert_includes(wat, "i64.const 2");
 });
 
+Deno.test("nested static calls shadow same-named parameters", () => {
+  const core = Source.core(Source.parse(`
+let inner = (value: I64) => value
+let outer = (value: I32) => inner(42i64)
+outer(0)
+`));
+  const wat = Emit.emit(Core, core);
+
+  assert_equals(Typed.type(Core, core), "i64");
+  assert_includes(wat, "i64.const 42");
+});
+
 Deno.test("Core.emit retags numeric primitives from operand facts", () => {
   const core = Source.core(Source.parse(`
 let factor: I64 = 2i64
@@ -1093,6 +1105,26 @@ xs[i]
       ),
     "Core collection item type mismatch: i32, got i64",
   );
+});
+
+Deno.test("Core.emit lowers nested tuple indexes from runtime aggregate parameters", () => {
+  const core = Source.core(Source.parse(`
+type Entry = [Text, I64]
+type Pair = [Entry, I32]
+
+let rec second: Pair -> I64 = pair => {
+  let [entry, _] = pair
+  let [_, timestamp] = entry
+  timestamp
+}
+
+let pair: Pair = [["duck", 42i64], 1]
+second(pair)
+`));
+
+  const wat = Emit.emit(Mod, Core.mod(core));
+
+  assert_includes(wat, "i64.load");
 });
 
 Deno.test("Core.emit lowers static aggregate len and get calls", () => {
@@ -2619,6 +2651,20 @@ xs[0]
   );
 });
 
+Deno.test("Core.emit tracks unannotated conditional text bindings", () => {
+  const core = Source.core(Source.parse(`
+let flag = true
+let label = if flag { "left" } else { "right" }
+label[0]
+`));
+
+  const wat = Emit.emit(Core, core);
+
+  assert_includes(wat, "if (result i32)");
+  assert_includes(wat, "i32.const 108");
+  assert_includes(wat, "i32.const 114");
+});
+
 Deno.test("Core.emit lowers static if let statements", () => {
   const core = Source.core(Source.parse(`
 let result = 0
@@ -2659,6 +2705,47 @@ result
   assert_includes(wat, "i32.const 1");
   assert_includes(wat, "local.set $z");
   assert_includes(wat, "local.set $result");
+});
+
+Deno.test("Core emits nested runtime union match cleanup on return and fallthrough", () => {
+  const core = Source.core(Source.parse(`
+host_import branch_flag from "env.flag" () => I32
+type ResultType = | \`Ok I32 | \`Err I32
+let rec choose: Bool -> ResultType = (flag: Bool) => {
+  if flag { \`Ok 21 } else { \`Err 0 }
+}
+
+if branch_flag() {
+  let ignored = 0
+}
+
+if let \`Ok first = choose(branch_flag()) {
+  if let \`Ok second = choose(branch_flag()) {
+    return first + second
+  }
+}
+
+0
+`));
+  const proof = Core.proof(core);
+  const wat = Emit.emit(Mod, Core.mod(core));
+
+  assert_equals(proof.ok, true);
+  assert_equals(
+    proof.drops.steps.map((step) => step.edge),
+    [
+      "return_exit",
+      "return_exit",
+      "conditional_cleanup",
+      "conditional_cleanup",
+    ],
+  );
+  assert_equals(wat.split("call $__free").length - 1, 4);
+  const main = wat.slice(wat.indexOf("(func $main"));
+  assert_equals(
+    main.indexOf("call $__free") > main.indexOf("call $choose"),
+    true,
+  );
 });
 
 Deno.test("Core.emit lowers static if let expressions", () => {

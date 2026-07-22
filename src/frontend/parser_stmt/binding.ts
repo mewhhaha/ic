@@ -286,7 +286,7 @@ export abstract class ParserStmtBinding extends ParserStmtControl {
   }
 }
 
-function apply_function_result_context(
+export function apply_function_result_context(
   value: FrontExpr,
   annotation: TypeExpr | undefined,
 ): FrontExpr {

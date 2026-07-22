@@ -18,6 +18,7 @@ import {
 import { core_expr_ownership } from "../ownership.ts";
 import { mutable_static_owner_value_materializes } from "../mutable_static_owner.ts";
 import {
+  runtime_aggregate_field_base_offset,
   runtime_aggregate_layout,
   runtime_aggregate_layout_for_type,
 } from "../runtime_aggregate.ts";
@@ -256,6 +257,8 @@ function scan_allocation_stmt<ctx>(
           stmt.name,
           value,
           allocation_start,
+          ctx,
+          hooks,
           state,
         );
         return;
@@ -301,13 +304,26 @@ function scan_allocation_stmt<ctx>(
             );
         }
         let static_struct;
+        let allocation_value: CoreExpr = value;
+        let allocation_ctx: ctx = ctx;
         if (!static_setup) {
-          static_struct = scan_mutable_static_struct_allocation(
-            stmt.name,
+          const static_block = scan_static_block_setup_allocations(
             value,
-            "bind:" + stmt.name + ":" + allocation_start.toString(),
             scope,
             ctx,
+            hooks,
+            state,
+          );
+          if (static_block) {
+            allocation_value = static_block.value;
+            allocation_ctx = static_block.ctx;
+          }
+          static_struct = scan_mutable_static_struct_allocation(
+            stmt.name,
+            allocation_value,
+            "bind:" + stmt.name + ":" + allocation_start.toString(),
+            scope,
+            allocation_ctx,
             hooks,
             state,
             (state.materialized_bindings.has(stmt.name) ||
@@ -318,9 +334,9 @@ function scan_allocation_stmt<ctx>(
         }
         if (!static_struct) {
           static_struct = scan_static_value_allocation_expr(
-            value,
+            allocation_value,
             scope,
-            ctx,
+            allocation_ctx,
             hooks,
             state,
             materializes_runtime_union,
@@ -328,6 +344,9 @@ function scan_allocation_stmt<ctx>(
             scan_allocation_expr,
             scan_allocation_fields,
           );
+        }
+        if (allocation_value !== value) {
+          copy_value_allocation_facts(value, allocation_value, state);
         }
         scan_static_composite_closure_value(
           value,
@@ -380,6 +399,8 @@ function scan_allocation_stmt<ctx>(
           stmt.name,
           value,
           allocation_start,
+          ctx,
+          hooks,
           state,
         );
         return;
@@ -406,6 +427,8 @@ function scan_allocation_stmt<ctx>(
         stmt.name,
         value,
         allocation_start,
+        ctx,
+        hooks,
         state,
       );
       register_normalized_allocation_value(stmt.value, value, state);
@@ -490,22 +513,35 @@ function scan_allocation_stmt<ctx>(
             );
         }
         let static_struct;
+        let allocation_value: CoreExpr = value;
+        let allocation_ctx: ctx = ctx;
         if (!static_setup) {
-          static_struct = scan_mutable_static_struct_allocation(
-            stmt.name,
+          const static_block = scan_static_block_setup_allocations(
             value,
-            "assign:" + stmt.name + ":" + allocation_start.toString(),
             scope,
             ctx,
+            hooks,
+            state,
+          );
+          if (static_block) {
+            allocation_value = static_block.value;
+            allocation_ctx = static_block.ctx;
+          }
+          static_struct = scan_mutable_static_struct_allocation(
+            stmt.name,
+            allocation_value,
+            "assign:" + stmt.name + ":" + allocation_start.toString(),
+            scope,
+            allocation_ctx,
             hooks,
             state,
           );
         }
         if (!static_struct) {
           static_struct = scan_static_value_allocation_expr(
-            value,
+            allocation_value,
             scope,
-            ctx,
+            allocation_ctx,
             hooks,
             state,
             materializes_runtime_union,
@@ -513,6 +549,9 @@ function scan_allocation_stmt<ctx>(
             scan_allocation_expr,
             scan_allocation_fields,
           );
+        }
+        if (allocation_value !== value) {
+          copy_value_allocation_facts(value, allocation_value, state);
         }
         scan_static_composite_closure_value(
           value,
@@ -565,6 +604,8 @@ function scan_allocation_stmt<ctx>(
           stmt.name,
           value,
           allocation_start,
+          ctx,
+          hooks,
           state,
         );
         return;
@@ -591,6 +632,8 @@ function scan_allocation_stmt<ctx>(
         stmt.name,
         value,
         allocation_start,
+        ctx,
+        hooks,
         state,
       );
       register_normalized_allocation_value(stmt.value, value, state);
@@ -1011,10 +1054,12 @@ function bind_static_closure_alias<ctx>(
   return true;
 }
 
-function update_runtime_allocation_binding(
+function update_runtime_allocation_binding<ctx>(
   name: string,
   value: CoreExpr,
   allocation_start: number,
+  ctx: ctx,
+  hooks: CoreAllocationHooks<ctx>,
   state: CoreAllocationState,
 ): void {
   const new_facts = state.facts.slice(allocation_start);
@@ -1024,6 +1069,34 @@ function update_runtime_allocation_binding(
   }
   if (value_facts.length > 0) {
     state.binding_allocations.set(name, value_facts);
+  } else if (
+    value.tag === "field" && value.move &&
+    (value.object.tag === "var" || value.object.tag === "linear") &&
+    hooks.runtime_aggregate_type_expr
+  ) {
+    const object_type = hooks.runtime_aggregate_type_expr(value.object, ctx);
+    const source = state.binding_allocations.get(value.object.name);
+    let moves_base_pointer = false;
+
+    if (object_type !== undefined) {
+      const layout = runtime_aggregate_layout_for_type(
+        object_type,
+        ctx as ctx & TypeStaticCtx,
+      );
+      const field = layout.fields.find((candidate) => {
+        return candidate.name === value.name;
+      });
+      moves_base_pointer = field?.tag === "struct" &&
+        runtime_aggregate_field_base_offset(field) === 0;
+    }
+
+    if (moves_base_pointer && source !== undefined) {
+      set_value_allocation_facts(value, source, state);
+      state.binding_allocations.set(name, [...source]);
+      state.runtime_bindings.add(name);
+      return;
+    }
+    state.binding_allocations.delete(name);
   } else if (
     (value.tag === "var" || value.tag === "linear") &&
     state.binding_allocations.has(value.name)
@@ -1823,6 +1896,38 @@ function scan_mutable_static_struct_allocation<ctx>(
     state,
   );
   return struct_value;
+}
+
+function scan_static_block_setup_allocations<ctx>(
+  value: CoreExpr,
+  scope: CoreAllocationScope,
+  ctx: ctx,
+  hooks: CoreAllocationHooks<ctx>,
+  state: CoreAllocationState,
+): { value: CoreExpr; ctx: ctx } | undefined {
+  if (value.tag !== "block" || value.statements.length <= 1) {
+    return undefined;
+  }
+
+  if (!hooks.block_ctx || !hooks.collect_stmt_locals) {
+    return undefined;
+  }
+
+  const block_ctx = hooks.block_ctx(ctx);
+  for (let index = 0; index + 1 < value.statements.length; index += 1) {
+    const stmt = value.statements[index];
+    if (!stmt) {
+      throw new Error("Missing static block setup statement");
+    }
+    scan_allocation_stmt(stmt, scope, block_ctx, hooks, state);
+    hooks.collect_stmt_locals(stmt, block_ctx);
+  }
+
+  const final_value = block_final_allocation_expr(value);
+  if (!final_value) {
+    throw new Error("Static block has no result expression");
+  }
+  return { value: final_value, ctx: block_ctx };
 }
 
 function static_struct_value_requires_owner<ctx>(
@@ -2712,7 +2817,6 @@ function scan_allocation_expr<ctx>(
 
     case "struct_value": {
       if (state.nonmaterialized_struct_values.has(expr)) {
-        scan_allocation_expr(expr.type_expr, scope, ctx, hooks, state);
         const type_value = static_type_value(
           expr.type_expr,
           ctx as ctx & TypeStaticCtx,
@@ -2738,7 +2842,6 @@ function scan_allocation_expr<ctx>(
         state,
         state.current_allocation_instance,
       );
-      scan_allocation_expr(expr.type_expr, scope, ctx, hooks, state);
       const type_value = static_type_value(
         expr.type_expr,
         ctx as ctx & TypeStaticCtx,
@@ -2902,9 +3005,6 @@ function scan_allocation_expr<ctx>(
         );
         return;
       }
-      if (expr.type_expr) {
-        scan_allocation_expr(expr.type_expr, scope, ctx, hooks, state);
-      }
       if (expr.value) {
         scan_allocation_expr(expr.value, scope, ctx, hooks, state);
       }
@@ -3039,6 +3139,42 @@ function scan_runtime_aggregate_field_values<ctx>(
         );
       } else {
         scan_allocation_expr(field.value, scope, ctx, hooks, state);
+        if (parent && parent.storage === "persistent_unique_heap") {
+          let sources = state.value_allocations.get(field.value);
+          if (
+            !sources &&
+            (field.value.tag === "var" || field.value.tag === "linear")
+          ) {
+            sources = state.binding_allocations.get(field.value.name);
+          }
+          const field_offset = runtime_aggregate_field_base_offset(
+            field_layout,
+          );
+          for (const source of sources || []) {
+            for (const owned_child of [...(source.owned_children || [])]) {
+              const children = state.facts.filter((candidate) => {
+                return owned_child.allocation_ids.includes(
+                  candidate.allocation_id,
+                );
+              });
+              attach_allocation_owned_child(
+                parent,
+                field_offset + owned_child.offset,
+                children,
+              );
+              for (const child of children) {
+                unregister_core_allocation_fact_owning_parent(child, source);
+                register_core_allocation_fact_owning_parent(child, parent);
+              }
+              source.owned_children = source.owned_children?.filter(
+                (candidate) => candidate !== owned_child,
+              );
+              if (source.owned_children?.length === 0) {
+                delete source.owned_children;
+              }
+            }
+          }
+        }
       }
       continue;
     }

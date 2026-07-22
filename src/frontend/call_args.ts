@@ -207,21 +207,6 @@ export function push_runtime_specialized_arg(
   });
 }
 
-export function compiler_builtin_args(
-  expr: Extract<FrontExpr, { tag: "app" }>,
-): FrontExpr[] {
-  const packed = expr.args[0];
-
-  if (
-    expr.args.length === 1 && packed !== undefined &&
-    packed.tag === "product"
-  ) {
-    return packed.entries.map((entry) => entry.value);
-  }
-
-  return expr.args;
-}
-
 function validate_const_arg(
   name: string,
   arg: FrontExpr,

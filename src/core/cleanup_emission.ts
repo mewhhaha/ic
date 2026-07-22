@@ -6,7 +6,10 @@ import {
   core_allocation_fact_emission_subjects,
   core_allocation_fact_subject,
 } from "./allocation/metadata.ts";
-import { find_core_diagnostic_subject } from "./source_origin.ts";
+import {
+  core_diagnostic_related_subject,
+  find_core_diagnostic_subject,
+} from "./source_origin.ts";
 
 export function elaborate_core_cleanup_emission(
   core: Core,
@@ -38,8 +41,30 @@ export function elaborate_core_cleanup_emission(
     }
 
     let anchor: CleanupAnchor | undefined;
+    const subject = find_core_diagnostic_subject(step);
+    const related_subject = core_diagnostic_related_subject(step);
 
-    if (step.edge === "assignment_replace") {
+    if (
+      step.edge === "conditional_cleanup" && step.owner === undefined &&
+      subject && cleanup_subject_is_expr(subject)
+    ) {
+      anchor = (anchors.get(step.edge) || []).find((candidate) => {
+        return candidate.stmt.tag === "if_let_stmt" &&
+          candidate.stmt.target === subject;
+      });
+    }
+
+    if (
+      step.edge === "assignment_replace" && related_subject &&
+      related_subject.tag === "assign"
+    ) {
+      anchor = (anchors.get(step.edge) || []).find((candidate) => {
+        return candidate.stmt === related_subject &&
+          candidate.scope === step.scope;
+      });
+    }
+
+    if (!anchor && step.edge === "assignment_replace") {
       const owner = step.owner;
       if (!owner) {
         throw new Error("Assignment cleanup requires an owner");
@@ -54,11 +79,11 @@ export function elaborate_core_cleanup_emission(
       const anchor_index = next_assignment_anchor.get(anchor_key) || 0;
       anchor = assignment_anchors[anchor_index];
       next_assignment_anchor.set(anchor_key, anchor_index + 1);
-    } else if (step.edge === "scope_exit") {
+    } else if (!anchor && step.edge === "scope_exit") {
       anchor = (anchors.get(step.edge) || []).find((candidate) => {
         return candidate.scope === step.scope;
       });
-    } else {
+    } else if (!anchor) {
       let anchor_index = next_anchor.get(step.edge) || 0;
       if (prior_scope.get(step.edge) !== step.scope) {
         next_anchor.set(step.edge, anchor_index + 1);
@@ -97,7 +122,6 @@ export function elaborate_core_cleanup_emission(
       row.destructor_type_expr = destructor_type_expr;
     }
     result.push(row);
-    const subject = find_core_diagnostic_subject(step);
     if (
       step.owner === undefined && subject && cleanup_subject_is_expr(subject)
     ) {

@@ -1,13 +1,19 @@
-import type { Token } from "../frontend/ast.ts";
-import type { SourceSyntax } from "../frontend/syntax.ts";
+import type { FrontExpr, Token } from "../frontend/ast.ts";
+import { parse_source_with_diagnostics } from "../frontend/parser.ts";
+import {
+  has_source_span,
+  source_span,
+  type SourceSyntax,
+} from "../frontend/syntax.ts";
 import { scan_source, source_tokens } from "../frontend/tokenize.ts";
 
 // The formatter is deliberately biased: it re-emits the comment-preserving
 // token stream with fixed spacing, two-space bracket indentation, collapsed
 // blank runs, and canonical string escapes. It never reflows expressions
 // across lines, so the token order (and therefore the parsed program) is
-// unchanged apart from statement `;` separators becoming newlines in the
-// tokenizer. Semicolons inside brackets remain fixed-array separators.
+// unchanged apart from redundant atomic-call parentheses and statement `;`
+// separators becoming newlines in the tokenizer. Semicolons inside brackets
+// remain fixed-array separators.
 
 const keywords = new Set([
   "borrow",
@@ -87,7 +93,12 @@ export function format_syntax(syntax: SourceSyntax): string {
     throw new Error(diagnostic.message);
   }
 
-  const tokens = mark_effect_rows(source_tokens(syntax, { comments: true }));
+  const omitted_parentheses = redundant_unary_call_parentheses(syntax.text);
+  const tokens = mark_effect_rows(
+    source_tokens(syntax, { comments: true }).filter((token) => {
+      return !omitted_parentheses.has(token.span.start);
+    }),
+  );
   const lines = split_lines(tokens);
   const parts: string[] = [];
   const brackets: Bracket[] = [];
@@ -163,6 +174,75 @@ export function format_syntax(syntax: SourceSyntax): string {
   }
 
   return parts.join("\n") + "\n";
+}
+
+function redundant_unary_call_parentheses(text: string): Set<number> {
+  const omitted = new Set<number>();
+  const parsed = parse_source_with_diagnostics(text);
+
+  if (parsed.diagnostics.length > 0) {
+    return omitted;
+  }
+
+  const seen = new WeakSet<object>();
+  const visit = (value: object): void => {
+    if (seen.has(value)) {
+      return;
+    }
+
+    seen.add(value);
+    const expr = value as Partial<FrontExpr>;
+
+    if (
+      expr.tag === "app" && expr.operator_syntax === undefined &&
+      expr.args?.length === 1
+    ) {
+      const arg = expr.arg || expr.args[0];
+
+      if (
+        arg !== undefined && unary_argument_can_be_bare(arg) &&
+        expr.func !== undefined && has_source_span(expr) &&
+        has_source_span(expr.func) && has_source_span(arg)
+      ) {
+        const expression_span = source_span(expr);
+        const function_span = source_span(expr.func);
+        const argument_span = source_span(arg);
+        const before = text.slice(function_span.end, argument_span.start);
+        const after = text.slice(argument_span.end, expression_span.end);
+
+        if (/^[ \t]*\([ \t]*$/.test(before) && /^[ \t]*\)$/.test(after)) {
+          omitted.add(function_span.end + before.lastIndexOf("("));
+          omitted.add(argument_span.end + after.lastIndexOf(")"));
+        }
+      }
+    }
+
+    for (const child of Object.values(value)) {
+      if (child === null || typeof child !== "object") {
+        continue;
+      }
+
+      if (Array.isArray(child)) {
+        for (const entry of child) {
+          if (entry !== null && typeof entry === "object") {
+            visit(entry);
+          }
+        }
+      } else {
+        visit(child);
+      }
+    }
+  };
+  visit(parsed.source);
+  return omitted;
+}
+
+function unary_argument_can_be_bare(expr: FrontExpr): boolean {
+  return expr.tag === "bool" || expr.tag === "num" || expr.tag === "atom" ||
+    expr.tag === "text" || expr.tag === "type_name" || expr.tag === "var" ||
+    expr.tag === "field" || expr.tag === "index" || expr.tag === "linear" ||
+    expr.tag === "shape" || expr.tag === "array" ||
+    (expr.tag === "product" && expr.value_pack !== true);
 }
 
 function mark_effect_rows(tokens: Token[]): FormatToken[] {

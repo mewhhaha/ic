@@ -4,7 +4,7 @@ import {
   resolve_comptime_type,
   resolve_comptime_value,
 } from "./comptime_value.ts";
-import { call_message } from "./fields.ts";
+import { call_message } from "./call_message.ts";
 import { lookup_field } from "./fields.ts";
 import { fixed_array_length } from "./fixed_array_type.ts";
 import { lower_text_builtin_call } from "./builtin_call/text.ts";

@@ -311,6 +311,15 @@ left + right
   assert_includes(wat, "i32.add");
 });
 
+Deno.test("inferred product function results destructure at runtime", () => {
+  const wat = Source.wat(`
+let adjacent = value => [value, value + 1]
+let [first, second] = adjacent(20)
+first + second
+`);
+  assert_includes(wat, "i32.add");
+});
+
 Deno.test("array binding rests retain the unconsumed suffix", () => {
   const wat = Source.wat(`
 let values = [10, 20, 30]

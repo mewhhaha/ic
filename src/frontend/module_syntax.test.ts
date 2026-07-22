@@ -203,6 +203,22 @@ let code = loop {
   assert_includes(formatted, "continue");
 });
 
+Deno.test("inclusive range bounds parse and format", () => {
+  const source = parse_source(`
+for value in 0..=limit {
+  use(value)
+}
+`);
+  const range = source.statements[0];
+
+  if (!range || range.tag !== "for_range") {
+    throw new Error("Expected an inclusive range");
+  }
+
+  assert_equals(range.end_bound, "inclusive");
+  assert_includes(format_source(source), "for value in 0..=limit by 1");
+});
+
 Deno.test("handler syntax parses and formats local effects and resumptions", () => {
   const source = parse_source(`
 effect Counter {

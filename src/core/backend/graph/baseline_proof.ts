@@ -161,7 +161,8 @@ export function core_backend_proof(
       const probe_value = stmt.value.tag === "num" ||
         stmt.value.tag === "text" || stmt.value.tag === "var" ||
         stmt.value.tag === "linear" || stmt.value.tag === "index" ||
-        stmt.value.tag === "field" || stmt.value.tag === "app";
+        stmt.value.tag === "field" || stmt.value.tag === "app" ||
+        stmt.value.tag === "if";
 
       if (stmt.annotation === undefined && !probe_value) {
         return;

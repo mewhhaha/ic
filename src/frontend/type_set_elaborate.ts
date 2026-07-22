@@ -46,7 +46,8 @@ import { is_builtin_type_name } from "./types.ts";
 import { integer_type_name } from "../integer.ts";
 import { prim_returns_bool } from "./numeric.ts";
 import { text_byte_length } from "./text.ts";
-import { compiler_builtin_args, parameter_arguments } from "./call_args.ts";
+import { parameter_arguments } from "./call_args.ts";
+import { compiler_builtin_args } from "./compiler_builtin_args.ts";
 
 type TypeSetBinding = {
   annotation: string | undefined;
@@ -624,6 +625,9 @@ function capture_const_bindings(
 }
 
 export function elaborate_front_type_sets(source: Source): Source {
+  const statements = materialize_structural_function_result_types(
+    source.statements,
+  );
   const scope: TypeSetScope = {
     bindings: new Map(),
     const_evaluation: undefined,
@@ -659,7 +663,7 @@ export function elaborate_front_type_sets(source: Source): Source {
     }
   }
 
-  for (const stmt of source.statements) {
+  for (const stmt of statements) {
     if (stmt.tag === "bind" && stmt.kind === "const") {
       scope.type_values.set(stmt.name, stmt.value);
     }
@@ -677,8 +681,121 @@ export function elaborate_front_type_sets(source: Source): Source {
   return {
     ...source,
     module,
-    statements: rewrite_statements(source.statements, scope),
+    statements: rewrite_statements(statements, scope),
   };
+}
+
+function materialize_structural_function_result_types(
+  statements: Stmt[],
+): Stmt[] {
+  const reserved_names = new Set<string>();
+
+  for (const stmt of statements) {
+    if (stmt.tag === "bind") {
+      reserved_names.add(stmt.name);
+    }
+  }
+
+  const materialized: Stmt[] = [];
+  let next_type = 0;
+
+  for (const stmt of statements) {
+    if (
+      stmt.tag !== "bind" ||
+      (stmt.value.tag !== "lam" && stmt.value.tag !== "rec") ||
+      stmt.type_annotation?.tag === "forall"
+    ) {
+      materialized.push(stmt);
+      continue;
+    }
+
+    const function_type = function_type_expr(stmt.type_annotation);
+
+    if (
+      function_type === undefined || function_type.result.tag !== "product" ||
+      function_type.result.value_pack === true
+    ) {
+      materialized.push(stmt);
+      continue;
+    }
+
+    let type_name = "_duck_result_type_" + next_type.toString();
+    next_type += 1;
+
+    while (reserved_names.has(type_name)) {
+      type_name = "_duck_result_type_" + next_type.toString();
+      next_type += 1;
+    }
+
+    reserved_names.add(type_name);
+    const result_type = function_type.result;
+    const type_value: Extract<FrontExpr, { tag: "struct_type" }> = {
+      tag: "struct_type",
+      fields: result_type.entries.map((entry, index) => {
+        let name = entry.label;
+
+        if (name === undefined) {
+          name = "item_" + index.toString();
+        }
+
+        return {
+          name,
+          type_name: format_type_expr(entry.type_expr),
+          set_member: entry.type_expr,
+        };
+      }),
+    };
+    materialized.push({
+      tag: "bind",
+      kind: "const",
+      name: type_name,
+      is_recursive: false,
+      is_linear: false,
+      annotation: undefined,
+      value: type_value,
+    });
+
+    const named_result: TypeExpr = { tag: "name", name: type_name };
+    const type_annotation = replace_function_result_type(
+      stmt.type_annotation,
+      named_result,
+    );
+    let pattern = stmt.pattern;
+
+    if (pattern?.tag === "binding") {
+      pattern = {
+        ...pattern,
+        annotation: format_type_expr(type_annotation),
+        type_annotation,
+      };
+    }
+
+    materialized.push({
+      ...stmt,
+      annotation: format_type_expr(type_annotation),
+      pattern,
+      type_annotation,
+    });
+  }
+
+  return materialized;
+}
+
+function replace_function_result_type(
+  type: TypeExpr | undefined,
+  result: TypeExpr,
+): TypeExpr {
+  expect(type, "Missing structural function type annotation");
+
+  if (type.tag === "forall") {
+    return {
+      ...type,
+      body: replace_function_result_type(type.body, result),
+    };
+  }
+
+  expect(type.tag === "arrow", "Structural function type must be callable");
+  return { ...type, result };
 }
 
 function rewrite_statements(
@@ -719,79 +836,132 @@ function rewrite_statements(
         continue;
       }
 
-      let compiletime_only = candidate.kind === "const" &&
-        (candidate.value.tag === "rec" || candidate.value.tag === "shape");
+      let candidate_inferred_type = inferred_binding_type;
 
-      if (candidate.kind === "const" && candidate.value.tag === "lam") {
-        const all_params_are_const = candidate.value.params.length > 0 &&
-          candidate.value.params.every((param) => param.is_const);
-        const const_result = unwrap_const_result(candidate.value.body);
+      if (expanded.length > 1) {
+        candidate_inferred_type = static_type_value(
+          candidate.value,
+          scope,
+          new Set(),
+        );
+      }
+
+      let candidate_annotation = candidate.annotation;
+
+      if (
+        candidate_annotation === undefined &&
+        candidate_inferred_type !== undefined
+      ) {
+        const resolved_inferred_type = resolve_front_type_value(
+          candidate_inferred_type,
+          scope.type_values,
+          new Set(),
+        );
+        const inferred_builtin = resolved_inferred_type?.tag === "type_name" &&
+          (resolved_inferred_type.name === "Text" ||
+            resolved_inferred_type.name === "Bytes");
+
+        if (
+          inferred_builtin || resolved_inferred_type?.tag === "union_type"
+        ) {
+          candidate_annotation = format_type_expr(
+            prelude_type_expr(candidate_inferred_type),
+          );
+        }
+      }
+
+      let elaborated_candidate = candidate;
+
+      if (candidate_annotation !== candidate.annotation) {
+        elaborated_candidate = {
+          ...candidate,
+          annotation: candidate_annotation,
+        };
+      }
+
+      let compiletime_only = elaborated_candidate.kind === "const" &&
+        (elaborated_candidate.value.tag === "rec" ||
+          elaborated_candidate.value.tag === "shape");
+
+      if (
+        elaborated_candidate.kind === "const" &&
+        elaborated_candidate.value.tag === "lam"
+      ) {
+        const all_params_are_const = elaborated_candidate.value.params.length >
+            0 &&
+          elaborated_candidate.value.params.every((param) => param.is_const);
+        const const_result = unwrap_const_result(
+          elaborated_candidate.value.body,
+        );
         compiletime_only = expr_requires_type_specialization(
-          candidate.value.body,
+          elaborated_candidate.value.body,
         ) ||
           all_params_are_const ||
-          candidate.value.body.tag === "comptime" ||
+          elaborated_candidate.value.body.tag === "comptime" ||
           const_result.tag === "shape";
       }
 
-      let binding_value = candidate.value;
+      let binding_value = elaborated_candidate.value;
 
       if (
         const_rec !== undefined && stmt.tag === "bind" &&
-        candidate.name === stmt.name
+        elaborated_candidate.name === stmt.name
       ) {
         binding_value = const_rec;
       }
 
-      scope.bindings.set(candidate.name, {
-        annotation: candidate.annotation,
+      scope.bindings.set(elaborated_candidate.name, {
+        annotation: elaborated_candidate.annotation,
         compiletime_only,
-        inferred_type: inferred_binding_type,
-        is_const: candidate.kind === "const",
-        type_annotation: candidate.type_annotation,
+        inferred_type: candidate_inferred_type,
+        is_const: elaborated_candidate.kind === "const",
+        type_annotation: elaborated_candidate.type_annotation,
         value: binding_value,
-        union_type: binding_union_type(candidate.annotation, scope),
+        union_type: binding_union_type(elaborated_candidate.annotation, scope),
       });
 
-      if (candidate.kind === "const") {
-        scope.type_values.set(candidate.name, binding_value);
+      if (elaborated_candidate.kind === "const") {
+        scope.type_values.set(elaborated_candidate.name, binding_value);
 
         if (
           binding_value.tag === "union_type" &&
-          /^[A-Z][A-Za-z0-9]*$/.test(candidate.name)
+          /^[A-Z][A-Za-z0-9]*$/.test(elaborated_candidate.name)
         ) {
-          scope.declared_union_types.set(candidate.name, binding_value);
+          scope.declared_union_types.set(
+            elaborated_candidate.name,
+            binding_value,
+          );
         }
       }
 
       if (compiletime_only) {
         if (scope.evaluating_const_call) {
-          result.push(candidate);
+          result.push(elaborated_candidate);
         }
 
         continue;
       }
 
       if (
-        candidate.kind === "const" &&
-        is_comptime_descriptor_value(candidate.value)
+        elaborated_candidate.kind === "const" &&
+        is_comptime_descriptor_value(elaborated_candidate.value)
       ) {
         continue;
       }
 
-      if (candidate.kind === "const") {
+      if (elaborated_candidate.kind === "const") {
         const storage_type = type_storage_without_namespace(
-          candidate.value,
+          elaborated_candidate.value,
           scope,
         );
 
         if (storage_type !== undefined) {
-          result.push({ ...candidate, value: storage_type });
+          result.push({ ...elaborated_candidate, value: storage_type });
           continue;
         }
       }
 
-      result.push(candidate);
+      result.push(elaborated_candidate);
     }
   }
 
@@ -1457,11 +1627,17 @@ function contextualize_product_value(
   value: FrontExpr,
   annotation: string,
   declared: Extract<FrontExpr, { tag: "struct_type" }>,
+  scope: TypeSetScope,
 ): FrontExpr {
   if (value.tag === "captured") {
     return {
       ...value,
-      expr: contextualize_product_value(value.expr, annotation, declared),
+      expr: contextualize_product_value(
+        value.expr,
+        annotation,
+        declared,
+        scope,
+      ),
     };
   }
 
@@ -1472,11 +1648,13 @@ function contextualize_product_value(
         value.then_branch,
         annotation,
         declared,
+        scope,
       ),
       else_branch: contextualize_product_value(
         value.else_branch,
         annotation,
         declared,
+        scope,
       ),
     };
   }
@@ -1488,11 +1666,13 @@ function contextualize_product_value(
         value.then_branch,
         annotation,
         declared,
+        scope,
       ),
       else_branch: contextualize_product_value(
         value.else_branch,
         annotation,
         declared,
+        scope,
       ),
     };
   }
@@ -1504,6 +1684,7 @@ function contextualize_product_value(
         value.value,
         annotation,
         declared,
+        scope,
       ),
     };
   }
@@ -1515,6 +1696,7 @@ function contextualize_product_value(
         value.body,
         annotation,
         declared,
+        scope,
       ),
     };
   }
@@ -1537,6 +1719,7 @@ function contextualize_product_value(
           final_statement.expr,
           annotation,
           declared,
+          scope,
         ),
       };
     } else {
@@ -1546,6 +1729,7 @@ function contextualize_product_value(
           final_statement.value,
           annotation,
           declared,
+          scope,
         ),
       };
     }
@@ -1559,6 +1743,7 @@ function contextualize_product_value(
         value.body,
         annotation,
         declared,
+        scope,
       ),
     };
   }
@@ -1601,7 +1786,9 @@ function contextualize_product_value(
 
   return {
     tag: "struct_value",
-    type_expr: { tag: "var", name: annotation },
+    type_expr: type_value_from_type_expr(
+      parse_type_expr(tokenize(annotation)),
+    ),
     fields: declared.fields.map((field, index) => {
       const entry = value.entries[index];
       expect(entry, "Missing contextual product entry " + index.toString());
@@ -1613,7 +1800,34 @@ function contextualize_product_value(
         );
       }
 
-      return { name: field.name, value: entry.value };
+      let field_value = entry.value;
+      const field_type_expr = type_value_from_type_expr(
+        parse_type_expr(tokenize(field.type_name)),
+      );
+      const field_type = resolve_front_type_value(
+        field_type_expr,
+        scope.type_values,
+        new Set(),
+      );
+
+      if (
+        field_value.tag === "union_case" &&
+        field_value.type_expr === undefined
+      ) {
+        field_value = {
+          ...field_value,
+          type_expr: field_type_expr,
+        };
+      } else if (field_type?.tag === "struct_type") {
+        field_value = contextualize_product_value(
+          field_value,
+          field.type_name,
+          field_type,
+          scope,
+        );
+      }
+
+      return { name: field.name, value: field_value };
     }),
     bracketed: "positional",
   };
@@ -1660,6 +1874,7 @@ function contextualize_union_call_payload(
     arg,
     union_case.type_name,
     payload_type,
+    scope,
   );
 }
 
@@ -1721,6 +1936,7 @@ function rewrite_statement(stmt: Stmt, scope: TypeSetScope): Stmt {
             value,
             format_type_expr(function_type.result),
             declared_result,
+            scope,
           );
         }
       }
@@ -1737,7 +1953,12 @@ function rewrite_statement(stmt: Stmt, scope: TypeSetScope): Stmt {
         );
 
         if (declared?.tag === "struct_type") {
-          value = contextualize_product_value(value, annotation, declared);
+          value = contextualize_product_value(
+            value,
+            annotation,
+            declared,
+            scope,
+          );
         }
       }
 
@@ -3600,7 +3821,7 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
     case "import":
       return expr;
 
-    case "block":
+    case "block": {
       let can_evaluate_block = scope.evaluating_const_call;
 
       for (const binding of scope.bindings.values()) {
@@ -3640,6 +3861,7 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
         ...expr,
         statements: rewrite_statements(expr.statements, clone_scope(scope)),
       };
+    }
 
     case "comptime": {
       const evaluation_scope = clone_scope(scope);
@@ -3712,7 +3934,6 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
       };
 
     case "with":
-    case "struct_update":
       return {
         ...expr,
         base: rewrite_expr(expr.base, scope),
@@ -3721,6 +3942,61 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
           value: rewrite_expr(field.value, scope),
         })),
       };
+
+    case "struct_update": {
+      const base = rewrite_expr(expr.base, scope);
+      const base_type = static_type_value(base, scope, new Set());
+      let declared: Extract<FrontExpr, { tag: "struct_type" }> | undefined;
+
+      if (base_type !== undefined) {
+        const resolved = resolve_front_type_value(
+          base_type,
+          scope.type_values,
+          new Set(),
+        );
+
+        if (resolved?.tag === "struct_type") {
+          declared = resolved;
+        }
+      }
+
+      return {
+        ...expr,
+        base,
+        fields: expr.fields.map((field) => {
+          let value = rewrite_expr(field.value, scope);
+          const declared_field = declared?.fields.find((candidate) => {
+            return candidate.name === field.name;
+          });
+
+          if (declared_field === undefined) {
+            return { ...field, value };
+          }
+
+          const field_type_expr = type_value_from_type_expr(
+            parse_type_expr(tokenize(declared_field.type_name)),
+          );
+          const field_type = resolve_front_type_value(
+            field_type_expr,
+            scope.type_values,
+            new Set(),
+          );
+
+          if (value.tag === "union_case" && value.type_expr === undefined) {
+            value = { ...value, type_expr: field_type_expr };
+          } else if (field_type?.tag === "struct_type") {
+            value = contextualize_product_value(
+              value,
+              declared_field.type_name,
+              field_type,
+              scope,
+            );
+          }
+
+          return { ...field, value };
+        }),
+      };
+    }
 
     case "type_with": {
       const base = rewrite_expr(expr.base, scope);
@@ -4049,7 +4325,7 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
     case "union_case": {
       let value = expr.value;
       let type_expr = expr.type_expr;
-      let inferred_type_value:
+      let union_type_value:
         | Extract<FrontExpr, { tag: "union_type" }>
         | undefined;
 
@@ -4059,6 +4335,15 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
 
       if (type_expr) {
         type_expr = rewrite_expr(type_expr, scope);
+        const resolved = resolve_front_type_value(
+          type_expr,
+          scope.type_values,
+          new Set(),
+        );
+
+        if (resolved?.tag === "union_type") {
+          union_type_value = resolved;
+        }
       } else {
         let inferred: string | undefined;
 
@@ -4077,20 +4362,38 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
 
         if (inferred !== undefined) {
           type_expr = { tag: "var", name: inferred };
-          inferred_type_value = scope.declared_union_types.get(inferred);
+          union_type_value = scope.declared_union_types.get(inferred);
         }
       }
 
-      if (inferred_type_value !== undefined && value !== undefined) {
-        const declared = inferred_type_value.cases.find((union_case) => {
+      if (union_type_value !== undefined && value !== undefined) {
+        const declared = union_type_value.cases.find((union_case) => {
           return union_case.name === expr.name;
         });
         expect(declared, "Missing inferred union case: " + expr.name);
+        const payload_type_expr = parse_type_expr(
+          tokenize(declared.type_name),
+        );
+        const payload_type = resolve_front_type_value(
+          type_value_from_type_expr(payload_type_expr),
+          scope.type_values,
+          new Set(),
+        );
+
+        if (payload_type?.tag === "struct_type") {
+          value = contextualize_product_value(
+            value,
+            declared.type_name,
+            payload_type,
+            scope,
+          );
+        }
+
         const actual = semantic_type_for_value(value, scope);
 
         if (actual !== undefined) {
           const expected = semantic_type_for_expr(
-            parse_type_expr(tokenize(declared.type_name)),
+            payload_type_expr,
             scope,
             new Set(),
           );
@@ -5647,6 +5950,18 @@ function static_aggregate_field_type(
   name: string,
   scope: TypeSetScope,
 ): FrontExpr | undefined {
+  if (
+    object_type.tag === "set_type" &&
+    (object_type.type_expr.tag === "borrow" ||
+      object_type.type_expr.tag === "frozen")
+  ) {
+    return static_aggregate_field_type(
+      type_value_from_type_expr(object_type.type_expr.value),
+      name,
+      scope,
+    );
+  }
+
   const resolved = resolve_front_type_value(
     object_type,
     scope.type_values,
@@ -5691,6 +6006,18 @@ function static_aggregate_index_type(
   index: number,
   scope: TypeSetScope,
 ): FrontExpr | undefined {
+  if (
+    object_type.tag === "set_type" &&
+    (object_type.type_expr.tag === "borrow" ||
+      object_type.type_expr.tag === "frozen")
+  ) {
+    return static_aggregate_index_type(
+      type_value_from_type_expr(object_type.type_expr.value),
+      index,
+      scope,
+    );
+  }
+
   const resolved = resolve_front_type_value(
     object_type,
     scope.type_values,
@@ -6650,7 +6977,25 @@ function union_type_for_value(
 
   const binding = scope.bindings.get(value.name);
 
-  if (!binding || !binding.annotation) {
+  if (!binding) {
+    return undefined;
+  }
+
+  if (!binding.annotation) {
+    if (binding.inferred_type === undefined) {
+      return undefined;
+    }
+
+    const inferred = resolve_front_type_value(
+      binding.inferred_type,
+      scope.type_values,
+      new Set(),
+    );
+
+    if (inferred?.tag === "union_type") {
+      return inferred;
+    }
+
     return undefined;
   }
 

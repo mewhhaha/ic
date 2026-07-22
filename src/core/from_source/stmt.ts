@@ -85,6 +85,7 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
       }
 
       let value = core_expr(source_value, ctx);
+
       if (stmt.kind === "let") {
         value = move_core_projection(value);
       }
@@ -233,6 +234,7 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
         index: stmt.index,
         start: core_expr(stmt.start, ctx),
         end: core_expr(stmt.end, ctx),
+        end_bound: stmt.end_bound,
         step: core_expr(stmt.step, ctx),
         carried: carried_names(body),
         body,

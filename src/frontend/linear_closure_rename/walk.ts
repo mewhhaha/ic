@@ -420,6 +420,7 @@ function rename_linear_closure_stmt(
         index: stmt.index,
         start: rename_linear_closure_expr(stmt.start, renames),
         end: rename_linear_closure_expr(stmt.end, renames),
+        end_bound: stmt.end_bound,
         step: rename_linear_closure_expr(stmt.step, renames),
         body: rename_linear_closure_block(stmt.body, body_renames),
       }, stmt);

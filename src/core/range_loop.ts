@@ -49,6 +49,36 @@ export function emit_core_range_loop<ctx extends CoreRangeLoopCtx>(
     body.push(hooks.emit_stmt(item, body_ctx, false));
   }
 
+  const inclusive_end_exit: Wat[] = [];
+
+  if (stmt.end_bound === "inclusive") {
+    inclusive_end_exit.push(
+      "    local.get $" + stmt.index,
+      "    local.get $" + end_local,
+      "    i32.eq",
+      "    br_if $" + exit_label,
+    );
+  }
+
+  const overflow_exit = [
+    "local.get $" + step_local,
+    "i32.const 0",
+    "i32.gt_s",
+    "if (result i32)",
+    "  local.get $" + stmt.index,
+    "  local.get $" + stmt.index,
+    "  local.get $" + step_local,
+    "  i32.sub",
+    "  i32.lt_s",
+    "else",
+    "  local.get $" + stmt.index,
+    "  local.get $" + stmt.index,
+    "  local.get $" + step_local,
+    "  i32.sub",
+    "  i32.gt_s",
+    "end",
+  ].join("\n");
+
   ctx.next_loop = body_ctx.next_loop;
   ctx.next_temp = body_ctx.next_temp;
 
@@ -67,17 +97,25 @@ export function emit_core_range_loop<ctx extends CoreRangeLoopCtx>(
     "block $" + exit_label,
     "  loop $" + loop_label,
     indent_lines(
-      emit_range_done_condition(stmt.index, end_local, step_local),
+      emit_range_done_condition(
+        stmt.index,
+        end_local,
+        step_local,
+        stmt.end_bound,
+      ),
       4,
     ),
     "    br_if $" + exit_label,
     "    block $" + continue_label,
     indent_lines(body.join("\n"), 6),
     "    end",
+    ...inclusive_end_exit,
     "    local.get $" + stmt.index,
     "    local.get $" + step_local,
     "    i32.add",
     "    local.set $" + stmt.index,
+    indent_lines(overflow_exit, 4),
+    "    br_if $" + exit_label,
     "    br $" + loop_label,
     "  end",
     "end",
@@ -88,7 +126,16 @@ function emit_range_done_condition(
   index: string,
   end_local: string,
   step_local: string,
+  end_bound: "exclusive" | "inclusive",
 ): Wat {
+  let positive_done = "i32.ge_s";
+  let negative_done = "i32.le_s";
+
+  if (end_bound === "inclusive") {
+    positive_done = "i32.gt_s";
+    negative_done = "i32.lt_s";
+  }
+
   return [
     "local.get $" + step_local,
     "i32.const 0",
@@ -96,11 +143,11 @@ function emit_range_done_condition(
     "if (result i32)",
     "  local.get $" + index,
     "  local.get $" + end_local,
-    "  i32.ge_s",
+    "  " + positive_done,
     "else",
     "  local.get $" + index,
     "  local.get $" + end_local,
-    "  i32.le_s",
+    "  " + negative_done,
     "end",
   ].join("\n");
 }

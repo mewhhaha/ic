@@ -8,6 +8,7 @@ import {
   core_scratch_return_lifetime_decision,
 } from "./lifetime.ts";
 import { core_expr_ownership } from "./ownership.ts";
+import { named_rec_function_core } from "./named_rec.ts";
 import { TestSource as Source } from "../frontend/test_source.ts";
 import { Mod } from "../mod.ts";
 import { Emit, Format, Typed } from "../trait.ts";
@@ -10688,4 +10689,74 @@ if true {
       },
     ],
   });
+});
+
+Deno.test("if-let function results retain aggregate ownership", () => {
+  const core = Source.core(Source.parse(`
+const { struct } = import "duck:prelude" ()
+
+type Choice =
+  | \`Some I32
+  | \`None Unit
+
+type Selection = struct {
+  .score = I32,
+}
+
+let rec choose: Choice -> Selection = choice => {
+  if let \`Some score = choice {
+    [.score = score]
+  } else {
+    [.score = 0]
+  }
+}
+
+choose(\`Some 42)
+`));
+  const definition = core.recFunctions?.choose;
+  if (definition === undefined) {
+    throw new Error("Missing choose function");
+  }
+
+  const function_core = named_rec_function_core(core, definition);
+  const proof = Core.proof(function_core);
+
+  assert_equals(proof.ok, true);
+  assert_equals(proof.final_result.ownership, {
+    tag: "unique_heap",
+    reason: "runtime_aggregate",
+  });
+  assert_equals(proof.issues, []);
+  Core.mod(core);
+});
+
+Deno.test("borrowed named function parameters remain caller-owned", () => {
+  const core = Source.core(Source.parse(`
+type Choice =
+  | \`Some I32
+  | \`None Unit
+
+let rec score: &Choice -> I32 = (choice: &Choice) => {
+  if let \`Some value = choice {
+    value
+  } else {
+    0
+  }
+}
+
+let choice: Choice = \`Some 42
+score(&choice)
+`));
+  const definition = core.recFunctions?.score;
+  if (definition === undefined) {
+    throw new Error("Missing score function");
+  }
+
+  const function_core = named_rec_function_core(core, definition);
+  const proof = Core.proof(function_core);
+
+  assert_equals(proof.ok, true);
+  assert_equals(proof.allocations.facts, []);
+  assert_equals(proof.drops.steps, []);
+  Core.mod(core);
 });

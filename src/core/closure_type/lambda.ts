@@ -271,6 +271,7 @@ function set_lam_param(
   } else {
     ctx.fn_types.delete(name);
   }
+  ctx.locals.delete(name);
   set_local(ctx.locals, name, type);
 
   if (is_text) {

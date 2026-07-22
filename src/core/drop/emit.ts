@@ -7,7 +7,11 @@ import type {
   CoreUniqueHeapOwnership,
 } from "./types.ts";
 import type { CoreExpr } from "../ast.ts";
-import { record_core_diagnostic_subject } from "../source_origin.ts";
+import {
+  type CoreSourceSubject,
+  record_core_diagnostic_related_subject,
+  record_core_diagnostic_subject,
+} from "../source_origin.ts";
 
 export function drop_scope_owners(
   scope: string,
@@ -77,6 +81,7 @@ export function emit_drop(
   owner: CoreDropOwner,
   state: CoreDropState,
   subject?: CoreExpr,
+  related_subject?: CoreSourceSubject,
 ): void {
   const storage = core_storage_class(owner.ownership);
   let emitted_owner = owner_name;
@@ -102,6 +107,9 @@ export function emit_drop(
   }
   if (diagnostic_subject) {
     record_core_diagnostic_subject(step, diagnostic_subject);
+  }
+  if (related_subject) {
+    record_core_diagnostic_related_subject(step, related_subject);
   }
   state.next_drop += 1;
 }

@@ -17,6 +17,23 @@ if not(false) && not(not(true)) { 42 } else { 0 }
   assert_equals(main(), 42);
 });
 
+Deno.test("root prelude exposes byte length through a duck receiver", async () => {
+  const wat = Source.wat(`
+const {} = import "duck:prelude" ()
+comptime Length Bytes
+let bytes: Bytes = @Utf8.encode("duck")
+bytes.length() + Length.length(bytes) + @len(bytes)
+`);
+  const instance = await instantiate_wat(wat, "prelude_bytes_length", {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("root prelude byte length test omitted main");
+  }
+
+  assert_equals(main(), 12);
+});
+
 Deno.test("numeric prelude exposes focused scalar operations", async () => {
   const wat = Source.wat(`
 const { min_i32, max_i32, f64_from_i32, i32_from_f64, unsafe_i32_wrap_i64 } = import "duck:prelude/numeric" ()
@@ -53,8 +70,8 @@ score
   assert_equals(main(), 111);
 });
 
-Deno.test("numeric prelude accepts complete I64 decimal parsing", () => {
-  const diagnostics = Source.analyze(`
+Deno.test("numeric prelude accepts complete I64 decimal parsing", async () => {
+  const wat = Source.wat(`
 const { parse_i64_decimal } = import "duck:prelude/numeric" ()
 let minimum = parse_i64_decimal("-9223372036854775808")
 let maximum = parse_i64_decimal("9223372036854775807")
@@ -65,11 +82,15 @@ if let \`Ok value = maximum { if value == 9223372036854775807i64 { score = score
 if let \`Err reason = overflow { if reason == "number exceeds I64" { score = score + 100 } }
 if let \`Err reason = malformed { if reason == "must be an integer" { score = score + 1000 } }
 score
-`).diagnostics;
-  assert_equals(
-    diagnostics.filter((diagnostic) => diagnostic.severity === "error"),
-    [],
-  );
+`);
+  const instance = await instantiate_wat(wat, "prelude_parse_i64", {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("I64 decimal parser test omitted main");
+  }
+
+  assert_equals(main(), 1111);
 });
 
 Deno.test("numeric prelude saturates signed I64 addition", async () => {
@@ -100,6 +121,23 @@ if text_contains("ducklang", "lang") { 42 } else { 0 }
 
   if (typeof main !== "function") {
     throw new Error("text prelude test omitted main");
+  }
+
+  assert_equals(main(), 42);
+});
+
+Deno.test("text prelude copies borrowed text without consuming it", async () => {
+  const wat = Source.wat(`
+const { text_copy } = import "duck:prelude/text" ()
+let source = @append("alpha", "\\nomega")
+let copied = text_copy(&source)
+if copied == "alpha\\nomega" && source == "alpha\\nomega" { 42 } else { 0 }
+`);
+  const instance = await instantiate_wat(wat, "prelude_text_copy", {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("text copy prelude test omitted main");
   }
 
   assert_equals(main(), 42);
@@ -228,6 +266,47 @@ if json_object_length(fields) == 3 && json_object_key_count("step", fields) == 2
   );
 });
 
+Deno.test("JSON prelude borrows objects for repeated key and length counts", async () => {
+  const wat = Source.wat(`
+const { json_object_empty, json_object_key_count_borrowed, json_object_length_borrowed, json_object_prepend, json_string } = import "duck:prelude/json/values" ()
+let fields = json_object_prepend("step", json_string("compile"), json_object_prepend("step", json_string("test"), json_object_empty()))
+if json_object_key_count_borrowed("step", &fields) == 2 && json_object_length_borrowed(&fields) == 2 { 42 } else { 0 }
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "prelude_borrowed_json_counts",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("borrowed JSON count prelude test omitted main");
+  }
+
+  assert_equals(main(), 42);
+});
+
+Deno.test("JSON prelude parses nested documents through native Core", async () => {
+  const wat = Source.wat(`
+const { parse_json_document } = import "duck:prelude/json" ()
+let parsed = parse_json_document("{\\\"rows\\\":[{\\\"text\\\":\\\"duck\\\"}]}")
+if let \`Ok value_and_index = parsed {
+  let [value, _] = value_and_index
+  if let \`Object _ = value { 42 } else { 0 }
+} else {
+  0
+}
+`);
+  const instance = await instantiate_wat(wat, "prelude_nested_json", {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("nested JSON prelude test omitted main");
+  }
+
+  assert_equals(main(), 42);
+});
+
 Deno.test("JSON encoder exposes source-defined pretty output", () => {
   const diagnostics = Source.analyze(`
 const { encode_json_pretty } = import "duck:prelude/json/encode" ()
@@ -240,6 +319,21 @@ encode_json_pretty(json_object(fields))
     diagnostics.filter((diagnostic) => diagnostic.severity === "error"),
     [],
   );
+});
+
+Deno.test("JSON encoder emits strings through its focused module", async () => {
+  const wat = Source.wat(String.raw`
+const { encode_json_string } = import "duck:prelude/json/encode" ()
+if encode_json_string("duck") == "\"duck\"" { 42 } else { 0 }
+`);
+  const instance = await instantiate_wat(wat, "prelude_json_string", {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("JSON string encoder prelude test omitted main");
+  }
+
+  assert_equals(main(), 42);
 });
 
 Deno.test("types prelude exposes compile-time struct construction", async () => {
@@ -328,14 +422,16 @@ min_i64(3i64, max_i64(4i64, 2i64))
 
 Deno.test("abstractions prelude keeps domain scalars distinct", async () => {
   const wat = Source.wat(`
-const { byte_offset, byte_offset_value, duration_ms, duration_ms_value, exit_code, exit_code_value, unix_time_ms, unix_time_ms_value } = import "duck:prelude/abstractions" ()
+const { byte_offset, byte_offset_value, duration_ms, duration_ms_value, exit_code, exit_code_value, read_duration_ms, unix_time_ms, unix_time_ms_value } = import "duck:prelude/abstractions" ()
 const { unsafe_i32_wrap_i64 } = import "duck:prelude/numeric" ()
 
 let offset = byte_offset_value(byte_offset 3)
 let code = exit_code_value(exit_code 4)
-let duration = unsafe_i32_wrap_i64(duration_ms_value(duration_ms 5i64))
+let duration_value = duration_ms 5i64
+let borrowed_duration = unsafe_i32_wrap_i64(read_duration_ms(&duration_value))
+let duration = unsafe_i32_wrap_i64(duration_ms_value(duration_value))
 let instant = unsafe_i32_wrap_i64(unix_time_ms_value(unix_time_ms 6i64))
-offset + code + duration + instant
+offset + code + borrowed_duration + duration + instant
 `);
   const instance = await instantiate_wat(wat, "prelude_domain_scalars", {});
   const main = instance.exports.main;
@@ -344,7 +440,30 @@ offset + code + duration + instant
     throw new Error("domain scalar prelude test omitted main");
   }
 
-  assert_equals(main(), 18);
+  assert_equals(main(), 23);
+});
+
+Deno.test("abstractions prelude borrows clock scalars without consuming them", async () => {
+  const wat = Source.wat(`
+const { monotonic_ms, monotonic_ms_value, read_monotonic_ms, read_unix_time_seconds, unix_time_seconds, unix_time_seconds_value } = import "duck:prelude/abstractions" ()
+const { unsafe_i32_wrap_i64 } = import "duck:prelude/numeric" ()
+
+let monotonic_value = monotonic_ms(7i64)
+let borrowed_monotonic = unsafe_i32_wrap_i64(read_monotonic_ms(&monotonic_value))
+let owned_monotonic = unsafe_i32_wrap_i64(monotonic_ms_value(monotonic_value))
+let unix_value = unix_time_seconds(11i64)
+let borrowed_unix = unsafe_i32_wrap_i64(read_unix_time_seconds(&unix_value))
+let owned_unix = unsafe_i32_wrap_i64(unix_time_seconds_value(unix_value))
+borrowed_monotonic + owned_monotonic + borrowed_unix + owned_unix
+`);
+  const instance = await instantiate_wat(wat, "prelude_borrowed_clocks", {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("borrowed clock prelude test omitted main");
+  }
+
+  assert_equals(main(), 36);
 });
 
 Deno.test("abstractions prelude measures monotonic durations", () => {
@@ -405,18 +524,22 @@ if first == 200i64 && fourth == 1440i64 && saturated == 9223372036854775807i64 {
   assert_equals(analysis.diagnostics, []);
 });
 
-Deno.test("abstractions prelude grants a one-shot claim once", () => {
-  const diagnostics = Source.analyze(`
+Deno.test("abstractions prelude grants a one-shot claim once", async () => {
+  const wat = Source.wat(`
 const { once, once_claim, once_is_claimed } = import "duck:prelude/abstractions" ()
 let initial = once()
 let first = once_claim(initial)
 let second = once_claim(first.state)
 if first.granted && !(second.granted) && once_is_claimed(second.state) { 42 } else { 0 }
-`).diagnostics;
-  assert_equals(
-    diagnostics.filter((diagnostic) => diagnostic.severity === "error"),
-    [],
-  );
+`);
+  const instance = await instantiate_wat(wat, "prelude_once_claim", {});
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("one-shot claim prelude test omitted main");
+  }
+
+  assert_equals(main(), 42);
 });
 
 Deno.test("abstractions prelude measures spans", async () => {

@@ -56,6 +56,7 @@ Deno.test("Core lifetime scopes retain allocation-subject provenance through nes
     index: "index",
     start: { tag: "num", type: "i32", value: 0 },
     end: { tag: "num", type: "i32", value: 1 },
+    end_bound: "exclusive",
     step: { tag: "num", type: "i32", value: 1 },
     carried: [],
     body: [loop_body],

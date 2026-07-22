@@ -27,7 +27,7 @@ import {
 import type { ValType } from "../../op.ts";
 import { expect } from "../../expect.ts";
 import { f32x4_builtin_call } from "../../frontend/f32x4.ts";
-import { compiler_builtin_args } from "../../frontend/call_args.ts";
+import { compiler_builtin_args } from "../../frontend/compiler_builtin_args.ts";
 import {
   integer_bit_pattern,
   integer_type_from_name,

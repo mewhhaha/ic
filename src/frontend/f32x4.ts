@@ -3,7 +3,7 @@ import { f32x4_builtin_prim, f32x4_lane_index, Prim } from "../op.ts";
 import { Callable } from "../trait.ts";
 import type { Env, FrontExpr, FrontType } from "./ast.ts";
 import { lookup } from "./env.ts";
-import { compiler_builtin_args } from "./call_args.ts";
+import { compiler_builtin_args } from "./compiler_builtin_args.ts";
 
 export type F32x4BuiltinCall = {
   prim: Prim;

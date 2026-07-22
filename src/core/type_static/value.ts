@@ -295,6 +295,10 @@ function static_type_constructor_call_value(
     return undefined;
   }
 
+  if (target.params.some((param) => param.annotation !== undefined)) {
+    return undefined;
+  }
+
   expect(
     expr.args.length === target.params.length,
     "Core type constructor expects " + target.params.length + " arguments",
@@ -307,11 +311,9 @@ function static_type_constructor_call_value(
     expect(param, "Missing core type constructor parameter " + index);
     expect(arg, "Missing core type constructor argument " + index);
     const type_name = static_type_argument_name(arg, ctx);
-    expect(
-      type_name,
-      "Core type constructor argument " + param.name +
-        " must resolve to a type name",
-    );
+    if (!type_name) {
+      return undefined;
+    }
     type_args.set(param.name, type_name);
   }
 

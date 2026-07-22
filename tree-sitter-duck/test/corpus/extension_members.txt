@@ -46,3 +46,26 @@ extend Option {
             (wildcard))
           (postfix_expression
             (number)))))))
+
+==================
+Generic extension parameters
+==================
+
+extend List Element {
+  type Item = Element
+}
+
+---
+
+(source_file
+  (extension_declaration_statement
+    (identifier)
+    (identifier)
+    (extension_member_block
+      (extension_type_member
+        (identifier)
+        (type_reference
+          (type_union
+            (type_intersection
+              (type_difference
+                (identifier)))))))))

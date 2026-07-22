@@ -213,6 +213,7 @@ function scoped_static_core_call_ctx<
         body_ctx.union_locals.delete(param.name);
       } else {
         body_ctx.statics.delete(param.name);
+        body_ctx.locals.delete(param.name);
         set_local(
           body_ctx.locals,
           param.name,
@@ -239,6 +240,7 @@ function scoped_static_core_call_ctx<
       }
     } else {
       body_ctx.statics.delete(param.name);
+      body_ctx.locals.delete(param.name);
       set_local(
         body_ctx.locals,
         param.name,

@@ -147,13 +147,13 @@ Deno.test("semantic tokens mark const calls and comptime regions", () => {
     character: 14,
     length: 8,
     type: "function",
-    modifiers: ["readonly", "comptime"],
+    modifiers: ["readonly", "comptime", "call"],
   }, {
     line: 2,
     character: 24,
     length: 8,
     type: "function",
-    modifiers: ["readonly", "comptime"],
+    modifiers: ["readonly", "comptime", "call"],
   }]);
 });
 
@@ -165,7 +165,30 @@ Deno.test("semantic tokens mark whitespace const calls as comptime", () => {
     token.line === 1 && token.character === 15
   );
 
-  assert_equals(identity?.modifiers, ["readonly", "comptime"]);
+  assert_equals(identity?.modifiers, ["readonly", "comptime", "call"]);
+});
+
+Deno.test("semantic tokens distinguish calls from passed functions", () => {
+  const text = "const identity = value => value\n" +
+    "const apply = operation => value => operation value\n" +
+    "const answer = apply identity 1\n";
+  const references = dump_semantic_tokens(tokens(text)).filter((token) => {
+    return token.line === 2 && token.character >= 15;
+  });
+
+  assert_equals(references, [{
+    line: 2,
+    character: 15,
+    length: 5,
+    type: "function",
+    modifiers: ["readonly", "comptime", "call"],
+  }, {
+    line: 2,
+    character: 21,
+    length: 8,
+    type: "function",
+    modifiers: ["readonly"],
+  }]);
 });
 
 Deno.test("semantic tokens range and recovery retain unaffected tokens", () => {

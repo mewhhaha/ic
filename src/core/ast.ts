@@ -117,6 +117,7 @@ export type CoreStmt =
     index: string;
     start: CoreExpr;
     end: CoreExpr;
+    end_bound: "exclusive" | "inclusive";
     step: CoreExpr;
     carried: string[];
     body: CoreStmt[];

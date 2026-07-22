@@ -356,6 +356,7 @@ module.exports = grammar({
         attributeGroups($),
         "extend",
         field("type", $.identifier),
+        repeat(field("parameter", $.identifier)),
         field("members", $.extension_member_block),
       ),
 
@@ -532,7 +533,7 @@ module.exports = grammar({
           field("start_or_collection", $.condition_expression),
           optional(
             seq(
-              "..",
+              choice("..", "..="),
               field("end", $.condition_expression),
               optional(seq("by", field("step", $.condition_expression))),
             ),
@@ -542,7 +543,7 @@ module.exports = grammar({
         seq(
           "for",
           field("start", $.condition_expression),
-          "..",
+          choice("..", "..="),
           field("end", $.condition_expression),
           optional(seq("by", field("step", $.condition_expression))),
           field("body", prec.dynamic(10, $.block)),

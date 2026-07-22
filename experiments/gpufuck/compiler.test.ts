@@ -1140,7 +1140,8 @@ Deno.test("gpufuck experiment plans Codex plan updates in source", async () => {
 Deno.test("gpufuck experiment lists Codex plugin install candidates in source", async () => {
   const compiler = await ExperimentalDuckCompiler.create();
   const fixtures = [
-    ["list_plugin_install_registration_fixture.duck", 111],
+    ["list_plugin_install_registration_fixture.duck", 11],
+    ["list_plugin_install_spec_fixture.duck", 100],
     ["list_plugin_install_fixture.duck", 11],
   ] as const;
 
@@ -1164,9 +1165,12 @@ Deno.test("gpufuck experiment lists Codex plugin install candidates in source", 
 Deno.test("gpufuck experiment handles Codex plugin install requests in source", async () => {
   const compiler = await ExperimentalDuckCompiler.create();
   const fixtures = [
-    ["request_plugin_install_registration_fixture.duck", 1_111],
+    ["request_plugin_install_registration_fixture.duck", 11],
+    ["request_plugin_install_list_spec_fixture.duck", 100],
+    ["request_plugin_install_recommended_spec_fixture.duck", 1_000],
     ["request_plugin_install_policy_fixture.duck", 11_111],
-    ["request_plugin_install_execution_fixture.duck", 11],
+    ["request_plugin_install_execution_fixture.duck", 1],
+    ["request_plugin_install_declined_execution_fixture.duck", 10],
     ["request_plugin_install_value_fixture.duck", 1_111],
   ] as const;
   try {
@@ -1189,7 +1193,8 @@ Deno.test("gpufuck experiment handles Codex plugin install requests in source", 
 Deno.test("gpufuck experiment runs the Codex synchronization tool in source", async () => {
   const compiler = await ExperimentalDuckCompiler.create();
   const fixtures = [
-    ["test_sync_registration_fixture.duck", 111],
+    ["test_sync_registration_fixture.duck", 11],
+    ["test_sync_spec_fixture.duck", 100],
     ["test_sync_policy_fixture.duck", 1_111],
     ["test_sync_value_fixture.duck", 1_111],
   ] as const;
@@ -1213,10 +1218,14 @@ Deno.test("gpufuck experiment runs the Codex synchronization tool in source", as
 Deno.test("gpufuck experiment plans the Codex image viewer in source", async () => {
   const compiler = await ExperimentalDuckCompiler.create();
   const fixtures = [
-    ["view_image_registration_fixture.duck", 11_111],
+    ["view_image_registration_fixture.duck", 11],
+    ["view_image_parameters_fixture.duck", 100],
+    ["view_image_spec_fixture.duck", 1_000],
+    ["view_image_disabled_spec_fixture.duck", 10_000],
     ["view_image_value_fixture.duck", 1_111],
     ["view_image_call_fixture.duck", 111],
     ["view_image_policy_fixture.duck", 1_111],
+    ["view_image_output_fixture.duck", 11],
   ] as const;
   try {
     for (const [fixture, score] of fixtures) {
@@ -1264,7 +1273,8 @@ Deno.test("gpufuck experiment discovers deferred Codex tools in source", async (
 Deno.test("gpufuck experiment accesses Codex MCP resources in source", async () => {
   const compiler = await ExperimentalDuckCompiler.create();
   const fixtures = [
-    ["mcp_resource_registration_fixture.duck", 111],
+    ["mcp_resource_definition_fixture.duck", 111],
+    ["mcp_resource_spec_fixture.duck", 111],
     ["mcp_resource_call_fixture.duck", 11_111],
     ["mcp_resource_output_fixture.duck", 111],
   ] as const;

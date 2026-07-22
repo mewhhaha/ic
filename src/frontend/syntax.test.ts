@@ -108,6 +108,13 @@ Deno.test("scanner keeps category operators as single symbols", () => {
   );
 });
 
+Deno.test("scanner keeps inclusive range bounds as one symbol", () => {
+  assert_equals(
+    tokenize("0..=limit").map((token) => token.text),
+    ["0", "..=", "limit", ""],
+  );
+});
+
 Deno.test("tolerant scanner reports malformed input without dropping it", () => {
   const text = "§ \"\\q\" 'ab'";
   const syntax = scan_source(text);

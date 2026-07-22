@@ -1,5 +1,10 @@
 import type { CoreExpr } from "../ast.ts";
 import { core_expr_ownership, type CoreOwnership } from "../ownership.ts";
+import {
+  runtime_aggregate_field_base_offset,
+  runtime_aggregate_layout_for_type,
+} from "../runtime_aggregate.ts";
+import type { TypeStaticCtx } from "../type_static.ts";
 import type { CoreTransferState } from "./types.ts";
 
 export function bind_transfer_alias_ownership<ctx>(
@@ -100,6 +105,38 @@ export function bind_transfer_owner_alias<ctx>(
   state.aliases.delete(name);
   state.alias_ownership.delete(name);
   state.alias_rejection_reasons.delete(name);
+
+  if (
+    value.tag === "field" && value.move &&
+    (value.object.tag === "var" || value.object.tag === "linear") &&
+    state.hooks.runtime_aggregate_type_expr
+  ) {
+    const object_type = state.hooks.runtime_aggregate_type_expr(
+      value.object,
+      state.ctx,
+    );
+
+    if (object_type !== undefined) {
+      const layout = runtime_aggregate_layout_for_type(
+        object_type,
+        state.ctx as ctx & TypeStaticCtx,
+      );
+      const field = layout.fields.find((candidate) => {
+        return candidate.name === value.name;
+      });
+
+      if (
+        field?.tag === "struct" &&
+        runtime_aggregate_field_base_offset(field) === 0
+      ) {
+        const owner = resolve_transfer_owner(value.object.name, state);
+        const ownership = state.alias_ownership.get(value.object.name);
+        state.aliases.set(name, owner);
+        state.alias_ownership.set(name, ownership);
+        return;
+      }
+    }
+  }
 
   if (value.tag !== "var") {
     try {

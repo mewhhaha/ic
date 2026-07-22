@@ -74,7 +74,7 @@ function expand_for_range_body(
   const expanded: Stmt[] = [];
   let current = start;
 
-  while (continues_range(current, end, step)) {
+  while (continues_range(current, end, step, stmt.end_bound)) {
     const loop_env = clone_env(env);
     const index_value: FrontExpr = { tag: "num", type: "i32", value: current };
     bind_loop_static_value(loop_env, stmt.index, index_value);
@@ -130,7 +130,7 @@ function expand_for_range_dynamic_control(
 
   let current = start;
 
-  while (continues_range(current, end, step)) {
+  while (continues_range(current, end, step, stmt.end_bound)) {
     const step_name = fresh(env, "loop_step");
     const loop_env = clone_env(env);
     const index_value: FrontExpr = { tag: "num", type: "i32", value: current };

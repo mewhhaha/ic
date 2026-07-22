@@ -1,7 +1,7 @@
 import { assert_equals, assert_includes } from "../assert.ts";
 import { build_binding_index } from "../frontend/binding_index.ts";
 import { parse_source_with_diagnostics } from "../frontend/parser.ts";
-import { ducklang_prelude_text } from "../frontend/prelude.ts";
+import { ducklang_types_prelude_text } from "../frontend/prelude.ts";
 import { hover, signature_help } from "./hover.ts";
 
 function analyzed(text: string) {
@@ -337,6 +337,18 @@ Deno.test("hover reports Bool for boolean bindings and expressions", () => {
   });
 });
 
+Deno.test("hover renders inferred positional product structure", () => {
+  const text = "let pair = [1, true]\npair\n";
+  const analysis = analyzed(text);
+
+  assert_hover_type(
+    text,
+    analysis,
+    text.lastIndexOf("pair"),
+    "[I32, Bool]",
+  );
+});
+
 Deno.test("hover excludes type positions from enclosing value expressions", () => {
   const text = "1 is I32\nlet f = (x: I32) => x\n";
   const { parsed, index } = analyzed(text);
@@ -448,7 +460,7 @@ Deno.test("hover preserves nominal parameter annotations", () => {
 });
 
 Deno.test("hover formats inferred prelude parameters as Duck declarations", () => {
-  const text = ducklang_prelude_text;
+  const text = ducklang_types_prelude_text;
   const { parsed, index } = analyzed(text);
 
   for (

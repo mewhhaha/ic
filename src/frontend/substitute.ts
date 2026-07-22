@@ -834,6 +834,7 @@ export function substitute_front_stmt(
         index: stmt.index,
         start: substitute_front_expr(stmt.start, replacements),
         end: substitute_front_expr(stmt.end, replacements),
+        end_bound: stmt.end_bound,
         step: substitute_front_expr(stmt.step, replacements),
         body: substitute_front_block(stmt.body, body_replacements),
       };

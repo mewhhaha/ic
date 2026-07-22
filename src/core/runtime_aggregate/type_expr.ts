@@ -181,6 +181,26 @@ export function runtime_aggregate_type_expr<
   return undefined;
 }
 
+export function runtime_aggregate_index_field<
+  ctx extends RuntimeAggregateTypeCtx,
+>(
+  value: CoreExpr,
+  index: number,
+  ctx: ctx,
+  hooks: RuntimeAggregateTypeHooks<ctx>,
+): RuntimeAggregateField | undefined {
+  const type_expr = runtime_aggregate_type_expr(value, ctx, hooks);
+
+  if (!type_expr) {
+    return undefined;
+  }
+
+  const layout = runtime_aggregate_layout_for_type(type_expr, ctx);
+  const field = layout.fields[index];
+  expect(field, "Core runtime aggregate index out of bounds: " + index);
+  return field;
+}
+
 export function runtime_struct_update_value<
   ctx extends RuntimeAggregateTypeCtx,
 >(

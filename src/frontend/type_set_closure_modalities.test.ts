@@ -16,15 +16,21 @@ identity(#hello)
   assert_includes(wat, "i32.const");
 });
 
-Deno.test("ownership-qualified closure parameters reject until facts persist", () => {
+Deno.test("shareable closure parameters reject until facts persist", () => {
   assert_throws(
     () => Source.wat("let length = (value: #Text) => @len(value)\n0"),
     "First-class closure ownership-qualified parameter annotations are not supported yet",
   );
-  assert_throws(
-    () => Source.wat("let length = (value: &Text) => @len(value)\n0"),
-    "First-class closure ownership-qualified parameter annotations are not supported yet",
-  );
+});
+
+Deno.test("binding signatures contextualize borrowed named function parameters", () => {
+  const wat = Source.wat(`
+let measure: &Bytes -> I32 = bytes => @len(bytes)
+let bytes: Bytes = Bytes.empty
+measure(&bytes)
+`);
+
+  assert_includes(wat, "i32.const 0");
 });
 
 Deno.test("closure parameters reject annotations with no runtime representation", () => {

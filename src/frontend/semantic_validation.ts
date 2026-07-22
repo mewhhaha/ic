@@ -29,7 +29,8 @@ import type {
   TypeLiteral,
 } from "./ast.ts";
 import { elaborate_product_expr } from "./aggregate.ts";
-import { call_message, lookup_type_field } from "./fields.ts";
+import { call_message } from "./call_message.ts";
+import { lookup_type_field } from "./fields.ts";
 import { validate_const_expr } from "./constness.ts";
 import { parameter_arguments } from "./call_args.ts";
 import { clone_env, create_env, push_binding } from "./env.ts";
@@ -81,6 +82,7 @@ type SemanticEnv = {
   effects: Map<string, EffectDeclaration>;
   records: Map<string, RecordDeclaration>;
   active_specialized_calls: Set<FrontExpr>;
+  warn_raw_intrinsics: boolean;
 };
 
 type SemanticCallable = {
@@ -97,6 +99,7 @@ type SemanticHandler = {
 export type SemanticValidationOptions = {
   scope?: "all" | "bool-representation" | "core-representation";
   warnings?: boolean;
+  allow_intrinsics?: boolean;
 };
 
 const bool_route_diagnostics = new WeakSet<SourceDiagnostic>();
@@ -135,6 +138,8 @@ export function validate_frontend_semantics(
     effects: effect_index(declarations),
     records: record_index(declarations),
     active_specialized_calls: new Set(),
+    warn_raw_intrinsics: options.warnings === true &&
+      options.allow_intrinsics !== true,
   };
   const diagnostics: SourceDiagnostic[] = [];
 
@@ -923,6 +928,17 @@ function validate_expr(
   accepts_value_pack = false,
 ): void {
   if (expr.tag === "var" || expr.tag === "linear") {
+    if (
+      env.warn_raw_intrinsics && raw_intrinsic_requires_prelude(expr.name)
+    ) {
+      diagnostics.push(source_diagnostic(
+        "DUCK2004",
+        "Raw intrinsic " + expr.name +
+          " is reserved for prelude and compiler-facing source",
+        expr,
+      ));
+    }
+
     mark_binding_used(expr.name, env);
     return;
   }
@@ -1170,7 +1186,7 @@ function validate_expr(
       validate_union_constructor(expr, env, diagnostics);
       validate_call_arguments(expr, env, diagnostics, check_comptime);
 
-      if (expr.func.tag === "var" && expr.func.name === "@Bytes.generate") {
+      if (is_bytes_generate_target(expr.func)) {
         validate_bytes_generate_call(expr, env, diagnostics);
       }
 
@@ -1673,6 +1689,15 @@ function validate_expr(
       diagnostics.push(representation_diagnostic);
     }
   }
+}
+
+function is_bytes_generate_target(expr: FrontExpr): boolean {
+  if (expr.tag === "var") {
+    return expr.name === "@Bytes.generate";
+  }
+
+  return expr.tag === "field" && expr.name === "generate" &&
+    expr.object.tag === "var" && expr.object.name === "Bytes";
 }
 
 function validate_bytes_generate_call(
@@ -3349,7 +3374,7 @@ function infer_type(
       return { tag: "int", type: result };
     }
 
-    if (expr.func.tag === "var" && expr.func.name === "@Bytes.generate") {
+    if (is_bytes_generate_target(expr.func)) {
       return { tag: "text", encoding: "bytes" };
     }
 
@@ -4992,7 +5017,13 @@ function child_env(env: SemanticEnv): SemanticEnv {
     effects: env.effects,
     records: env.records,
     active_specialized_calls: env.active_specialized_calls,
+    warn_raw_intrinsics: env.warn_raw_intrinsics,
   };
+}
+
+function raw_intrinsic_requires_prelude(name: string): boolean {
+  return name === "@len" || name === "@get" || name === "@slice" ||
+    name === "@append";
 }
 
 function handler_return_env(

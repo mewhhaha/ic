@@ -1,15 +1,11 @@
-import type {
-  BindingEntity,
-  BindingIndex,
-  BindingOccurrence,
-} from "../frontend/binding_index.ts";
+import type { BindingEntity, BindingIndex } from "../frontend/binding_index.ts";
 import type { FrontExpr, Source } from "../frontend/ast.ts";
+import { name_sites } from "../frontend/name_site.ts";
 import {
   source_span,
   type SourceSpan,
   type SourceSyntax,
 } from "../frontend/syntax.ts";
-import { source_tokens } from "../frontend/tokenize.ts";
 import { type PositionEncoding, PositionIndex } from "./position.ts";
 
 export const semantic_token_types = [
@@ -29,6 +25,7 @@ export const semantic_token_modifiers = [
   "modification",
   "linear",
   "comptime",
+  "call",
 ] as const;
 
 export type SemanticTokens = {
@@ -197,6 +194,7 @@ function absolute_tokens(
 ): AbsoluteToken[] {
   const positions = new PositionIndex(syntax.text, encoding);
   const comptime = comptime_intervals(source);
+  const calls = call_target_spans(source);
   const tokens: AbsoluteToken[] = [];
 
   for (const occurrence of index.occurrences.values()) {
@@ -235,11 +233,17 @@ function absolute_tokens(
       modifiers |= modifier_bit("linear");
     }
 
+    const is_call = calls.has(span_key(occurrence.span));
+
     if (
       inside_intervals(occurrence.span, comptime) ||
-      const_call_occurrence(syntax, occurrence, entity)
+      (entity.kind === "const" && is_call)
     ) {
       modifiers |= modifier_bit("comptime");
+    }
+
+    if (is_call) {
+      modifiers |= modifier_bit("call");
     }
 
     tokens.push({
@@ -261,6 +265,47 @@ function absolute_tokens(
     return left.end - right.end;
   });
   return tokens;
+}
+
+function call_target_spans(source: Source): Set<string> {
+  const targets = new Set<string>();
+  const seen = new WeakSet<object>();
+  const visit = (value: object): void => {
+    if (seen.has(value)) {
+      return;
+    }
+
+    seen.add(value);
+    const record = value as { tag?: string; func?: object };
+
+    if (record.tag === "app" && record.func !== undefined) {
+      for (const site of name_sites(record.func)) {
+        targets.add(span_key(site.span));
+      }
+    }
+
+    for (const child of Object.values(value)) {
+      if (child === null || typeof child !== "object") {
+        continue;
+      }
+
+      if (Array.isArray(child)) {
+        for (const entry of child) {
+          if (entry !== null && typeof entry === "object") {
+            visit(entry);
+          }
+        }
+      } else {
+        visit(child);
+      }
+    }
+  };
+  visit(source);
+  return targets;
+}
+
+function span_key(span: SourceSpan): string {
+  return span.start.toString() + ":" + span.end.toString();
 }
 
 function token_type(index: BindingIndex, entity: BindingEntity): number {
@@ -386,34 +431,6 @@ function inside_intervals(span: SourceSpan, intervals: SourceSpan[]): boolean {
   return intervals.some((interval) =>
     interval.start <= span.start && span.end <= interval.end
   );
-}
-
-function const_call_occurrence(
-  syntax: SourceSyntax,
-  occurrence: BindingOccurrence,
-  entity: BindingEntity,
-): boolean {
-  if (entity.kind !== "const") {
-    return false;
-  }
-
-  const tokens = source_tokens(syntax);
-  const next = tokens.find((token) => token.span.start >= occurrence.span.end);
-
-  if (next === undefined || next.kind === "newline") {
-    return false;
-  }
-
-  if (
-    next.kind === "number" || next.kind === "string" ||
-    next.kind === "character" || next.kind === "name"
-  ) {
-    return true;
-  }
-
-  return next.kind === "symbol" &&
-    (next.text === "(" || next.text === "[" || next.text === "." ||
-      next.text === "#");
 }
 
 function encode_tokens(tokens: AbsoluteToken[]): number[] {

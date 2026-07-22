@@ -179,7 +179,15 @@ export function scan_drop_assign_stmt<ctx>(
     previous &&
     !expr_consumes_owner_name(value, stmt.name, owners, state)
   ) {
-    emit_drop("assignment_replace", scope, previous.name, previous, state);
+    emit_drop(
+      "assignment_replace",
+      scope,
+      previous.name,
+      previous,
+      state,
+      undefined,
+      stmt,
+    );
     owners.delete(stmt.name);
   }
 

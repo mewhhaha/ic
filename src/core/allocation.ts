@@ -1,6 +1,8 @@
 import type { Core, CoreExpr } from "./ast.ts";
 import {
+  core_diagnostic_related_subject,
   find_core_diagnostic_subject,
+  record_core_diagnostic_related_subject,
   record_core_diagnostic_subject,
 } from "./source_origin.ts";
 import { canonical_core_expr } from "./subject_provenance.ts";
@@ -101,6 +103,13 @@ function seed_function_parameter_allocations<ctx>(
   }
 
   for (const param of core.function_params) {
+    if (
+      param.annotation?.startsWith("&") ||
+      param.annotation?.startsWith("^")
+    ) {
+      continue;
+    }
+
     const parameter = { tag: "var", name: param.name } as const;
     const ownership = core_expr_ownership(parameter, ctx, hooks);
 
@@ -264,6 +273,7 @@ export function link_drop_allocations(
     let candidates = matching;
     let exact_subject = false;
     const drop_subject = find_core_diagnostic_subject(step);
+    const related_subject = core_diagnostic_related_subject(step);
     if (drop_subject && allocation_subject_is_expr(drop_subject)) {
       const explicit = core_allocation_facts_for_value(
         allocations,
@@ -455,10 +465,16 @@ export function link_drop_allocations(
         if (drop_subject) {
           record_core_diagnostic_subject(result, drop_subject);
         }
+        if (related_subject) {
+          record_core_diagnostic_related_subject(result, related_subject);
+        }
         return result;
       }
       if (drop_subject) {
         record_core_diagnostic_subject(linked_step, drop_subject);
+      }
+      if (related_subject) {
+        record_core_diagnostic_related_subject(linked_step, related_subject);
       }
       return linked_step;
     }
@@ -483,10 +499,16 @@ export function link_drop_allocations(
       if (drop_subject) {
         record_core_diagnostic_subject(result, drop_subject);
       }
+      if (related_subject) {
+        record_core_diagnostic_related_subject(result, related_subject);
+      }
       return result;
     }
     if (drop_subject) {
       record_core_diagnostic_subject(linked_step, drop_subject);
+    }
+    if (related_subject) {
+      record_core_diagnostic_related_subject(linked_step, related_subject);
     }
     return linked_step;
   });
@@ -562,66 +584,7 @@ function linked_allocation_owned_children(
       new Set([parent.allocation_id]),
     );
   }
-
-  if (parent.reason !== "runtime_aggregate" || !parent.owner) {
-    return undefined;
-  }
-
-  const templates = allocations.facts.filter((fact) => {
-    return fact.reason === parent.reason && fact.layout === parent.layout &&
-      fact.owned_children && fact.owned_children.length > 0;
-  });
-  const template = templates[0];
-  if (!template || !template.owned_children) {
-    return undefined;
-  }
-
-  const result: CoreAllocationOwnedChild[] = [];
-  for (const template_child of template.owned_children) {
-    const candidates = allocations.facts.filter((fact) => {
-      return fact.scope === parent.scope && fact.owner === parent.owner &&
-        fact.storage === "persistent_unique_heap" &&
-        fact.layout === template_child.layout &&
-        fact.ownership.tag === "unique_heap" &&
-        fact.ownership.reason === template_child.ownership.reason;
-    });
-    let child: CoreAllocationPlan["facts"][number] | undefined = candidates[0];
-    let allocation_ids: string[];
-    if (candidates.length === 1 && child) {
-      allocation_ids = [child.allocation_id];
-    } else {
-      const template_children = templates.flatMap((candidate) => {
-        return (candidate.owned_children || []).filter((owned) => {
-          return owned.offset === template_child.offset &&
-            owned.layout === template_child.layout &&
-            owned.ownership.reason === template_child.ownership.reason;
-        });
-      });
-      if (template_children.length === 0) {
-        return undefined;
-      }
-      allocation_ids = template_children.flatMap((owned) => {
-        return owned.allocation_ids;
-      });
-      child = allocations.facts.find((fact) => {
-        return allocation_ids.includes(fact.allocation_id);
-      });
-    }
-    if (!child || child.ownership.tag !== "unique_heap") {
-      return undefined;
-    }
-    result.push({
-      allocation_ids,
-      offset: template_child.offset,
-      ownership: child.ownership,
-      layout: child.layout,
-    });
-  }
-  return nested_allocation_owned_children(
-    result,
-    allocations,
-    new Set([parent.allocation_id]),
-  );
+  return undefined;
 }
 
 function nested_allocation_owned_children(

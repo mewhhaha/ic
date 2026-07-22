@@ -151,6 +151,148 @@ branch_length("main")
   assert_equals(main(), 4);
 });
 
+Deno.test("annotated aggregate functions preserve applied union field types", async () => {
+  const wat = Source.wat(`
+const { struct } = import "duck:prelude" ()
+type ReminderState = struct {
+  .last_delivery = Option I64,
+  .window = Option Text,
+  .active = Bool,
+}
+
+let new_state: () -> ReminderState = () => {
+  [.last_delivery = \`None (), .window = \`None (), .active = false]
+}
+let carry_state: ReminderState -> ReminderState = state => {
+  state :+ {.active = true}
+}
+let deliver: [ReminderState, I64, Text] -> ReminderState =
+  (state, timestamp, window) => {
+    state :+ {
+      .last_delivery = \`Some timestamp,
+      .window = \`Some window,
+    }
+  }
+
+let carried = carry_state(new_state())
+let delivered = deliver(carried, 42i64, "ok")
+let score = 0
+if let \`Some timestamp = delivered.last_delivery {
+  if timestamp == 42i64 { score = score + 42 }
+}
+if let \`Some window = delivered.window {
+  score = score + @len(window)
+}
+score
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "annotated_aggregate_applied_union_fields",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Applied union aggregate function test omitted main");
+  }
+
+  assert_equals(main(), 44);
+});
+
+Deno.test("moved leading aggregates preserve nested owned fields", async () => {
+  const wat = Source.wat(`
+const { struct } = import "duck:prelude" ()
+type State = struct {.window = Option Text, .active = Bool}
+type Decision = struct {.state = State, .changed = Bool}
+
+let new_state: () -> State = () => {
+  [.window = \`None (), .active = false]
+}
+let decide: [State, Text] -> Decision = (state, window) => {
+  let changed = if let \`Some previous = state.window {
+    previous != window
+  } else {
+    true
+  }
+  let next = state :+ {.window = \`Some window}
+  [.state = next, .changed = changed]
+}
+
+let state = new_state()
+let first = decide(state, "one")
+state = first.state
+let second = decide(state, "two")
+if second.changed { 1 } else { 0 }
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "moved_leading_aggregate_owned_fields",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Moved leading aggregate test omitted main");
+  }
+
+  assert_equals(main(), 1);
+});
+
+Deno.test("nested aggregate construction moves owned fields", async () => {
+  const wat = Source.wat(`
+const { struct } = import "duck:prelude" ()
+type Config = struct {.label = Text}
+type State = struct {.config = Config}
+
+let wrap: Config -> State = config => [.config = config]
+let config: Config = [.label = @append("d", "uck")]
+let state = wrap(config)
+@len(state.config.label)
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "nested_aggregate_owned_fields",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Nested aggregate ownership test omitted main");
+  }
+
+  assert_equals(main(), 4);
+});
+
+Deno.test("owned recursive call assignments preserve returned owners", async () => {
+  const wat = Source.wat(`
+type Choice =
+  | \`Some Text
+  | \`None Unit
+
+let rec identity: Choice -> Choice = choice => choice
+let choice: Choice = \`Some @append("d", "uck")
+choice = identity(choice)
+
+if let \`Some text = choice {
+  @len(text)
+} else {
+  0
+}
+`);
+  const instance = await instantiate_wat(
+    wat,
+    "owned_recursive_assignment",
+    {},
+  );
+  const main = instance.exports.main;
+
+  if (typeof main !== "function") {
+    throw new Error("Owned recursive assignment test omitted main");
+  }
+
+  assert_equals(main(), 4);
+});
+
 Deno.test("annotated functions preserve aggregate results assembled from locals", async () => {
   const wat = Source.wat(`
 const { struct } = import "duck:prelude" ()
@@ -276,6 +418,24 @@ type ListNode value = [value, List value]
 type IntList = List I32
 let empty: IntList = \`Nil ()
 let values: IntList = \`Cons [42, empty]
+if let \`Cons node = values {
+  let [head, _] = node
+  head
+} else {
+  0
+}
+`);
+
+  assert_includes(wat, "i32.const 42");
+});
+
+Deno.test("function results contextualize generic union constructor payloads", () => {
+  const wat = Source.wat(`
+type List value = | \`Nil Unit | \`Cons ListNode value
+type ListNode value = [value, List value]
+type IntList = List I32
+let singleton: I32 -> IntList = value => \`Cons [value, \`Nil ()]
+let values = singleton(42)
 if let \`Cons node = values {
   let [head, _] = node
   head

@@ -5,6 +5,8 @@ import {
   scan_drop_branch_stmts,
 } from "./branch.ts";
 import { drop_if_let_branch_ctx } from "./conditional_expr.ts";
+import { emit_drop } from "./emit.ts";
+import { unique_heap_ownership } from "./ownership.ts";
 import { next_block_scope } from "./state.ts";
 import type {
   CoreDropExitOwners,
@@ -144,6 +146,20 @@ export function scan_drop_if_let_stmt<ctx>(
     return false;
   }
 
+  let temporary_target_owner: CoreDropOwner | undefined;
+  if (stmt.target.tag === "app") {
+    const ownership = unique_heap_ownership(stmt.target, ctx, hooks);
+    if (ownership && ownership.reason === "runtime_union") {
+      temporary_target_owner = {
+        name: "_if_let_target#" + state.next_block.toString(),
+        ownership,
+        pointer: "temporary",
+        subject: stmt.target,
+      };
+      owners.set(temporary_target_owner.name, temporary_target_owner);
+    }
+  }
+
   const branch_ctx = drop_if_let_branch_ctx(
     stmt.case_name,
     stmt.value_name,
@@ -151,21 +167,32 @@ export function scan_drop_if_let_stmt<ctx>(
     ctx,
     hooks,
   );
-  if (branch_ctx.tag === "skip") {
-    return true;
+  if (branch_ctx.tag !== "skip") {
+    const block_scope = next_block_scope(state);
+    const branch = scan_drop_branch_stmts(
+      stmt.body,
+      block_scope,
+      owners,
+      exit_owners,
+      branch_ctx.ctx,
+      hooks,
+      state,
+      scan_drop_stmts,
+    );
+    merge_if_stmt_branch_owners(owners, branch);
   }
 
-  const block_scope = next_block_scope(state);
-  const branch = scan_drop_branch_stmts(
-    stmt.body,
-    block_scope,
-    owners,
-    exit_owners,
-    branch_ctx.ctx,
-    hooks,
-    state,
-    scan_drop_stmts,
-  );
-  merge_if_stmt_branch_owners(owners, branch);
+  if (temporary_target_owner) {
+    owners.delete(temporary_target_owner.name);
+    emit_drop(
+      "conditional_cleanup",
+      scope,
+      undefined,
+      temporary_target_owner,
+      state,
+      stmt.target,
+    );
+  }
+
   return true;
 }

@@ -26,12 +26,13 @@ import {
   normalize_front_effect_scalar_alias_ownership,
 } from "./effect_analysis.ts";
 import { scope_inlined_returns } from "./effect_inline_return.ts";
+import { is_builtin_type_name } from "./types.ts";
 import { elaborate_front_handlers } from "./handler_elaborate.ts";
 import { is_no_demand_name } from "./names.ts";
 import { substitute_front_expr } from "./substitute.ts";
 import { type_declaration_bindings } from "./type_declaration.ts";
 import { prim_returns_bool } from "./numeric.ts";
-import { function_type_expr } from "./type_expr.ts";
+import { format_type_expr, function_type_expr } from "./type_expr.ts";
 import { pattern_bindings } from "./pattern.ts";
 import {
   const_i32_value,
@@ -95,6 +96,18 @@ export function elaborate_front_effects(source: Source): Source {
       continue;
     }
 
+    let fields = declaration.fields;
+
+    if (is_builtin_type_name(declaration.type_name)) {
+      fields = fields.filter((field) => {
+        return field.value.tag !== "lam" && field.value.tag !== "rec";
+      });
+    }
+
+    if (fields.length === 0) {
+      continue;
+    }
+
     type_extensions.push({
       tag: "bind",
       kind: "const",
@@ -104,7 +117,7 @@ export function elaborate_front_effects(source: Source): Source {
       value: {
         tag: "struct_update",
         base: { tag: "var", name: declaration.type_name },
-        fields: declaration.fields,
+        fields,
       },
     });
   }
@@ -1290,11 +1303,15 @@ function apply_function_parameter_types(
     const param_type = types[index];
     expect(param_type, "Missing function parameter type " + index.toString());
 
-    if (param.annotation || param_type.tag !== "name") {
+    if (param.annotation || param.type_annotation) {
       return param;
     }
 
-    return { ...param, annotation: param_type.name };
+    return {
+      ...param,
+      annotation: format_type_expr(param_type),
+      type_annotation: param_type,
+    };
   });
 }
 

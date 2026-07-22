@@ -145,6 +145,7 @@ export function consume_runtime_union_payload_owner<ctx>(
   }
 
   if (
+    moved_owner.ownership.reason !== "text" &&
     moved_owner.ownership.reason !== "runtime_aggregate" &&
     moved_owner.ownership.reason !== "runtime_union" &&
     !(moved_owner.ownership.reason === "closure" &&
@@ -214,6 +215,28 @@ export function expr_consumes_owner_name(
 
   if (moved_owner && moved_owner.name === name) {
     return true;
+  }
+
+  if (expr.tag === "app" && expr.func.tag === "rec_ref") {
+    for (let index = 0; index < expr.func.params.length; index += 1) {
+      const param = expr.func.params[index];
+      const arg = expr.args[index];
+      if (param === undefined || arg === undefined) {
+        throw new Error("Missing named function ownership argument");
+      }
+      if (
+        param.is_const || param.annotation?.startsWith("&") ||
+        param.annotation?.startsWith("^") || arg.tag === "borrow" ||
+        arg.tag === "freeze"
+      ) {
+        continue;
+      }
+
+      const arg_owner = moved_expr_owner(arg, owners, state);
+      if (arg_owner?.name === name) {
+        return true;
+      }
+    }
   }
 
   return false;
@@ -529,6 +552,7 @@ function core_drop_expr_ownership<ctx>(
     core_expr_is_text: hooks.core_expr_is_text,
     dynamic_union_if: hooks.dynamic_union_if,
     expr_type: hooks.expr_type,
+    borrowed_local: hooks.borrowed_local,
     frozen_local: hooks.frozen_local,
     if_let_branch_ctx: hooks.block_ctx,
     runtime_union_match_info: hooks.runtime_union_match_info,

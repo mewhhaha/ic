@@ -279,13 +279,13 @@ classify(10) + 40
 
 ### 6. Loops and collections
 
-Ranges are half-open. `for` supports a value, an optional index, and an explicit
-step:
+Ranges use `..` for an exclusive end or `..=` for an inclusive end. `for`
+supports a value, an optional index, and an explicit step:
 
 ```duck
 let total = 0
 
-for value in 1..5 {
+for value in 1..=4 {
   total = total + value
 }
 

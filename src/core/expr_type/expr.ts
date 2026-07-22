@@ -22,6 +22,7 @@ import {
 } from "../lifetime.ts";
 import {
   runtime_aggregate_field_info,
+  runtime_aggregate_index_field,
   runtime_aggregate_type_expr,
   runtime_struct_update_value,
 } from "../runtime_aggregate.ts";
@@ -372,6 +373,26 @@ export function expr_type<
           const index_type = expr_type(expr.index, ctx, hooks);
           expect(index_type === "i32", "Core text byte index must be i32");
           return "i32";
+        }
+
+        const index = maybe_static_i32(expr.index);
+        if (index !== undefined) {
+          const field = runtime_aggregate_index_field(
+            expr.object,
+            index,
+            ctx,
+            {
+              check_closure_call_args: hooks.check_closure_call_args,
+              closure_fn_type: hooks.closure_fn_type,
+            },
+          );
+          if (field) {
+            expect(field.tag !== "unit", "Core unit index has no value");
+            if (field.tag === "struct") {
+              return "i32";
+            }
+            return field.type;
+          }
         }
 
         throw new Error("Cannot type core index expression yet");

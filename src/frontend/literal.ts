@@ -1,6 +1,6 @@
 import { expect } from "../expect.ts";
 import type { FrontExpr, Token } from "./ast.ts";
-import { parse_number_expr } from "./numeric.ts";
+import { parse_number_expr } from "./number_literal.ts";
 
 export function front_literal_expr(token: Token): FrontExpr | undefined {
   if (token.kind === "number") {

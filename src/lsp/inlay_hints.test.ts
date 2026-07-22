@@ -115,6 +115,32 @@ Deno.test("inlay type hints identify character values", () => {
   }]);
 });
 
+Deno.test("inlay type hints render positional product structure", () => {
+  const text = "let pair = [1, true]\n";
+
+  assert_equals(dump(hints(text, category_config("types"))), [{
+    line: 0,
+    character: 8,
+    label: ": [I32, Bool]",
+    kind: 1,
+    category: "types",
+  }]);
+});
+
+Deno.test("inlay type hints resolve source-defined extension methods", () => {
+  const text = 'const { struct } = import "duck:prelude" ()\n' +
+    'let value: Text = "duck"\n' +
+    "let length = value.length()\n";
+
+  assert_equals(dump(hints(text, category_config("types"))), [{
+    line: 2,
+    character: 10,
+    label: ": I32",
+    kind: 1,
+    category: "types",
+  }]);
+});
+
 Deno.test("inlay effect hints snapshot inferred row and result", () => {
   const text = "declare effect Io { read: () => Text }\n" +
     "let greet = () => {\n" +

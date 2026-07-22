@@ -17,6 +17,7 @@ import {
   emit_runtime_aggregate_field_pointer,
   emit_runtime_aggregate_value,
   runtime_aggregate_field_info,
+  runtime_aggregate_index_field,
   runtime_struct_update_value,
 } from "./runtime_aggregate.ts";
 import { emit_core_freeze_expr } from "./expr_emit/freeze.ts";
@@ -388,6 +389,32 @@ function emit_core_expr_unwrapped<ctx extends CoreExprEmitCtx>(
             expr.index,
             ctx,
           );
+        }
+
+        const index = maybe_static_i32(expr.index);
+        if (index !== undefined) {
+          const field = runtime_aggregate_index_field(
+            expr.object,
+            index,
+            ctx,
+            {
+              check_closure_call_args: hooks.check_closure_call_args,
+              closure_fn_type: hooks.closure_fn_type,
+            },
+          );
+          if (field) {
+            expect(field.tag !== "unit", "Core unit index has no value");
+            return emit_core_expr(
+              {
+                tag: "field",
+                object: expr.object,
+                name: field.name,
+                move: expr.move,
+              },
+              ctx,
+              hooks,
+            );
+          }
         }
 
         throw new Error("Cannot emit core index expression yet");

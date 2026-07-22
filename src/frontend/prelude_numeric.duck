@@ -60,40 +60,42 @@ const parse_u32_decimal: Text -> DecimalU32Result = (text: Text) => {
 }
 
 const parse_i64_decimal: Text -> DecimalI64Result = (text: Text) => {
-  if text == "-9223372036854775808" { return `Ok (-9223372036854775808i64) }
+  if text == "-9223372036854775808" {
+    `Ok (-9223372036854775808i64)
+  } else {
+    let negative = text_length(text) > 0 && text_get([text, 0]) == 45
+    let start = if negative { 1 } else { 0 }
+    let valid = start < text_length(text)
+    let exceeds_i64 = false
+    let parsed = 0i64
+    let index = start
 
-  let negative = text_length(text) > 0 && text_get([text, 0]) == 45
-  let start = if negative { 1 } else { 0 }
-  let valid = start < text_length(text)
-  let exceeds_i64 = false
-  let parsed = 0i64
-  let index = start
+    loop {
+      if index >= text_length(text) { break }
+      let byte = text_get([text, index])
 
-  loop {
-    if index >= text_length(text) { break }
-    let byte = text_get([text, index])
-
-    if byte < 48 || byte > 57 {
-      valid = false
-    } else if valid {
-      let digit = unsafe_i64_extend_i32_signed(byte - 48)
-      if parsed > 922337203685477580i64 || parsed == 922337203685477580i64 && digit > 7i64 {
+      if byte < 48 || byte > 57 {
         valid = false
-        exceeds_i64 = true
-      } else {
-        parsed = parsed * 10i64 + digit
+      } else if valid {
+        let digit = unsafe_i64_extend_i32_signed(byte - 48)
+        if parsed > 922337203685477580i64 || parsed == 922337203685477580i64 && digit > 7i64 {
+          valid = false
+          exceeds_i64 = true
+        } else {
+          parsed = parsed * 10i64 + digit
+        }
       }
+
+      index = index + 1
     }
 
-    index = index + 1
-  }
-
-  if valid {
-    if negative { `Ok (0i64 - parsed) } else { `Ok parsed }
-  } else if exceeds_i64 {
-    `Err "number exceeds I64"
-  } else {
-    `Err "must be an integer"
+    if valid {
+      if negative { `Ok (0i64 - parsed) } else { `Ok parsed }
+    } else if exceeds_i64 {
+      `Err "number exceeds I64"
+    } else {
+      `Err "must be an integer"
+    }
   }
 }
 

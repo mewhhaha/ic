@@ -5,15 +5,20 @@ import type {
   FrontExpr,
   TypeExpr,
 } from "./ast.ts";
-import type { SourceTypeFact } from "./source_facts.ts";
 import { tokenize } from "./tokenize.ts";
 import { format_type_expr, parse_type_expr } from "./type_expr.ts";
+
+type EffectInferenceFact = {
+  alias_target: EffectInferenceFact | undefined;
+  inference_variable: boolean;
+  name: string;
+};
 
 export function infer_effect_operation_type_arguments(
   declaration: EffectDeclaration,
   operation: EffectOperation,
-  args: (SourceTypeFact | undefined)[],
-  result: SourceTypeFact | undefined,
+  args: (EffectInferenceFact | undefined)[],
+  result: EffectInferenceFact | undefined,
 ): Map<string, string> {
   const roles = new Set([
     ...declaration.params,
@@ -131,7 +136,7 @@ export function is_effect_scalar_type(type_name: string): boolean {
 }
 
 function source_fact_type_expr(
-  fact: SourceTypeFact | undefined,
+  fact: EffectInferenceFact | undefined,
 ): TypeExpr | undefined {
   if (
     fact === undefined || fact.inference_variable || fact.name === "" ||
@@ -141,7 +146,7 @@ function source_fact_type_expr(
   }
 
   let representation = fact;
-  const seen = new Set<SourceTypeFact>();
+  const seen = new Set<EffectInferenceFact>();
 
   while (
     representation.alias_target !== undefined &&

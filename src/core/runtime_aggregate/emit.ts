@@ -319,15 +319,12 @@ function emit_runtime_aggregate_field_copies<
       continue;
     }
 
-    let source_field: CoreExpr = {
+    const source_field: CoreExpr = {
       tag: "field",
       object: source,
       name: field_info.name,
+      move: true,
     };
-
-    if (source.tag === "field" && source.move) {
-      source_field = { ...source_field, move: true };
-    }
 
     if (field_info.tag === "struct") {
       emit_runtime_aggregate_field_copies(

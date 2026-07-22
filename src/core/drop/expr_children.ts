@@ -325,43 +325,29 @@ export function scan_drop_expr_children_impl<ctx>(
         scan_children,
       );
 
-    case "struct_value":
-      if (
-        !scan_children(
-          expr.type_expr,
-          scope,
-          owners,
-          exit_owners,
-          ctx,
-          hooks,
-          state,
-        )
-      ) {
+    case "struct_value": {
+      const continues = scan_drop_fields(
+        expr.fields,
+        scope,
+        owners,
+        exit_owners,
+        ctx,
+        hooks,
+        state,
+        scan_children,
+      );
+      if (!continues) {
         return false;
       }
-      {
-        const continues = scan_drop_fields(
-          expr.fields,
-          scope,
-          owners,
-          exit_owners,
-          ctx,
-          hooks,
-          state,
-          scan_children,
-        );
-        if (!continues) {
-          return false;
-        }
-        consume_runtime_aggregate_resume_field_owners(
-          expr,
-          owners,
-          ctx,
-          hooks,
-          state,
-        );
-        return true;
-      }
+      consume_runtime_aggregate_resume_field_owners(
+        expr,
+        owners,
+        ctx,
+        hooks,
+        state,
+      );
+      return true;
+    }
 
     case "struct_update":
       if (
@@ -455,21 +441,6 @@ export function scan_drop_expr_children_impl<ctx>(
       if (expr.value) {
         const continues = scan_children(
           expr.value,
-          scope,
-          owners,
-          exit_owners,
-          ctx,
-          hooks,
-          state,
-        );
-        if (!continues) {
-          return false;
-        }
-      }
-
-      if (expr.type_expr) {
-        const continues = scan_children(
-          expr.type_expr,
           scope,
           owners,
           exit_owners,

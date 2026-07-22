@@ -31,8 +31,16 @@ export abstract class ParserStmtControl extends ParserHostImport {
     if (!this.for_header_has_in()) {
       const index = this.fresh_no_demand_name();
       const start = this.parse_expr_without_postfix_block();
-      this.expect_symbol("..");
-      return this.parse_range_for_rest(index, start);
+      let end_bound: "exclusive" | "inclusive";
+
+      if (this.match_symbol("..")) {
+        end_bound = "exclusive";
+      } else {
+        this.expect_symbol("..=");
+        end_bound = "inclusive";
+      }
+
+      return this.parse_range_for_rest(index, start, end_bound);
     }
 
     let index: string | undefined;
@@ -50,7 +58,15 @@ export abstract class ParserStmtControl extends ParserHostImport {
     expect(this.match_name("in"), "Expected in");
     const start = this.parse_expr_without_postfix_block();
 
+    let end_bound: "exclusive" | "inclusive" | undefined;
+
     if (this.match_symbol("..")) {
+      end_bound = "exclusive";
+    } else if (this.match_symbol("..=")) {
+      end_bound = "inclusive";
+    }
+
+    if (end_bound !== undefined) {
       expect(index === undefined, "Range loops do not have item patterns");
       let range_index: string;
 
@@ -68,7 +84,7 @@ export abstract class ParserStmtControl extends ParserHostImport {
         throw new Error("Range loop index must be an unannotated binding");
       }
 
-      return this.parse_range_for_rest(range_index, start);
+      return this.parse_range_for_rest(range_index, start, end_bound);
     }
 
     const body = this.parse_block();
@@ -101,7 +117,8 @@ export abstract class ParserStmtControl extends ParserHostImport {
       }
 
       if (
-        token.kind === "symbol" && token.text === ".." && parens === 0 &&
+        token.kind === "symbol" &&
+        (token.text === ".." || token.text === "..=") && parens === 0 &&
         brackets === 0 && braces === 0
       ) {
         return false;
@@ -219,7 +236,11 @@ export abstract class ParserStmtControl extends ParserHostImport {
     };
   }
 
-  private parse_range_for_rest(index: string, start: FrontExpr): Stmt {
+  private parse_range_for_rest(
+    index: string,
+    start: FrontExpr,
+    end_bound: "exclusive" | "inclusive",
+  ): Stmt {
     const end = this.parse_expr_without_postfix_block();
 
     let step: FrontExpr = { tag: "num", type: "i32", value: 1 };
@@ -235,6 +256,7 @@ export abstract class ParserStmtControl extends ParserHostImport {
       index,
       start,
       end,
+      end_bound,
       step,
       body: body.statements,
     };

@@ -61,6 +61,34 @@ Deno.test("semantic warnings retain code and map to LSP warning severity", () =>
   }]);
 });
 
+Deno.test("LSP warns when user source calls a raw prelude intrinsic", () => {
+  const uri = "file:///raw-intrinsic.duck";
+  const diagnostics = analysis_diagnostics(
+    Source.analyze('@slice("duck", 0, 2)', { uri, warnings: true }),
+    uri,
+    "utf-16",
+  );
+  const warning = diagnostics.find((diagnostic) => {
+    return diagnostic.code === "DUCK2004";
+  });
+
+  if (warning === undefined) {
+    throw new Error("Missing raw intrinsic warning");
+  }
+
+  assert_equals(warning, {
+    range: {
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 6 },
+    },
+    severity: 2,
+    source: "duck",
+    code: "DUCK2004",
+    message:
+      "Raw intrinsic @slice is reserved for prelude and compiler-facing source",
+  });
+});
+
 Deno.test("semantic diagnostics carry same-document related information", () => {
   const uri = "file:///linear.duck";
   const diagnostics = analysis_diagnostics(

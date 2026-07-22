@@ -1957,12 +1957,17 @@ let gcd = rec (a, b) => {
 }
 ```
 
-Range loops iterate a half-open range with an optional step:
+Range loops use `..` for an exclusive end or `..=` for an inclusive end. Both
+forms accept runtime bounds and an optional step:
 
 ```txt
 let sum = 0
 
 for i in 0..4 {
+  sum = sum + i
+}
+
+for i in 4..=8 by 2 {
   sum = sum + i
 }
 
@@ -2047,6 +2052,29 @@ for i, x in xs {
   sum = sum + xs[i]
 }
 ```
+
+Custom collections select one of two source-defined protocols. Random-access
+collections implement `Iterable` with `.length` and `.get`; this remains the
+path used by byte buffers and indexable user types. Cursor collections implement
+`Iterator` with `.has_next` and `.next`, where `.next` returns `[Item, Self]`.
+The prelude's `List` implementation therefore walks each cons cell once instead
+of repeatedly computing a length and indexing from the head:
+
+```txt
+duck Iterator Self {
+  type Item
+  .has_next = &Self -> Bool
+  .next = Self -> [Item, Self]
+}
+
+for value in values {
+  total = total + value
+}
+```
+
+When the source `next` implementation exposes a union case directly, collection
+lowering uses that case as the cursor step. This preserves the list tail without
+allocating an intermediate option or requiring random access.
 
 A collection item may use a refutable pattern. Elements that do not match are
 skipped before the body executes:

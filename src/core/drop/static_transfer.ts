@@ -566,14 +566,6 @@ function scan_static_drop_transfer_expr<ctx>(
       return;
 
     case "struct_value":
-      scan_static_drop_transfer_expr(
-        expr.type_expr,
-        scope,
-        owners,
-        ctx,
-        hooks,
-        state,
-      );
       for (const field of expr.fields) {
         consume_static_composite_child(field.value, owners, state);
         scan_static_drop_transfer_expr(
@@ -710,16 +702,6 @@ function scan_static_drop_transfer_expr<ctx>(
       if (expr.value) {
         scan_static_drop_transfer_expr(
           expr.value,
-          scope,
-          owners,
-          ctx,
-          hooks,
-          state,
-        );
-      }
-      if (expr.type_expr) {
-        scan_static_drop_transfer_expr(
-          expr.type_expr,
           scope,
           owners,
           ctx,

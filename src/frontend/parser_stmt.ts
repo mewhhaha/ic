@@ -420,6 +420,21 @@ export class ParserStmt extends ParserTypeDeclaration {
       /^[A-Z][A-Za-z0-9]*$/.test(type_name),
       "Extension type must use PascalCase: " + type_name,
     );
+    const params: string[] = [];
+
+    while (!(this.peek().kind === "symbol" && this.peek().text === "{")) {
+      const param = this.expect_name("Expected extension parameter or `{`");
+      expect(
+        /^[A-Z][A-Za-z0-9]*$/.test(param),
+        "Extension parameter must use PascalCase: " + param,
+      );
+      expect(
+        !params.includes(param),
+        "Duplicate extension parameter: " + param,
+      );
+      params.push(param);
+    }
+
     this.expect_symbol("{");
     this.skip_newlines();
     const types: Extract<Declaration, { tag: "extend" }>["types"] = [];
@@ -453,7 +468,7 @@ export class ParserStmt extends ParserTypeDeclaration {
       this.allow_pascal_type_names -= 1;
     }
 
-    return { tag: "extend", type_name, types, fields };
+    return { tag: "extend", type_name, params, types, fields };
   }
 
   private parse_fixity(): Declaration {

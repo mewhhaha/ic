@@ -300,6 +300,7 @@ function substitute_core_call_stmt(
         index: stmt.index,
         start: substitute_core_call_expr(stmt.start, replacements),
         end: substitute_core_call_expr(stmt.end, replacements),
+        end_bound: stmt.end_bound,
         step: substitute_core_call_expr(stmt.step, replacements),
         carried: stmt.carried,
         body: substitute_core_call_block(stmt.body, body_replacements),

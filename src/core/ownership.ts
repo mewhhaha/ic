@@ -149,8 +149,7 @@ export function core_expr_ownership<ctx>(
 
   if (
     expr.tag === "if_let" &&
-    !expr.implicit_else &&
-    hooks.core_expr_is_text(expr, ctx)
+    !expr.implicit_else
   ) {
     const merged = core_if_let_branch_ownership(
       expr,

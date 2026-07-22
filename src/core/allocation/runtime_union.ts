@@ -132,10 +132,6 @@ export function record_runtime_union_allocations<ctx>(
     return;
   }
 
-  if (value.type_expr) {
-    scan_expr(value.type_expr, scope, ctx, hooks, state);
-  }
-
   const parent = record_allocation(
     value,
     "runtime_union",
