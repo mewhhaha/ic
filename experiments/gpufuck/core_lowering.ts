@@ -3020,6 +3020,9 @@ class DuckCoreLowering {
         );
       }
       for (const candidate of this.#source_functions.keys()) {
+        if (this.#type_constructors.has(candidate)) {
+          continue;
+        }
         if (this.value_references_name(recursive.body, candidate)) {
           dependency_names.add(candidate);
           pending_dependencies.push(candidate);
@@ -3040,6 +3043,7 @@ class DuckCoreLowering {
       }
       for (const candidate of this.#source_functions.keys()) {
         if (
+          !this.#type_constructors.has(candidate) &&
           !dependency_names.has(candidate) &&
           this.value_references_name(dependency.body, candidate)
         ) {
