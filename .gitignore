@@ -12,6 +12,7 @@ out/
 
 *.wasm
 *.wat
+*.out
 *.tsbuildinfo
 
 .env
