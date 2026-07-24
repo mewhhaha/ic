@@ -8,8 +8,8 @@ restores the terminal in `finally` blocks.
 
 The document is a height-balanced piece tree with cached byte and line counts.
 Inserts and deletes split and join subtrees instead of shifting one contiguous
-buffer, while lookup descends by cached lengths. A leaf iterator materializes
-the document without exposing the tree traversal to callers.
+buffer, while lookup descends by cached lengths. Materialization walks the
+leaves with an explicit stack without exposing the tree traversal to callers.
 
 Selections follow the Helix model: every normal-mode cursor is an inclusive
 selection, `v` toggles an anchored extension, and edits operate on the selected
@@ -27,13 +27,11 @@ read boundary as an immediate key. Rendering maps display bytes lazily and
 writes through a bounded output builder, while folds compute cached leaf
 metadata.
 
-The case study still exposes three toolchain gaps. A render-local byte-sink
+The case study still exposes two toolchain gaps. A render-local byte-sink
 effect would be cleaner than explicit builder threading, but Duck effects cannot
-yet run inside runtime `for` and `loop` bodies. The piece iterator keeps its
-normalization traversal inline because an extension method cannot yet retain a
-call to the top-level normalization function through Core lowering. Key and
-command sequences use monomorphic recursive unions because gpufuck cannot yet
-instantiate generic `List` with a union element type.
+yet run inside runtime `for` and `loop` bodies. Key and command sequences use
+monomorphic recursive unions because gpufuck cannot yet instantiate generic
+`List` with a union element type.
 
 Run it with:
 

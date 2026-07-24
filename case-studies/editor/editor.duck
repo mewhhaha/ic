@@ -1,7 +1,6 @@
 module (!init: Init) where
 
 const { .cast, .struct } = import "duck:prelude/types" ();
-const { .derive_sequence } = import "duck:prelude/collections" ();
 const { .iterator_count } = import "duck:prelude/iterators" ();
 
 type Key =
@@ -13,48 +12,26 @@ type Key =
   | `Enter Unit
   | `Tab Unit
   | `ControlC Unit
+
 type KeyDecoder =
   | `Ground Unit
   | `EscapePrefix Unit
   | `ControlSequence Unit
-@[derive_sequence(
-  Key,
-  () => `NoKeys (),
-  keys => if let `NoKeys () = keys { true } else { false },
-  keys => match keys {
-    | `MoreKeys node => node[0]
-    | _ => `Escape ()
-  },
-  keys => match keys {
-    | `MoreKeys node => node[1]
-    | _ => keys
-  },
-  (key: Key, tail) => `MoreKeys [key, tail],
-)]
+
 type KeySequence =
   | `NoKeys Unit
   | `MoreKeys KeySequenceNode
+
 type KeySequenceNode = [Key, KeySequence]
+
 type EditorCommand =
   | `Save Unit
   | `Quit Unit
-@[derive_sequence(
-  EditorCommand,
-  () => `NoCommands (),
-  commands => if let `NoCommands () = commands { true } else { false },
-  commands => match commands {
-    | `MoreCommands node => node[0]
-    | _ => `Quit ()
-  },
-  commands => match commands {
-    | `MoreCommands node => node[1]
-    | _ => commands
-  },
-  (command: EditorCommand, tail) => `MoreCommands [command, tail],
-)]
+
 type EditorCommands =
   | `NoCommands Unit
   | `MoreCommands EditorCommandNode
+
 type EditorCommandNode = [EditorCommand, EditorCommands]
 
 type PieceTree = | `Empty Unit | `Leaf PieceLeaf | `Branch PieceBranch
@@ -66,7 +43,6 @@ type PieceBranch = struct {
   .lines = I32,
   .height = I32,
 }
-type PieceIteratorState = struct { .pending = List PieceTree }
 type PieceTable = struct { .root = PieceTree, .length = I32, .lines = I32 }
 type Selection = struct { .anchor = I32, .head = I32 }
 type SelectionSet = struct { .primary = Selection, .secondary = List Selection }
@@ -86,10 +62,6 @@ type EditorStep = struct {
 type EditorInputStep = struct {
   .editor = Editor,
   .decoder = KeyDecoder,
-  .commands = EditorCommands,
-}
-type AppliedKeys = struct {
-  .editor = Editor,
   .commands = EditorCommands,
 }
 type RenderView = struct {
@@ -134,11 +106,6 @@ const terminal_frame_control_capacity = 22;
 const empty_piece_tree = () => {
   let tree: PieceTree = `Empty ();
   tree
-};
-
-const empty_piece_cursor = () => {
-  let cursor: List PieceTree = `Nil ();
-  cursor
 };
 
 let is_line_break = (byte: I32) => {
@@ -222,40 +189,24 @@ let piece_table = (bytes: Bytes) => {
   }
 };
 
-let byte_at = (table: PieceTable, wanted: I32) => {
-  let remaining = wanted;
-  let current = table.root;
-  let found = 0;
-  let done = false;
-
-  loop {
-    match current {
-      | `Empty () => {
-        done = true
-      }
-      | `Leaf leaf => {
-        let piece: Bytes = leaf.piece;
-        found = piece[remaining]
-        done = true
-      }
-      | `Branch branch => {
-        let left = branch.left;
-        let left_length = piece_tree_length left;
-
-        if remaining < left_length {
-          current = left
-        } else {
-          remaining = remaining - left_length
-          current = branch.right
-        }
-      }
-    }
-
-    if done { break; }
+let rec piece_tree_byte_at = (tree: PieceTree, wanted: I32) => match tree {
+  | `Empty () => 0
+  | `Leaf leaf => {
+    let piece: Bytes = leaf.piece;
+    piece[wanted]
   }
+  | `Branch branch => {
+    let left_length = piece_tree_length(branch.left);
 
-  found
+    if wanted < left_length {
+      piece_tree_byte_at(branch.left, wanted)
+    } else {
+      piece_tree_byte_at(branch.right, wanted - left_length)
+    }
+  }
 };
+
+let byte_at = (table: PieceTable, wanted: I32) => piece_tree_byte_at(table.root, wanted);
 
 let rec split_piece_tree = (tree: PieceTree, position: I32) => {
   let length = piece_tree_length tree;
@@ -322,9 +273,11 @@ let delete_bytes = (table, start, end) => {
   }
 };
 
-let normalize_piece_cursor: List PieceTree -> List PieceTree = (cursor: List PieceTree) => {
-  let pending = cursor;
-  let normalized = empty_piece_cursor();
+let materialize = (table: PieceTable) => {
+  let output = Bytes.generate(table.length, _ => 0);
+  let output_offset = 0;
+  let empty_stack: List PieceTree = `Nil ();
+  let pending: List PieceTree = `Cons [table.root, empty_stack];
   let done = false;
 
   loop {
@@ -335,9 +288,14 @@ let normalize_piece_cursor: List PieceTree -> List PieceTree = (cursor: List Pie
         | `Empty () => {
           pending = tail
         }
-        | `Leaf _ => {
-          normalized = pending
-          done = true
+        | `Leaf leaf => {
+          pending = tail
+          let piece: Bytes = leaf.piece;
+
+          for byte in piece {
+            output[output_offset] = byte
+            output_offset = output_offset + 1
+          }
         }
         | `Branch branch => {
           let right_node: List PieceTree = `Cons [branch.right, tail];
@@ -345,82 +303,10 @@ let normalize_piece_cursor: List PieceTree -> List PieceTree = (cursor: List Pie
         }
       }
     } else {
-      normalized = pending
       done = true
     }
 
     if done { break; }
-  }
-
-  normalized
-};
-
-let piece_cursor = (tree: PieceTree) => {
-  let pending: List PieceTree = `Cons [tree, empty_piece_cursor()];
-  let cursor: PieceIteratorState = [.pending = normalize_piece_cursor pending];
-  cursor
-};
-
-extend PieceIteratorState {
-  type Item = Bytes,
-  .has_next = (cursor: PieceIteratorState) => {
-    if let `Cons _ = cursor.pending { true } else { false }
-  },
-  .next = (cursor: PieceIteratorState) => {
-    let `Cons node = cursor.pending else {
-      return @panic "Cannot advance an exhausted piece cursor";
-    };
-    let [tree, tail] = node;
-    let `Leaf leaf = tree else {
-      return @panic "Piece cursor was not normalized";
-    };
-    let pending = tail;
-    let next: List PieceTree = `Nil ();
-    let done = false;
-
-    loop {
-      if let `Cons pending_node = pending {
-        let [pending_tree, pending_tail] = pending_node;
-
-        match pending_tree {
-          | `Empty () => {
-            pending = pending_tail
-          }
-          | `Leaf _ => {
-            next = pending
-            done = true
-          }
-          | `Branch branch => {
-            let right_node: List PieceTree = `Cons [branch.right, pending_tail];
-            pending = `Cons [branch.left, right_node]
-          }
-          | _ => @panic "Unknown piece tree node"
-        }
-      } else {
-        next = pending
-        done = true
-      }
-
-      if done { break; }
-    }
-
-    let next_state: PieceIteratorState = [.pending = next];
-    [leaf.piece, next_state]
-  },
-}
-
-let materialize = (table: PieceTable) => {
-  let output = Bytes.generate(table.length, _ => 0);
-  let output_offset = 0;
-  let pieces = piece_cursor table.root;
-
-  for piece in pieces {
-    let leaf_bytes: Bytes = piece;
-
-    for byte in leaf_bytes {
-      output[output_offset] = byte
-      output_offset = output_offset + 1
-    }
   }
 
   output
@@ -435,12 +321,7 @@ let replace_primary_selection = (editor: Editor, selection: Selection) => {
     .primary = selection,
     .secondary = editor.selections.secondary,
   };
-  Editor.new {
-    .document = editor.document,
-    .selections = selections,
-    .mode = editor.mode,
-    .status = editor.status,
-  }
+  editor <& { .selections = selections }
 };
 
 let is_utf8_continuation = byte => {
@@ -499,6 +380,14 @@ let move_head = (editor, position) => {
   replace_primary_selection(editor, Selection.new { .anchor = anchor, .head = head })
 };
 
+let move_left = editor => {
+  move_head(editor, previous_character(&editor.document, editor.selections.primary.head))
+};
+
+let move_right = editor => {
+  move_head(editor, next_character(&editor.document, editor.selections.primary.head))
+};
+
 let collapse = (editor, position) => {
   let cursor = clamp_character(&editor.document, position);
   let mode = if let `Extend () = editor.mode { `Normal () } else { editor.mode };
@@ -528,33 +417,23 @@ let insert_byte = (editor, byte) => {
 let continue_editing = editor => {
   EditorStep.new {
     .editor = editor,
-    .commands = EditorCommands.empty(),
+    .commands = `NoCommands (),
   }
 };
 
 let request_editor_command = (editor, command: EditorCommand) => {
+  let no_commands: EditorCommands = `NoCommands ();
+  let commands: EditorCommands = `MoreCommands [command, no_commands];
   EditorStep.new {
     .editor = editor,
-    .commands = EditorCommands.prepend(command, EditorCommands.empty()),
+    .commands = commands,
   }
 };
 
 let apply_normal_character = (editor, character) => {
   match character {
-    | 'h' => {
-      let updated = move_head(
-        editor,
-        previous_character(&editor.document, editor.selections.primary.head),
-      );
-      continue_editing updated
-    }
-    | 'l' => {
-      let updated = move_head(
-        editor,
-        next_character(&editor.document, editor.selections.primary.head),
-      );
-      continue_editing updated
-    }
+    | 'h' => continue_editing(move_left editor)
+    | 'l' => continue_editing(move_right editor)
     | 'v' => {
       let mode = if let `Extend () = editor.mode { `Normal () } else { `Extend () };
       continue_editing(editor <& { .mode = mode })
@@ -608,20 +487,8 @@ let apply_insert_key = (editor, key: Key) => match key {
 };
 
 let apply_key = (editor, key) => match key {
-  | `ArrowLeft () => {
-    let updated = move_head(
-      editor,
-      previous_character(&editor.document, editor.selections.primary.head),
-    );
-    continue_editing updated
-  }
-  | `ArrowRight () => {
-    let updated = move_head(
-      editor,
-      next_character(&editor.document, editor.selections.primary.head),
-    );
-    continue_editing updated
-  }
+  | `ArrowLeft () => continue_editing(move_left editor)
+  | `ArrowRight () => continue_editing(move_right editor)
   | `ControlC () => {
     if let `Insert () = editor.mode {
       continue_editing editor
@@ -648,14 +515,16 @@ let apply_key = (editor, key) => match key {
 let decoded_without_key = decoder => {
   KeyDecodeStep.new {
     .decoder = decoder,
-    .keys = KeySequence.empty(),
+    .keys = `NoKeys (),
   }
 };
 
 let decoded_key = (decoder, key: Key) => {
+  let no_keys: KeySequence = `NoKeys ();
+  let keys: KeySequence = `MoreKeys [key, no_keys];
   KeyDecodeStep.new {
     .decoder = decoder,
-    .keys = KeySequence.prepend(key, KeySequence.empty()),
+    .keys = keys,
   }
 };
 
@@ -678,9 +547,11 @@ let decode_key_character = (decoder, character) => {
         decoded_without_key(`ControlSequence ())
       } else {
         let decoded = decode_ground_character character;
+        let escape_key: Key = `Escape ();
+        let keys: KeySequence = `MoreKeys [escape_key, decoded.keys];
         KeyDecodeStep.new {
           .decoder = decoded.decoder,
-          .keys = KeySequence.prepend(`Escape (), decoded.keys),
+          .keys = keys,
         }
       }
     }
@@ -714,7 +585,7 @@ let rec apply_decoded_keys = (
     let commands = prepend_commands(step.commands, reversed_commands);
     apply_decoded_keys(step.editor, node[1], commands)
   }
-  | `NoKeys () => AppliedKeys.new {
+  | `NoKeys () => EditorStep.new {
     .editor = editor,
     .commands = reversed_commands,
   }
@@ -723,7 +594,7 @@ let rec apply_decoded_keys = (
 let apply_keys = (editor, decoder, bytes) => {
   let updated = editor;
   let current_decoder = decoder;
-  let reversed_commands = EditorCommands.empty();
+  let reversed_commands: EditorCommands = `NoCommands ();
 
   for byte in bytes {
     let character = cast(byte, Char);
@@ -744,10 +615,11 @@ let apply_keys = (editor, decoder, bytes) => {
     current_decoder = `Ground ()
   }
 
+  let no_commands: EditorCommands = `NoCommands ();
   EditorInputStep.new {
     .editor = updated,
     .decoder = current_decoder,
-    .commands = EditorCommands.reverse(reversed_commands),
+    .commands = prepend_commands(reversed_commands, no_commands),
   }
 };
 
@@ -923,33 +795,23 @@ loop {
   key_decoder = input_step.decoder
   let quit_requested = false;
   let pending_commands = input_step.commands;
-  let commands_done = false;
 
   loop {
-    if let `MoreCommands command_node = pending_commands {
-      let [command, remaining_commands] = command_node;
-      pending_commands = remaining_commands
+    let `MoreCommands command_node = pending_commands else { break; };
+    let [command, remaining_commands] = command_node;
+    pending_commands = remaining_commands
 
-      match command {
-        | `Save () => {
-          let contents = materialize(&editor.document);
-          save_result <- Terminal.save(&contents)
-
-          if let `Ok () = save_result {
-            editor = editor <& { .status = `Ready () }
-          } else {
-            editor = editor <& { .status = `SaveFailed () }
-          }
-        }
-        | `Quit () => {
-          quit_requested = true
-        }
+    match command {
+      | `Save () => {
+        let contents = materialize(&editor.document);
+        save_result <- Terminal.save(&contents)
+        let status = if let `Ok () = save_result { `Ready () } else { `SaveFailed () };
+        editor = editor <& { .status = status }
       }
-    } else {
-      commands_done = true
+      | `Quit () => {
+        quit_requested = true
+      }
     }
-
-    if commands_done { break; }
   }
 
   if quit_requested { break; }
