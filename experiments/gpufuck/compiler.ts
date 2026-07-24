@@ -15,8 +15,6 @@ import {
   GpuFunctionalCompiler,
   GpuFunctionalComptimeExecutor,
   type GpuFunctionalModule,
-  IncrementalGpuFunctionalCompiler,
-  MemoryFunctionalIncrementalCache,
   planFunctionalModuleStorage,
   requestWebGpuDevice,
   runFunctionalWasmModule,
@@ -146,7 +144,6 @@ class PreparedDuckProgram implements DuckProgram {
 export class DuckCompiler {
   readonly #device: GPUDevice;
   readonly #compiler: GpuFunctionalCompiler;
-  readonly #incremental_compiler: IncrementalGpuFunctionalCompiler;
   readonly #wasm_by_source = new Map<
     string,
     Promise<Uint8Array<ArrayBuffer>>
@@ -158,10 +155,6 @@ export class DuckCompiler {
   private constructor(device: GPUDevice, compiler: GpuFunctionalCompiler) {
     this.#device = device;
     this.#compiler = compiler;
-    this.#incremental_compiler = new IncrementalGpuFunctionalCompiler(
-      compiler,
-      { cache: new MemoryFunctionalIncrementalCache() },
-    );
   }
 
   static async create(): Promise<DuckCompiler> {
@@ -524,13 +517,9 @@ export class DuckCompiler {
   async #compile_module(
     lowered: LoweredDuckGpufuckModule,
   ): Promise<GpuFunctionalModule> {
-    const result = await this.#incremental_compiler.compile(
-      [lowered.artifact],
-      { module: lowered.artifact.name, exportName: "main" },
-      {
-        maximumSteps: maximum_gpufuck_compilation_steps,
-      },
-    );
+    const result = await this.#compiler.compileModule(lowered.encoded, {
+      maximumSteps: maximum_gpufuck_compilation_steps,
+    });
     if (!result.ok) {
       throw compilation_error(result, 0);
     }
