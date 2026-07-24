@@ -1,0 +1,15 @@
+type Tree = | `Leaf I32 | `Fork Pair
+type Pair = [Tree, Tree]
+
+let rec tree_sum = (tree: Tree) => match tree {
+  | `Leaf value => value
+  | `Fork pair => tree_sum(pair[0]) + tree_sum(pair[1])
+};
+
+let small: Tree = `Leaf 9;
+let large: Tree = `Leaf 20;
+let right: Tree = `Fork [small, large];
+let seed: Tree = `Leaf 13;
+let root: Tree = `Fork [seed, right];
+
+tree_sum root

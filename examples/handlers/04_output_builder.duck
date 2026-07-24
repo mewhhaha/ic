@@ -1,0 +1,39 @@
+const { .struct, .slice } = import "duck:prelude" ();
+
+effect Emit {
+  byte: (I32) => Unit
+}
+
+type Builder = struct { .buffer = Bytes, .length = I32 }
+
+let output_builder = capacity => {
+  Builder.new {
+    .buffer = Bytes.generate(capacity, _ => 0),
+    .length = 0,
+  }
+};
+
+let append = (output, byte) => {
+  let buffer = output.buffer;
+  buffer[output.length] = byte
+  Builder.new { .buffer = buffer, .length = output.length + 1 }
+};
+
+let collect = capacity => {
+  let output = output_builder capacity;
+  handler Emit {
+    byte: (value, !resume) => {
+      output = append(output, value)
+      !resume(())
+    },
+    return: _ => slice(&output.buffer, 0, output.length),
+  }
+};
+
+let emitted = try {
+  _ <- Emit.byte(40)
+  _ <- Emit.byte(2)
+  ()
+} with collect 4;
+
+emitted[0] + emitted[1]

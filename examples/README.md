@@ -118,6 +118,7 @@ just duck test examples/testing/01_inline_tests.duck
 | `16_struct_constructor_and_shape.duck` | source-defined `.new` and `.shape` members | Core    | `42`        |
 | `17_match_patterns.duck`               | alternatives and text capture patterns     | Core    | `42`        |
 | `18_const_value_patterns.duck`         | literal and computed const-value patterns  | Core    | `42`        |
+| `19_recursive_union_tree.duck`         | recursive union tree traversal             | Core    | `42`        |
 
 ## Loops And Collections
 
@@ -135,6 +136,7 @@ just duck test examples/testing/01_inline_tests.duck
 | `10_fold_function.duck`                | fold built from the loop primitive    | Core    | `42`       |
 | `11_refutable_collection_pattern.duck` | skipped nonmatching union elements    | Core    | `6`        |
 | `12_let_else_continue.duck`            | let-else continuing a collection loop | Core    | `42`       |
+| `13_let_else_break.duck`               | let-else draining a recursive queue   | Core    | `42`       |
 
 ## Ownership And Modules
 
@@ -155,6 +157,7 @@ just duck test examples/testing/01_inline_tests.duck
 | `handlers/01_local_counter.duck`             | deep stateful Duck-defined effect handler  | Core  | `42`   |
 | `handlers/02_inferred_option_do.duck`        | inferred source Option handler             | Core  | `42`   |
 | `handlers/03_composed_default_handlers.duck` | ordered composition of two source defaults | Core  | `42`   |
+| `handlers/04_output_builder.duck`            | bounded output builder with return clause  | Core  | `42`   |
 
 `effects/01_inferred_io.duck` and `effects/02_annotated_effect_row.duck`
 contrast inferred rows with `-> <row>` function types.
@@ -174,6 +177,7 @@ effects or deterministic mocks when `--dry-run` is present; see
 | `05_linear_host_session.duck`       | scratch promotion, freeze, effect resource, and host borrow | Managed | `42`   |
 | `06_modular_score_application.duck` | import, module application, and compile-time closure        | IC      | `42`   |
 | `07_domain_abstractions.duck`       | predicates, patches, and bounded source spans               | Core    | `42`   |
+| `08_command_reducer.duck`           | modal state machine reducing a typed command queue          | Core    | `42`   |
 
 ## Expected Failures
 

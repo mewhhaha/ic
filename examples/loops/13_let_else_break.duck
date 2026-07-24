@@ -1,0 +1,17 @@
+type Queue = | `Empty Unit | `Next QueueNode
+type QueueNode = [I32, Queue]
+
+let empty: Queue = `Empty ();
+let last: Queue = `Next [4, empty];
+let middle: Queue = `Next [14, last];
+let pending: Queue = `Next [24, middle];
+let total = 0;
+
+loop {
+  let `Next node = pending else { break; };
+  let [value, rest] = node;
+  pending = rest
+  total = total + value
+}
+
+total

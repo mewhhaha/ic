@@ -1,0 +1,39 @@
+const { .struct } = import "duck:prelude" ();
+
+type Mode = | `Locked Unit | `Open Unit
+type Vault = struct { .mode = Mode, .stored = I32 }
+type Command = | `Toggle Unit | `Deposit I32
+type Commands = | `NoCommands Unit | `MoreCommands CommandNode
+type CommandNode = [Command, Commands]
+
+let apply_command = (vault: Vault, command: Command) => match command {
+  | `Toggle () => {
+    let mode = if let `Open () = vault.mode { `Locked () } else { `Open () };
+    vault <& { .mode = mode }
+  }
+  | `Deposit amount => {
+    if let `Open () = vault.mode {
+      vault <& { .stored = vault.stored + amount }
+    } else {
+      vault
+    }
+  }
+};
+
+let prepend = (command: Command, rest: Commands) => {
+  let commands: Commands = `MoreCommands [command, rest];
+  commands
+};
+
+let none: Commands = `NoCommands ();
+let queued = prepend(`Deposit 5, prepend(`Toggle (), prepend(`Deposit 40, prepend(`Deposit 2, none))));
+let vault = Vault.new { .mode = `Locked (), .stored = 0 };
+let pending = queued;
+
+loop {
+  let `MoreCommands node = pending else { break; };
+  pending = node[1]
+  vault = apply_command(vault, node[0])
+}
+
+vault.stored
