@@ -195,6 +195,18 @@ export const success_examples: SuccessExample[] = [
     path: "examples/compile_time/23_derived_sequence.duck",
     runs: run(42),
   },
+  {
+    path: "examples/compile_time/24_comptime_stack_module.duck",
+    runs: run(42),
+  },
+  {
+    path: "examples/compile_time/25_source_derive_attribute.duck",
+    runs: run(42),
+  },
+  {
+    path: "examples/compile_time/26_comptime_pipeline.duck",
+    runs: run(42),
+  },
 
   {
     path: "examples/functions/01_closure_capture.duck",

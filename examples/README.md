@@ -78,6 +78,9 @@ just duck test examples/testing/01_inline_tests.duck
 | `21_type_patterns.duck`              | structural compile-time type matching          | Core    | `42`   |
 | `22_generic_extension.duck`          | generic extension parameter declaration        | Core    | `42`   |
 | `23_derived_sequence.duck`           | source-defined sequence derivation             | Gpufuck | `42`   |
+| `24_comptime_stack_module.duck`      | comptime module specializing a stack           | Core    | `42`   |
+| `25_source_derive_attribute.duck`    | source-defined derive attribute on a union     | Core    | `42`   |
+| `26_comptime_pipeline.duck`          | comptime-composed function pipeline            | Core    | `42`   |
 
 ## Functions And Control Flow
 
