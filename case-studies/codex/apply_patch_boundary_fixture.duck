@@ -9,25 +9,21 @@ const texts = comptime list Text;
 
 let score: I32 = 0;
 
-if let `Ok lines =
-  normalize_apply_patch_lines "*** Begin Patch\n*** Add File: direct.txt\n+direct\n*** End Patch" {
+if let `Ok lines = normalize_apply_patch_lines "*** Begin Patch\n*** Add File: direct.txt\n+direct\n*** End Patch" {
     let typed: FixtureTexts = lines;
     if texts.length(typed) == 4 { score = score + 1 }
   }
 
-if let `Ok lines =
-  normalize_apply_patch_lines "<<'EOF'\n*** Begin Patch\n*** Add File: wrapped.txt\n+wrapped\n*** End Patch\nEOF\n" {
+if let `Ok lines = normalize_apply_patch_lines "<<'EOF'\n*** Begin Patch\n*** Add File: wrapped.txt\n+wrapped\n*** End Patch\nEOF\n" {
     let typed: FixtureTexts = lines;
     if texts.length(typed) == 4 { score = score + 10 }
   }
 
 if let `Err reason = normalize_apply_patch_lines "not a patch" {
-  if reason == "invalid patch: The first line of the patch must be '*** Begin Patch'" { score =
-      score + 100 }
+  if reason == "invalid patch: The first line of the patch must be '*** Begin Patch'" { score = score + 100 }
 }
 
-if let `Err reason =
-  normalize_apply_patch_lines "*** Begin Patch\n*** Add File: missing.txt\n+end" {
+if let `Err reason = normalize_apply_patch_lines "*** Begin Patch\n*** Add File: missing.txt\n+end" {
     if reason == "invalid patch: The last line of the patch must be '*** End Patch'" { score = score
       + 1000 }
   }

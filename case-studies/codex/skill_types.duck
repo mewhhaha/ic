@@ -24,16 +24,14 @@ type SkillInterface = [
   SkillTextOption,
   SkillTextOption,
   SkillTextOption,
-  SkillTextOption,
-]
+  SkillTextOption ]
 type SkillToolDependency = [
   Text,
   Text,
   SkillTextOption,
   SkillTextOption,
   SkillTextOption,
-  SkillTextOption,
-]
+  SkillTextOption ]
 type SkillToolDependencies = List SkillToolDependency
 
 type SkillMetadata = [
@@ -45,8 +43,7 @@ type SkillMetadata = [
   SkillPolicy,
   Text,
   SkillScope,
-  SkillTextOption,
-]
+  SkillTextOption ]
 type SkillDocument = [SkillMetadata, Text]
 type SkillDocumentOption = Option SkillDocument
 type SkillDocumentParse = [SkillDocumentOption, SkillTextOption]

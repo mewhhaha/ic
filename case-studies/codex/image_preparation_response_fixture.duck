@@ -58,16 +58,14 @@ const verify_image_preparation_response_fixture: () -> I32 = () => {
             if let `InputText value = first { if value == "before" { score = score + 1 } }
             if let `Cons second_node = after_first {
               let [second, after_second] = second_node;
-              if let `InputText value = second { if value ==
-                "image content omitted because remote image URLs are not supported" { score = score
+              if let `InputText value = second { if value == "image content omitted because remote image URLs are not supported" { score = score
                   + 10 } }
               if let `Cons third_node = after_second {
                 let [third, after_third] = third_node;
                 if let `InputImage image = third {
                   let [url, detail] = image;
                   if url == "data:image/png;base64,PROCESSED" {
-                    if let `Some selected = detail { if let `High () = selected { score = score +
-                      100 } }
+                    if let `Some selected = detail { if let `High () = selected { score = score + 100 } }
                   }
                 }
                 if let `Cons fourth_node = after_third {

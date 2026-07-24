@@ -9,15 +9,14 @@ type FixtureArgs = AgentJobSpawnArgs
 
 let score = 0;
 let parsed =
-  parse_agent_job_csv "id,path,area\nx,src/lib.rs,test\nx,docs/readme.md,docs\n,README.md,root\n"
+  parse_agent_job_csv "id,path,area\nx,src/lib.rs,test\nx,docs/readme.md,docs\n,README.md,root\n";
 if let `CsvParsed document = parsed {
   let args: FixtureArgs = [
     .input_path = "/workspace/input.csv",
     .instruction = "Review {path} in {area}. Keep {{literal}}.",
     .id_column = `Some "id",
     .output_path = `None (),
-    .output_schema_json =
-      `Some "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}}}",
+    .output_schema_json = `Some "{\"type\":\"object\",\"properties\":{\"ok\":{\"type\":\"boolean\"}}}",
     .max_concurrency = 8,
     .max_runtime_seconds = `Some "1800",
   ];

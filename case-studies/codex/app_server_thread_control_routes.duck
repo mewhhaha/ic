@@ -10,8 +10,7 @@ type ThreadControlRouteDispatch = AppServerDispatch
 type ThreadControlRouteSend = AppServerSend
 
 const route_thread_control_request: ThreadControlRouteInput -> ThreadControlRoutePlan = (
-  route: ThreadControlRouteInput
-) => {
+  route: ThreadControlRouteInput ) => {
   let [session, id, method, params] = route;
   let decoded_method = if method == "thread/name/set" {
     decode_thread_control_method(`SetThreadName (), params)
@@ -24,10 +23,10 @@ const route_thread_control_request: ThreadControlRouteInput -> ThreadControlRout
   };
 
   if let `MethodOk known_method = decoded_method {
-    let dispatch: ThreadControlRouteDispatch = [session, id, known_method]
+    let dispatch: ThreadControlRouteDispatch = [session, id, known_method];
     `Dispatch dispatch;
   } else if let `MethodError message = decoded_method {
-    let send: ThreadControlRouteSend = [session, encode_error(id, "-32602", message)]
+    let send: ThreadControlRouteSend = [session, encode_error(id, "-32602", message)];
     `Send send;
   } else {
     `Drop ([session, "thread control method could not be decoded"])

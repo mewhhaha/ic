@@ -3,7 +3,6 @@ module () where
 const { .render_interrupt_agent_output } = import "./agent_tool_interrupt_output.duck" ();
 
 let score = 0;
-if render_interrupt_agent_output(`Completed (`Some
-  "finished")) == "{\"previous_status\":{\"completed\":\"finished\"}}" { score = 1 }
+if render_interrupt_agent_output(`Completed (`Some "finished")) == "{\"previous_status\":{\"completed\":\"finished\"}}" { score = 1 }
 
 return { .score = score };

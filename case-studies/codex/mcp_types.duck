@@ -20,8 +20,7 @@ type McpTool = [
   McpTextOption,
   McpToolVisibility,
   Bool,
-  McpToolAnnotations,
-]
+  McpToolAnnotations ]
 type McpTools = List McpTool
 
 type McpToolRuntime = [McpTool, ToolExposure]

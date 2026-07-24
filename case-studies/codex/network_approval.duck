@@ -1,7 +1,7 @@
 module () where
 
 const { .format_i32, .text_append, .text_byte_ascii_lowercase, .text_get, .text_length } =
-  import "duck:prelude/runtime" ()
+  import "duck:prelude/runtime" ();
 const {} = import "./network_types.duck" ();
 
 type ApprovalTextOption = NetworkTextOption
@@ -186,8 +186,7 @@ const first_call = (active: ApprovalCalls) => {
   result
 };
 
-const resolve_request_attribution: [ApprovalCalls, ApprovalTextOption, ApprovalTextOption] ->
-  ApprovalAttribution = (
+const resolve_request_attribution: [ApprovalCalls, ApprovalTextOption, ApprovalTextOption] -> ApprovalAttribution = (
     active: ApprovalCalls,
     execution_id: ApprovalTextOption,
     requested_environment: ApprovalTextOption,
@@ -212,8 +211,7 @@ const resolve_request_attribution: [ApprovalCalls, ApprovalTextOption, ApprovalT
 
         if let `Some call = found {
           let [_, candidate_environment, _, _, _, _] = call;
-          if candidate_environment == environment_id { `Owner call } else { `Environment
-            environment_id }
+          if candidate_environment == environment_id { `Owner call } else { `Environment environment_id }
         } else {
           `Environment environment_id
         }
@@ -235,7 +233,7 @@ const request_environment: [ApprovalAttribution, ApprovalTextOption] -> Approval
   primary_environment: ApprovalTextOption,
 ) => {
   if let `Owner call = attribution {
-    let [_, environment_id, _, _, _, _] = call
+    let [_, environment_id, _, _, _, _] = call;
     `Some environment_id;
   } else if let `Environment environment_id = attribution {
     `Some environment_id
@@ -248,7 +246,7 @@ const request_environment: [ApprovalAttribution, ApprovalTextOption] -> Approval
 
 const request_owner = (attribution: ApprovalAttribution) => {
   if let `Owner call = attribution {
-    let [registration_id, _, _, _, _, _] = call
+    let [registration_id, _, _, _, _, _] = call;
     `Some registration_id;
   } else {
     `None ()
@@ -365,8 +363,7 @@ const record_call_outcome: [ApprovalState, Text, ApprovalOutcome, Bool] -> Appro
   [ordered, approved, denied, pending]
 };
 
-const resolve_network_prompt: [ApprovalState, ApprovalPrompt, ApprovalHostDecision] ->
-  ApprovalState = (
+const resolve_network_prompt: [ApprovalState, ApprovalPrompt, ApprovalHostDecision] -> ApprovalState = (
     state: ApprovalState,
     prompt: ApprovalPrompt,
     decision: ApprovalHostDecision,
@@ -414,7 +411,7 @@ const record_blocked_request: [ApprovalState, ApprovalTextOption, Text] -> Appro
   } else if approval_call_count active == 1 {
     let found: ApprovalCallOption = first_call active;
     if let `Some call = found {
-      let [registration_id, _, _, _, _, _] = call
+      let [registration_id, _, _, _, _, _] = call;
       `Some registration_id;
     } else {
       `None ()

@@ -2,7 +2,7 @@ module () where
 
 const {} = import "./current_time_types.duck" ();
 const { .render_current_time_tool_output, .render_sleep_tool_output } =
-  import "./current_time_tool_output.duck" ()
+  import "./current_time_tool_output.duck" ();
 
 type FixtureSleepHostResult = CurrentTimeSleepHostResult
 
@@ -10,8 +10,7 @@ let score = 0;
 if render_current_time_tool_output 1781717655i64 == "It is 2026-06-17 17:34:15 UTC." { score = score
   + 1 }
 let completed: FixtureSleepHostResult = [.interrupted = false, .elapsed_microseconds = 1234567i64];
-if render_sleep_tool_output completed == "Wall time: 1.2346 seconds\nSleep completed." { score =
-    score + 10 }
+if render_sleep_tool_output completed == "Wall time: 1.2346 seconds\nSleep completed." { score = score + 10 }
 let interrupted: FixtureSleepHostResult = [.interrupted = true, .elapsed_microseconds = 999949i64];
 if render_sleep_tool_output interrupted == "Wall time: 0.9999 seconds\nSleep interrupted by new input." { score = score + 100 }
 

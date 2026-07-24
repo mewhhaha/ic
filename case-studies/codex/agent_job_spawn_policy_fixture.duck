@@ -82,8 +82,7 @@ if let `RejectSpawn message = prepare_agent_job_spawn(
   32,
   `None (),
 ) {
-  if message == "spawn_agents_on_csv is not supported for remote environments" { score = score +
-    1000 }
+  if message == "spawn_agents_on_csv is not supported for remote environments" { score = score + 1000 }
 }
 
 let zero_runtime_decoded: FixtureDecoded = [

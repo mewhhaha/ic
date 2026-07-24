@@ -14,7 +14,7 @@ type FixtureOutcome = [FixtureSession, I32]
 
 let identity: FixtureIdentity = ["binned-codex/0.1", "/tmp/codex", "unix", "linux"];
 let initialize =
-  "{\"method\":\"initialize\",\"id\":1,\"params\":{\"clientInfo\":{\"name\":\"codex_vscode\",\"title\":\"Codex VS Code Extension\",\"version\":\"0.1.0\"},\"capabilities\":{\"experimentalApi\":true,\"requestAttestation\":true,\"mcpServerOpenaiFormElicitation\":true,\"optOutNotificationMethods\":[\"thread/started\"]}}}"
+  "{\"method\":\"initialize\",\"id\":1,\"params\":{\"clientInfo\":{\"name\":\"codex_vscode\",\"title\":\"Codex VS Code Extension\",\"version\":\"0.1.0\"},\"capabilities\":{\"experimentalApi\":true,\"requestAttestation\":true,\"mcpServerOpenaiFormElicitation\":true,\"optOutNotificationMethods\":[\"thread/started\"]}}}";
 
 const score_plan: [FixtureSession, FixturePlan, I32, I32] -> FixtureOutcome = (
   state: FixtureSession,
@@ -71,8 +71,7 @@ const score_plan: [FixtureSession, FixturePlan, I32, I32] -> FixtureOutcome = (
             if let `Cons node = fields {
               let [member, _] = node;
               let [key, value] = member;
-              if key == "limit" { if let `Number limit = value { if limit == "20" { next_score =
-                  next_score + 1000 } } }
+              if key == "limit" { if let `Number limit = value { if limit == "20" { next_score = next_score + 1000 } } }
             }
           }
         }

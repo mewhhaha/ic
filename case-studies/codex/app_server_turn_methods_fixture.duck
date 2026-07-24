@@ -92,8 +92,7 @@ if let `MethodOk method = start_result {
     let params_valid = false;
     if let `Some value = client_id { client_valid = value == "client-1" }
     if let `Object _ = raw_params { params_valid = true }
-    if thread_id == "thread-1" && client_valid && params_valid && count_inputs inputs == 7 { score =
-        score + 1 }
+    if thread_id == "thread-1" && client_valid && params_valid && count_inputs inputs == 7 { score = score + 1 }
   }
 }
 

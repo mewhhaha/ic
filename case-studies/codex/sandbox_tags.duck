@@ -76,8 +76,7 @@ let rec permission_profile_sandbox_tag: [
 };
 
 let rec permission_profile_policy_tag: &TagPermissionProfile -> Text = (
-  profile: &TagPermissionProfile
-) => {
+  profile: &TagPermissionProfile ) => {
   if let `DisabledProfile () = profile {
     @append("danger-full-access", "")
   } else if let `ExternalProfile _ = profile {

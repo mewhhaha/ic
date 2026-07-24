@@ -63,8 +63,7 @@ const normalize_request_user_input_args: UserInputArgs -> UserInputNormalization
 
   let normalized_questions = reverse_questions normalized_reversed;
   if valid {
-    let auto_resolution: UserInputAutoResolution = if let `AutoResolutionAboveMaximum () =
-      args.auto_resolution {
+    let auto_resolution: UserInputAutoResolution = if let `AutoResolutionAboveMaximum () = args.auto_resolution {
         `AutoResolutionMs 240000i64
       } else if let `AutoResolutionMs value = args.auto_resolution {
         if value < 60000i64 {
@@ -80,7 +79,7 @@ const normalize_request_user_input_args: UserInputArgs -> UserInputNormalization
     let normalized: UserInputArgs = [
       .questions = normalized_questions,
       .auto_resolution = auto_resolution,
-    ]
+    ];
     `Normalized normalized;
   } else {
     `Invalid "request_user_input requires non-empty options for every question"

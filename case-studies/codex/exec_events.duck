@@ -1,7 +1,7 @@
 module () where
 
 const { .min_i32, .text_floor_utf8_boundary, .text_length, .text_slice } =
-  import "duck:prelude/functional" ()
+  import "duck:prelude/functional" ();
 const exec_types_module = import "./exec_types.duck";
 
 type LifecycleI32Option = ExecEventI32Option
@@ -23,8 +23,7 @@ type LifecycleEndPlan = ExecEndPlan
 
 const initial_lifecycle_state: () -> LifecycleState = () => [false, false, 0];
 
-const split_output_chunk: [Text, I32] -> LifecycleOutputSplit = (chunk: Text, maximum_bytes:
-  I32) => {
+const split_output_chunk: [Text, I32] -> LifecycleOutputSplit = (chunk: Text, maximum_bytes: I32) => {
     let requested = min_i32 [maximum_bytes, text_length chunk];
     let boundary = text_floor_utf8_boundary(chunk, requested);
     [text_slice [chunk, 0, boundary], text_slice [chunk, boundary, text_length chunk]];
@@ -66,7 +65,7 @@ const plan_exec_begin: [
       cwd,
       source,
       interaction_input,
-    ]
+    ];
     `EmitBegin ([next, event]);
   }
 };
@@ -89,7 +88,7 @@ const plan_output_delta: [LifecycleState, Text, LifecycleStream, Text] -> Lifecy
       `SuppressDelta state
     } else {
       let next: LifecycleState = [began, ended, emitted_deltas + 1];
-      let event: LifecycleDeltaEvent = [call_id, stream, emitted]
+      let event: LifecycleDeltaEvent = [call_id, stream, emitted];
       `EmitDelta ([next, event, remaining]);
     }
   }
@@ -104,14 +103,14 @@ const plan_terminal_interaction: [Text, I32, LifecycleI32Option, Text] -> Lifecy
   ) => {
     if input == "" {
       if let `Some process_id = live_process_id {
-        let event: LifecycleInteractionEvent = [call_id, process_id, input]
+        let event: LifecycleInteractionEvent = [call_id, process_id, input];
         `EmitInteraction event;
       } else {
         `SuppressInteraction ()
       }
     } else {
       let process_id = if let `Some live = live_process_id { live } else { requested_process_id };
-      let event: LifecycleInteractionEvent = [call_id, process_id, input]
+      let event: LifecycleInteractionEvent = [call_id, process_id, input];
       `EmitInteraction event;
     }
   };
@@ -182,7 +181,7 @@ const plan_exec_end: [
       duration_ms,
       formatted_output,
       status,
-    ]
+    ];
     `EmitEnd ([next, event]);
   }
 };

@@ -86,8 +86,7 @@ const thread_count: StorageThreads -> I32 = (values: StorageThreads) => {
   count
 };
 
-const json_text_field: [StorageJsonObject, Text] -> Text = (object: StorageJsonObject, key:
-  Text) => {
+const json_text_field: [StorageJsonObject, Text] -> Text = (object: StorageJsonObject, key: Text) => {
     let result: Text = "";
     let lookup = json_object_get(key, object);
 
@@ -174,8 +173,7 @@ const git_info_from_meta: StorageJsonObject -> StorageGitInfoOption = (meta: Sto
 };
 
 const session_source_from_meta: StorageJsonObject -> StorageSessionSource = (
-  meta: StorageJsonObject
-) => {
+  meta: StorageJsonObject ) => {
   let result: StorageSessionSource = `VsCode ();
   let lookup = json_object_get("source", meta);
 
@@ -470,8 +468,7 @@ const sort_threads: [StorageThreads, StorageSortKey] -> StorageThreads = (
   sorted
 };
 
-const take_threads: [I32, StorageThreads] -> StorageThreads = (count: I32, values:
-  StorageThreads) => {
+const take_threads: [I32, StorageThreads] -> StorageThreads = (count: I32, values: StorageThreads) => {
     let current = values;
     let remaining = count;
     let taken_reversed: StorageThreads = empty_threads();

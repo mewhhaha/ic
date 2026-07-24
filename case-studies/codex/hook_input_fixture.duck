@@ -89,11 +89,9 @@ if encode_pre_tool_input pre_tool == "{\"session_id\":\"session\",\"turn_id\":\"
 if encode_permission_request_input permission == "{\"session_id\":\"session\",\"turn_id\":\"turn\",\"agent_id\":\"agent\",\"transcript_path\":null,\"cwd\":\"/repo\",\"hook_event_name\":\"PermissionRequest\",\"model\":\"gpt\",\"permission_mode\":\"on-request\",\"tool_name\":\"shell\",\"tool_input\":\"input\"}" { score = score + 1 }
 if encode_post_tool_input post_tool == "{\"session_id\":\"session\",\"turn_id\":\"turn\",\"agent_id\":\"agent\",\"transcript_path\":null,\"cwd\":\"/repo\",\"hook_event_name\":\"PostToolUse\",\"model\":\"gpt\",\"permission_mode\":\"on-request\",\"tool_name\":\"shell\",\"tool_input\":\"input\",\"tool_response\":\"output\",\"tool_use_id\":\"call\"}" { score = score + 1 }
 if encode_compact_input("PreCompact",
-  compact) ==
-  "{\"session_id\":\"session\",\"turn_id\":\"turn\",\"agent_id\":\"agent\",\"transcript_path\":null,\"cwd\":\"/repo\",\"hook_event_name\":\"PreCompact\",\"model\":\"gpt\",\"trigger\":\"auto\"}" { score = score + 1 }
+  compact) == "{\"session_id\":\"session\",\"turn_id\":\"turn\",\"agent_id\":\"agent\",\"transcript_path\":null,\"cwd\":\"/repo\",\"hook_event_name\":\"PreCompact\",\"model\":\"gpt\",\"trigger\":\"auto\"}" { score = score + 1 }
 if encode_compact_input("PostCompact",
-  compact) ==
-  "{\"session_id\":\"session\",\"turn_id\":\"turn\",\"agent_id\":\"agent\",\"transcript_path\":null,\"cwd\":\"/repo\",\"hook_event_name\":\"PostCompact\",\"model\":\"gpt\",\"trigger\":\"auto\"}" { score = score + 1 }
+  compact) == "{\"session_id\":\"session\",\"turn_id\":\"turn\",\"agent_id\":\"agent\",\"transcript_path\":null,\"cwd\":\"/repo\",\"hook_event_name\":\"PostCompact\",\"model\":\"gpt\",\"trigger\":\"auto\"}" { score = score + 1 }
 if encode_session_start_input session_start == "{\"session_id\":\"session\",\"transcript_path\":null,\"cwd\":\"/repo\",\"hook_event_name\":\"SessionStart\",\"model\":\"gpt\",\"permission_mode\":\"on-request\",\"source\":\"startup\"}" { score = score + 1 }
 if encode_session_end_input session_end == "{\"session_id\":\"session\",\"transcript_path\":\"/rollout\",\"cwd\":\"/repo\",\"hook_event_name\":\"SessionEnd\",\"reason\":\"other\"}" { score = score + 1 }
 if encode_subagent_start_input subagent_start == "{\"session_id\":\"session\",\"turn_id\":\"turn\",\"transcript_path\":null,\"cwd\":\"/repo\",\"hook_event_name\":\"SubagentStart\",\"model\":\"gpt\",\"permission_mode\":\"on-request\",\"agent_id\":\"agent\",\"agent_type\":\"worker\"}" { score = score + 1 }

@@ -64,7 +64,7 @@ let context: FixtureEnvironmentContext = [
 ];
 
 let expected: Text =
-  "<environment_context>\n  <environments>\n    <environment id=\"local&amp;\">\n      <cwd>/repo&lt;a</cwd>\n      <shell>bash</shell>\n    </environment>\n    <environment id=\"remote\">\n      <cwd>/remote</cwd>\n      <status>starting</status>\n    </environment>\n  </environments>\n  <current_date>2026-07-18</current_date>\n  <timezone>Europe/Warsaw</timezone>\n  <network enabled=\"true\"><allowed>*.openai.com</allowed><denied>blocked.example.com</denied></network>\n  <filesystem><workspace_roots><root>/repo&lt;a</root></workspace_roots><permission_profile type=\"managed\"><file_system type=\"restricted\" glob_scan_max_depth=\"4\"><entry access=\"write\"><path>/repo&lt;a</path></entry><entry access=\"deny\" escalatable=\"false\"><glob>/repo/private/**</glob></entry></file_system></permission_profile></filesystem>\n  <subagents>\n    - agent-1\n    - agent-2\n  </subagents>\n</environment_context>"
+  "<environment_context>\n  <environments>\n    <environment id=\"local&amp;\">\n      <cwd>/repo&lt;a</cwd>\n      <shell>bash</shell>\n    </environment>\n    <environment id=\"remote\">\n      <cwd>/remote</cwd>\n      <status>starting</status>\n    </environment>\n  </environments>\n  <current_date>2026-07-18</current_date>\n  <timezone>Europe/Warsaw</timezone>\n  <network enabled=\"true\"><allowed>*.openai.com</allowed><denied>blocked.example.com</denied></network>\n  <filesystem><workspace_roots><root>/repo&lt;a</root></workspace_roots><permission_profile type=\"managed\"><file_system type=\"restricted\" glob_scan_max_depth=\"4\"><entry access=\"write\"><path>/repo&lt;a</path></entry><entry access=\"deny\" escalatable=\"false\"><glob>/repo/private/**</glob></entry></file_system></permission_profile></filesystem>\n  <subagents>\n    - agent-1\n    - agent-2\n  </subagents>\n</environment_context>";
 let rendered: Text = render_environment_context context;
 let score: I32 = 0;
 
@@ -73,8 +73,7 @@ if rendered == expected {
 }
 
 if render_user_instructions(`Some ("/repo<a"),
-  "Be precise") ==
-  "# AGENTS.md instructions for /repo<a\n\n<INSTRUCTIONS>\nBe precise\n</INSTRUCTIONS>" {
+  "Be precise") == "# AGENTS.md instructions for /repo<a\n\n<INSTRUCTIONS>\nBe precise\n</INSTRUCTIONS>" {
     score = score + 10
   }
 

@@ -31,8 +31,7 @@ let buffered_input: FixtureInput = [
   .prefill_input_tokens = `Some 70i64,
   .fallback_buffer_tokens = 10i64];
 let buffered = context_window_token_status(&buffered_input);
-if buffered.token_limit_reached && !(buffered.full_context_window_limit_reached) { score = score +
-  10 }
+if buffered.token_limit_reached && !(buffered.full_context_window_limit_reached) { score = score + 10 }
 
 let full_input: FixtureInput = [
   .active_context_tokens = 120i64,

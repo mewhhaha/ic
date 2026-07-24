@@ -1,7 +1,7 @@
 module () where
 
 const { .text_append, .text_split, .text_starts_with, .text_trim_whitespace } =
-  import "duck:prelude/text" ()
+  import "duck:prelude/text" ();
 const {} = import "./cli_types.duck" ();
 
 type ExecArgs = CodexCliArgs
@@ -35,7 +35,7 @@ let rec append_texts: [ExecTexts, ExecTexts] -> ExecTexts = (left: ExecTexts, ri
   if let `Cons node = left {
     let [value, tail] = node;
     let appended = append_texts(tail, right);
-    let result_node: ListNode Text = [value, appended]
+    let result_node: ListNode Text = [value, appended];
     `Cons result_node;
   } else {
     right
@@ -65,8 +65,7 @@ const empty_shared = () => {
   shared
 };
 
-const initial_exec_facts: [ExecMode, Bool] -> ExecFacts = (mode: ExecMode, command_selected:
-  Bool) => {
+const initial_exec_facts: [ExecMode, Bool] -> ExecFacts = (mode: ExecMode, command_selected: Bool) => {
     [
       .shared = empty_shared(),
       .mode = mode,
@@ -310,7 +309,7 @@ let resume_command: ExecFacts -> ExecCommandResult = (facts: ExecFacts) => {
           .all = facts.resume_all,
           .images = facts.resume_images,
           .prompt = `Some prompt,
-        ]
+        ];
         `Ok (`ExecResume options);
       }
     } else {
@@ -320,7 +319,7 @@ let resume_command: ExecFacts -> ExecCommandResult = (facts: ExecFacts) => {
         .all = facts.resume_all,
         .images = facts.resume_images,
         .prompt = `None (),
-      ]
+      ];
       `Ok (`ExecResume options);
     }
   } else if let `Cons session_node = facts.positionals {
@@ -336,7 +335,7 @@ let resume_command: ExecFacts -> ExecCommandResult = (facts: ExecFacts) => {
           .all = facts.resume_all,
           .images = facts.resume_images,
           .prompt = `Some prompt,
-        ]
+        ];
         `Ok (`ExecResume options);
       }
     } else {
@@ -346,7 +345,7 @@ let resume_command: ExecFacts -> ExecCommandResult = (facts: ExecFacts) => {
         .all = facts.resume_all,
         .images = facts.resume_images,
         .prompt = `None (),
-      ]
+      ];
       `Ok (`ExecResume options);
     }
   } else {
@@ -378,7 +377,7 @@ let review_command: ExecFacts -> ExecCommandResult = (facts: ExecFacts) => {
       if let `None () = facts.review_commit {
         `Err "--title requires --commit"
       } else if let `Some sha = facts.review_commit {
-        let commit: ReviewCommit = [.sha = sha, .title = facts.review_title]
+        let commit: ReviewCommit = [.sha = sha, .title = facts.review_title];
         `Ok (`ExecReview (`ReviewCommit commit));
       } else {
         `Err "review commit parser returned an unknown result"
@@ -388,7 +387,7 @@ let review_command: ExecFacts -> ExecCommandResult = (facts: ExecFacts) => {
     } else if let `Some branch = facts.review_base {
       `Ok (`ExecReview (`ReviewBase branch))
     } else if let `Some sha = facts.review_commit {
-      let commit: ReviewCommit = [.sha = sha, .title = `None ()]
+      let commit: ReviewCommit = [.sha = sha, .title = `None ()];
       `Ok (`ExecReview (`ReviewCommit commit));
     } else if let `Cons node = facts.positionals {
       let [prompt, _] = node;
@@ -429,7 +428,7 @@ let options_from_facts: ExecFacts -> ExecOptionsResult = (facts: ExecFacts) => {
       .last_message_file = facts.last_message_file,
       .config_overrides = shared.config_overrides,
       .command = planned,
-    ]
+    ];
     `Ok options;
   } else {
     `Err "exec command parser returned an unknown result"

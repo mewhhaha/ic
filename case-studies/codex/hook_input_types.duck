@@ -10,8 +10,7 @@ type HookTurnInputContext = [
   HookInputTextOption,
   HookInputTextOption,
   Text,
-  Text,
-]
+  Text ]
 
 type HookPreToolInput = [HookTurnInputContext, Text, Text, Json, Text]
 type HookPermissionRequestInput = [HookTurnInputContext, Text, Text, Json]
@@ -33,7 +32,6 @@ type HookSubagentStopInput = [
   Bool,
   Text,
   Text,
-  HookInputTextOption,
-]
+  HookInputTextOption ]
 
 return {};

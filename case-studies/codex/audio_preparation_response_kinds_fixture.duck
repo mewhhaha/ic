@@ -75,8 +75,7 @@ const verify_audio_preparation_response_kinds_fixture: () -> I32 = () => {
       if identifier == "function-id" && call_id == "function-call" {
         if let `Cons content_node = contents {
           let [content, _] = content_node;
-          if let `InputText placeholder = content { if placeholder ==
-            "audio content omitted because it exceeded the supported size limit; use a smaller audio file" { score = score + 1 } }
+          if let `InputText placeholder = content { if placeholder == "audio content omitted because it exceeded the supported size limit; use a smaller audio file" { score = score + 1 } }
         }
       }
     }
@@ -90,8 +89,7 @@ const verify_audio_preparation_response_kinds_fixture: () -> I32 = () => {
       if identifier == "custom-id" && call_id == "custom-call" {
         if let `Cons content_node = contents {
           let [content, _] = content_node;
-          if let `InputText placeholder = content { if placeholder ==
-            "audio content omitted because its format is not supported; use wav, mp3, m4a, webm, or ogg" { score = score + 10 } }
+          if let `InputText placeholder = content { if placeholder == "audio content omitted because its format is not supported; use wav, mp3, m4a, webm, or ogg" { score = score + 10 } }
         }
       }
     }

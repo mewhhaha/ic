@@ -65,8 +65,7 @@ type ExecCommandBeginEvent = [
   ExecEventCommand,
   Text,
   ExecCommandSource,
-  ExecEventTextOption,
-]
+  ExecEventTextOption ]
 type ExecCommandOutputDeltaEvent = [Text, ExecOutputStream, Text]
 type ExecOutputSplit = [Text, Text]
 type ExecTerminalInteractionEvent = [Text, I32, Text]
@@ -85,8 +84,7 @@ type ExecCommandEndEvent = [
   I32,
   I32,
   Text,
-  ExecCommandStatus,
-]
+  ExecCommandStatus ]
 
 type ExecBeginEmission = [ExecLifecycleState, ExecCommandBeginEvent]
 type ExecBeginPlan =

@@ -67,8 +67,7 @@ const text_array = (texts: ThreadResponseTexts) => {
 };
 
 const lifecycle_response_fields: ThreadResponseMetadata -> ThreadResponseJsonObject = (
-  metadata: ThreadResponseMetadata
-) => {
+  metadata: ThreadResponseMetadata ) => {
   let fields = json_object_empty();
   if let `ExperimentalThreadResponse () = metadata.view {
     fields = json_object_prepend("multiAgentMode", json_string "explicitRequestOnly", fields)

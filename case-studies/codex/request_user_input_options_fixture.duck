@@ -39,12 +39,10 @@ let empty: FixtureArgs = [.questions = empty_questions, .auto_resolution = `NoAu
 let score = 0;
 
 if let `Invalid message = normalize_request_user_input_args missing {
-  if message == "request_user_input requires non-empty options for every question" { score = score +
-    1 }
+  if message == "request_user_input requires non-empty options for every question" { score = score + 1 }
 }
 if let `Invalid message = normalize_request_user_input_args empty {
-  if message == "request_user_input requires non-empty options for every question" { score = score +
-    10 }
+  if message == "request_user_input requires non-empty options for every question" { score = score + 10 }
 }
 
 return { .score = score };

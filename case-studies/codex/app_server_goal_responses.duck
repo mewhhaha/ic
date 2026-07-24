@@ -51,14 +51,12 @@ const materialize_thread_goal: GoalResponseGoal -> GoalResponseJson = (goal: Goa
 };
 
 const materialize_thread_goal_set_response: GoalResponseGoal -> GoalResponseJson = (
-  goal: GoalResponseGoal
-) => {
+  goal: GoalResponseGoal ) => {
   json_object(json_object_prepend("goal", materialize_thread_goal goal, json_object_empty()))
 };
 
 const materialize_thread_goal_get_response: GoalResponseGoalOption -> GoalResponseJson = (
-  goal: GoalResponseGoalOption
-) => {
+  goal: GoalResponseGoalOption ) => {
   let value = if let `Some current = goal { materialize_thread_goal current } else { json_null() };
   json_object(json_object_prepend("goal", value, json_object_empty()))
 };
@@ -67,8 +65,7 @@ const materialize_thread_goal_clear_response: Bool -> GoalResponseJson = (cleare
   json_object(json_object_prepend("cleared", json_bool cleared, json_object_empty()))
 };
 
-const materialize_thread_goal_updated_notification: [GoalResponseGoal, GoalResponseTextOption] ->
-  GoalResponseJson = (
+const materialize_thread_goal_updated_notification: [GoalResponseGoal, GoalResponseTextOption] -> GoalResponseJson = (
     goal: GoalResponseGoal,
     turn_id: GoalResponseTextOption,
   ) => {
@@ -80,8 +77,7 @@ const materialize_thread_goal_updated_notification: [GoalResponseGoal, GoalRespo
     json_object fields
   };
 
-const materialize_thread_goal_cleared_notification: Text -> GoalResponseJson = (thread_id:
-  Text) => {
+const materialize_thread_goal_cleared_notification: Text -> GoalResponseJson = (thread_id: Text) => {
     json_object(json_object_prepend("threadId", json_string thread_id, json_object_empty()))
   };
 

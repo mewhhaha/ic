@@ -1,7 +1,7 @@
 const { .json_object, .json_object_empty, .json_object_prepend, .json_string } =
-  import "duck:prelude/json/values" ()
+  import "duck:prelude/json/values" ();
 const { .decode_thread_goal_clear, .decode_thread_goal_get } =
-  import "./app_server_goal_methods.duck" ()
+  import "./app_server_goal_methods.duck" ();
 const {} = import "./app_server_types.duck" ();
 
 type FixtureResult = AppServerMethodDecodeResult
@@ -11,12 +11,10 @@ let get_result: FixtureResult = decode_thread_goal_get(json_object fields);
 let clear_result: FixtureResult = decode_thread_goal_clear(json_object fields);
 let score = 0;
 if let `MethodOk method = get_result {
-  if let `ThreadGoal goal_method = method { if let `ThreadGoalGet thread_id = goal_method { if
-    thread_id == "thread-3" { score = score + 1 } } }
+  if let `ThreadGoal goal_method = method { if let `ThreadGoalGet thread_id = goal_method { if thread_id == "thread-3" { score = score + 1 } } }
 }
 if let `MethodOk method = clear_result {
-  if let `ThreadGoal goal_method = method { if let `ThreadGoalClear thread_id = goal_method { if
-    thread_id == "thread-3" { score = score + 10 } } }
+  if let `ThreadGoal goal_method = method { if let `ThreadGoalClear thread_id = goal_method { if thread_id == "thread-3" { score = score + 10 } } }
 }
 
 return { .score = score };

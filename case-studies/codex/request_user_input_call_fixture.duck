@@ -19,8 +19,7 @@ if let `RejectRequest message = plan_request_user_input_call(
   false,
   "{\"questions\":[{\"id\":\"pick\",\"header\":\"Pick\",\"question\":\"Choose.\",\"options\":[]}]}",
 ) {
-  if message == "request_user_input requires non-empty options for every question" { score = score +
-    1000 }
+  if message == "request_user_input requires non-empty options for every question" { score = score + 1000 }
 }
 
 return { .score = score };

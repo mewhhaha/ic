@@ -25,12 +25,11 @@ const request_user_input_availability: [AvailabilityMode, Bool] -> AvailabilityR
   if let `Plan () = mode {
     `Available ()
   } else if let `Default () = mode {
-    if default_mode_enabled { `Available () } else { `Unavailable
-      "request_user_input is unavailable in Default mode" }
+    if default_mode_enabled { `Available () } else { `Unavailable "request_user_input is unavailable in Default mode" }
   } else {
     let mode_name: Text = request_user_input_mode_name mode;
     let mode_suffix: Text = text_append [mode_name, " mode"];
-    let message: Text = text_append ["request_user_input is unavailable in ", mode_suffix]
+    let message: Text = text_append ["request_user_input is unavailable in ", mode_suffix];
     `Unavailable message;
   }
 };

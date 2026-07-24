@@ -21,8 +21,7 @@ type ThreadPageTurnsPage = AppServerThreadTurnsPage
 type ThreadPageItemEntries = AppServerThreadItemEntries
 type ThreadPageItemsPage = AppServerThreadItemsPage
 
-const optional_text_json: ThreadPageTextOption -> ThreadPageJson = (value:
-  ThreadPageTextOption) => {
+const optional_text_json: ThreadPageTextOption -> ThreadPageJson = (value: ThreadPageTextOption) => {
     if let `Some text = value { json_string text } else { json_null() }
   };
 
@@ -62,8 +61,7 @@ const materialize_turns: ThreadPageTurns -> ThreadPageJsonArray = (turns: Thread
 };
 
 const materialize_item_entries: ThreadPageItemEntries -> ThreadPageJsonArray = (
-  entries: ThreadPageItemEntries
-) => {
+  entries: ThreadPageItemEntries ) => {
   let current = entries;
   let reversed = json_array_empty();
   let done = false;
@@ -103,8 +101,7 @@ const materialize_item_entries: ThreadPageItemEntries -> ThreadPageJsonArray = (
 };
 
 const materialize_thread_turns_page: ThreadPageTurnsPage -> ThreadPageJson = (
-  page: ThreadPageTurnsPage
-) => {
+  page: ThreadPageTurnsPage ) => {
   let [turns, next_cursor, backwards_cursor] = page;
   let fields = json_object_empty();
   fields = json_object_prepend("backwardsCursor", optional_text_json backwards_cursor, fields)
@@ -114,8 +111,7 @@ const materialize_thread_turns_page: ThreadPageTurnsPage -> ThreadPageJson = (
 };
 
 const materialize_thread_items_page: ThreadPageItemsPage -> ThreadPageJson = (
-  page: ThreadPageItemsPage
-) => {
+  page: ThreadPageItemsPage ) => {
   let [entries, next_cursor, backwards_cursor] = page;
   let fields = json_object_empty();
   fields = json_object_prepend("backwardsCursor", optional_text_json backwards_cursor, fields)

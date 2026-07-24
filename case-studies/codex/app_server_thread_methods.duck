@@ -128,8 +128,7 @@ const optional_bool: [ThreadMethodJsonObject, Text, Text] -> ThreadMethodBoolOpt
   }
 };
 
-const optional_json_kind: [ThreadMethodJsonObject, Text, Text, Text] ->
-  ThreadMethodJsonOptionResult = (
+const optional_json_kind: [ThreadMethodJsonObject, Text, Text, Text] -> ThreadMethodJsonOptionResult = (
     object: ThreadMethodJsonObject,
     key: Text,
     context: Text,
@@ -198,8 +197,7 @@ const sandbox_permissions_valid: ThreadMethodJson -> Bool = value => {
       if let `Null () = sandbox { sandbox_present = false } else { sandbox_present = true }
     }
     if let `Found permissions = permissions_lookup {
-      if let `Null () = permissions { permissions_present = false } else { permissions_present =
-          true }
+      if let `Null () = permissions { permissions_present = false } else { permissions_present = true }
     }
   }
 
@@ -256,8 +254,7 @@ const decode_start_source: [ThreadMethodJsonObject, Text] -> ThreadMethodStartSo
   }
 };
 
-let decode_thread_start: ThreadMethodJson -> ThreadMethodDecodeResult = (params:
-  ThreadMethodJson) => {
+let decode_thread_start: ThreadMethodJson -> ThreadMethodDecodeResult = (params: ThreadMethodJson) => {
     if let `Object object = params {
       let model = optional_text(object, "model", "thread/start.params");
       let provider = optional_text(object, "modelProvider", "thread/start.params");
@@ -265,8 +262,7 @@ let decode_thread_start: ThreadMethodJson -> ThreadMethodDecodeResult = (params:
         "allowProviderModelFallback",
         object,
       );
-      let allow_fallback: ThreadMethodAllowFallbackResult = if let `Found fallback_json =
-        allow_fallback_lookup {
+      let allow_fallback: ThreadMethodAllowFallbackResult = if let `Found fallback_json = allow_fallback_lookup {
           if let `Bool fallback_boolean = fallback_json {
             if fallback_boolean { `Ok (`ProviderFallbackAllowed ()) } else { `Ok (
               `ProviderFallbackDisallowed ()
@@ -281,8 +277,7 @@ let decode_thread_start: ThreadMethodJson -> ThreadMethodDecodeResult = (params:
         "experimentalRawEvents",
         object,
       );
-      let raw_events: ThreadMethodRawEventsResult = if let `Found raw_events_json =
-        raw_events_lookup {
+      let raw_events: ThreadMethodRawEventsResult = if let `Found raw_events_json = raw_events_lookup {
           if let `Bool raw_events_boolean = raw_events_json {
             if raw_events_boolean { `Ok (`RawEventsEnabled ()) } else { `Ok (`RawEventsDisabled ())
             }
@@ -325,18 +320,15 @@ let decode_thread_start: ThreadMethodJson -> ThreadMethodDecodeResult = (params:
                         start_source_value,
                         raw_events_value,
                         params,
-                      ]
+                      ];
                       `MethodOk (`ThreadStart decoded);
-                    } else
-                    { `MethodError "thread/start.params.experimentalRawEvents could not be decoded"
+                    } else { `MethodError "thread/start.params.experimentalRawEvents could not be decoded"
                     }
-                  } else
-                  { `MethodError "thread/start.params.sessionStartSource could not be decoded" }
+                  } else { `MethodError "thread/start.params.sessionStartSource could not be decoded" }
                 } else { `MethodError "thread/start.params.historyMode could not be decoded" }
               } else { `MethodError "thread/start.params.ephemeral could not be decoded" }
             } else { `MethodError "thread/start.params.cwd could not be decoded" }
-          } else
-          { `MethodError "thread/start.params.allowProviderModelFallback could not be decoded" }
+          } else { `MethodError "thread/start.params.allowProviderModelFallback could not be decoded" }
         } else { `MethodError "thread/start.params.modelProvider could not be decoded" }
       } else {
         `MethodError "thread/start.params.model could not be decoded"
@@ -346,8 +338,7 @@ let decode_thread_start: ThreadMethodJson -> ThreadMethodDecodeResult = (params:
     }
   };
 
-let decode_thread_resume: ThreadMethodJson -> ThreadMethodDecodeResult = (params:
-  ThreadMethodJson) => {
+let decode_thread_resume: ThreadMethodJson -> ThreadMethodDecodeResult = (params: ThreadMethodJson) => {
     if let `Object object = params {
       let thread_id = required_text(object, "threadId", "thread/resume.params");
       let history = optional_json_kind(object, "history", "thread/resume.params", "array");
@@ -356,8 +347,7 @@ let decode_thread_resume: ThreadMethodJson -> ThreadMethodDecodeResult = (params
       let provider = optional_text(object, "modelProvider", "thread/resume.params");
       let cwd = optional_text(object, "cwd", "thread/resume.params");
       let exclude_turns_lookup: ThreadMethodJsonLookup = json_object_get("excludeTurns", object);
-      let exclude_turns: ThreadMethodExcludeTurnsResult = if let `Found exclude_json =
-        exclude_turns_lookup {
+      let exclude_turns: ThreadMethodExcludeTurnsResult = if let `Found exclude_json = exclude_turns_lookup {
           if let `Bool exclude_boolean = exclude_json {
             if exclude_boolean { `Ok (`TurnsExcluded ()) } else { `Ok (`TurnsIncluded ()) }
           } else { `Err "thread/resume.params.excludeTurns must be a boolean" }
@@ -405,10 +395,9 @@ let decode_thread_resume: ThreadMethodJson -> ThreadMethodDecodeResult = (params
                         exclude_turns_value,
                         initial_page_value,
                         params,
-                      ]
+                      ];
                       `MethodOk (`ThreadResume decoded);
-                    } else
-                    { `MethodError "thread/resume.params.initialTurnsPage could not be decoded" }
+                    } else { `MethodError "thread/resume.params.initialTurnsPage could not be decoded" }
                   } else { `MethodError "thread/resume.params.excludeTurns could not be decoded" }
                 } else { `MethodError "thread/resume.params.cwd could not be decoded" }
               } else { `MethodError "thread/resume.params.modelProvider could not be decoded" }
@@ -423,8 +412,7 @@ let decode_thread_resume: ThreadMethodJson -> ThreadMethodDecodeResult = (params
     }
   };
 
-let decode_thread_fork: ThreadMethodJson -> ThreadMethodDecodeResult = (params:
-  ThreadMethodJson) => {
+let decode_thread_fork: ThreadMethodJson -> ThreadMethodDecodeResult = (params: ThreadMethodJson) => {
     if let `Object object = params {
       let thread_id = required_text(object, "threadId", "thread/fork.params");
       let last_turn_id = optional_text(object, "lastTurnId", "thread/fork.params");
@@ -434,15 +422,13 @@ let decode_thread_fork: ThreadMethodJson -> ThreadMethodDecodeResult = (params:
       let provider = optional_text(object, "modelProvider", "thread/fork.params");
       let cwd = optional_text(object, "cwd", "thread/fork.params");
       let ephemeral_lookup: ThreadMethodJsonLookup = json_object_get("ephemeral", object);
-      let ephemeral: ThreadMethodThreadPersistenceResult = if let `Found ephemeral_json =
-        ephemeral_lookup {
+      let ephemeral: ThreadMethodThreadPersistenceResult = if let `Found ephemeral_json = ephemeral_lookup {
           if let `Bool ephemeral_boolean = ephemeral_json {
             if ephemeral_boolean { `Ok (`EphemeralThread ()) } else { `Ok (`PersistentThread ()) }
           } else { `Err "thread/fork.params.ephemeral must be a boolean" }
         } else { `Ok (`PersistentThread ()) };
       let exclude_turns_lookup: ThreadMethodJsonLookup = json_object_get("excludeTurns", object);
-      let exclude_turns: ThreadMethodExcludeTurnsResult = if let `Found fork_exclude_json =
-        exclude_turns_lookup {
+      let exclude_turns: ThreadMethodExcludeTurnsResult = if let `Found fork_exclude_json = exclude_turns_lookup {
           if let `Bool fork_exclude_boolean = fork_exclude_json {
             if fork_exclude_boolean { `Ok (`TurnsExcluded ()) } else { `Ok (`TurnsIncluded ()) }
           } else { `Err "thread/fork.params.excludeTurns must be a boolean" }
@@ -451,8 +437,7 @@ let decode_thread_fork: ThreadMethodJson -> ThreadMethodDecodeResult = (params:
         "deferGoalContinuation",
         object,
       );
-      let defer_goal: ThreadMethodGoalContinuationResult = if let `Found defer_goal_json =
-        defer_goal_lookup {
+      let defer_goal: ThreadMethodGoalContinuationResult = if let `Found defer_goal_json = defer_goal_lookup {
           if let `Bool defer_goal_boolean = defer_goal_json {
             if defer_goal_boolean { `Ok (`GoalContinuationDeferred ()) } else { `Ok (
               `GoalContinuationImmediate ()
@@ -515,10 +500,9 @@ let decode_thread_fork: ThreadMethodJson -> ThreadMethodDecodeResult = (params:
                             exclude_turns_value,
                             defer_goal_value,
                             params,
-                          ]
+                          ];
                           `MethodOk (`ThreadFork decoded);
-                        } else
-                        { `MethodError "thread/fork.params.excludeTurns could not be decoded" }
+                        } else { `MethodError "thread/fork.params.excludeTurns could not be decoded" }
                       } else { `MethodError "thread/fork.params.cwd could not be decoded" }
                     } else { `MethodError "thread/fork.params.modelProvider could not be decoded" }
                   } else { `MethodError "thread/fork.params.model could not be decoded" }
@@ -536,65 +520,50 @@ let decode_thread_fork: ThreadMethodJson -> ThreadMethodDecodeResult = (params:
   };
 
 const decode_thread_archive: ThreadMethodJson -> ThreadMethodDecodeResult = (
-  params: ThreadMethodJson
-) => {
+  params: ThreadMethodJson ) => {
   if let `Object object = params {
     let thread_id = required_text(object, "threadId", "thread/archive.params");
-    if let `Ok value = thread_id { `MethodOk (`ThreadArchive value) } else if let `Err reason =
-      thread_id { `MethodError reason } else { `MethodError
-        "thread/archive.params.threadId could not be decoded" }
+    if let `Ok value = thread_id { `MethodOk (`ThreadArchive value) } else if let `Err reason = thread_id { `MethodError reason } else { `MethodError "thread/archive.params.threadId could not be decoded" }
   } else {
     `MethodError "thread/archive.params must be an object"
   }
 };
 
 const decode_thread_unarchive: ThreadMethodJson -> ThreadMethodDecodeResult = (
-  params: ThreadMethodJson
-) => {
+  params: ThreadMethodJson ) => {
   if let `Object object = params {
     let thread_id = required_text(object, "threadId", "thread/unarchive.params");
-    if let `Ok value = thread_id { `MethodOk (`ThreadUnarchive value) } else if let `Err reason =
-      thread_id { `MethodError reason } else { `MethodError
-        "thread/unarchive.params.threadId could not be decoded" }
+    if let `Ok value = thread_id { `MethodOk (`ThreadUnarchive value) } else if let `Err reason = thread_id { `MethodError reason } else { `MethodError "thread/unarchive.params.threadId could not be decoded" }
   } else {
     `MethodError "thread/unarchive.params must be an object"
   }
 };
 
 const decode_thread_delete: ThreadMethodJson -> ThreadMethodDecodeResult = (
-  params: ThreadMethodJson
-) => {
+  params: ThreadMethodJson ) => {
   if let `Object object = params {
     let thread_id = required_text(object, "threadId", "thread/delete.params");
-    if let `Ok value = thread_id { `MethodOk (`ThreadDelete value) } else if let `Err reason =
-      thread_id { `MethodError reason } else { `MethodError
-        "thread/delete.params.threadId could not be decoded" }
+    if let `Ok value = thread_id { `MethodOk (`ThreadDelete value) } else if let `Err reason = thread_id { `MethodError reason } else { `MethodError "thread/delete.params.threadId could not be decoded" }
   } else {
     `MethodError "thread/delete.params must be an object"
   }
 };
 
 const decode_thread_unsubscribe: ThreadMethodJson -> ThreadMethodDecodeResult = (
-  params: ThreadMethodJson
-) => {
+  params: ThreadMethodJson ) => {
   if let `Object object = params {
     let thread_id = required_text(object, "threadId", "thread/unsubscribe.params");
-    if let `Ok value = thread_id { `MethodOk (`ThreadUnsubscribe value) } else if let `Err reason =
-      thread_id { `MethodError reason } else { `MethodError
-        "thread/unsubscribe.params.threadId could not be decoded" }
+    if let `Ok value = thread_id { `MethodOk (`ThreadUnsubscribe value) } else if let `Err reason = thread_id { `MethodError reason } else { `MethodError "thread/unsubscribe.params.threadId could not be decoded" }
   } else {
     `MethodError "thread/unsubscribe.params must be an object"
   }
 };
 
 const decode_thread_compact_start: ThreadMethodJson -> ThreadMethodDecodeResult = (
-  params: ThreadMethodJson
-) => {
+  params: ThreadMethodJson ) => {
   if let `Object object = params {
     let thread_id = required_text(object, "threadId", "thread/compact/start.params");
-    if let `Ok value = thread_id { `MethodOk (`ThreadCompactStart value) } else if let `Err reason =
-      thread_id { `MethodError reason } else { `MethodError
-        "thread/compact/start.params.threadId could not be decoded" }
+    if let `Ok value = thread_id { `MethodOk (`ThreadCompactStart value) } else if let `Err reason = thread_id { `MethodError reason } else { `MethodError "thread/compact/start.params.threadId could not be decoded" }
   } else {
     `MethodError "thread/compact/start.params must be an object"
   }
@@ -625,8 +594,7 @@ const decode_metadata_git_field: [ThreadMethodJsonObject, Text] -> ThreadMethodT
 };
 
 const decode_thread_metadata_update: ThreadMethodJson -> ThreadMethodDecodeResult = (
-  params: ThreadMethodJson
-) => {
+  params: ThreadMethodJson ) => {
   if let `Object object = params {
     let thread_id = required_text(object, "threadId", "thread/metadata/update.params");
     let git_info_lookup: ThreadMethodJsonLookup = json_object_get("gitInfo", object);
@@ -663,7 +631,7 @@ const decode_thread_metadata_update: ThreadMethodJson -> ThreadMethodDecodeResul
                     branch_patch,
                     origin_url_patch,
                   ];
-                  let decoded: ThreadMethodMetadataUpdateParams = [id, patch]
+                  let decoded: ThreadMethodMetadataUpdateParams = [id, patch];
                   `MethodOk (`ThreadMetadataUpdate decoded);
                 } else {
                   `MethodError "thread/metadata/update.params.threadId could not be decoded"
@@ -671,10 +639,8 @@ const decode_thread_metadata_update: ThreadMethodJson -> ThreadMethodDecodeResul
               } else {
                 `MethodError "gitInfo must include at least one field"
               }
-            } else
-            { `MethodError "thread/metadata/update.params.gitInfo.originUrl could not be decoded" }
-          } else
-          { `MethodError "thread/metadata/update.params.gitInfo.branch could not be decoded" }
+            } else { `MethodError "thread/metadata/update.params.gitInfo.originUrl could not be decoded" }
+          } else { `MethodError "thread/metadata/update.params.gitInfo.branch could not be decoded" }
         } else {
           `MethodError "thread/metadata/update.params.gitInfo.sha could not be decoded"
         }
@@ -692,8 +658,7 @@ const decode_thread_metadata_update: ThreadMethodJson -> ThreadMethodDecodeResul
 };
 
 const decode_thread_settings_update: ThreadMethodJson -> ThreadMethodDecodeResult = (
-  params: ThreadMethodJson
-) => {
+  params: ThreadMethodJson ) => {
   if let `Object object = params {
     let thread_id = required_text(object, "threadId", "thread/settings/update.params");
     let cwd = optional_text(object, "cwd", "thread/settings/update.params");
@@ -756,9 +721,8 @@ const decode_thread_settings_update: ThreadMethodJson -> ThreadMethodDecodeResul
                       let has_update = json_field_is_non_null(object,
                         "cwd") || json_field_is_non_null(
                           object,
-                          "approvalPolicy",
-                        ) || json_field_is_non_null(object, "approvalsReviewer") ||
-                      json_field_is_non_null(
+                          "approvalPolicy"
+                        ) || json_field_is_non_null(object, "approvalsReviewer") || json_field_is_non_null(
                         object,
                         "sandboxPolicy",
                       ) || json_field_is_non_null(object, "permissions") || json_field_is_non_null(
@@ -786,16 +750,13 @@ const decode_thread_settings_update: ThreadMethodJson -> ThreadMethodDecodeResul
                         personality_value,
                         has_update,
                         params,
-                      ]
+                      ];
                       `MethodOk (`ThreadSettingsUpdate decoded);
-                    } else
-                    { `MethodError "thread/settings/update.params.personality could not be decoded"
+                    } else { `MethodError "thread/settings/update.params.personality could not be decoded"
                     }
-                  } else
-                  { `MethodError "thread/settings/update.params.summary could not be decoded" }
+                  } else { `MethodError "thread/settings/update.params.summary could not be decoded" }
                 } else { `MethodError "thread/settings/update.params.effort could not be decoded" }
-              } else
-              { `MethodError "thread/settings/update.params.serviceTier could not be decoded" }
+              } else { `MethodError "thread/settings/update.params.serviceTier could not be decoded" }
             } else { `MethodError "thread/settings/update.params.model could not be decoded" }
           } else { `MethodError "thread/settings/update.params.permissions could not be decoded" }
         } else { `MethodError "thread/settings/update.params.cwd could not be decoded" }
@@ -840,8 +801,7 @@ const decode_page_size: [ThreadMethodJsonObject, Text] -> ThreadMethodPageSizeRe
   }
 };
 
-const decode_page_sort_direction: [ThreadMethodJsonObject, Text, ThreadMethodSortDirection] ->
-  ThreadMethodSortDirectionResult = (
+const decode_page_sort_direction: [ThreadMethodJsonObject, Text, ThreadMethodSortDirection] -> ThreadMethodSortDirectionResult = (
     object: ThreadMethodJsonObject,
     context: Text,
     fallback: ThreadMethodSortDirection,
@@ -868,8 +828,7 @@ const decode_page_sort_direction: [ThreadMethodJsonObject, Text, ThreadMethodSor
   };
 
 const decode_turn_items_view: ThreadMethodJsonObject -> ThreadMethodItemsViewResult = (
-  object: ThreadMethodJsonObject
-) => {
+  object: ThreadMethodJsonObject ) => {
   let decoded = optional_text(object, "itemsView", "thread/turns/list.params");
 
   if let `Err reason = decoded {
@@ -894,8 +853,7 @@ const decode_turn_items_view: ThreadMethodJsonObject -> ThreadMethodItemsViewRes
 };
 
 const decode_thread_turns_list: ThreadMethodJson -> ThreadMethodDecodeResult = (
-  params: ThreadMethodJson
-) => {
+  params: ThreadMethodJson ) => {
   if let `Object object = params {
     let thread_id = required_text(object, "threadId", "thread/turns/list.params");
     let cursor = optional_text(object, "cursor", "thread/turns/list.params");
@@ -925,7 +883,7 @@ const decode_thread_turns_list: ThreadMethodJson -> ThreadMethodDecodeResult = (
                 page_size_value,
                 direction_value,
                 items_view_value,
-              ]
+              ];
               `MethodOk (`ThreadTurnsList decoded);
             } else { `MethodError "thread/turns/list.params.itemsView could not be decoded" }
           } else { `MethodError "thread/turns/list.params.sortDirection could not be decoded" }
@@ -940,8 +898,7 @@ const decode_thread_turns_list: ThreadMethodJson -> ThreadMethodDecodeResult = (
 };
 
 const decode_thread_items_list: ThreadMethodJson -> ThreadMethodDecodeResult = (
-  params: ThreadMethodJson
-) => {
+  params: ThreadMethodJson ) => {
   if let `Object object = params {
     let thread_id = required_text(object, "threadId", "thread/items/list.params");
     let turn_id = optional_text(object, "turnId", "thread/items/list.params");
@@ -971,7 +928,7 @@ const decode_thread_items_list: ThreadMethodJson -> ThreadMethodDecodeResult = (
                 cursor_value,
                 page_size_value,
                 direction_value,
-              ]
+              ];
               `MethodOk (`ThreadItemsList decoded);
             } else { `MethodError "thread/items/list.params.sortDirection could not be decoded" }
           } else { `MethodError "thread/items/list.params.limit could not be decoded" }

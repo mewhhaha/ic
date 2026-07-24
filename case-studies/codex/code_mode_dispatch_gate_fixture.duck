@@ -51,8 +51,7 @@ let notification_ready: FixtureFacts = [
   .request = notification_request,
   .cancellation = `DispatchActive (),
   .gate = `DispatchGateReady ()];
-if let `RunCodeModeNotification ready_notification =
-  plan_code_mode_dispatch_gate notification_ready {
+if let `RunCodeModeNotification ready_notification = plan_code_mode_dispatch_gate notification_ready {
     if ready_notification.call_id == "call-notify" { score = score + 1000 }
   }
 

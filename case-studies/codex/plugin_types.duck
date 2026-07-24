@@ -16,8 +16,7 @@ type LoadedPlugin = [
   PluginTexts,
   PluginTexts,
   PluginTexts,
-  PluginTexts,
-]
+  PluginTexts ]
 type LoadedPlugins = List LoadedPlugin
 
 type PluginCapabilitySummary = [Text, Text, PluginTextOption, Bool, PluginTexts, PluginTexts]

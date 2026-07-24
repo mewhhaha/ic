@@ -1,7 +1,7 @@
 module () where
 
 const { .parse_thread_turns_cursor, .serialize_thread_turns_cursor } =
-  import "./app_server_thread_turn_cursor.duck" ()
+  import "./app_server_thread_turn_cursor.duck" ();
 const { .paginate_thread_turns } = import "./app_server_thread_turn_pagination.duck" ();
 const {} = import "./app_server_turn_types.duck" ();
 const {} = import "./app_server_types.duck" ();
@@ -14,8 +14,7 @@ type TurnPagesPage = AppServerThreadTurnsPage
 type TurnPagesPageResult = AppServerThreadTurnsPageResult
 
 const serialize_optional_cursor: TurnPagesCursorOption -> TurnPagesTextOption = (
-  cursor: TurnPagesCursorOption
-) => {
+  cursor: TurnPagesCursorOption ) => {
   if let `Some value = cursor {
     `Some (serialize_thread_turns_cursor value)
   } else {
@@ -50,7 +49,7 @@ let list_legacy_thread_turns: [TurnPagesTurns, TurnPagesParams] -> TurnPagesPage
         turns,
         serialize_optional_cursor next_cursor,
         serialize_optional_cursor backwards_cursor,
-      ]
+      ];
       `Ok response;
     } else if let `Err reason = paginated {
       `Err reason

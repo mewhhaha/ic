@@ -55,7 +55,7 @@ const request_permission_paths_reverse: PolicyPermissionsPaths -> PolicyPermissi
     }
 
     reversed
-  }
+  };
 
 const request_permission_access_equal: [PolicyPermissionsAccess, PolicyPermissionsAccess] -> Bool =
   (
@@ -78,8 +78,7 @@ let rec request_permission_path_equal: [&PolicyPermissionsPath, &PolicyPermissio
   left.path == right.path && request_permission_access_equal(left.access, right.access)
 };
 
-let rec request_permission_paths_contain: [&PolicyPermissionsPaths, &PolicyPermissionsPath] ->
-  Bool = (
+let rec request_permission_paths_contain: [&PolicyPermissionsPaths, &PolicyPermissionsPath] -> Bool = (
     paths: &PolicyPermissionsPaths,
     candidate: &PolicyPermissionsPath,
   ) => {
@@ -130,8 +129,7 @@ const dedupe_request_permission_paths: PolicyPermissionsPaths -> PolicyPermissio
 };
 
 const request_permission_profile_is_empty: &PolicyPermissionsProfile -> Bool = (
-  profile: &PolicyPermissionsProfile
-) => {
+  profile: &PolicyPermissionsProfile ) => {
   if let `NetworkMissing () = profile.network {
     if let `FileSystemMissing () = profile.file_system { true } else { false }
   } else {
@@ -141,8 +139,7 @@ const request_permission_profile_is_empty: &PolicyPermissionsProfile -> Bool = (
 
 const normalize_request_permissions_args: PolicyPermissionsArgs -> PolicyPermissionsNormalization =
   args => {
-    let network: PolicyPermissionsNetworkField = if let `NetworkPresent requested_network =
-      args.permissions.network {
+    let network: PolicyPermissionsNetworkField = if let `NetworkPresent requested_network = args.permissions.network {
         if let `Some _ = requested_network.enabled {
           args.permissions.network
         } else {
@@ -158,12 +155,12 @@ const normalize_request_permissions_args: PolicyPermissionsArgs -> PolicyPermiss
         if let `Nil () = entries {
           `FileSystemMissing ()
         } else {
-          let normalized_file_system: PolicyPermissionsFileSystem = [.entries = entries]
+          let normalized_file_system: PolicyPermissionsFileSystem = [.entries = entries];
           `FileSystemPresent normalized_file_system;
         }
       } else {
         `FileSystemMissing ()
-      }
+      };
 
     let permissions_empty = if let `NetworkMissing () = network {
       if let `FileSystemMissing () = file_system { true } else { false }
@@ -178,14 +175,13 @@ const normalize_request_permissions_args: PolicyPermissionsArgs -> PolicyPermiss
         .environment_id = args.environment_id,
         .reason = args.reason,
         .permissions = permissions,
-      ]
+      ];
       `Normalized normalized;
     }
-  }
+  };
 
 let rec request_permissions_approval_allowed: &PolicyPermissionsApprovalPolicy -> Bool = (
-  policy: &PolicyPermissionsApprovalPolicy
-) => {
+  policy: &PolicyPermissionsApprovalPolicy ) => {
   if let `Never () = policy {
     false
   } else if let `Granular raw_granular = policy {
@@ -241,8 +237,7 @@ let rec request_permission_path_is_within: [&Text, &Text] -> Bool = (path: &Text
   }
 };
 
-let rec request_permission_path_is_requested: [&PolicyPermissionsPath, &PolicyPermissionsPaths] ->
-  Bool = (
+let rec request_permission_path_is_requested: [&PolicyPermissionsPath, &PolicyPermissionsPaths] -> Bool = (
     granted: &PolicyPermissionsPath,
     requested: &PolicyPermissionsPaths,
   ) => {
@@ -273,8 +268,7 @@ let rec request_permission_path_is_requested: [&PolicyPermissionsPath, &PolicyPe
     accepted
   };
 
-const intersect_request_permission_paths: [&PolicyPermissionsFileSystem, PolicyPermissionsPaths] ->
-  PolicyPermissionsPaths = (
+const intersect_request_permission_paths: [&PolicyPermissionsFileSystem, PolicyPermissionsPaths] -> PolicyPermissionsPaths = (
     requested: &PolicyPermissionsFileSystem,
     granted: PolicyPermissionsPaths,
   ) => {
@@ -306,16 +300,14 @@ const intersect_request_permission_paths: [&PolicyPermissionsFileSystem, PolicyP
 const intersect_request_permission_profiles: [&PolicyPermissionsProfile,
   PolicyPermissionsProfile] -> PolicyPermissionsProfile = (
     requested: &PolicyPermissionsProfile,
-    granted: PolicyPermissionsProfile,
-  ) => {
-    let network: PolicyPermissionsNetworkField = if let `NetworkPresent requested_network =
-      requested.network {
+    granted: PolicyPermissionsProfile ) => {
+    let network: PolicyPermissionsNetworkField = if let `NetworkPresent requested_network = requested.network {
         if let `Some requested_enabled = requested_network.enabled {
           if requested_enabled {
             if let `NetworkPresent granted_network = granted.network {
               if let `Some granted_enabled = granted_network.enabled {
                 if granted_enabled {
-                  let enabled: PolicyPermissionsNetwork = [.enabled = `Some true]
+                  let enabled: PolicyPermissionsNetwork = [.enabled = `Some true];
                   `NetworkPresent enabled;
                 } else {
                   `NetworkMissing ()
@@ -346,7 +338,7 @@ const intersect_request_permission_profiles: [&PolicyPermissionsProfile,
           if let `Nil () = entries {
             `FileSystemMissing ()
           } else {
-            let accepted: PolicyPermissionsFileSystem = [.entries = entries]
+            let accepted: PolicyPermissionsFileSystem = [.entries = entries];
             `FileSystemPresent accepted;
           }
         } else {
@@ -354,7 +346,7 @@ const intersect_request_permission_profiles: [&PolicyPermissionsProfile,
         }
       } else {
         `FileSystemMissing ()
-      }
+      };
 
     [.network = network, .file_system = file_system]
   };
@@ -404,8 +396,7 @@ const normalize_request_permissions_response: [&PolicyPermissionsProfile,
     }
   };
 
-const request_permissions_grant_application: [Text, PolicyPermissionsResponse] ->
-  PolicyPermissionsGrantApplication = (
+const request_permissions_grant_application: [Text, PolicyPermissionsResponse] -> PolicyPermissionsGrantApplication = (
     environment_id: Text,
     response: PolicyPermissionsResponse,
   ) => {

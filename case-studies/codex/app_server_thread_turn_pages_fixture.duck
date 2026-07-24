@@ -41,10 +41,8 @@ if let `Ok value = page {
     let [only_turn, tail] = node;
     let [turn_id, _, _, _, _, _, _, _] = only_turn;
     let tail_valid = if let `Nil () = tail { true } else { false };
-    let next_valid = if let `Some cursor = next { cursor ==
-      "{\"turnId\":\"turn-2\",\"includeAnchor\":false}" } else { false };
-    let backwards_valid = if let `Some cursor = backwards { cursor ==
-      "{\"turnId\":\"turn-2\",\"includeAnchor\":true}" } else { false };
+    let next_valid = if let `Some cursor = next { cursor == "{\"turnId\":\"turn-2\",\"includeAnchor\":false}" } else { false };
+    let backwards_valid = if let `Some cursor = backwards { cursor == "{\"turnId\":\"turn-2\",\"includeAnchor\":true}" } else { false };
     if turn_id == "turn-2" && tail_valid && next_valid && backwards_valid { score = score + 1 }
   }
 }

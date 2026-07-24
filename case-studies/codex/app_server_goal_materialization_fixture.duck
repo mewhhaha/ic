@@ -21,16 +21,13 @@ if let `Object fields = response {
     if let `Object goal_fields = value {
       let status_valid = false;
       let status_lookup = json_object_get("status", goal_fields);
-      if let `Found status_json = status_lookup { if let `String status = status_json { status_valid
-        = status == "budgetLimited" } }
+      if let `Found status_json = status_lookup { if let `String status = status_json { status_valid = status == "budgetLimited" } }
       let budget_valid = false;
       let budget_lookup = json_object_get("tokenBudget", goal_fields);
-      if let `Found budget_json = budget_lookup { if let `Number budget = budget_json { budget_valid
-        = budget == "1000" } }
+      if let `Found budget_json = budget_lookup { if let `Number budget = budget_json { budget_valid = budget == "1000" } }
       let time_valid = false;
       let time_lookup = json_object_get("timeUsedSeconds", goal_fields);
-      if let `Found time_json = time_lookup { if let `Number time = time_json { time_valid = time ==
-        "60" } }
+      if let `Found time_json = time_lookup { if let `Number time = time_json { time_valid = time == "60" } }
       if status_valid && budget_valid && time_valid { score = score + 1 }
     }
   }

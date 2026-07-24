@@ -27,8 +27,7 @@ if let `RejectRequest message = scalar {
 
 let unsupported = plan_report_agent_job_result(`Unsupported ());
 if let `RejectRequest message = unsupported {
-  if message == "report_agent_job_result handler received unsupported payload" { score = score +
-    1000 }
+  if message == "report_agent_job_result handler received unsupported payload" { score = score + 1000 }
 }
 
 return { .score = score };

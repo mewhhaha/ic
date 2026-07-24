@@ -14,8 +14,7 @@ type AudioContentRewrite = [
   HistoryContents,
   AudioPreparationResults,
   AudioContentRewriteStatus,
-  I32,
-]
+  I32 ]
 
 const audio_failure_placeholder: I32 -> Text = status_code => {
   if status_code == 3 {
@@ -27,8 +26,7 @@ const audio_failure_placeholder: I32 -> Text = status_code => {
   }
 };
 
-const rewrite_audio_contents: [HistoryContents, AudioPreparationResults, I32] ->
-  AudioContentRewrite = (
+const rewrite_audio_contents: [HistoryContents, AudioPreparationResults, I32] -> AudioContentRewrite = (
     values,
     results,
     first_audio_index,
@@ -93,8 +91,7 @@ const rewrite_audio_contents: [HistoryContents, AudioPreparationResults, I32] ->
     [rewritten_values, remaining_results, status, audio_index]
   };
 
-const apply_audio_preparation_results: [HistoryItems, AudioPreparationResults] ->
-  AudioRewriteResult = (
+const apply_audio_preparation_results: [HistoryItems, AudioPreparationResults] -> AudioRewriteResult = (
     responses,
     results,
   ) => {

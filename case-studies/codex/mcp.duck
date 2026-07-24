@@ -92,8 +92,7 @@ const requires_mcp_tool_approval: [McpAnnotations, McpMode, Bool] -> Bool = (
   } else if let `Writes () = mode {
     !(bool_option_is_true read_only)
   } else {
-    !(bool_option_is_true
-      read_only) || bool_option_is_true destructive || bool_option_is_true open_world
+    !(bool_option_is_true read_only) || bool_option_is_true destructive || bool_option_is_true open_world
   }
 };
 

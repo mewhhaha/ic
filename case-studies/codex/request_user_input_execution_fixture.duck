@@ -12,10 +12,8 @@ type FixtureTexts = RequestUserInputAnswerTexts
 
 let answers: FixtureAnswers = `Cons (
   [
-    [.question_id = "pick_one", .answers = `Cons (["A", `Nil ()] as
-      FixtureTextNode)] as FixtureAnswer,
-    `Nil (),
-  ] as FixtureAnswerNode
+    [.question_id = "pick_one", .answers = `Cons (["A", `Nil ()] as FixtureTextNode)] as FixtureAnswer,
+    `Nil () ] as FixtureAnswerNode
 );
 let completed = finish_request_user_input(`Answered ([.answers = answers] as FixtureResponse));
 let rejected = finish_request_user_input(`Cancelled ());

@@ -35,8 +35,7 @@ type EnvironmentContext = [
   ContextTextOption,
   ContextNetworkOption,
   ContextFileSystemOption,
-  ContextTextOption,
-]
+  ContextTextOption ]
 
 type ModelContextFragment = [Text, Bool, Text]
 

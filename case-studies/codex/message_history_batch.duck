@@ -18,16 +18,14 @@ const prepend_raw_row: [MessageHistoryRawRow, MessageHistoryRawRows] -> MessageH
   tail: MessageHistoryRawRows,
 ) => `Cons ([row, tail]);
 const empty_batch_entries: () -> MessageHistoryLookupBatchEntries = () => `Nil ();
-const prepend_batch_entry: [MessageHistoryLookupBatchEntry, MessageHistoryLookupBatchEntries] ->
-  MessageHistoryLookupBatchEntries = (
+const prepend_batch_entry: [MessageHistoryLookupBatchEntry, MessageHistoryLookupBatchEntries] -> MessageHistoryLookupBatchEntries = (
     entry: MessageHistoryLookupBatchEntry,
     tail: MessageHistoryLookupBatchEntries,
   ) => `Cons ([entry, tail]);
 
 const reverse_batch_entries: MessageHistoryLookupBatchEntries -> MessageHistoryLookupBatchEntries =
   (
-    entries: MessageHistoryLookupBatchEntries
-  ) => {
+    entries: MessageHistoryLookupBatchEntries ) => {
     let current = entries;
     let reversed = empty_batch_entries();
     let done = false;
@@ -44,8 +42,7 @@ const reverse_batch_entries: MessageHistoryLookupBatchEntries -> MessageHistoryL
     reversed
   };
 
-const collect_history_rows: [Text, I32] -> MessageHistoryRawRows = (contents: Text, end_offset:
-  I32) => {
+const collect_history_rows: [Text, I32] -> MessageHistoryRawRows = (contents: Text, end_offset: I32) => {
     let rows = empty_raw_rows();
     let length = text_length contents;
     let start = 0;
@@ -102,8 +99,7 @@ let lookup_message_history_entry: [&Text, I32, Bool] -> MessageHistoryLookupEntr
   } else { `None () }
 };
 
-const lookup_message_history_batch_with_limits: [&Text, I32, Bool, I32, I32] ->
-  MessageHistoryLookupBatch = (
+const lookup_message_history_batch_with_limits: [&Text, I32, Bool, I32, I32] -> MessageHistoryLookupBatch = (
     contents: &Text,
     end_offset: I32,
     identity_matches: Bool,
@@ -125,7 +121,7 @@ const lookup_message_history_batch_with_limits: [&Text, I32, Bool, I32, I32] ->
           let [offset, line, byte_length] = row;
           let oversized_first = selected_rows == 0 && byte_length > byte_limit;
           let exceeds_limit =
-            selected_rows >= row_limit || selected_rows > 0 && selected_bytes + byte_length > byte_limit
+            selected_rows >= row_limit || selected_rows > 0 && selected_bytes + byte_length > byte_limit;
 
           if exceeds_limit {
             done = true

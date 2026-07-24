@@ -101,8 +101,7 @@ const snapshot_file: [DiscoverySnapshot, Text] -> DiscoveryDocumentOption = (sna
   result
 };
 
-const directory_has_marker = (snapshot: DiscoverySnapshot, directory: Text, markers:
-  DiscoveryTexts) => {
+const directory_has_marker = (snapshot: DiscoverySnapshot, directory: Text, markers: DiscoveryTexts) => {
     let current = markers;
     let found = false;
     let done = false;

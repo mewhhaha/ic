@@ -63,8 +63,7 @@ const append_document = (values: CatalogDocuments, document: CatalogDocument) =>
   documents.singleton(document),
 );
 
-let rec text_values_contain: [CatalogTexts, Text] -> Bool = (values: CatalogTexts, expected:
-  Text) => {
+let rec text_values_contain: [CatalogTexts, Text] -> Bool = (values: CatalogTexts, expected: Text) => {
     if let `Cons node = values {
       let [value, tail] = node;
       if value == expected { true } else { text_values_contain(tail, expected) }

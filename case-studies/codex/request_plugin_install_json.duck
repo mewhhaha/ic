@@ -24,14 +24,10 @@ let parse_request_plugin_install_args: [InstallJsonPresentation, Text] -> Instal
     if let `Object object = value {
       if let `ListTool () = presentation {
         let decoded = decode_list_plugin_install_value object;
-        if let `Parsed args = decoded { `ListArgs args } else if let `ParseFailed message =
-          decoded { `ParseFailed message } else { `ParseFailed
-            "failed to parse function arguments: invalid list parse result" }
+        if let `Parsed args = decoded { `ListArgs args } else if let `ParseFailed message = decoded { `ParseFailed message } else { `ParseFailed "failed to parse function arguments: invalid list parse result" }
       } else {
         let decoded = decode_recommended_plugin_install_value object;
-        if let `Parsed args = decoded { `RecommendedArgs args } else if let `ParseFailed message =
-          decoded { `ParseFailed message } else { `ParseFailed
-            "failed to parse function arguments: invalid recommended parse result" }
+        if let `Parsed args = decoded { `RecommendedArgs args } else if let `ParseFailed message = decoded { `ParseFailed message } else { `ParseFailed "failed to parse function arguments: invalid recommended parse result" }
       }
     } else if let `ListTool () = presentation {
       list_install_parse_failure "request_plugin_install arguments must be an object"
@@ -39,7 +35,7 @@ let parse_request_plugin_install_args: [InstallJsonPresentation, Text] -> Instal
       recommended_install_parse_failure "request_plugin_install arguments must be an object"
     }
   } else if let `Err error = parsed {
-    let [position, message] = error
+    let [position, message] = error;
     `ParseFailed (
       text_append [
         "failed to parse function arguments: ",

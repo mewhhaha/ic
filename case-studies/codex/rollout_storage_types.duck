@@ -58,8 +58,7 @@ type RolloutThreadQuery = [
   RolloutStorageTexts,
   RolloutStorageTexts,
   Text,
-  I32,
-]
+  I32 ]
 type RolloutThreadPage = [RolloutThreadSummaries, RolloutStorageTextOption, I32, Bool]
 
 return {};

@@ -2,7 +2,7 @@ module () where
 
 const { .parse_i64_decimal } = import "duck:prelude/numeric/parse" ();
 const { .text_append, .text_byte_is_ascii_hex_digit, .text_length, .text_slice, .text_starts_with } =
-  import "duck:prelude/functional" ()
+  import "duck:prelude/functional" ();
 const { .text_trim_whitespace } = import "duck:prelude/text" ();
 const {} = import "./cli_types.duck" ();
 
@@ -52,12 +52,12 @@ const parse_app_server_transport: [AppServerTextOption, Bool] -> AppServerTransp
       `Ok (`AppServerOff ())
     } else if text_starts_with(endpoint, "unix://") {
       if text_length endpoint == 7 {
-        let socket_path: AppServerTextOption = `None ()
+        let socket_path: AppServerTextOption = `None ();
         `Ok (`AppServerUnixSocket socket_path);
       } else {
         let socket_path: AppServerTextOption = `Some (
           text_slice [endpoint, 7, text_length endpoint]
-        )
+        );
         `Ok (`AppServerUnixSocket socket_path);
       }
     } else if text_starts_with(endpoint, "ws://") && text_length endpoint > 5 {
@@ -74,8 +74,7 @@ const parse_app_server_transport: [AppServerTextOption, Bool] -> AppServerTransp
 };
 
 const resolve_app_server_auth: AppServerLaunchFacts -> AppServerAuthResult = (
-  facts: AppServerLaunchFacts
-) => {
+  facts: AppServerLaunchFacts ) => {
   if let `Some mode = facts.ws_auth {
     if let `WebsocketCapabilityToken () = mode {
       if let `Some _ = facts.ws_shared_secret_file {
@@ -126,7 +125,7 @@ const resolve_app_server_auth: AppServerLaunchFacts -> AppServerAuthResult = (
           .issuer = issuer,
           .audience = audience,
           .max_clock_skew_seconds = max_clock_skew_seconds,
-        ]
+        ];
         `Ok (`WebsocketSignedBearerAuth options);
       } else {
         `Err "--ws-shared-secret-file is required with signed-bearer-token auth"
@@ -151,8 +150,7 @@ const resolve_app_server_auth: AppServerLaunchFacts -> AppServerAuthResult = (
   }
 };
 
-let rec scan_app_server_launch_from: [AppServerArgs, AppServerLaunchFacts] ->
-  AppServerLaunchFactsResult = (
+let rec scan_app_server_launch_from: [AppServerArgs, AppServerLaunchFacts] -> AppServerLaunchFactsResult = (
     args: AppServerArgs,
     facts: AppServerLaunchFacts,
   ) => {
@@ -287,7 +285,7 @@ let parse_app_server_launch: AppServerArgs -> AppServerCommandResult = (args: Ap
           .remote_control = facts.remote_control,
           .analytics_default_enabled = facts.analytics_default_enabled,
           .websocket_auth = websocket_auth,
-        ]
+        ];
         `Ok (`LaunchAppServer options);
       } else {
         `Err "app-server auth resolver returned an unknown result"

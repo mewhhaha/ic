@@ -1,7 +1,7 @@
 module () where
 
 const { .text_append, .text_copy, .text_find_from, .text_length, .text_slice } =
-  import "duck:prelude/text" ()
+  import "duck:prelude/text" ();
 const { .encode_message_history_line } = import "./message_history_entry.duck" ();
 const {} = import "./message_history_types.duck" ();
 
@@ -12,15 +12,12 @@ type MessageHistoryStorageAppendPlan = MessageHistoryAppendPlan
 type MessageHistoryStorageByteLimit = MessageHistoryByteLimit
 type MessageHistoryStorageTrimPlan = MessageHistoryTrimPlan
 
-const copy_message_history_byte_limit: &MessageHistoryStorageByteLimit ->
-  MessageHistoryStorageByteLimit = (
-    max_bytes: &MessageHistoryStorageByteLimit
-  ) => {
+const copy_message_history_byte_limit: &MessageHistoryStorageByteLimit -> MessageHistoryStorageByteLimit = (
+    max_bytes: &MessageHistoryStorageByteLimit ) => {
     if let `Some limit = max_bytes { `Some limit } else { `None () }
   };
 
-const plan_message_history_append: [&MessageHistoryStorageEntry, &MessageHistoryStorageConfig] ->
-  MessageHistoryStorageAppendPlan = (
+const plan_message_history_append: [&MessageHistoryStorageEntry, &MessageHistoryStorageConfig] -> MessageHistoryStorageAppendPlan = (
     entry: &MessageHistoryStorageEntry,
     config: &MessageHistoryStorageConfig,
   ) => {
@@ -30,7 +27,7 @@ const plan_message_history_append: [&MessageHistoryStorageEntry, &MessageHistory
       let append: MessageHistoryStorageAppend = [
         .line = encode_message_history_line entry,
         .max_bytes = copy_message_history_byte_limit(&config.max_bytes),
-      ]
+      ];
       `AppendHistory append;
     }
   };
@@ -50,8 +47,7 @@ const newest_history_row_start: Text -> I32 = (contents: Text) => {
   start
 };
 
-const plan_message_history_trim: [Text, MessageHistoryStorageByteLimit] ->
-  MessageHistoryStorageTrimPlan = (
+const plan_message_history_trim: [Text, MessageHistoryStorageByteLimit] -> MessageHistoryStorageTrimPlan = (
     contents: Text,
     max_bytes: MessageHistoryStorageByteLimit,
   ) => {
@@ -87,8 +83,7 @@ const plan_message_history_trim: [Text, MessageHistoryStorageByteLimit] ->
     }
   };
 
-const plan_message_history_after_append: [Text, &MessageHistoryStorageAppend] ->
-  MessageHistoryStorageTrimPlan = (
+const plan_message_history_after_append: [Text, &MessageHistoryStorageAppend] -> MessageHistoryStorageTrimPlan = (
     contents: Text,
     append: &MessageHistoryStorageAppend,
   ) => {

@@ -15,8 +15,7 @@ let score = 0;
 if let `GoalSetPlanned planned = result {
   if let `UpdateThreadGoal plan = planned {
     let objective_valid = if let `Some value = plan.objective { value == "New" } else { false };
-    let status_valid = if let `Some status = plan.status { if let `GoalComplete () = status { true }
-      else { false } } else { false };
+    let status_valid = if let `Some status = plan.status { if let `GoalComplete () = status { true } else { false } } else { false };
     let budget_valid = if let `Clear () = plan.token_budget { true } else { false };
     if objective_valid && status_valid && budget_valid { score = score + 1 }
   }

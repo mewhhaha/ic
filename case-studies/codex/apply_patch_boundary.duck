@@ -26,8 +26,7 @@ let normalize_apply_patch_lines: Text -> PatchBoundaryResult = (patch: Text) => 
   if line_count == 0 || text_trim_ascii_whitespace(texts.nth_or("", 0,
     lines)) != "*** Begin Patch" {
       `Err "invalid patch: The first line of the patch must be '*** Begin Patch'"
-    } else if text_trim_ascii_whitespace(texts.nth_or("", line_count - 1, lines)) != "*** End Patch"
-  {
+    } else if text_trim_ascii_whitespace(texts.nth_or("", line_count - 1, lines)) != "*** End Patch" {
     `Err "invalid patch: The last line of the patch must be '*** End Patch'"
   } else {
     `Ok lines

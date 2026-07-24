@@ -24,8 +24,7 @@ const prepend_definition: [RegistryDefinition, RegistryDefinitions] -> RegistryD
 };
 
 const reverse_definitions: RegistryDefinitions -> RegistryDefinitions = (
-  registry: RegistryDefinitions
-) => {
+  registry: RegistryDefinitions ) => {
   let current = registry;
   let reversed: RegistryDefinitions = empty_registry();
   let done = false;
@@ -156,8 +155,7 @@ const exposure_is_deferred = (exposure: RegistryExposure) => {
 };
 
 const model_visible_tools: RegistryDefinitions -> RegistryDefinitions = (
-  registry: RegistryDefinitions
-) => {
+  registry: RegistryDefinitions ) => {
   let current = registry;
   let visible: RegistryDefinitions = empty_registry();
   let done = false;
@@ -182,8 +180,7 @@ const model_visible_tools: RegistryDefinitions -> RegistryDefinitions = (
   reverse_definitions visible
 };
 
-const deferred_tools: RegistryDefinitions -> RegistryDefinitions = (registry:
-  RegistryDefinitions) => {
+const deferred_tools: RegistryDefinitions -> RegistryDefinitions = (registry: RegistryDefinitions) => {
     let current = registry;
     let deferred: RegistryDefinitions = empty_registry();
     let done = false;
@@ -220,8 +217,7 @@ const payload_kinds_match = (expected: RegistryPayloadKind, received: RegistryPa
   }
 };
 
-const plan_tool_dispatch: [RegistryDefinitions, RegistryName, RegistryPayloadKind, Text] ->
-  RegistryDispatchPlan = (
+const plan_tool_dispatch: [RegistryDefinitions, RegistryName, RegistryPayloadKind, Text] -> RegistryDispatchPlan = (
     registry: RegistryDefinitions,
     name: RegistryName,
     payload: RegistryPayloadKind,
@@ -233,7 +229,7 @@ const plan_tool_dispatch: [RegistryDefinitions, RegistryName, RegistryPayloadKin
       let [_, _, runtime, expected_payload, _, _] = definition;
 
       if payload_kinds_match(expected_payload, payload) {
-        let dispatch: RegistryDispatch = [runtime, payload, input]
+        let dispatch: RegistryDispatch = [runtime, payload, input];
         `Execute dispatch;
       } else {
         `Incompatible ("Tool " <> tool_name_text name <> " received an incompatible payload")

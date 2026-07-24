@@ -62,15 +62,14 @@ const plan_thread_goal_set: [GoalOption, GoalSetParams] -> GoalSetPlanResult = (
     `GoalSetInvalid invalid
   } else if let `Some _ = current {
     let update: GoalUpdatePlan = [params.thread_id, objective, params.status, params.token_budget];
-    let plan: GoalSetPlan = `UpdateThreadGoal update
+    let plan: GoalSetPlan = `UpdateThreadGoal update;
     `GoalSetPlanned plan;
   } else if let `Some value = objective {
-    let status: GoalStatus = if let `Some selected = params.status { selected } else { `GoalActive
-      () };
+    let status: GoalStatus = if let `Some selected = params.status { selected } else { `GoalActive () };
     let token_budget: GoalI64Option = if let `Set budget = params.token_budget { `Some budget
     } else { `None () };
     let create: GoalCreatePlan = [params.thread_id, value, status, token_budget];
-    let plan: GoalSetPlan = `CreateThreadGoal create
+    let plan: GoalSetPlan = `CreateThreadGoal create;
     `GoalSetPlanned plan;
   } else {
     `GoalSetMissing params.thread_id

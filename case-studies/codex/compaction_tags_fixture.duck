@@ -13,8 +13,7 @@ tags = tags <> "," <> compaction_reason_tag(`UserRequested ()) <> "," <> compact
 ) <> "," <> compaction_reason_tag(`ModelDownshift ()) <> "," <> compaction_reason_tag(
   `CompHashChanged ()
 )
-tags = tags <> "," <> compaction_implementation_tag(`Responses
-  ()) <> "," <> compaction_implementation_tag(
+tags = tags <> "," <> compaction_implementation_tag(`Responses ()) <> "," <> compaction_implementation_tag(
     `ResponsesCompactionV2 ()
   ) <> "," <> compaction_implementation_tag(`ResponsesCompact ())
 tags = tags <> "," <> compaction_phase_tag(`StandaloneTurn ()) <> "," <> compaction_phase_tag(
@@ -22,6 +21,6 @@ tags = tags <> "," <> compaction_phase_tag(`StandaloneTurn ()) <> "," <> compact
 ) <> "," <> compaction_phase_tag(`MidTurn ())
 
 let expected =
-  "manual,auto,user_requested,context_limit,model_downshift,comp_hash_changed,responses,responses_compaction_v2,responses_compact,standalone_turn,pre_turn,mid_turn"
+  "manual,auto,user_requested,context_limit,model_downshift,comp_hash_changed,responses,responses_compaction_v2,responses_compact,standalone_turn,pre_turn,mid_turn";
 
 return { .score = if tags == expected { 1 } else { 0 } };

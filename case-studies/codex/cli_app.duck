@@ -37,23 +37,21 @@ let rec scan_desktop_app_from: [ApplicationArgs, DesktopAppFacts] -> DesktopAppF
   }
 };
 
-let parse_desktop_app_options: ApplicationArgs -> ApplicationCommandResult = (args:
-  ApplicationArgs) => {
+let parse_desktop_app_options: ApplicationArgs -> ApplicationCommandResult = (args: ApplicationArgs) => {
     let initial: DesktopAppFacts = [.path = `None (), .download_url = `None ()];
     let scanned: DesktopAppFactsResult = scan_desktop_app_from(args, initial);
     if let `Err message = scanned {
       `Err message
     } else if let `Ok facts = scanned {
       let path = if let `Some selected = facts.path { selected } else { "." };
-      let options: DesktopAppOptions = [.path = path, .download_url = facts.download_url]
+      let options: DesktopAppOptions = [.path = path, .download_url = facts.download_url];
       `Ok (`OpenDesktopApp options);
     } else {
       `Err "desktop app scanner returned an unknown result"
     }
   };
 
-let rec scan_remote_control_from: [ApplicationArgs, RemoteControlFacts] ->
-  RemoteControlFactsResult = (
+let rec scan_remote_control_from: [ApplicationArgs, RemoteControlFacts] -> RemoteControlFactsResult = (
     args: ApplicationArgs,
     facts: RemoteControlFacts,
   ) => {
@@ -90,8 +88,7 @@ let rec scan_remote_control_from: [ApplicationArgs, RemoteControlFacts] ->
   };
 
 let parse_remote_control_options: ApplicationArgs -> ApplicationCommandResult = (
-  args: ApplicationArgs
-) => {
+  args: ApplicationArgs ) => {
   let initial: RemoteControlFacts = [.operation = `None (), .json = false];
   let scanned: RemoteControlFactsResult = scan_remote_control_from(args, initial);
   if let `Err message = scanned {
@@ -99,7 +96,7 @@ let parse_remote_control_options: ApplicationArgs -> ApplicationCommandResult = 
   } else if let `Ok facts = scanned {
     let operation = if let `Some selected = facts.operation { selected } else {
       `RemoteControlForeground () };
-    let options: RemoteControlOptions = [.operation = operation, .json = facts.json]
+    let options: RemoteControlOptions = [.operation = operation, .json = facts.json];
     `Ok (`RunRemoteControl options);
   } else {
     `Err "remote-control scanner returned an unknown result"

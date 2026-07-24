@@ -17,8 +17,7 @@ type AppServerGenerateTarget =
   | `GenerateInternalJsonSchema Unit
 
 const parse_app_server_daemon: AppServerToolArgs -> AppServerToolCommandResult = (
-  args: AppServerToolArgs
-) => {
+  args: AppServerToolArgs ) => {
   if let `Cons node = args {
     let [operation, remaining] = node;
     if operation == "bootstrap" {
@@ -64,8 +63,7 @@ const parse_app_server_daemon: AppServerToolArgs -> AppServerToolCommandResult =
   }
 };
 
-let rec scan_app_server_proxy_from: [AppServerToolArgs, AppServerToolTextOption] ->
-  AppServerToolCommandResult = (
+let rec scan_app_server_proxy_from: [AppServerToolArgs, AppServerToolTextOption] -> AppServerToolCommandResult = (
     args: AppServerToolArgs,
     socket_path: AppServerToolTextOption,
   ) => {
@@ -87,8 +85,7 @@ let rec scan_app_server_proxy_from: [AppServerToolArgs, AppServerToolTextOption]
   };
 
 let parse_app_server_proxy: AppServerToolArgs -> AppServerToolCommandResult = (
-  args: AppServerToolArgs
-) => {
+  args: AppServerToolArgs ) => {
   scan_app_server_proxy_from(args, `None ())
 };
 
@@ -137,8 +134,7 @@ let rec scan_app_server_generate_from: [
   }
 };
 
-let parse_app_server_generate: [AppServerGenerateTarget, AppServerToolArgs] ->
-  AppServerToolCommandResult = (
+let parse_app_server_generate: [AppServerGenerateTarget, AppServerToolArgs] -> AppServerToolCommandResult = (
     target: AppServerGenerateTarget,
     args: AppServerToolArgs,
   ) => {
@@ -157,13 +153,13 @@ let parse_app_server_generate: [AppServerGenerateTarget, AppServerToolArgs] ->
             .out_dir = out_dir,
             .prettier = facts.prettier,
             .experimental = facts.experimental,
-          ]
+          ];
           `Ok (`GenerateAppServerTs options);
         } else if let `GenerateJsonSchema () = target {
           let options: AppServerGenerateJsonOptions = [
             .out_dir = out_dir,
             .experimental = facts.experimental,
-          ]
+          ];
           `Ok (`GenerateAppServerJsonSchema options);
         } else if let `GenerateInternalJsonSchema () = target {
           `Ok (`GenerateAppServerInternalJsonSchema out_dir)

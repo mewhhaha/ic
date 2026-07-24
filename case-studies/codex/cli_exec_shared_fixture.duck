@@ -35,8 +35,7 @@ let score = if let `Ok options = parsed {
         let [second_image, _] = second_image_node;
         if let `Cons writable_node = options.shared.additional_writable_roots {
           let [writable, _] = writable_node;
-          let sandbox_ok = if let `Some mode = options.shared.sandbox { if let
-            `SandboxWorkspaceWrite () = mode { true } else { false } } else { false };
+          let sandbox_ok = if let `Some mode = options.shared.sandbox { if let `SandboxWorkspaceWrite () = mode { true } else { false } } else { false };
           if model == "gpt-test" && first_image == "a.png" && second_image == "b.png" && writable == "/tmp/extra" && sandbox_ok { 1 } else { 0 }
         } else { 0 }
       } else { 0 }

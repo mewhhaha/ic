@@ -7,7 +7,7 @@ type FixtureToolCall = ModelToolCall
 
 let score = 0;
 let delta: FixtureEventResult =
-  decode_model_event "{\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}"
+  decode_model_event "{\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}";
 
 if let `Ok event = delta {
   if let `Message text = event {
@@ -18,7 +18,7 @@ if let `Ok event = delta {
 }
 
 let call: FixtureEventResult =
-  decode_model_event "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\",\"call_id\":\"call-1\"}}"
+  decode_model_event "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"name\":\"read_file\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\",\"call_id\":\"call-1\"}}";
 
 if let `Ok event = call {
   if let `ToolCall tool_call = event {
@@ -32,7 +32,7 @@ if let `Ok event = call {
 }
 
 let message: FixtureEventResult =
-  decode_model_event "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello \"},{\"type\":\"output_text\",\"text\":\"world\"}]}}"
+  decode_model_event "{\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Hello \"},{\"type\":\"output_text\",\"text\":\"world\"}]}}";
 
 if let `Ok event = message {
   if let `Message text = event {
@@ -43,7 +43,7 @@ if let `Ok event = message {
 }
 
 let completed: FixtureEventResult =
-  decode_model_event "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\"}}"
+  decode_model_event "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp-1\"}}";
 
 if let `Ok event = completed {
   if let `Completed () = event {
@@ -56,8 +56,7 @@ if encode_user_message "Read \"README\"" == "{\"type\":\"message\",\"role\":\"us
 }
 
 if encode_tool_result("call-1",
-  "# Binned") ==
-  "{\"type\":\"function_call_output\",\"call_id\":\"call-1\",\"output\":\"# Binned\"}" {
+  "# Binned") == "{\"type\":\"function_call_output\",\"call_id\":\"call-1\",\"output\":\"# Binned\"}" {
     score = score + 100000
   }
 

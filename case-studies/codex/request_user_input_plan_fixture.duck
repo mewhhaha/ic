@@ -21,8 +21,7 @@ let root_only_questions: FixtureQuestions = `Cons (
       .is_secret = false,
       .options = `Present (
         `Cons (
-          [[.label = "Continue", .description = "Proceed."] as FixtureOption, `Nil
-            ()] as FixtureOptionNode
+          [[.label = "Continue", .description = "Proceed."] as FixtureOption, `Nil ()] as FixtureOptionNode
         )
       ),
     ] as FixtureQuestion,
@@ -43,8 +42,7 @@ let unavailable_questions: FixtureQuestions = `Cons (
       .is_secret = false,
       .options = `Present (
         `Cons (
-          [[.label = "Continue", .description = "Proceed."] as FixtureOption, `Nil
-            ()] as FixtureOptionNode
+          [[.label = "Continue", .description = "Proceed."] as FixtureOption, `Nil ()] as FixtureOptionNode
         )
       ),
     ] as FixtureQuestion,
@@ -65,8 +63,7 @@ let prompt_questions: FixtureQuestions = `Cons (
       .is_secret = false,
       .options = `Present (
         `Cons (
-          [[.label = "Continue", .description = "Proceed."] as FixtureOption, `Nil
-            ()] as FixtureOptionNode
+          [[.label = "Continue", .description = "Proceed."] as FixtureOption, `Nil ()] as FixtureOptionNode
         )
       ),
     ] as FixtureQuestion,

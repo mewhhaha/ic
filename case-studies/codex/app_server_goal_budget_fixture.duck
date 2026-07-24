@@ -12,7 +12,6 @@ let current: FixtureGoalOption = `Some goal;
 let params: FixtureParams = ["thread-7", `None (), `None (), `Set 0i64];
 let result: FixtureResult = plan_thread_goal_set(current, params);
 let score = 0;
-if let `GoalSetInvalid reason = result { if reason == "goal budgets must be positive when provided"
-  { score = score + 1 } }
+if let `GoalSetInvalid reason = result { if reason == "goal budgets must be positive when provided" { score = score + 1 } }
 
 return { .score = score };

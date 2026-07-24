@@ -2,7 +2,7 @@ module (!init: Init) where
 
 const {} = import "./wait_for_environment_types.duck" ();
 const { .finish_wait_for_environment, .plan_wait_for_environment } =
-  import "./wait_for_environment_policy.duck" ()
+  import "./wait_for_environment_policy.duck" ();
 
 type FixtureEnvironment = WaitForEnvironment
 type FixtureEnvironmentNode = WaitForEnvironmentNode
@@ -10,8 +10,7 @@ type FixtureEnvironments = WaitForEnvironments
 type FixtureHostResponse = WaitForEnvironmentHostResponse
 
 let environments: FixtureEnvironments = `Cons (
-  [[.environment_id = "gpu", .status = `Starting ()] as FixtureEnvironment, `Nil
-    ()] as FixtureEnvironmentNode
+  [[.environment_id = "gpu", .status = `Starting ()] as FixtureEnvironment, `Nil ()] as FixtureEnvironmentNode
 );
 let score = 0;
 

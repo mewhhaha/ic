@@ -11,8 +11,7 @@ type ExecPolicyCheckFactsResult = Result Text ExecPolicyCheckFacts
 
 const texts = comptime list Text;
 
-let rec scan_execpolicy_check_from: [ExecPolicyArgs, ExecPolicyCheckFacts] ->
-  ExecPolicyCheckFactsResult = (
+let rec scan_execpolicy_check_from: [ExecPolicyArgs, ExecPolicyCheckFacts] -> ExecPolicyCheckFactsResult = (
     args: ExecPolicyArgs,
     facts: ExecPolicyCheckFacts,
   ) => {
@@ -77,7 +76,7 @@ let parse_execpolicy_check: ExecPolicyArgs -> ExecPolicyCommandResult = (args: E
         .pretty = facts.pretty,
         .resolve_host_executables = facts.resolve_host_executables,
         .command = command,
-      ]
+      ];
       `Ok (`CheckExecPolicy options);
     }
   } else {
@@ -85,8 +84,7 @@ let parse_execpolicy_check: ExecPolicyArgs -> ExecPolicyCommandResult = (args: E
   }
 };
 
-let parse_execpolicy_options: ExecPolicyArgs -> ExecPolicyCommandResult = (args:
-  ExecPolicyArgs) => {
+let parse_execpolicy_options: ExecPolicyArgs -> ExecPolicyCommandResult = (args: ExecPolicyArgs) => {
     if let `Cons node = args {
       let [command, remaining] = node;
       if command == "check" {

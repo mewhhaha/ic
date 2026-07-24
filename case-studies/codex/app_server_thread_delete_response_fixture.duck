@@ -2,11 +2,10 @@ module () where
 
 const { .encode_json } = import "duck:prelude/json" ();
 const { .materialize_thread_delete_response, .materialize_thread_deleted_notification } =
-  import "./app_server_thread_delete_responses.duck" ()
+  import "./app_server_thread_delete_responses.duck" ();
 
 let score = 0;
 if encode_json(materialize_thread_delete_response()) == "{}" { score = score + 1 }
-if encode_json(materialize_thread_deleted_notification
-  "thread-1") == "{\"threadId\":\"thread-1\"}" { score = score + 10 }
+if encode_json(materialize_thread_deleted_notification "thread-1") == "{\"threadId\":\"thread-1\"}" { score = score + 10 }
 
 return { .score = score };

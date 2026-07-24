@@ -15,8 +15,7 @@ type RequestUserInputQuestionOption = struct {
 
 type RequestUserInputQuestionOptionNode = [
   RequestUserInputQuestionOption,
-  RequestUserInputQuestionOptions,
-]
+  RequestUserInputQuestionOptions ]
 type RequestUserInputQuestionOptions =
   | `Nil Unit
   | `Cons RequestUserInputQuestionOptionNode

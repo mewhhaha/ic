@@ -42,12 +42,11 @@ const thread_count = (values: FixtureThreads) => {
   count
 };
 
-const stored_file = (path: Text, updated_at: Text, thread_id: Text, created_at: Text, preview:
-  Text) => {
+const stored_file = (path: Text, updated_at: Text, thread_id: Text, created_at: Text, preview: Text) => {
     let meta =
-      "{\"timestamp\":\"" <> created_at <> "\",\"type\":\"session_meta\",\"payload\":{\"id\":\"" <> thread_id <> "\",\"timestamp\":\"" <> created_at <> "\",\"cwd\":\"/repo\",\"source\":\"cli\",\"model_provider\":\"openai\"}}"
+      "{\"timestamp\":\"" <> created_at <> "\",\"type\":\"session_meta\",\"payload\":{\"id\":\"" <> thread_id <> "\",\"timestamp\":\"" <> created_at <> "\",\"cwd\":\"/repo\",\"source\":\"cli\",\"model_provider\":\"openai\"}}";
     let event =
-      "{\"timestamp\":\"" <> created_at <> "\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"" <> preview <> "\"}}"
+      "{\"timestamp\":\"" <> created_at <> "\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"" <> preview <> "\"}}";
     let file: FixtureFile = [path, updated_at, meta <> "\nnot-json\n" <> event <> "\n"];
     file
   };

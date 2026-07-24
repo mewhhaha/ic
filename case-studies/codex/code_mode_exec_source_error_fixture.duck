@@ -14,8 +14,7 @@ if let `CodeModeExecSourceError message = blank {
 
 let no_body: FixtureResult = parse_code_mode_exec_source "// @exec: {}\n \t";
 if let `CodeModeExecSourceError message = no_body {
-  if message == "exec pragma must be followed by JavaScript source on subsequent lines" { score =
-      score + 10 }
+  if message == "exec pragma must be followed by JavaScript source on subsequent lines" { score = score + 10 }
 }
 
 let empty_directive: FixtureResult = parse_code_mode_exec_source "// @exec: \ntext('hi')";

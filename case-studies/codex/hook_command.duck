@@ -2,7 +2,7 @@ module () where
 
 const { .newtype, .representation, .seal } = import "duck:prelude" ();
 const { .format_i32, .list, .text_append, .text_starts_with, .text_trim_ascii_whitespace } =
-  import "duck:prelude/functional" ()
+  import "duck:prelude/functional" ();
 const hook_types_module = import "./hook_types.duck";
 const hook_output_types_module = import "./hook_output_types.duck";
 const hook_output_module = import "./hook_output.duck";
@@ -27,15 +27,13 @@ type HookCommandEvaluation = [
   HookTexts,
   HookTexts,
   HookUpdatedInput,
-  HookPermissionDecisionOption,
-]
+  HookPermissionDecisionOption ]
 type HookCommandAggregate = [
   HookCommandAction,
   HookTexts,
   HookTexts,
   HookUpdatedInput,
-  HookPermissionDecisionOption,
-]
+  HookPermissionDecisionOption ]
 
 type CommandEvent = HookEvent
 type CommandResult = HookCommandResult
@@ -785,7 +783,7 @@ const aggregate_hook_command: [CommandAggregate, CommandEvaluation] -> CommandAg
 ) => {
   let [action, contexts, feedback, updated_input, permission_decision] = aggregate;
   let [_, _, next_action, next_contexts, next_feedback, next_updated_input, next_permission] =
-    evaluation
+    evaluation;
   contexts = texts.append(contexts, next_contexts)
   feedback = texts.append(feedback, next_feedback)
 

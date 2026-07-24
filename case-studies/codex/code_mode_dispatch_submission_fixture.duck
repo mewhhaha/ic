@@ -71,8 +71,7 @@ let notification_unavailable: FixtureFacts = [
   .request = notification_request,
   .cancellation = `DispatchActive (),
   .channel = `DispatchChannelUnavailable ()];
-if let `RejectCodeModeDispatch message =
-  plan_code_mode_dispatch_submission notification_unavailable {
+if let `RejectCodeModeDispatch message = plan_code_mode_dispatch_submission notification_unavailable {
     if message == "code mode notification dispatcher is unavailable" { score = score + 100000 }
   }
 

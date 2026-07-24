@@ -4,7 +4,7 @@ const { .list, .option } = import "duck:prelude/functional" ();
 const rollout_types_module = import "./rollout_types.duck";
 const rollout_module = import "./rollout.duck";
 const { .is_persisted_rollout_item, .persisted_rollout_items, .response_is_persisted_for_memories } =
-  rollout_module()
+  rollout_module();
 
 type FixtureHistoryMode = RolloutHistoryMode
 type FixtureResponse = RolloutResponse
@@ -25,8 +25,7 @@ if is_persisted_rollout_item(`Response developer, `Paginated ()) && !(
 }
 
 let agent_message: FixtureResponse = `AgentMessage ();
-if is_persisted_rollout_item(`Response agent_message, `Paginated
-  ()) && response_is_persisted_for_memories agent_message {
+if is_persisted_rollout_item(`Response agent_message, `Paginated ()) && response_is_persisted_for_memories agent_message {
     score = score + 1000
   }
 

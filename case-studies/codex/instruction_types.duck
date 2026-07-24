@@ -16,8 +16,7 @@ type InstructionDiscoveryConfig = [
   I32,
   InstructionTexts,
   InstructionTexts,
-  InstructionDocumentOption,
-]
+  InstructionDocumentOption ]
 type LoadedInstructions = [InstructionTextOption, InstructionTexts]
 
 return {};

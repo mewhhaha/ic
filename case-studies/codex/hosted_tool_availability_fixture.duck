@@ -36,8 +36,7 @@ let missing_executor: FixtureFacts = [
   .has_web_run_executor = false,
   .provider_web_search = true,
   .web_search_mode = `Live ()];
-if !(hosted_web_search_available standalone) && hosted_web_search_available missing_executor { score
-  = score + 100 }
+if !(hosted_web_search_available standalone) && hosted_web_search_available missing_executor { score = score + 100 }
 
 let unsupported_provider: FixtureFacts = [
   .use_responses_lite = false,

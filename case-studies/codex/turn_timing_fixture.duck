@@ -1,7 +1,7 @@
 module () where
 
 const { .monotonic_ms, .unix_time_ms, .unix_time_seconds, .unix_time_seconds_value } =
-  import "duck:prelude/abstractions" ()
+  import "duck:prelude/abstractions" ();
 const {} = import "./turn_timing_types.duck" ();
 const {
   .empty_turn_timing_state,
@@ -25,8 +25,7 @@ if before_start_missing {
 }
 
 state = mark_turn_started(state, monotonic_ms 1000i64, unix_time_ms 2000000i64)
-let started_at_valid = if let `Some started_at_seconds =
-  turn_timing_started_at_unix_seconds(&state) { started_at_seconds == 2000i64 } else { false };
+let started_at_valid = if let `Some started_at_seconds = turn_timing_started_at_unix_seconds(&state) { started_at_seconds == 2000i64 } else { false };
 let ignored = record_time_to_first_token(state, `NoOutput (), monotonic_ms 1100i64);
 state = ignored.state
 let first_token = record_time_to_first_token(state, `OutputDelta (), monotonic_ms 1125i64);
@@ -63,9 +62,7 @@ if completion_valid && unix_time_seconds_value completion.completed_at_unix_seco
 let empty_output = `CompletedOutputText "";
 let completed_output = `CompletedOutputText "answer";
 let completed_reasoning = `CompletedReasoningText "thought";
-if !(response_signal_records_first_token
-  empty_output) && response_signal_records_first_token completed_output &&
-  response_signal_records_first_token completed_reasoning {
+if !(response_signal_records_first_token empty_output) && response_signal_records_first_token completed_output && response_signal_records_first_token completed_reasoning {
     score = score + 10000
   }
 

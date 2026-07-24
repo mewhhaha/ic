@@ -19,7 +19,7 @@ const {
 } = import "./app_server_thread_methods.duck" ();
 const { .decode_thread_control_method } = import "./app_server_thread_control_methods.duck" ();
 const { .decode_thread_goal_clear, .decode_thread_goal_get, .decode_thread_goal_set } =
-  import "./app_server_goal_methods.duck" ()
+  import "./app_server_goal_methods.duck" ();
 
 type MethodJson = AppServerJson
 type MethodJsonObject = JsonObject
@@ -264,8 +264,7 @@ const optional_cwd: [MethodJsonObject, Text] -> MethodTextsResult = (
   }
 };
 
-const decode_sort_key: MethodJsonObject -> MethodThreadSortKeyResult = (object:
-  MethodJsonObject) => {
+const decode_sort_key: MethodJsonObject -> MethodThreadSortKeyResult = (object: MethodJsonObject) => {
     let lookup: MethodJsonLookup = json_object_get("sortKey", object);
 
     if let `Found value = lookup {
@@ -290,8 +289,7 @@ const decode_sort_key: MethodJsonObject -> MethodThreadSortKeyResult = (object:
   };
 
 const decode_sort_direction: MethodJsonObject -> MethodSortDirectionResult = (
-  object: MethodJsonObject
-) => {
+  object: MethodJsonObject ) => {
   let lookup: MethodJsonLookup = json_object_get("sortDirection", object);
 
   if let `Found value = lookup {
@@ -339,8 +337,7 @@ const source_kind_from_text: Text -> MethodThreadSourceKindResult = (value: Text
   }
 };
 
-let rec decode_source_kind_values: [MethodJsonArray, MethodThreadSourceKinds] ->
-  MethodThreadSourceKindsResult = (
+let rec decode_source_kind_values: [MethodJsonArray, MethodThreadSourceKinds] -> MethodThreadSourceKindsResult = (
     values: MethodJsonArray,
     reversed: MethodThreadSourceKinds,
   ) => {
@@ -365,8 +362,7 @@ let rec decode_source_kind_values: [MethodJsonArray, MethodThreadSourceKinds] ->
   };
 
 const decode_source_kinds: MethodJsonObject -> MethodThreadSourceKindsResult = (
-  object: MethodJsonObject
-) => {
+  object: MethodJsonObject ) => {
   let lookup: MethodJsonLookup = json_object_get("sourceKinds", object);
 
   if let `Found value = lookup {
@@ -453,12 +449,10 @@ const decode_thread_list: MethodJson -> MethodDecodeResult = (params: MethodJson
                               search_value,
                               parent_id,
                               ancestor_id,
-                            ]
+                            ];
                             `MethodOk (`ThreadList decoded);
-                          } else
-                          { `MethodError "thread/list.params.searchTerm could not be decoded" }
-                        } else
-                        { `MethodError "thread/list.params.useStateDbOnly could not be decoded" }
+                          } else { `MethodError "thread/list.params.searchTerm could not be decoded" }
+                        } else { `MethodError "thread/list.params.useStateDbOnly could not be decoded" }
                       } else { `MethodError "thread/list.params.cwd could not be decoded" }
                     } else { `MethodError "thread/list.params.archived could not be decoded" }
                   } else { `MethodError "thread/list.params.sourceKinds could not be decoded" }
@@ -487,7 +481,7 @@ const decode_thread_read: MethodJson -> MethodDecodeResult = (params: MethodJson
       `MethodError reason
     } else if let `Ok id = thread_id {
       if let `Ok include_turns_value = include_turns {
-        let decoded: MethodThreadReadParams = [id, include_turns_value]
+        let decoded: MethodThreadReadParams = [id, include_turns_value];
         `MethodOk (`ThreadRead decoded);
       } else { `MethodError "thread/read.params.includeTurns could not be decoded" }
     } else {
@@ -513,8 +507,7 @@ const decode_user_input: MethodJson -> MethodUserInputResult = (value: MethodJso
           if let `Found elements = lookup { text_elements = elements }
           if let `Array _ = text_elements { `Ok (`TextInput ([content, text_elements])) } else {
             `Err "turn/start.params.input text.textElements must be an array" }
-        } else if let `Err reason = text { `Err reason } else
-        { `Err "turn/start.params.input text could not be decoded" }
+        } else if let `Err reason = text { `Err reason } else { `Err "turn/start.params.input text could not be decoded" }
       } else if kind == "image" || kind == "localImage" {
         let field = if kind == "image" { "url" } else { "path" };
         let location = required_text(object, field, "turn/start.params.input image");
@@ -532,8 +525,7 @@ const decode_user_input: MethodJson -> MethodUserInputResult = (value: MethodJso
         let location = required_text(object, field, "turn/start.params.input audio");
         if let `Ok place = location {
           if kind == "audio" { `Ok (`AudioInput place) } else { `Ok (`LocalAudioInput place) }
-        } else if let `Err reason = location { `Err reason } else
-        { `Err "turn/start.params.input audio location could not be decoded" }
+        } else if let `Err reason = location { `Err reason } else { `Err "turn/start.params.input audio location could not be decoded" }
       } else if kind == "skill" || kind == "mention" {
         let name = required_text(object, "name", "turn/start.params.input reference");
         let path = required_text(object, "path", "turn/start.params.input reference");
@@ -600,7 +592,7 @@ const decode_turn_start: MethodJson -> MethodDecodeResult = (params: MethodJson)
     } else if let `Ok id = thread_id {
       if let `Ok client_id_value = client_id {
         if let `Ok input_values = inputs {
-          let decoded: MethodTurnStartParams = [id, client_id_value, input_values, params]
+          let decoded: MethodTurnStartParams = [id, client_id_value, input_values, params];
           `MethodOk (`TurnStart decoded);
         } else { `MethodError "turn/start.params.input could not be decoded" }
       } else { `MethodError "turn/start.params.clientUserMessageId could not be decoded" }
@@ -646,7 +638,7 @@ const decode_turn_steer: MethodJson -> MethodDecodeResult = (params: MethodJson)
               client_id_value,
               input_values,
               params,
-            ]
+            ];
             `MethodOk (`TurnSteer decoded);
           } else { `MethodError "turn/steer.params.input could not be decoded" }
         } else { `MethodError "turn/steer.params.clientUserMessageId could not be decoded" }
@@ -670,7 +662,7 @@ const decode_turn_interrupt: MethodJson -> MethodDecodeResult = (params: MethodJ
       `MethodError reason
     } else if let `Ok thread = thread_id {
       if let `Ok turn = turn_id {
-        let decoded: MethodTurnInterruptParams = [thread, turn]
+        let decoded: MethodTurnInterruptParams = [thread, turn];
         `MethodOk (`TurnInterrupt decoded);
       } else { `MethodError "turn/interrupt.params.turnId could not be decoded" }
     } else {
@@ -732,7 +724,7 @@ const decode_app_server_method: [Text, MethodJson] -> MethodDecodeResult = (
   } else if name == "turn/interrupt" {
     decode_turn_interrupt params
   } else {
-    let unknown: MethodUnknown = [name, params]
+    let unknown: MethodUnknown = [name, params];
     `MethodOk (`UnknownMethod unknown);
   }
 };

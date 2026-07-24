@@ -19,8 +19,7 @@ let command: FixtureTexts = canonicalize_command_for_approval(
 let matches = texts.length(command) == 4 && texts.nth_or("", 0, command) == "pwsh" && texts.nth_or(
   "",
   1,
-  command,
-) == "-Unknown" && texts.nth_or("", 2, command) == "-Command" && texts.nth_or("", 3, command) ==
-  "Write-Host hi";
+  command
+) == "-Unknown" && texts.nth_or("", 2, command) == "-Command" && texts.nth_or("", 3, command) == "Write-Host hi";
 
 return { .score = if matches { 6 } else { 0 } };

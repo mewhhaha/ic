@@ -1,7 +1,7 @@
 module () where
 
 const { .list, .text_byte_is_ascii_alphanumeric, .text_get, .text_length, .text_slice } =
-  import "duck:prelude/functional" ()
+  import "duck:prelude/functional" ();
 const hook_types_module = import "./hook_types.duck";
 
 type HooksTextOption = HookTextOption
@@ -137,8 +137,7 @@ const basic_regex_validation_error = (pattern: Text) => {
       class_has_member = false
       atom_available = false
     } else if byte == 40 || byte == 41 || byte == 123 || byte == 125 {
-      error =
-        `Some "hook matcher uses a regex construct that is not supported by the source runtime"
+      error = `Some "hook matcher uses a regex construct that is not supported by the source runtime"
       break;
     } else if byte == 42 || byte == 43 || byte == 63 {
       if atom_available {
@@ -332,8 +331,7 @@ let rec regex_match_here: [Text, I32, Text, I32] -> Bool = (
   }
 };
 
-let rec regex_branch_matches: [Text, Text, I32] -> Bool = (pattern: Text, input: Text, start:
-  I32) => {
+let rec regex_branch_matches: [Text, Text, I32] -> Bool = (pattern: Text, input: Text, start: I32) => {
     if regex_match_here(pattern, 0, input, start) {
       true
     } else if text_length pattern > 0 && text_get [pattern, 0] == 94 {
@@ -421,8 +419,7 @@ let rec hook_matcher_matches_inputs: [HooksMatcher, HooksTexts] -> Bool = (
   }
 };
 
-const hook_events_equal = (left: HooksEvent, right:
-  HooksEvent) => hook_event_label left == hook_event_label right;
+const hook_events_equal = (left: HooksEvent, right: HooksEvent) => hook_event_label left == hook_event_label right;
 
 let rec select_hook_handlers_reversed: [
   HooksConfiguredHandlers,

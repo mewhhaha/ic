@@ -24,8 +24,7 @@ let invalid_function: FixtureInvocation = [
   .tool_kind = `NestedFunction (),
   .input = `Some (`String "invalid")];
 if let `RejectNestedTool message = plan_code_mode_nested_tool invalid_function {
-  if message == "tool `mcp__sample__lookup` expects a JSON object for arguments" { score = score +
-    10 }
+  if message == "tool `mcp__sample__lookup` expects a JSON object for arguments" { score = score + 10 }
 }
 
 let missing_freeform: FixtureInvocation = [

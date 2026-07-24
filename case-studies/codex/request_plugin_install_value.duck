@@ -1,7 +1,7 @@
 module () where
 
 const { .json_object_get, .json_object_key_count, .json_object_length } =
-  import "duck:prelude/json/values" ()
+  import "duck:prelude/json/values" ();
 const {} = import "duck:prelude/json/values" ();
 const { .text_append } = import "duck:prelude/runtime" ();
 const {} = import "./plugin_install_types.duck" ();
@@ -21,7 +21,7 @@ let list_install_parse_failure: Text -> InstallValueListParseResult = reason => 
 let recommended_install_parse_failure: Text -> InstallValueRecommendedParseResult =
   reason => `ParseFailed (
     text_append ["failed to parse function arguments: ", reason]
-  )
+  );
 
 let decode_list_plugin_install_value: InstallValueObject -> InstallValueListParseResult =
   object => {
@@ -50,8 +50,7 @@ let decode_list_plugin_install_value: InstallValueObject -> InstallValueListPars
       if let `Found field = id_lookup { if let `String value = field { tool_id = value } else {
         failure = "tool_id must be a string" } }
       let reason_lookup = json_object_get("suggest_reason", object);
-      if let `Found field = reason_lookup { if let `String value = field { suggest_reason = value }
-        else { failure = "suggest_reason must be a string" } }
+      if let `Found field = reason_lookup { if let `String value = field { suggest_reason = value } else { failure = "suggest_reason must be a string" } }
       let type_lookup = json_object_get("tool_type", object);
       if let `Found field = type_lookup {
         if let `String value = field {
@@ -62,8 +61,7 @@ let decode_list_plugin_install_value: InstallValueObject -> InstallValueListPars
       let action_lookup = json_object_get("action_type", object);
       if let `Found field = action_lookup {
         if let `String value = field {
-          if value == "install" { action = `Install () } else if value == "enable" { action =
-              `Enable () } else { failure = "action_type must be install or enable" }
+          if value == "install" { action = `Install () } else if value == "enable" { action = `Enable () } else { failure = "action_type must be install or enable" }
         } else { failure = "action_type must be a string" }
       }
 
@@ -73,16 +71,15 @@ let decode_list_plugin_install_value: InstallValueObject -> InstallValueListPars
           .action_type = action,
           .tool_id = tool_id,
           .suggest_reason = suggest_reason,
-        ]
+        ];
         `Parsed args;
       } else {
         list_install_parse_failure failure
       }
     }
-  }
+  };
 
-let decode_recommended_plugin_install_value: InstallValueObject ->
-  InstallValueRecommendedParseResult = object => {
+let decode_recommended_plugin_install_value: InstallValueObject -> InstallValueRecommendedParseResult = object => {
     let id_count = json_object_key_count("plugin_id", object) + json_object_key_count(
       "tool_id",
       object,
@@ -102,13 +99,12 @@ let decode_recommended_plugin_install_value: InstallValueObject ->
       if let `Found field = id_lookup { if let `String value = field { plugin_id = value } else {
         failure = "plugin_id must be a string" } }
       let reason_lookup = json_object_get("suggest_reason", object);
-      if let `Found field = reason_lookup { if let `String value = field { suggest_reason = value }
-        else { failure = "suggest_reason must be a string" } }
+      if let `Found field = reason_lookup { if let `String value = field { suggest_reason = value } else { failure = "suggest_reason must be a string" } }
       if failure == "" {
         let args: InstallValueRecommendedArgs = [
           .plugin_id = plugin_id,
           .suggest_reason = suggest_reason,
-        ]
+        ];
         `Parsed args;
       } else { recommended_install_parse_failure failure }
     }

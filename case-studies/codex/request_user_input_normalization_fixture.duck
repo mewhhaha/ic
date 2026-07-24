@@ -41,10 +41,8 @@ let low_questions: FixtureQuestions = `Cons (
       .options = `Present (
         `Cons (
           [
-            [.label = "Continue (Recommended)", .description =
-                "Proceed with the change."] as FixtureOption,
-            `Nil (),
-          ] as FixtureOptionNode
+            [.label = "Continue (Recommended)", .description = "Proceed with the change."] as FixtureOption,
+            `Nil () ] as FixtureOptionNode
         )
       ),
     ] as FixtureQuestion,
@@ -65,10 +63,8 @@ let high_questions: FixtureQuestions = `Cons (
       .options = `Present (
         `Cons (
           [
-            [.label = "Continue (Recommended)", .description =
-                "Proceed with the change."] as FixtureOption,
-            `Nil (),
-          ] as FixtureOptionNode
+            [.label = "Continue (Recommended)", .description = "Proceed with the change."] as FixtureOption,
+            `Nil () ] as FixtureOptionNode
         )
       ),
     ] as FixtureQuestion,

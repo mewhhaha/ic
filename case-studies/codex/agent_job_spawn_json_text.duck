@@ -32,8 +32,7 @@ let decode_agent_job_spawn_text_options: [Text, AgentJobSpawnTextArgs] -> AgentJ
           `SpawnDecodeFailed "id_column must be a string"
         } else if let `AgentJobTextDecoded id_column = decoded_id {
           let output_lookup = json_object_get("output_csv_path", object);
-          let decoded_output: AgentJobSpawnTextOptionalResult = if let `Found field =
-            output_lookup {
+          let decoded_output: AgentJobSpawnTextOptionalResult = if let `Found field = output_lookup {
               if let `String output_path = field {
                 `AgentJobTextDecoded (`Some output_path)
               } else if let `Null () = field {
@@ -56,7 +55,7 @@ let decode_agent_job_spawn_text_options: [Text, AgentJobSpawnTextArgs] -> AgentJ
               .max_concurrency = base.max_concurrency,
               .max_workers = base.max_workers,
               .max_runtime_seconds = base.max_runtime_seconds,
-            ]
+            ];
             `SpawnDecoded args;
           } else {
             `SpawnDecodeFailed "output_csv_path decoder returned no result"

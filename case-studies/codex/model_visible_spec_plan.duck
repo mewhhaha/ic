@@ -1,7 +1,7 @@
 module () where
 
 const { .text_append, .text_compare, .text_ends_with, .text_starts_with, .text_trim_whitespace } =
-  import "duck:prelude/runtime" ()
+  import "duck:prelude/runtime" ();
 const { .struct } = import "duck:prelude/types" ();
 const {} = import "./tool_types.duck" ();
 
@@ -130,10 +130,10 @@ const augment_description: ModelVisibleDescription -> ModelVisibleDescription = 
 
 const augment_spec: ModelVisibleSpec -> ModelVisibleSpec = spec => {
   if let `VisibleFunction function = spec {
-    let [name, description] = function
+    let [name, description] = function;
     `VisibleFunction ([name, augment_description description]);
   } else if let `VisibleFreeform freeform = spec {
-    let [name, description] = freeform
+    let [name, description] = freeform;
     `VisibleFreeform ([name, augment_description description]);
   } else if let `VisibleNamespace namespace = spec {
     let [name, description, functions] = namespace;
@@ -191,7 +191,7 @@ let rec name_seen: [ToolName, ModelVisibleNames] -> Bool = (name, names) => {
 let rec append_specs: [ModelVisibleSpecs, ModelVisibleSpecs] -> ModelVisibleSpecs = (first,
   second) => {
     if let `VisibleSpecsCons node = first {
-      let [spec, tail] = node
+      let [spec, tail] = node;
       `VisibleSpecsCons ([spec, append_specs(tail, second)]);
     } else {
       second
@@ -204,7 +204,7 @@ let rec append_functions: [ModelVisibleFunctions, ModelVisibleFunctions] -> Mode
     second,
   ) => {
     if let `VisibleFunctionsCons node = first {
-      let [function, tail] = node
+      let [function, tail] = node;
       `VisibleFunctionsCons ([function, append_functions(tail, second)]);
     } else {
       second
@@ -230,7 +230,7 @@ let rec merge_spec: [ModelVisibleSpecs, ModelVisibleSpec] -> ModelVisibleSpecs =
               name,
               description,
               append_functions(existing_functions, incoming_functions),
-            ]
+            ];
             `VisibleSpecsCons ([`VisibleNamespace merged_namespace, tail]);
           } else {
             `VisibleSpecsCons ([existing, merge_spec(tail, incoming)])
@@ -349,8 +349,7 @@ let merge_model_namespaces: [ModelVisibleSpecs, ModelVisibleNamespacePolicy] -> 
     result
   };
 
-let build_model_visible_specs: [ModelVisibleRuntimes, ModelVisibleSpecs, ModelVisibleFacts] ->
-  ModelVisibleSpecs = (
+let build_model_visible_specs: [ModelVisibleRuntimes, ModelVisibleSpecs, ModelVisibleFacts] -> ModelVisibleSpecs = (
     runtimes,
     hosted_specs,
     facts,
@@ -366,8 +365,7 @@ let build_model_visible_specs: [ModelVisibleRuntimes, ModelVisibleSpecs, ModelVi
           seen = `VisibleNamesCons ([tool_name, seen])
           let hidden_by_code_mode_only = false;
           if let `CodeModelOnly () = facts.mode {
-            if !(exposure_is_direct_model_only exposure) && is_nested_name(code_mode_name
-              tool_name) {
+            if !(exposure_is_direct_model_only exposure) && is_nested_name(code_mode_name tool_name) {
                 hidden_by_code_mode_only = true
               }
           }

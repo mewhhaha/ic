@@ -21,7 +21,6 @@ let hidden: FixtureSnapshot = [
   .status = `Running (),
 ];
 let hidden_input: FixtureOutputInput = [.snapshot = hidden, .hide_metadata = true];
-if render_spawn_agent_output hidden_input == "{\"task_name\":\"/root/reviewer\"}" { score = score +
-  10 }
+if render_spawn_agent_output hidden_input == "{\"task_name\":\"/root/reviewer\"}" { score = score + 10 }
 
 return { .score = score };

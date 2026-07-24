@@ -17,49 +17,46 @@ type NormalizedInputModalities = InputModalities
 const history_item_list = comptime list NormalizedHistoryItem;
 const history_content_list = comptime list NormalizedHistoryContent;
 
-const function_output_call_id = (item: NormalizedHistoryItem) => if let `FunctionOutput output =
-  item {
-    let [_, call_id, _] = output
+const function_output_call_id = (item: NormalizedHistoryItem) => if let `FunctionOutput output = item {
+    let [_, call_id, _] = output;
     `Some call_id;
   } else {
     `None ()
   };
 
 const function_call_call_id = (item: NormalizedHistoryItem) => if let `FunctionCall call = item {
-  let [_, call_id, _, _] = call
+  let [_, call_id, _, _] = call;
   `Some call_id;
 } else if let `LocalShellCall call = item {
-  let [_, call_id] = call
+  let [_, call_id] = call;
   `Some call_id;
 } else {
   `None ()
 };
 
 const custom_output_call_id = (item: NormalizedHistoryItem) => if let `CustomOutput output = item {
-  let [_, call_id, _] = output
+  let [_, call_id, _] = output;
   `Some call_id;
 } else {
   `None ()
 };
 
 const custom_call_call_id = (item: NormalizedHistoryItem) => if let `CustomCall call = item {
-  let [_, call_id, _, _] = call
+  let [_, call_id, _, _] = call;
   `Some call_id;
 } else {
   `None ()
 };
 
-const tool_search_output_call_id = (item:
-  NormalizedHistoryItem) => if let `ToolSearchOutput output = item {
-    let [call_id, _] = output
+const tool_search_output_call_id = (item: NormalizedHistoryItem) => if let `ToolSearchOutput output = item {
+    let [call_id, _] = output;
     `Some call_id;
   } else {
     `None ()
   };
 
-const tool_search_call_call_id = (item: NormalizedHistoryItem) => if let `ToolSearchCall call =
-  item {
-    let [_, call_id] = call
+const tool_search_call_call_id = (item: NormalizedHistoryItem) => if let `ToolSearchCall call = item {
+    let [_, call_id] = call;
     `Some call_id;
   } else {
     `None ()
@@ -267,15 +264,14 @@ const aborted_output = () => {
   history_content_list.singleton(`InputText "aborted")
 };
 
-const missing_output_for = (item: NormalizedHistoryItem, values:
-  NormalizedHistoryItems) => if let `FunctionCall call = item {
+const missing_output_for = (item: NormalizedHistoryItem, values: NormalizedHistoryItems) => if let `FunctionCall call = item {
     let [id, call_id, _, _] = call;
 
     if has_function_output(values, call_id) {
       `None ()
     } else {
       let synthetic_id = if id == "" { "" } else { text_append ["fco:", id] };
-      let output: NormalizedHistoryOutput = [synthetic_id, call_id, aborted_output()]
+      let output: NormalizedHistoryOutput = [synthetic_id, call_id, aborted_output()];
       `Some (`FunctionOutput output);
     }
   } else if let `CustomCall call = item {
@@ -285,7 +281,7 @@ const missing_output_for = (item: NormalizedHistoryItem, values:
       `None ()
     } else {
       let synthetic_id = if id == "" { "" } else { text_append ["ctco:", id] };
-      let output: NormalizedHistoryOutput = [synthetic_id, call_id, aborted_output()]
+      let output: NormalizedHistoryOutput = [synthetic_id, call_id, aborted_output()];
       `Some (`CustomOutput output);
     }
   } else if let `LocalShellCall call = item {
@@ -295,7 +291,7 @@ const missing_output_for = (item: NormalizedHistoryItem, values:
       `None ()
     } else {
       let synthetic_id = if id == "" { "" } else { text_append ["fco:", id] };
-      let output: NormalizedHistoryOutput = [synthetic_id, call_id, aborted_output()]
+      let output: NormalizedHistoryOutput = [synthetic_id, call_id, aborted_output()];
       `Some (`FunctionOutput output);
     }
   } else if let `ToolSearchCall call = item {
@@ -304,7 +300,7 @@ const missing_output_for = (item: NormalizedHistoryItem, values:
     if call_id == "" || has_tool_search_output(values, call_id) {
       `None ()
     } else {
-      let output: NormalizedHistoryToolSearchOutput = [call_id, "client"]
+      let output: NormalizedHistoryToolSearchOutput = [call_id, "client"];
       `Some (`ToolSearchOutput output);
     }
   } else {
@@ -339,8 +335,7 @@ const ensure_call_outputs_present = (values: NormalizedHistoryItems) => {
   history_item_list.reverse normalized_reversed
 };
 
-const keep_history_item = (item: NormalizedHistoryItem, values:
-  NormalizedHistoryItems) => if let `FunctionOutput output = item {
+const keep_history_item = (item: NormalizedHistoryItem, values: NormalizedHistoryItems) => if let `FunctionOutput output = item {
     let [_, call_id, _] = output;
     has_function_call(values, call_id)
   } else if let `CustomOutput output = item {
@@ -487,7 +482,7 @@ const normalize_item_modalities = (
     role,
     contextual,
     normalize_message_contents(contents, modalities),
-  ]
+  ];
   `Message normalized_message;
 } else if let `AgentMessage contents = item {
   `AgentMessage (normalize_message_contents(contents, modalities))
@@ -497,7 +492,7 @@ const normalize_item_modalities = (
     id,
     call_id,
     normalize_output_contents(contents, modalities),
-  ]
+  ];
   `FunctionOutput normalized_output;
 } else if let `CustomOutput output = item {
   let [id, call_id, contents] = output;
@@ -505,7 +500,7 @@ const normalize_item_modalities = (
     id,
     call_id,
     normalize_output_contents(contents, modalities),
-  ]
+  ];
   `CustomOutput normalized_output;
 } else {
   item
@@ -538,8 +533,7 @@ const strip_unsupported_modalities = (
   history_item_list.reverse normalized_reversed
 };
 
-const normalize_history = (values: NormalizedHistoryItems, modalities:
-  NormalizedInputModalities) => {
+const normalize_history = (values: NormalizedHistoryItems, modalities: NormalizedInputModalities) => {
     let paired = ensure_call_outputs_present values;
     let without_orphans = remove_orphan_outputs paired;
     strip_unsupported_modalities(without_orphans, modalities)
@@ -656,8 +650,7 @@ const drop_last_user_turns = (values: NormalizedHistoryItems, count: I32) => {
   }
 };
 
-const estimate_content_bytes = (content: NormalizedHistoryContent) => if let `InputText text =
-  content {
+const estimate_content_bytes = (content: NormalizedHistoryContent) => if let `InputText text = content {
     text_length text + 24
   } else if let `OutputText text = content {
     text_length text + 25

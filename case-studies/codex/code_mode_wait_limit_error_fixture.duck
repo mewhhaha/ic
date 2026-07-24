@@ -8,34 +8,33 @@ type FixtureParseResult = CodeModeWaitParseResult
 let score = 0;
 
 let negative: FixtureParseResult =
-  parse_code_mode_wait_args "{\"cell_id\":\"a\",\"yield_time_ms\":-1}"
+  parse_code_mode_wait_args "{\"cell_id\":\"a\",\"yield_time_ms\":-1}";
 if let `ParseFailed message = negative {
   if message == "failed to parse function arguments: field `yield_time_ms` must be a non-negative integer; got -1" { score = score + 1 }
 }
 
 let fraction: FixtureParseResult =
-  parse_code_mode_wait_args "{\"cell_id\":\"a\",\"max_tokens\":1.5}"
+  parse_code_mode_wait_args "{\"cell_id\":\"a\",\"max_tokens\":1.5}";
 if let `ParseFailed message = fraction {
   if message == "failed to parse function arguments: field `max_tokens` must be a non-negative integer; got 1.5" { score = score + 10 }
 }
 
 let overflow: FixtureParseResult =
-  parse_code_mode_wait_args "{\"cell_id\":\"a\",\"yield_time_ms\":18446744073709551616}"
+  parse_code_mode_wait_args "{\"cell_id\":\"a\",\"yield_time_ms\":18446744073709551616}";
 if let `ParseFailed message = overflow {
   if message == "failed to parse function arguments: field `yield_time_ms` number exceeds U64; got 18446744073709551616" { score = score + 100 }
 }
 
 let wrong_max: FixtureParseResult =
-  parse_code_mode_wait_args "{\"cell_id\":\"a\",\"max_tokens\":\"many\"}"
+  parse_code_mode_wait_args "{\"cell_id\":\"a\",\"max_tokens\":\"many\"}";
 if let `ParseFailed message = wrong_max {
   if message == "failed to parse function arguments: field `max_tokens` must be a non-negative integer" { score = score + 1000 }
 }
 
 let wrong_terminate: FixtureParseResult =
-  parse_code_mode_wait_args "{\"cell_id\":\"a\",\"terminate\":null}"
+  parse_code_mode_wait_args "{\"cell_id\":\"a\",\"terminate\":null}";
 if let `ParseFailed message = wrong_terminate {
-  if message == "failed to parse function arguments: field `terminate` must be a boolean" { score =
-      score + 10000 }
+  if message == "failed to parse function arguments: field `terminate` must be a boolean" { score = score + 10000 }
 }
 
 return { .score = score };

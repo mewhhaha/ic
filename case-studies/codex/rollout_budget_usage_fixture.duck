@@ -35,8 +35,7 @@ let ignored_usage: FixtureUsage = [
 let ignored = record_rollout_budget_usage(budget, ignored_usage);
 budget = ignored.budget
 if !(ignored.exhausted) { score = score + 1 }
-if let `None () = pending_rollout_budget_reminder(&budget, &"root", &"window-1") { score = score +
-  10 }
+if let `None () = pending_rollout_budget_reminder(&budget, &"root", &"window-1") { score = score + 10 }
 
 budget = configure_rollout_budget(budget, config)
 let replacement_thresholds: FixtureThresholds = `Nil ();

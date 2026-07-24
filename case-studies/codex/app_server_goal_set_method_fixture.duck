@@ -1,5 +1,5 @@
 const { .json_number, .json_object, .json_object_empty, .json_object_prepend, .json_string } =
-  import "duck:prelude/json/values" ()
+  import "duck:prelude/json/values" ();
 const { .decode_thread_goal_set } = import "./app_server_goal_methods.duck" ();
 const {} = import "./app_server_types.duck" ();
 
@@ -17,12 +17,10 @@ if let `MethodOk method = result {
     if let `ThreadGoalSet params = goal_method {
       let objective_valid = if let `Some value = params.objective { value == "Ship Codex" } else {
         false };
-      let status_valid = if let `Some status = params.status { if let `GoalBudgetLimited () = status
-        { true } else { false } } else { false };
+      let status_valid = if let `Some status = params.status { if let `GoalBudgetLimited () = status { true } else { false } } else { false };
       let budget_valid = if let `Set value = params.token_budget { value == 9223372036854775807i64
       } else { false };
-      if params.thread_id == "thread-1" && objective_valid && status_valid && budget_valid { score =
-          score + 1 }
+      if params.thread_id == "thread-1" && objective_valid && status_valid && budget_valid { score = score + 1 }
     }
   }
 }

@@ -17,8 +17,7 @@ type CodeModeExecuteToolDefinition = struct {
 
 type CodeModeExecuteToolDefinitionNode = [
   CodeModeExecuteToolDefinition,
-  CodeModeExecuteToolDefinitions,
-]
+  CodeModeExecuteToolDefinitions ]
 type CodeModeExecuteToolDefinitions =
   | `ExecuteToolsNil Unit
   | `ExecuteToolsCons CodeModeExecuteToolDefinitionNode

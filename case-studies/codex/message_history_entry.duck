@@ -22,8 +22,7 @@ const message_history_entry: [Text, I64, Text] -> MessageHistoryCodecEntry = (
 };
 
 const encode_message_history_line: &MessageHistoryCodecEntry -> Text = (
-  entry: &MessageHistoryCodecEntry
-) => {
+  entry: &MessageHistoryCodecEntry ) => {
   let encoded = text_append ["{\"session_id\":", encode_json_string(text_copy(&entry.session_id))];
   encoded = text_append [encoded, ",\"ts\":"]
   encoded = text_append [encoded, format_i64 entry.timestamp]
@@ -81,7 +80,7 @@ const parse_message_history_entry: Text -> MessageHistoryCodecEntryOption = (lin
               .session_id = session,
               .timestamp = time,
               .text = message,
-            ]
+            ];
             `Some entry;
           } else { `None () }
         } else { `None () }

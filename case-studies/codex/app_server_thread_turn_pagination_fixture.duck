@@ -82,8 +82,7 @@ if let `Ok page = ascending {
         let [agent, after_agent] = agent_node;
         if let `Nil () = after_agent { item_has_type(agent, "agentMessage") } else { false }
       } else { false };
-      let views_valid = if let `Summary () = first_view { if let `Summary () = second_view { true }
-        else { false } } else { false };
+      let views_valid = if let `Summary () = first_view { if let `Summary () = second_view { true } else { false } } else { false };
       let end_valid = if let `Nil () = end { true } else { false };
       let next_valid = if let `Some value = next {
         let [id, included] = value;
@@ -117,8 +116,7 @@ if let `Ok page = second_page {
       let [id, included] = value;
       id == "turn-3" && included
     } else { false };
-    if turn_id == "turn-3" && tail_valid && view_valid && next_valid && backwards_valid { score =
-        score + 1000 }
+    if turn_id == "turn-3" && tail_valid && view_valid && next_valid && backwards_valid { score = score + 1000 }
   }
 }
 

@@ -30,8 +30,7 @@ if let `Ok options = uuid_result {
 }
 
 if let `Err message = name_result {
-  if message == "--force requires a session UUID; names must be confirmed interactively" { score =
-      score + 10 }
+  if message == "--force requires a session UUID; names must be confirmed interactively" { score = score + 10 }
 }
 
 return { .score = score };

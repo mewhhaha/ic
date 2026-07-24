@@ -31,8 +31,7 @@ const decode_goal_status: Text -> GoalMethodStatusOption = (value: Text) => {
   }
 };
 
-const decode_thread_goal_set: GoalMethodJson -> GoalMethodDecodeResult = (params:
-  GoalMethodJson) => {
+const decode_thread_goal_set: GoalMethodJson -> GoalMethodDecodeResult = (params: GoalMethodJson) => {
     if let `Object object = params {
       let thread_id_lookup: GoalMethodJsonLookup = json_object_get("threadId", object);
       if let `Found thread_id_json = thread_id_lookup {
@@ -58,8 +57,7 @@ const decode_thread_goal_set: GoalMethodJson -> GoalMethodDecodeResult = (params
             if let `Found status_json = status_lookup {
               if let `String value = status_json {
                 status = decode_goal_status value
-                if let `None () = status { error =
-                    "thread/goal/set.params.status has an unknown value" }
+                if let `None () = status { error = "thread/goal/set.params.status has an unknown value" }
               } else if let `Null () = status_json {
                 ()
               } else {
@@ -91,7 +89,7 @@ const decode_thread_goal_set: GoalMethodJson -> GoalMethodDecodeResult = (params
           }
 
           if error == "" {
-            let decoded: GoalMethodSetParams = [thread_id, objective, status, token_budget]
+            let decoded: GoalMethodSetParams = [thread_id, objective, status, token_budget];
             `MethodOk (`ThreadGoal (`ThreadGoalSet decoded));
           } else {
             `MethodError error
@@ -107,8 +105,7 @@ const decode_thread_goal_set: GoalMethodJson -> GoalMethodDecodeResult = (params
     }
   };
 
-const decode_thread_goal_get: GoalMethodJson -> GoalMethodDecodeResult = (params:
-  GoalMethodJson) => {
+const decode_thread_goal_get: GoalMethodJson -> GoalMethodDecodeResult = (params: GoalMethodJson) => {
     if let `Object object = params {
       let thread_id_lookup: GoalMethodJsonLookup = json_object_get("threadId", object);
       if let `Found thread_id_json = thread_id_lookup {
@@ -125,8 +122,7 @@ const decode_thread_goal_get: GoalMethodJson -> GoalMethodDecodeResult = (params
     }
   };
 
-const decode_thread_goal_clear: GoalMethodJson -> GoalMethodDecodeResult = (params:
-  GoalMethodJson) => {
+const decode_thread_goal_clear: GoalMethodJson -> GoalMethodDecodeResult = (params: GoalMethodJson) => {
     if let `Object object = params {
       let thread_id_lookup: GoalMethodJsonLookup = json_object_get("threadId", object);
       if let `Found thread_id_json = thread_id_lookup {

@@ -19,8 +19,7 @@ let valid_decoded: FixtureArgs = [
 let valid = prepare_agent_job_spawn_limits(valid_decoded, 8, `None ());
 if let `ReadCsv args = valid {
   let runtime_valid = if let `Some value = args.max_runtime_seconds { value == "90" } else { false };
-  if args.input_path == "/workspace/input.csv" && args.max_concurrency == 8 && runtime_valid { score
-    = 1 }
+  if args.input_path == "/workspace/input.csv" && args.max_concurrency == 8 && runtime_valid { score = 1 }
 }
 let zero_runtime_decoded: FixtureArgs = [
   .csv_path = "/workspace/input.csv",

@@ -102,8 +102,7 @@ let parse_apply_patch_lines: PatchParserTexts -> PatchParserResult = (lines: Pat
             if chunk_active {
               if texts.length(old_lines_reversed) == 0 && texts.length(new_lines_reversed) == 0 {
                 failed = true
-                failure =
-                  "invalid hunk at line " <> format_i32 line_number <> ", Update hunk does not contain any lines"
+                failure = "invalid hunk at line " <> format_i32 line_number <> ", Update hunk does not contain any lines"
               } else {
                 let chunk: PatchParserChunk = [
                   .context = chunk_context,
@@ -117,8 +116,7 @@ let parse_apply_patch_lines: PatchParserTexts -> PatchParserResult = (lines: Pat
 
             if !(failed) && chunks.length(parsed_chunks_reversed) == 0 {
               failed = true
-              failure =
-                "invalid hunk at line " <> format_i32 hunk_line <> ", Update file hunk for path '" <> current_path <> "' is empty"
+              failure = "invalid hunk at line " <> format_i32 hunk_line <> ", Update file hunk for path '" <> current_path <> "' is empty"
             } else if !(failed) {
               let update: PatchParserUpdate = [
                 .path = current_path,
@@ -158,20 +156,17 @@ let parse_apply_patch_lines: PatchParserTexts -> PatchParserResult = (lines: Pat
           }
         } else if mode == 0 {
           failed = true
-          failure =
-            "invalid hunk at line " <> format_i32 line_number <> ", '" <> text_trim_ascii_whitespace line <> "' is not a valid hunk header"
+          failure = "invalid hunk at line " <> format_i32 line_number <> ", '" <> text_trim_ascii_whitespace line <> "' is not a valid hunk header"
         } else if mode == 1 {
           if text_starts_with [line, "+"] {
             add_content = add_content <> text_slice [line, 1, text_length line] <> "\n"
           } else {
             failed = true
-            failure =
-              "invalid hunk at line " <> format_i32 line_number <> ", '" <> text_trim_ascii_whitespace line <> "' is not a valid hunk header"
+            failure = "invalid hunk at line " <> format_i32 line_number <> ", '" <> text_trim_ascii_whitespace line <> "' is not a valid hunk header"
           }
         } else if mode == 2 {
           failed = true
-          failure =
-            "invalid hunk at line " <> format_i32 line_number <> ", '" <> text_trim_ascii_whitespace line <> "' is not a valid hunk header"
+          failure = "invalid hunk at line " <> format_i32 line_number <> ", '" <> text_trim_ascii_whitespace line <> "' is not a valid hunk header"
         } else if mode == 3 {
           let update_line = text_trim_end_ascii_whitespace line;
 
@@ -181,10 +176,8 @@ let parse_apply_patch_lines: PatchParserTexts -> PatchParserResult = (lines: Pat
             text_starts_with [update_line, "@@ "]
           ) {
             failed = true
-            failure =
-              "invalid hunk at line " <> format_i32 line_number <> ", Expected update hunk to start with a @@ context marker, got: '" <> line <> "'"
-          } else if !(chunk_active) && chunks.length(parsed_chunks_reversed) == 0 &&
-          text_starts_with [
+            failure = "invalid hunk at line " <> format_i32 line_number <> ", Expected update hunk to start with a @@ context marker, got: '" <> line <> "'"
+          } else if !(chunk_active) && chunks.length(parsed_chunks_reversed) == 0 && text_starts_with [
             update_line,
             "*** Move to: ",
           ] {
@@ -193,8 +186,7 @@ let parse_apply_patch_lines: PatchParserTexts -> PatchParserResult = (lines: Pat
             if chunk_active {
               if texts.length(old_lines_reversed) == 0 && texts.length(new_lines_reversed) == 0 {
                 failed = true
-                failure =
-                  "invalid hunk at line " <> format_i32 line_number <> ", Unexpected line found in update hunk: '" <> line <> "'"
+                failure = "invalid hunk at line " <> format_i32 line_number <> ", Unexpected line found in update hunk: '" <> line <> "'"
               } else {
                 let completed: PatchParserChunk = [
                   .context = chunk_context,
@@ -222,13 +214,11 @@ let parse_apply_patch_lines: PatchParserTexts -> PatchParserResult = (lines: Pat
               new_lines_reversed
             ) == 0 {
               failed = true
-              failure =
-                "invalid hunk at line " <> format_i32 line_number <> ", Update hunk does not contain any lines"
+              failure = "invalid hunk at line " <> format_i32 line_number <> ", Update hunk does not contain any lines"
             } else {
               chunk_end_of_file = true
             }
-          } else if line == "" || text_starts_with [line, " "] || text_starts_with [line, "+"] ||
-          text_starts_with [
+          } else if line == "" || text_starts_with [line, " "] || text_starts_with [line, "+"] || text_starts_with [
             line,
             "-",
           ] {
@@ -252,8 +242,7 @@ let parse_apply_patch_lines: PatchParserTexts -> PatchParserResult = (lines: Pat
             }
           } else {
             failed = true
-            failure =
-              "invalid hunk at line " <> format_i32 line_number <> ", Unexpected line found in update hunk: '" <> line <> "'"
+            failure = "invalid hunk at line " <> format_i32 line_number <> ", Unexpected line found in update hunk: '" <> line <> "'"
           }
         }
       }
@@ -273,7 +262,7 @@ let parse_apply_patch_lines: PatchParserTexts -> PatchParserResult = (lines: Pat
     let document: PatchParserDocument = [
       .environment_id = environment_id,
       .hunks = hunks.reverse(parsed_reversed),
-    ]
+    ];
     `Ok document;
   }
 };

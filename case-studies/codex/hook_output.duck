@@ -212,7 +212,7 @@ const parse_universal_output = (object: OutputJsonObject) => {
             stop_reason,
             suppress_output,
             system_message,
-          ]
+          ];
           `UniversalOk universal;
         } else if let `TextReadErr message = system_message_read {
           `UniversalErr message
@@ -318,7 +318,7 @@ let parse_stop_output = (event_name: Text, document: Text) => {
             } else {
               `None ()
             };
-            let output: OutputStop = [universal, should_block, reason, invalid]
+            let output: OutputStop = [universal, should_block, reason, invalid];
             `StopOk output;
           } else if let `TextReadErr message = reason_read {
             `StopErr message
@@ -420,13 +420,13 @@ let parse_permission_output: Text -> OutputPermissionParse = document => {
 
         if let `Some message = invalid {
           let invalid_output: OutputTextOption = `Some message;
-          let output: OutputPermission = [universal, `None (), invalid_output]
+          let output: OutputPermission = [universal, `None (), invalid_output];
           `PermissionOk output;
         } else {
           let specific_read = read_optional_object(object, "hookSpecificOutput");
 
           if let `ObjectMissing () = specific_read {
-            let output: OutputPermission = [universal, `None (), `None ()]
+            let output: OutputPermission = [universal, `None (), `None ()];
             `PermissionOk output;
           } else if let `ObjectRead specific = specific_read {
             let specific_allowed = texts.prepend("hookEventName", texts.singleton("decision"));
@@ -445,7 +445,7 @@ let parse_permission_output: Text -> OutputPermissionParse = document => {
                     let decision_read = read_optional_object(specific, "decision");
 
                     if let `ObjectMissing () = decision_read {
-                      let output: OutputPermission = [universal, `None (), `None ()]
+                      let output: OutputPermission = [universal, `None (), `None ()];
                       `PermissionOk output;
                     } else if let `ObjectRead decision_object = decision_read {
                       let behavior_read = parse_permission_decision decision_object;
@@ -457,19 +457,19 @@ let parse_permission_output: Text -> OutputPermissionParse = document => {
                           if let `TextRead message = message_read {
                             let decision: OutputPermissionDecisionOption =
                               if behavior_name == "allow" {
-                                let permission: OutputPermissionDecision = `Allow ()
+                                let permission: OutputPermissionDecision = `Allow ();
                                 `Some permission;
                               } else if behavior_name == "deny" {
                                 let denial: Text = if let `Some value = trimmed_non_empty message {
                                   value } else { "PermissionRequest hook denied approval" };
-                                let permission: OutputPermissionDecision = `Deny denial
+                                let permission: OutputPermissionDecision = `Deny denial;
                                 `Some permission;
                               } else {
                                 `None ()
-                              }
+                              };
 
                             if behavior_name == "allow" || behavior_name == "deny" {
-                              let output: OutputPermission = [universal, decision, `None ()]
+                              let output: OutputPermission = [universal, decision, `None ()];
                               `PermissionOk output;
                             } else {
                               `PermissionErr (
@@ -489,7 +489,7 @@ let parse_permission_output: Text -> OutputPermissionParse = document => {
                         }
                       } else if let `TextReadErr message = behavior_read {
                         let invalid_output: OutputTextOption = `Some message;
-                        let output: OutputPermission = [universal, `None (), invalid_output]
+                        let output: OutputPermission = [universal, `None (), invalid_output];
                         `PermissionOk output;
                       } else {
                         `PermissionErr "could not parse permission decision"
@@ -605,7 +605,7 @@ let parse_pre_tool_output = (document: Text) => {
                 `None (),
                 `NoUpdatedInput (),
                 invalid,
-              ]
+              ];
               `PreToolOk output;
             } else if let `ObjectRead specific = specific_read {
               let specific_allowed = texts.prepend(
@@ -646,13 +646,11 @@ let parse_pre_tool_output = (document: Text) => {
                               if let `Some _ = updated_input { uses_specific = true }
 
                               if uses_specific {
-                                let invalid: OutputTextOption = if let `Some message =
-                                  universal_invalid {
+                                let invalid: OutputTextOption = if let `Some message = universal_invalid {
                                     `Some message
                                   } else if let `Some _ = updated_input {
                                     if let `Some decision = permission {
-                                      if decision == "allow" { `None () } else { `Some
-                                        "PreToolUse hook returned updatedInput without permissionDecision:allow" }
+                                      if decision == "allow" { `None () } else { `Some "PreToolUse hook returned updatedInput without permissionDecision:allow" }
                                     } else {
                                       `Some "PreToolUse hook returned updatedInput without permissionDecision:allow"
                                     }
@@ -710,20 +708,17 @@ let parse_pre_tool_output = (document: Text) => {
                                   additional_context,
                                   updated,
                                   invalid,
-                                ]
+                                ];
                                 `PreToolOk output;
                               } else {
-                                let invalid: OutputTextOption = if let `Some message =
-                                  universal_invalid {
+                                let invalid: OutputTextOption = if let `Some message = universal_invalid {
                                     `Some message
                                   } else if let `Some decision = legacy_decision {
                                     if decision == "approve" {
                                       `Some "PreToolUse hook returned unsupported decision:approve"
                                     } else if decision == "block" {
                                       if let `Some _ = trimmed_non_empty legacy_reason { `None ()
-                                      } else
-                                      { `Some
-                                        "PreToolUse hook returned decision:block without a non-empty reason" }
+                                      } else { `Some "PreToolUse hook returned decision:block without a non-empty reason" }
                                     } else {
                                       `Some (
                                         append_text(
@@ -753,7 +748,7 @@ let parse_pre_tool_output = (document: Text) => {
                                   additional_context,
                                   `NoUpdatedInput (),
                                   invalid,
-                                ]
+                                ];
                                 `PreToolOk output;
                               }
                             } else {
@@ -841,7 +836,7 @@ let parse_context_output = (event_name: Text, document: Text) => {
         let specific_read = read_optional_object(object, "hookSpecificOutput");
 
         if let `ObjectMissing () = specific_read {
-          let output: OutputContext = [universal, `None ()]
+          let output: OutputContext = [universal, `None ()];
           `ContextOk output;
         } else if let `ObjectRead specific = specific_read {
           let specific_allowed = texts.prepend(
@@ -860,7 +855,7 @@ let parse_context_output = (event_name: Text, document: Text) => {
               if let `TextRead additional_context = context_read {
                 if let `Some actual_event = event {
                   if actual_event == event_name {
-                    let output: OutputContext = [universal, additional_context]
+                    let output: OutputContext = [universal, additional_context];
                     `ContextOk output;
                   } else {
                     `ContextErr (
@@ -944,8 +939,7 @@ let parse_post_tool_output = (document: Text) => {
           if let `TextRead reason = reason_read {
             let should_block = if let `Some value = decision { value == "block" } else { false };
             let invalid_block: OutputTextOption = if should_block {
-              if let `Some _ = trimmed_non_empty reason { `None () } else { `Some
-                "PostToolUse hook returned decision:block without a non-empty reason" }
+              if let `Some _ = trimmed_non_empty reason { `None () } else { `Some "PostToolUse hook returned decision:block without a non-empty reason" }
             } else if continue_processing {
               if let `Some _ = reason { `Some "PostToolUse hook returned reason without decision"
               } else { `None () }
@@ -961,8 +955,7 @@ let parse_post_tool_output = (document: Text) => {
             };
 
             if let `ObjectMissing () = specific_read {
-              let invalid: OutputTextOption = if suppress_output { `Some
-                "PostToolUse hook returned unsupported suppressOutput" } else { invalid_decision };
+              let invalid: OutputTextOption = if suppress_output { `Some "PostToolUse hook returned unsupported suppressOutput" } else { invalid_decision };
               let blocks = should_block && (if let `None () = invalid { true } else { false }) && (
                 if let `None () = invalid_block { true } else { false }
               );
@@ -973,7 +966,7 @@ let parse_post_tool_output = (document: Text) => {
                 invalid_block,
                 `None (),
                 invalid,
-              ]
+              ];
               `PostToolOk output;
             } else if let `ObjectRead specific = specific_read {
               let specific_allowed = texts.prepend(
@@ -1013,7 +1006,7 @@ let parse_post_tool_output = (document: Text) => {
                             invalid_block,
                             additional_context,
                             invalid,
-                          ]
+                          ];
                           `PostToolOk output;
                         } else {
                           `PostToolErr "post-tool hookSpecificOutput has the wrong hookEventName"
@@ -1101,8 +1094,7 @@ let parse_user_prompt_output = (document: Text) => {
           if let `TextRead reason = reason_read {
             let should_block = if let `Some value = decision { value == "block" } else { false };
             let invalid_block: OutputTextOption = if should_block {
-              if let `Some _ = trimmed_non_empty reason { `None () } else { `Some
-                "UserPromptSubmit hook returned decision:block without a non-empty reason" }
+              if let `Some _ = trimmed_non_empty reason { `None () } else { `Some "UserPromptSubmit hook returned decision:block without a non-empty reason" }
             } else {
               `None ()
             };
@@ -1118,7 +1110,7 @@ let parse_user_prompt_output = (document: Text) => {
               `UserPromptErr message
             } else if let `ObjectMissing () = specific_read {
               let blocks = should_block && (if let `None () = invalid_block { true } else { false });
-              let output: OutputUserPrompt = [universal, blocks, reason, invalid_block, `None ()]
+              let output: OutputUserPrompt = [universal, blocks, reason, invalid_block, `None ()];
               `UserPromptOk output;
             } else if let `ObjectRead specific = specific_read {
               let specific_allowed = texts.prepend(
@@ -1148,7 +1140,7 @@ let parse_user_prompt_output = (document: Text) => {
                           reason,
                           invalid_block,
                           additional_context,
-                        ]
+                        ];
                         `UserPromptOk output;
                       } else {
                         `UserPromptErr "user-prompt hookSpecificOutput has the wrong hookEventName"
@@ -1211,8 +1203,7 @@ let parse_stateless_output = (event_name: Text, document: Text) => {
     } else {
       let universal_parse = parse_universal_output object;
       if let `UniversalOk universal = universal_parse { `StatelessOk universal
-      } else if let `UniversalErr message = universal_parse { `StatelessErr message } else
-      { `StatelessErr (
+      } else if let `UniversalErr message = universal_parse { `StatelessErr message } else { `StatelessErr (
         append_text("could not parse ", append_text(event_name, " hook output"))
       ) }
     }

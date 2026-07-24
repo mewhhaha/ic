@@ -68,8 +68,7 @@ const classify_audio_format: Text -> I32 = mime => {
   } else if mime_length == 14 {
     let suffix_matches = ascii_lowercase(@get(inspected_mime, 6)) == 118 && ascii_lowercase(
       @get(inspected_mime, 7)
-    ) == 110 && ascii_lowercase(@get(inspected_mime, 8)) == 100 && @get(inspected_mime, 9) == 46 &&
-    ascii_lowercase(
+    ) == 110 && ascii_lowercase(@get(inspected_mime, 8)) == 100 && @get(inspected_mime, 9) == 46 && ascii_lowercase(
       @get(inspected_mime, 10)
     ) == 119 && ascii_lowercase(@get(inspected_mime, 11)) == 97 && ascii_lowercase(
       @get(inspected_mime, 12)

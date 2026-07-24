@@ -7,8 +7,7 @@ type AgentJobSpawnNumericArgs = AgentJobSpawnDecodedArgs
 type AgentJobSpawnNumericOptionalResult = AgentJobOptionalTextResult
 type AgentJobSpawnNumericResult = AgentJobSpawnDecodeResult
 
-let decode_agent_job_spawn_numeric_options: [Text, AgentJobSpawnNumericArgs] ->
-  AgentJobSpawnNumericResult = (
+let decode_agent_job_spawn_numeric_options: [Text, AgentJobSpawnNumericArgs] -> AgentJobSpawnNumericResult = (
     document: Text,
     base: AgentJobSpawnNumericArgs,
   ) => {
@@ -17,8 +16,7 @@ let decode_agent_job_spawn_numeric_options: [Text, AgentJobSpawnNumericArgs] ->
       let [value, _] = value_and_position;
       if let `Object object = value {
         let concurrency_lookup = json_object_get("max_concurrency", object);
-        let decoded_concurrency: AgentJobSpawnNumericOptionalResult = if let `Found field =
-          concurrency_lookup {
+        let decoded_concurrency: AgentJobSpawnNumericOptionalResult = if let `Found field = concurrency_lookup {
             if let `Number max_concurrency = field {
               `AgentJobTextDecoded (`Some max_concurrency)
             } else if let `Null () = field {
@@ -33,8 +31,7 @@ let decode_agent_job_spawn_numeric_options: [Text, AgentJobSpawnNumericArgs] ->
           `SpawnDecodeFailed "max_concurrency must be a number"
         } else if let `AgentJobTextDecoded max_concurrency = decoded_concurrency {
           let workers_lookup = json_object_get("max_workers", object);
-          let decoded_workers: AgentJobSpawnNumericOptionalResult = if let `Found field =
-            workers_lookup {
+          let decoded_workers: AgentJobSpawnNumericOptionalResult = if let `Found field = workers_lookup {
               if let `Number max_workers = field {
                 `AgentJobTextDecoded (`Some max_workers)
               } else if let `Null () = field {
@@ -49,8 +46,7 @@ let decode_agent_job_spawn_numeric_options: [Text, AgentJobSpawnNumericArgs] ->
             `SpawnDecodeFailed "max_workers must be a number"
           } else if let `AgentJobTextDecoded max_workers = decoded_workers {
             let runtime_lookup = json_object_get("max_runtime_seconds", object);
-            let decoded_runtime: AgentJobSpawnNumericOptionalResult = if let `Found field =
-              runtime_lookup {
+            let decoded_runtime: AgentJobSpawnNumericOptionalResult = if let `Found field = runtime_lookup {
                 if let `Number max_runtime_seconds = field {
                   `AgentJobTextDecoded (`Some max_runtime_seconds)
                 } else if let `Null () = field {
@@ -73,7 +69,7 @@ let decode_agent_job_spawn_numeric_options: [Text, AgentJobSpawnNumericArgs] ->
                 .max_concurrency = max_concurrency,
                 .max_workers = max_workers,
                 .max_runtime_seconds = max_runtime_seconds,
-              ]
+              ];
               `SpawnDecoded args;
             } else {
               `SpawnDecodeFailed "max_runtime_seconds decoder returned no result"

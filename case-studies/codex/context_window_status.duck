@@ -26,8 +26,7 @@ const tokens_remaining: [&WindowI64Option, I64] -> WindowI64Option = (
   }
 };
 
-const context_window_token_status: &WindowStatusInput -> WindowStatus = (input:
-  &WindowStatusInput) => {
+const context_window_token_status: &WindowStatusInput -> WindowStatus = (input: &WindowStatusInput) => {
     let scope_tokens: I64 = input.active_context_tokens;
     let scope_limit: WindowI64Option = `None ();
     if let `Some model_scope_limit = input.model_auto_compact_scope_limit {

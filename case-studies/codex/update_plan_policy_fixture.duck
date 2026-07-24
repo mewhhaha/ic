@@ -2,7 +2,7 @@ module () where
 
 const {} = import "./update_plan_types.duck" ();
 const { .plan_parsed_update_plan, .plan_update_plan_payload, .update_plan_completion } =
-  import "./update_plan_policy.duck" ()
+  import "./update_plan_policy.duck" ();
 
 type FixtureArgs = UpdatePlanArgs
 type FixtureStep = UpdatePlanStep
@@ -16,8 +16,7 @@ if let `RejectPayload message = plan_update_plan_payload(`Unsupported (), `Plan 
 }
 
 if let `RejectPayload message = plan_update_plan_payload(`Function "not json", `Plan ()) {
-  if message == "update_plan is a TODO/checklist tool and is not allowed in Plan mode" { score =
-      score + 10 }
+  if message == "update_plan is a TODO/checklist tool and is not allowed in Plan mode" { score = score + 10 }
 }
 
 if let `ParseArguments arguments = plan_update_plan_payload(`Function "{}", `Default ()) {

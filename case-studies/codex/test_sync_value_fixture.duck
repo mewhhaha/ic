@@ -1,7 +1,7 @@
 module () where
 
 const { .json_null, .json_number, .json_object, .json_object_empty, .json_object_prepend, .json_string } =
-  import "duck:prelude/json/values" ()
+  import "duck:prelude/json/values" ();
 const { .decode_test_sync_value } = import "./test_sync_value.duck" ();
 
 let barrier_fields = json_object_prepend(
@@ -58,8 +58,7 @@ let overflow_fields = json_object_prepend(
   json_object_empty(),
 );
 if let `ParseFailed message = decode_test_sync_value(json_object overflow_fields) {
-  if message == "failed to parse function arguments: sleep_before_ms number exceeds U64" { score =
-      score + 100 }
+  if message == "failed to parse function arguments: sleep_before_ms number exceeds U64" { score = score + 100 }
 }
 
 let duplicate_fields = json_object_prepend(

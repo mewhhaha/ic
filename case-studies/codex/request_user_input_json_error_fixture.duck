@@ -10,11 +10,9 @@ if let `ParseFailed message = parse_request_user_input_args "{}" {
   if message == "failed to parse function arguments: questions is required" { score = score + 10 }
 }
 if let `ParseFailed message = parse_request_user_input_args "{\"questions\":true}" {
-  if message == "failed to parse function arguments: questions must be an array" { score = score +
-    100 }
+  if message == "failed to parse function arguments: questions must be an array" { score = score + 100 }
 }
-if let `ParseFailed message =
-  parse_request_user_input_args "{\"questions\":[],\"autoResolutionMs\":18446744073709551616}" {
+if let `ParseFailed message = parse_request_user_input_args "{\"questions\":[],\"autoResolutionMs\":18446744073709551616}" {
     if message == "failed to parse function arguments: autoResolutionMs must be an unsigned 64-bit integer" { score = score + 1000 }
   }
 

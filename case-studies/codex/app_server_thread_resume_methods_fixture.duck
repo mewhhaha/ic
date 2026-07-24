@@ -20,8 +20,7 @@ fields = json_object_prepend("threadId", json_string "thread-1", fields)
 let decoded: FixtureResult = decode_thread_resume(json_object fields);
 let score = if let `MethodOk method = decoded {
   if let `ThreadResume params = method {
-    let history_valid = if let `Some value = params.history { if let `Array _ = value { true } else
-      { false } } else { false };
+    let history_valid = if let `Some value = params.history { if let `Array _ = value { true } else { false } } else { false };
     let path_absent = if let `None () = params.path { true } else { false };
     if params.thread_id == "thread-1" && history_valid && path_absent { 1 } else { 0 }
   } else { 0 }

@@ -60,8 +60,7 @@ type AppServerThreadListParams = [
   Bool,
   AppServerTextOption,
   AppServerTextOption,
-  AppServerTextOption,
-]
+  AppServerTextOption ]
 type AppServerThreadReadParams = [Text, Bool]
 
 type AppServerTurnItemsView =
@@ -74,15 +73,13 @@ type AppServerThreadTurnsListParams = [
   AppServerTextOption,
   I32,
   AppServerSortDirection,
-  AppServerTurnItemsView,
-]
+  AppServerTurnItemsView ]
 type AppServerThreadItemsListParams = [
   Text,
   AppServerTextOption,
   AppServerTextOption,
   I32,
-  AppServerSortDirection,
-]
+  AppServerSortDirection ]
 type AppServerThreadSetNameParams = [Text, Text]
 type AppServerThreadControlKind =
   | `SetThreadName Unit
@@ -254,8 +251,7 @@ type AppServerTurnSteerParams = [
   Text,
   AppServerTextOption,
   AppServerUserInputs,
-  AppServerJson,
-]
+  AppServerJson ]
 type AppServerTurnInterruptParams = [Text, Text]
 
 type AppServerUnknownMethod = [Text, AppServerJson]
@@ -322,21 +318,16 @@ type AppServerInitializeResult =
   | `InitializeOk AppServerInitializedSession
   | `InitializeError Text
 
-const allow_provider_fallback = (value:
-  AppServerAllowProviderFallback) => if let `ProviderFallbackAllowed () = value { true } else;
-  { false }
+const allow_provider_fallback = (value: AppServerAllowProviderFallback) => if let `ProviderFallbackAllowed () = value { true } else { false };
 
-const experimental_raw_events_enabled = (value:
-  AppServerExperimentalRawEvents) => if let `RawEventsEnabled () = value { true } else { false };
+const experimental_raw_events_enabled = (value: AppServerExperimentalRawEvents) => if let `RawEventsEnabled () = value { true } else { false };
 
 const turns_are_excluded = (value: AppServerExcludeTurns) => if let `TurnsExcluded () = value { true
 } else { false };
 
-const thread_is_ephemeral = (value: AppServerThreadPersistence) => if let `EphemeralThread () =
-  value { true } else { false };
+const thread_is_ephemeral = (value: AppServerThreadPersistence) => if let `EphemeralThread () = value { true } else { false };
 
-const goal_continuation_is_deferred = (value:
-  AppServerGoalContinuation) => if let `GoalContinuationDeferred () = value { true } else { false };
+const goal_continuation_is_deferred = (value: AppServerGoalContinuation) => if let `GoalContinuationDeferred () = value { true } else { false };
 
 return {
   .allow_provider_fallback,

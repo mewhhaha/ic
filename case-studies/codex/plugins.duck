@@ -38,8 +38,7 @@ const prepend_summary = (value: PluginsSummary, values: PluginsSummaries) => sum
   values,
 );
 
-let rec text_values_contain: [PluginsTexts, Text] -> Bool = (values: PluginsTexts, expected:
-  Text) => {
+let rec text_values_contain: [PluginsTexts, Text] -> Bool = (values: PluginsTexts, expected: Text) => {
     if let `Cons node = values {
       let [value, tail] = node;
       if value == expected { true } else { text_values_contain(tail, expected) }
@@ -98,7 +97,7 @@ const prompt_safe_plugin_description = (description: PluginsTextOption) => {
 const plugin_capability_summary = (plugin: PluginsLoaded) => {
   if plugin_is_active plugin {
     let [config_name, _, _, description, _, _, _, has_skills, _, mcp_servers, app_ids, _, _] =
-      plugin
+      plugin;
     let summary: PluginsSummary = [
       config_name,
       plugin_display_name plugin,
@@ -149,7 +148,7 @@ let rec effective_plugin_values: [PluginsLoadedValues, I32, PluginsTexts] -> Plu
   if let `Cons node = plugins {
     let [plugin, tail] = node;
     let [_, _, _, _, _, _, _, _, skill_roots, mcp_servers, app_ids, hook_sources, hook_warnings] =
-      plugin
+      plugin;
     let values = if field == 0 {
       skill_roots
     } else if field == 1 {
@@ -239,7 +238,7 @@ const parse_plugin_id = (key: Text) => {
 
     if valid_plugin_segment plugin_name {
       if valid_plugin_segment marketplace_name {
-        let plugin_id: PluginsId = [plugin_name, marketplace_name]
+        let plugin_id: PluginsId = [plugin_name, marketplace_name];
         `Ok plugin_id;
       } else {
         `Err (append_text("invalid marketplace name in `", append_text(key, "`")))
@@ -268,8 +267,7 @@ let rec mentioned_plugin_names: [PluginsTexts, PluginsTexts] -> PluginsTexts = (
   }
 };
 
-let rec select_plugin_summaries: [PluginsSummaries, PluginsTexts, PluginsSelection] ->
-  PluginsSelection = (
+let rec select_plugin_summaries: [PluginsSummaries, PluginsTexts, PluginsSelection] -> PluginsSelection = (
     available: PluginsSummaries,
     names: PluginsTexts,
     reversed: PluginsSelection,

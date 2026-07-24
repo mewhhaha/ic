@@ -91,8 +91,7 @@ const request_id_valid: ServerJson -> Bool = (value: ServerJson) => {
   }
 };
 
-const lookup_or_null: [ServerJsonObject, Text] -> ServerJson = (object: ServerJsonObject, key:
-  Text) => {
+const lookup_or_null: [ServerJsonObject, Text] -> ServerJson = (object: ServerJsonObject, key: Text) => {
     let lookup: ServerJsonLookup = json_object_get(key, object);
 
     if let `Found value = lookup {
@@ -128,8 +127,7 @@ const optional_text: [ServerJsonObject, Text] -> ServerTextOption = (
   }
 };
 
-const optional_text_valid: [ServerJsonObject, Text] -> Bool = (object: ServerJsonObject, key:
-  Text) => {
+const optional_text_valid: [ServerJsonObject, Text] -> Bool = (object: ServerJsonObject, key: Text) => {
     let lookup: ServerJsonLookup = json_object_get(key, object);
 
     if let `Found value = lookup {
@@ -155,8 +153,7 @@ const optional_bool: [ServerJsonObject, Text] -> Bool = (object: ServerJsonObjec
   }
 };
 
-const optional_bool_valid: [ServerJsonObject, Text] -> Bool = (object: ServerJsonObject, key:
-  Text) => {
+const optional_bool_valid: [ServerJsonObject, Text] -> Bool = (object: ServerJsonObject, key: Text) => {
     let lookup: ServerJsonLookup = json_object_get(key, object);
 
     if let `Found value = lookup {
@@ -236,8 +233,7 @@ const client_name_valid: Text -> Bool = (name: Text) => {
   valid
 };
 
-const decode_capabilities: ServerJsonObject -> ServerCapabilitiesResult = (params:
-  ServerJsonObject) => {
+const decode_capabilities: ServerJsonObject -> ServerCapabilitiesResult = (params: ServerJsonObject) => {
     let experimental_api = false;
     let request_attestation = false;
     let openai_form = false;
@@ -267,8 +263,7 @@ const decode_capabilities: ServerJsonObject -> ServerCapabilitiesResult = (param
           if optional_bool_valid(object, "mcpServerOpenaiFormElicitation") {
             openai_form = optional_bool(object, "mcpServerOpenaiFormElicitation")
           } else {
-            error =
-              "initialize.params.capabilities.mcpServerOpenaiFormElicitation must be a boolean or null"
+            error = "initialize.params.capabilities.mcpServerOpenaiFormElicitation must be a boolean or null"
           }
         }
 
@@ -342,8 +337,7 @@ const decode_initialize: ServerJson -> ServerInitializeResult = (params: ServerJ
                 )
               }
             } else {
-              result =
-                `InitializeError "initialize.params.clientInfo.title must be a string or null"
+              result = `InitializeError "initialize.params.clientInfo.title must be a string or null"
             }
           } else {
             result = `InitializeError "initialize.params.clientInfo.version must be a string"
@@ -379,7 +373,7 @@ const decode_peer_error: [ServerRequestId, ServerJson] -> ServerDecodeResult = (
               code,
               error_message,
               lookup_or_null(object, "data"),
-            ]
+            ];
             `Decoded (`PeerError peer_error);
           } else {
             `DecodeError "error response message must be a string"
@@ -402,7 +396,7 @@ const decode_app_server_message: Text -> ServerDecodeResult = (document: Text) =
   let parsed = parse_json_document document;
 
   if let `Err error = parsed {
-    let [_, message] = error
+    let [_, message] = error;
     `DecodeError message;
   } else if let `Ok value_and_index = parsed {
     let [value, _] = value_and_index;
@@ -417,13 +411,13 @@ const decode_app_server_message: Text -> ServerDecodeResult = (document: Text) =
 
           if let `Found id = id_lookup {
             if request_id_valid id {
-              let request: ServerRequest = [id, method, params]
+              let request: ServerRequest = [id, method, params];
               `Decoded (`Request request);
             } else {
               `DecodeError "request id must be a string or integer"
             }
           } else {
-            let notification: ServerNotification = [method, params]
+            let notification: ServerNotification = [method, params];
             `Decoded (`Notification notification);
           }
         } else {
@@ -435,7 +429,7 @@ const decode_app_server_message: Text -> ServerDecodeResult = (document: Text) =
           let error_lookup: ServerJsonLookup = json_object_get("error", object);
 
           if let `Found response_value = response_lookup {
-            let response: ServerResponse = [id, response_value]
+            let response: ServerResponse = [id, response_value];
             `Decoded (`Response response);
           } else if let `Found error_value = error_lookup {
             decode_peer_error(id, error_value)
@@ -536,14 +530,14 @@ const handle_app_server_line: [ServerSession, ServerIdentity, Text] -> ServerPla
     if let `Request request = message {
       handle_request(session, identity, request)
     } else {
-      let observed: ServerObserve = [session, message]
+      let observed: ServerObserve = [session, message];
       `Observe observed;
     }
   } else if let `DecodeError message = decoded {
-    let dropped: ServerDrop = [session, message]
+    let dropped: ServerDrop = [session, message];
     `Drop dropped;
   } else {
-    let dropped: ServerDrop = [session, "could not classify app-server message"]
+    let dropped: ServerDrop = [session, "could not classify app-server message"];
     `Drop dropped;
   }
 };

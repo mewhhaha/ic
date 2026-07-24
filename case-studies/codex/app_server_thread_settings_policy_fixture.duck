@@ -16,8 +16,7 @@ type FixtureJson = AppServerJson
 type FixtureTexts = AppServerTexts
 
 const texts = comptime list Text;
-const json_string_is = (value: FixtureJson, expected: Text) => if let `String text = value { text ==
-  expected } else { false };
+const json_string_is = (value: FixtureJson, expected: Text) => if let `String text = value { text == expected } else { false };
 let no_text: FixtureTextOption = `None ();
 let no_json: FixtureJsonOption = `None ();
 let roots: FixtureTexts = texts.prepend("/old", texts.prepend("/extra", texts.singleton("/new")));

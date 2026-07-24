@@ -3,7 +3,7 @@ module () where
 const { .list } = import "duck:prelude/list" ();
 const {} = import "./plugin_install_types.duck" ();
 const { .plan_list_plugin_install_request, .plan_recommended_plugin_install_request } =
-  import "./request_plugin_install_policy.duck" ()
+  import "./request_plugin_install_policy.duck" ();
 
 type FixtureCandidate = PluginInstallCandidate
 type FixtureCandidates = PluginInstallCandidates
@@ -51,8 +51,7 @@ let enable_args: FixtureListArgs = [
   .suggest_reason = "reason",
 ];
 if let `RespondToModel message = plan_list_plugin_install_request("1", false, enable_args, values) {
-  if message == "plugin install requests currently support only action_type=\"install\"" { score =
-      score + 1 }
+  if message == "plugin install requests currently support only action_type=\"install\"" { score = score + 1 }
 }
 
 let empty_reason_args: FixtureListArgs = [

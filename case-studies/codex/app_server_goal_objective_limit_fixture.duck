@@ -11,7 +11,6 @@ let no_goal: FixtureGoalOption = `None ();
 let params: FixtureParams = ["thread-6", `Some (text_repeat("a", 4001)), `None (), `Keep ()];
 let result: FixtureResult = plan_thread_goal_set(no_goal, params);
 let score = 0;
-if let `GoalSetInvalid reason = result { if reason ==
-  "goal objective must be at most 4000 characters" { score = score + 1 } }
+if let `GoalSetInvalid reason = result { if reason == "goal objective must be at most 4000 characters" { score = score + 1 } }
 
 return { .score = score };

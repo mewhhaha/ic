@@ -8,8 +8,7 @@ type AppServerOptionsArgs = CodexCliArgs
 type AppServerOptionsResult = CodexAppServerCommandResult
 
 let parse_app_server_options: AppServerOptionsArgs -> AppServerOptionsResult = (
-  args: AppServerOptionsArgs
-) => {
+  args: AppServerOptionsArgs ) => {
   if let `Cons node = args {
     let [head, tail] = node;
     if head == "daemon" || head == "proxy" || head == "generate-ts" || head == "generate-json-schema" || head == "generate-internal-json-schema" {

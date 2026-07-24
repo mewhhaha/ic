@@ -27,17 +27,16 @@ const parse_completion_shell: Text -> CliOptionsShellResult = (name: Text) => {
 };
 
 const parse_completion_options: CliOptionsArgs -> CliOptionsCompletionResult = (
-  args: CliOptionsArgs
-) => {
+  args: CliOptionsArgs ) => {
   if let `Nil () = args {
-    let options: CliOptionsCompletion = [.shell = `Bash ()]
+    let options: CliOptionsCompletion = [.shell = `Bash ()];
     `Ok options;
   } else if let `Cons node = args {
     let [name, tail] = node;
     if let `Nil () = tail {
       let parsed: CliOptionsShellResult = parse_completion_shell name;
       if let `Ok shell = parsed {
-        let options: CliOptionsCompletion = [.shell = shell]
+        let options: CliOptionsCompletion = [.shell = shell];
         `Ok options;
       } else if let `Err message = parsed {
         `Err message

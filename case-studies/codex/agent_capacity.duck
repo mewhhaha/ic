@@ -6,8 +6,7 @@ type AgentCapacityVersion = AgentMultiAgentVersion
 type AgentCapacitySource = AgentSessionSource
 
 const next_spawn_depth = (current_depth: I32) => current_depth + 1;
-const spawn_depth_allowed = (current_depth: I32, maximum_depth:
-  I32) => next_spawn_depth current_depth <= maximum_depth;
+const spawn_depth_allowed = (current_depth: I32, maximum_depth: I32) => next_spawn_depth current_depth <= maximum_depth;
 
 const execution_capacity = (
   version: AgentCapacityVersion,

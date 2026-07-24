@@ -124,8 +124,7 @@ let parse_request_user_input_args: Text -> RequestUserInputParseResult = documen
 
                 let id_lookup = json_object_get("id", fields);
                 if let `Found id_value = id_lookup {
-                  if let `String text = id_value { id = text } else { questions_failure = context <>
-                    ".id must be a string" }
+                  if let `String text = id_value { id = text } else { questions_failure = context <> ".id must be a string" }
                 } else {
                   questions_failure = context <> ".id is required"
                 }
@@ -133,8 +132,7 @@ let parse_request_user_input_args: Text -> RequestUserInputParseResult = documen
                 if questions_failure == "" {
                   let header_lookup = json_object_get("header", fields);
                   if let `Found header_value = header_lookup {
-                    if let `String text = header_value { header = text } else { questions_failure =
-                        context <> ".header must be a string" }
+                    if let `String text = header_value { header = text } else { questions_failure = context <> ".header must be a string" }
                   } else {
                     questions_failure = context <> ".header is required"
                   }
@@ -182,7 +180,7 @@ let parse_request_user_input_args: Text -> RequestUserInputParseResult = documen
                           let [option_value, option_tail] = option_node;
                           if let `Object option_fields = option_value {
                             let option_context =
-                              context <> ".options[" <> format_i32 option_index <> "]"
+                              context <> ".options[" <> format_i32 option_index <> "]";
                             let label = "";
                             let description = "";
                             let option_failure: Text = "";
@@ -197,8 +195,7 @@ let parse_request_user_input_args: Text -> RequestUserInputParseResult = documen
                               let description_lookup = json_object_get("description", option_fields);
                               if let `Found description_value = description_lookup {
                                 if let `String text = description_value { description = text
-                                } else { option_failure =
-                                    option_context <> ".description must be a string" }
+                                } else { option_failure = option_context <> ".description must be a string" }
                               } else {
                                 option_failure = option_context <> ".description is required"
                               }
@@ -297,7 +294,7 @@ let parse_request_user_input_args: Text -> RequestUserInputParseResult = documen
         }
 
         if auto_resolution_failure == "" {
-          let args: InputArgs = [.questions = questions, .auto_resolution = auto_resolution]
+          let args: InputArgs = [.questions = questions, .auto_resolution = auto_resolution];
           `Parsed args;
         } else {
           parse_failure auto_resolution_failure

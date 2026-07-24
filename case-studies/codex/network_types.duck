@@ -44,8 +44,7 @@ type NetworkApprovalState = [
   NetworkApprovalCalls,
   NetworkHostKeys,
   NetworkHostKeys,
-  NetworkHostKeys,
-]
+  NetworkHostKeys ]
 
 type NetworkRequest = [Text, NetworkApprovalProtocol, I32, NetworkTextOption, NetworkTextOption]
 

@@ -11,8 +11,7 @@ type OutputPermissionsProfile = RequestPermissionProfile
 type OutputPermissionsResponse = RequestPermissionsResponse
 
 const encode_request_permission_profile: OutputPermissionsProfile -> Text = (
-  profile: OutputPermissionsProfile
-) => {
+  profile: OutputPermissionsProfile ) => {
   let encoded = "{";
   let first = true;
   let network: OutputPermissionsNetworkField = profile.network;
@@ -81,8 +80,7 @@ const encode_request_permission_profile: OutputPermissionsProfile -> Text = (
 };
 
 const encode_request_permissions_response: OutputPermissionsResponse -> Text = (
-  response: OutputPermissionsResponse
-) => {
+  response: OutputPermissionsResponse ) => {
   let scope: Text = if let `Session () = response.scope { "session" } else { "turn" };
   let encoded_profile = encode_request_permission_profile response.permissions;
   let encoded_scope = encode_json_string scope;

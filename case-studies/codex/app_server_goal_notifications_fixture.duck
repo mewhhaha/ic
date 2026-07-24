@@ -20,8 +20,7 @@ let score = 0;
 if let `Object fields = updated {
   let thread_valid = false;
   let thread_lookup = json_object_get("threadId", fields);
-  if let `Found thread_json = thread_lookup { if let `String thread_id = thread_json { thread_valid
-    = thread_id == "thread-1" } }
+  if let `Found thread_json = thread_lookup { if let `String thread_id = thread_json { thread_valid = thread_id == "thread-1" } }
   let turn_valid = false;
   let turn_lookup = json_object_get("turnId", fields);
   if let `Found turn_json = turn_lookup { if let `Null () = turn_json { turn_valid = true } }

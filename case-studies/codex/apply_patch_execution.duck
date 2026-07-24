@@ -122,21 +122,18 @@ let run_apply_patch = (document: PatchExecutionDocument, cwd: Text) => {
                   modifications_reversed = patch_text_prepend(destination, modifications_reversed)
                 } else {
                   execution_failed = true
-                  execution_failure =
-                    "apply_patch host returned no move outcome for " <> source_path
+                  execution_failure = "apply_patch host returned no move outcome for " <> source_path
                 }
               } else {
                 modifications_reversed = patch_text_prepend(destination, modifications_reversed)
               }
             } else {
               execution_failed = true
-              execution_failure =
-                "apply_patch host returned no update outcome for " <> destination_path
+              execution_failure = "apply_patch host returned no update outcome for " <> destination_path
             }
           } else {
             execution_failed = true
-            execution_failure =
-              "apply_patch update derivation returned no result for " <> update_path
+            execution_failure = "apply_patch update derivation returned no result for " <> update_path
           }
         } else {
           execution_failed = true

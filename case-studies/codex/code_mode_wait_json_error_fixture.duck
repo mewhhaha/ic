@@ -15,8 +15,7 @@ if let `ParseFailed message = malformed {
 
 let nonobject: FixtureParseResult = parse_code_mode_wait_args "[]";
 if let `ParseFailed message = nonobject {
-  if message == "failed to parse function arguments: wait arguments must be an object" { score =
-      score + 10 }
+  if message == "failed to parse function arguments: wait arguments must be an object" { score = score + 10 }
 }
 
 let missing: FixtureParseResult = parse_code_mode_wait_args "{}";
@@ -26,29 +25,25 @@ if let `ParseFailed message = missing {
 }
 
 let duplicate: FixtureParseResult =
-  parse_code_mode_wait_args "{\"cell_id\":\"a\",\"cell_id\":\"b\"}"
+  parse_code_mode_wait_args "{\"cell_id\":\"a\",\"cell_id\":\"b\"}";
 if let `ParseFailed message = duplicate {
-  if message == "failed to parse function arguments: duplicate field `cell_id`" { score = score +
-    1000 }
+  if message == "failed to parse function arguments: duplicate field `cell_id`" { score = score + 1000 }
 }
 
 let wrong_cell: FixtureParseResult = parse_code_mode_wait_args "{\"cell_id\":7}";
 if let `ParseFailed message = wrong_cell {
-  if message == "failed to parse function arguments: field `cell_id` must be a string" { score =
-      score + 10000 }
+  if message == "failed to parse function arguments: field `cell_id` must be a string" { score = score + 10000 }
 }
 
 let field_before_missing: FixtureParseResult = parse_code_mode_wait_args "{\"terminate\":null}";
 if let `ParseFailed message = field_before_missing {
-  if message == "failed to parse function arguments: field `terminate` must be a boolean" { score =
-      score + 100000 }
+  if message == "failed to parse function arguments: field `terminate` must be a boolean" { score = score + 100000 }
 }
 
 let ordered_duplicate: FixtureParseResult =
-  parse_code_mode_wait_args "{\"yield_time_ms\":1,\"terminate\":true,\"yield_time_ms\":2,\"cell_id\":\"a\"}"
+  parse_code_mode_wait_args "{\"yield_time_ms\":1,\"terminate\":true,\"yield_time_ms\":2,\"cell_id\":\"a\"}";
 if let `ParseFailed message = ordered_duplicate {
-  if message == "failed to parse function arguments: duplicate field `yield_time_ms`" { score =
-      score + 1000000 }
+  if message == "failed to parse function arguments: duplicate field `yield_time_ms`" { score = score + 1000000 }
 }
 
 return { .score = score };

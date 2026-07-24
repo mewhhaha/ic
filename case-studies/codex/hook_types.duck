@@ -57,8 +57,7 @@ type HookConfiguredHandler = [
   HookTextOption,
   Text,
   HookSource,
-  I32,
-]
+  I32 ]
 type HookConfiguredHandlers = List HookConfiguredHandler
 type HookConfiguredHandlerWithWarnings = [HookConfiguredHandler, HookTexts]
 

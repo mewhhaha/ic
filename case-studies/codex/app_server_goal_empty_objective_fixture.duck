@@ -10,7 +10,6 @@ let no_goal: FixtureGoalOption = `None ();
 let params: FixtureParams = ["thread-5", `Some "　 ", `None (), `Keep ()];
 let result: FixtureResult = plan_thread_goal_set(no_goal, params);
 let score = 0;
-if let `GoalSetInvalid reason = result { if reason == "goal objective must not be empty" { score =
-    score + 1 } }
+if let `GoalSetInvalid reason = result { if reason == "goal objective must not be empty" { score = score + 1 } }
 
 return { .score = score };

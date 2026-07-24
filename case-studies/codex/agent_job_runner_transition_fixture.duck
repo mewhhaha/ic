@@ -2,7 +2,7 @@ module () where
 
 const {} = import "./agent_job_runner_types.duck" ();
 const { .apply_agent_job_completion, .apply_agent_job_spawn } =
-  import "./agent_job_runner_transition.duck" ()
+  import "./agent_job_runner_transition.duck" ();
 
 type FixtureItem = AgentJobPreparedItem
 type FixtureItemNode = AgentJobPreparedItemNode
@@ -66,8 +66,7 @@ let deferred = apply_agent_job_spawn(failed_state, `WorkerSpawnDeferred ());
 if let `RunnerAdvanced blocked = deferred {
   let failed = apply_agent_job_spawn(blocked, `WorkerSpawnFailed "capacity");
   if let `RunnerAdvanced next = failed {
-    if blocked.spawn_blocked && next.failed_items == 1 && !(next.spawn_blocked) { score = score +
-      1000 }
+    if blocked.spawn_blocked && next.failed_items == 1 && !(next.spawn_blocked) { score = score + 1000 }
   }
 }
 

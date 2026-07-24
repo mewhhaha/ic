@@ -1,7 +1,7 @@
 module () where
 
 const { .text_append, .text_compare, .text_ends_with, .text_starts_with, .text_trim_whitespace } =
-  import "duck:prelude/runtime" ()
+  import "duck:prelude/runtime" ();
 const { .struct } = import "duck:prelude/types" ();
 const {} = import "./tool_types.duck" ();
 
@@ -39,8 +39,7 @@ type CodeModePlanDefinitionOption =
 type CodeModePlanNamespaceDescription = [Text, Text]
 type CodeModePlanNamespaceDescriptionNode = [
   CodeModePlanNamespaceDescription,
-  CodeModePlanNamespaceDescriptions,
-]
+  CodeModePlanNamespaceDescriptions ]
 type CodeModePlanNamespaceDescriptions =
   | `CodeNamespacesNil Unit
   | `CodeNamespacesCons CodeModePlanNamespaceDescriptionNode
@@ -128,7 +127,7 @@ const definition_for_runtime: CodeModePlanRuntime -> CodeModePlanDefinitionOptio
     return `CodeDefinitionMissing ();
   }
 
-  let definition: CodeModePlanDefinition = [name, tool_name, description, kind]
+  let definition: CodeModePlanDefinition = [name, tool_name, description, kind];
   `CodeDefinitionPresent definition;
 };
 
@@ -156,8 +155,7 @@ const reverse_runtimes: CodeModePlanRuntimes -> CodeModePlanRuntimes = runtimes 
   reversed
 };
 
-const prepend_definition: [CodeModePlanDefinition, CodeModePlanDefinitions] ->
-  CodeModePlanDefinitions = (
+const prepend_definition: [CodeModePlanDefinition, CodeModePlanDefinitions] -> CodeModePlanDefinitions = (
     definition,
     definitions,
   ) => {
@@ -178,8 +176,7 @@ let rec definition_exists: [Text, CodeModePlanDefinitions] -> Bool = (name, defi
   }
 };
 
-let rec insert_by_code_name: [CodeModePlanDefinition, CodeModePlanDefinitions] ->
-  CodeModePlanDefinitions = (
+let rec insert_by_code_name: [CodeModePlanDefinition, CodeModePlanDefinitions] -> CodeModePlanDefinitions = (
     definition,
     definitions,
   ) => {
@@ -197,8 +194,7 @@ let rec insert_by_code_name: [CodeModePlanDefinition, CodeModePlanDefinitions] -
     }
   };
 
-const add_by_code_name: [CodeModePlanDefinition, CodeModePlanDefinitions] ->
-  CodeModePlanDefinitions = (
+const add_by_code_name: [CodeModePlanDefinition, CodeModePlanDefinitions] -> CodeModePlanDefinitions = (
     definition,
     definitions,
   ) => {
@@ -300,8 +296,7 @@ let rec insert_enabled_definition: [
   }
 };
 
-const sort_enabled_definitions: [CodeModePlanDefinitions, CodeModePlanNamespaceDescriptions] ->
-  CodeModePlanDefinitions = (
+const sort_enabled_definitions: [CodeModePlanDefinitions, CodeModePlanNamespaceDescriptions] -> CodeModePlanDefinitions = (
     definitions,
     namespace_descriptions,
   ) => {
@@ -332,8 +327,7 @@ const empty_code_mode_plan: () -> CodeModeExecutorPlan = () => {
   ]
 };
 
-const build_code_mode_executor_plan: [CodeModePlanRuntimes, CodeModePlanFacts] ->
-  CodeModeExecutorPlan = (
+const build_code_mode_executor_plan: [CodeModePlanRuntimes, CodeModePlanFacts] -> CodeModeExecutorPlan = (
     runtimes,
     facts,
   ) => {

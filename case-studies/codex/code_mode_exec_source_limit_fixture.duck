@@ -9,7 +9,7 @@ type FixtureResult = CodeModeExecSourceResult
 let score = 0;
 
 let maximum: FixtureResult =
-  parse_code_mode_exec_source "// @exec: {\"yield_time_ms\": 9007199254740991, \"max_output_tokens\": 0}\ntext('hi')"
+  parse_code_mode_exec_source "// @exec: {\"yield_time_ms\": 9007199254740991, \"max_output_tokens\": 0}\ntext('hi')";
 if let `CodeModeExecSourceParsed source = maximum {
   if let `CodeModeExecLimitPresent yield_time_ms = source.yield_time_ms {
     if let `CodeModeExecLimitPresent max_output_tokens = source.max_output_tokens {
@@ -19,33 +19,31 @@ if let `CodeModeExecSourceParsed source = maximum {
 }
 
 let yield_overflow: FixtureResult =
-  parse_code_mode_exec_source "// @exec: {\"yield_time_ms\": 9007199254740992}\ntext('hi')"
+  parse_code_mode_exec_source "// @exec: {\"yield_time_ms\": 9007199254740992}\ntext('hi')";
 if let `CodeModeExecSourceError message = yield_overflow {
-  if message == "exec pragma field `yield_time_ms` must be a non-negative safe integer" { score =
-      score + 10 }
+  if message == "exec pragma field `yield_time_ms` must be a non-negative safe integer" { score = score + 10 }
 }
 
 let output_overflow: FixtureResult =
-  parse_code_mode_exec_source "// @exec: {\"max_output_tokens\": 9007199254740992}\ntext('hi')"
+  parse_code_mode_exec_source "// @exec: {\"max_output_tokens\": 9007199254740992}\ntext('hi')";
 if let `CodeModeExecSourceError message = output_overflow {
-  if message == "exec pragma field `max_output_tokens` must be a non-negative safe integer" { score
-    = score + 100 }
+  if message == "exec pragma field `max_output_tokens` must be a non-negative safe integer" { score = score + 100 }
 }
 
 let negative: FixtureResult =
-  parse_code_mode_exec_source "// @exec: {\"yield_time_ms\": -1}\ntext('hi')"
+  parse_code_mode_exec_source "// @exec: {\"yield_time_ms\": -1}\ntext('hi')";
 if let `CodeModeExecSourceError message = negative {
   if message == "exec pragma fields `yield_time_ms` and `max_output_tokens` must be non-negative safe integers: field `yield_time_ms` must be a non-negative integer; got -1" { score = score + 1000 }
 }
 
 let fraction: FixtureResult =
-  parse_code_mode_exec_source "// @exec: {\"max_output_tokens\": 1.0}\ntext('hi')"
+  parse_code_mode_exec_source "// @exec: {\"max_output_tokens\": 1.0}\ntext('hi')";
 if let `CodeModeExecSourceError message = fraction {
   if message == "exec pragma fields `yield_time_ms` and `max_output_tokens` must be non-negative safe integers: field `max_output_tokens` must be a non-negative integer; got 1.0" { score = score + 10000 }
 }
 
 let negative_zero: FixtureResult =
-  parse_code_mode_exec_source "// @exec: {\"yield_time_ms\": -0}\ntext('hi')"
+  parse_code_mode_exec_source "// @exec: {\"yield_time_ms\": -0}\ntext('hi')";
 if let `CodeModeExecSourceParsed source = negative_zero {
   if let `CodeModeExecLimitPresent yield_time_ms = source.yield_time_ms {
     if yield_time_ms == 0i64 { score = score + 100000 }

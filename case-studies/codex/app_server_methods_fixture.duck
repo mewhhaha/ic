@@ -44,8 +44,7 @@ const thread_list_valid: FixtureThreadListParams -> Bool = (params: FixtureThrea
                 if let `None () = ancestor {
                   if let `Cons cwd_node = cwd {
                     let [first_cwd, _] = cwd_node;
-                    valid =
-                      cursor_value == "cursor-1" && limit_value == 25 && archived_value && state_db_only && search_value == "needle" && parent_value == "parent-1" && first_cwd == "/repo"
+                    valid = cursor_value == "cursor-1" && limit_value == 25 && archived_value && state_db_only && search_value == "needle" && parent_value == "parent-1" && first_cwd == "/repo"
                   }
                 }
               }

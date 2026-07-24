@@ -19,13 +19,11 @@ let answers: FixtureAnswers = `Cons (
       ),
     ] as FixtureAnswer,
     `Cons (
-      [[.question_id = "confirm", .answers = `Nil ()] as FixtureAnswer, `Nil
-        ()] as FixtureAnswerNode
-    ),
-  ] as FixtureAnswerNode
+      [[.question_id = "confirm", .answers = `Nil ()] as FixtureAnswer, `Nil ()] as FixtureAnswerNode
+    ) ] as FixtureAnswerNode
 );
 let response: FixtureResponse = [.answers = answers];
 let score =
-  if encode_request_user_input_response response == "{\"answers\":{\"pick_one\":{\"answers\":[\"A\",\"custom \\\"answer\\\"\"]},\"confirm\":{\"answers\":[]}}}" { 1 } else { 0 }
+  if encode_request_user_input_response response == "{\"answers\":{\"pick_one\":{\"answers\":[\"A\",\"custom \\\"answer\\\"\"]},\"confirm\":{\"answers\":[]}}}" { 1 } else { 0 };
 
 return { .score = score };

@@ -48,8 +48,7 @@ const turn_timing_started_at_unix_seconds: &TimingState -> Option I64 = (state: 
 };
 
 const turn_timing_duration_ms: &TimingDurationOption -> Option I64 = (
-  duration: &TimingDurationOption
-) => {
+  duration: &TimingDurationOption ) => {
   if let `Some elapsed = duration {
     `Some (read_duration_ms(&elapsed))
   } else {
@@ -86,8 +85,7 @@ const response_signal_records_first_token: TimingResponseSignal -> Bool = signal
   }
 };
 
-const record_time_to_first_token: [TimingState, TimingResponseSignal, TimingInstant] ->
-  TimingRecord = (
+const record_time_to_first_token: [TimingState, TimingResponseSignal, TimingInstant] -> TimingRecord = (
     state: TimingState,
     signal: TimingResponseSignal,
     now: TimingInstant,
@@ -143,9 +141,7 @@ const complete_turn_timing: [&TimingState, TimingInstant, TimingUnixSeconds] -> 
   if let `Some started_at_ms = started_at {
     [
       .completed_at_unix_seconds = completed_at_unix_seconds,
-      .duration = `Some (duration_between(monotonic_ms started_at_ms, monotonic_ms
-        completed_at_ms)),
-    ]
+      .duration = `Some (duration_between(monotonic_ms started_at_ms, monotonic_ms completed_at_ms)) ]
   } else {
     [.completed_at_unix_seconds = completed_at_unix_seconds, .duration = `None ()]
   }

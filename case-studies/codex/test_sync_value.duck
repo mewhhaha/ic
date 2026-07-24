@@ -52,8 +52,7 @@ let parse_sync_duration: [Text, SyncValueJson] -> SyncValueDurationParseResult =
   }
 };
 
-let parse_sync_barrier: SyncValueJson -> SyncValueBarrierParseResult = (container:
-  SyncValueJson) => {
+let parse_sync_barrier: SyncValueJson -> SyncValueBarrierParseResult = (container: SyncValueJson) => {
     if let `Object object = container {
       if json_object_key_count("barrier", object) > 1 {
         `BarrierParseFailed "barrier must appear at most once"
@@ -74,8 +73,7 @@ let parse_sync_barrier: SyncValueJson -> SyncValueBarrierParseResult = (containe
               let id = "";
               let failure = "";
               let id_lookup = json_object_get("id", fields);
-              if let `Found id_value = id_lookup { if let `String text = id_value { id = text } else
-                { failure = "barrier.id must be a string" } }
+              if let `Found id_value = id_lookup { if let `String text = id_value { id = text } else { failure = "barrier.id must be a string" } }
               let participants: SyncValueDurationParseResult = parse_sync_duration(
                 "participants",
                 json_object fields,
@@ -99,7 +97,7 @@ let parse_sync_barrier: SyncValueJson -> SyncValueBarrierParseResult = (containe
                       .id = id,
                       .participants = participant_count,
                       .timeout_ms = timeout_ms,
-                    ]
+                    ];
                     `BarrierParsed (`SyncBarrierPresent barrier);
                   } else {
                     `BarrierParseFailed "barrier timeout is invalid"
@@ -145,7 +143,7 @@ let decode_test_sync_value: SyncValueJson -> SyncValueParseResult = value => {
             .sleep_before_ms = before_value,
             .sleep_after_ms = after_value,
             .barrier = barrier_value,
-          ]
+          ];
           `Parsed args;
         } else { sync_parse_failure "barrier is invalid" }
       } else { sync_parse_failure "sleep_after_ms is invalid" }

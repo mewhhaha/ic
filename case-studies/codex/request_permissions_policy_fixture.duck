@@ -20,12 +20,9 @@ let profile: FixtureProfile = [
           [
             [.path = "/workspace", .access = `Read ()] as FixturePath,
             `Cons (
-              [[.path = "/workspace", .access = `Write ()] as FixturePath, `Nil
-                ()] as FixturePathNode
-            ),
-          ] as FixturePathNode
-        ),
-      ] as FixturePathNode
+              [[.path = "/workspace", .access = `Write ()] as FixturePath, `Nil ()] as FixturePathNode
+            ) ] as FixturePathNode
+        ) ] as FixturePathNode
     )] as FixtureFileSystem
   )];
 let args: FixtureArgs = [.environment_id = `None (), .reason = `None (), .permissions = profile];
@@ -56,8 +53,7 @@ let empty_args: FixtureArgs = [
   .reason = `None (),
   .permissions = [
     .network = `NetworkPresent ([.enabled = `None ()] as FixtureNetwork),
-    .file_system = `FileSystemPresent ([.entries = `Nil ()] as FixtureFileSystem)] as
-  FixtureProfile];
+    .file_system = `FileSystemPresent ([.entries = `Nil ()] as FixtureFileSystem)] as FixtureProfile];
 if let `Invalid message = normalize_request_permissions_args empty_args {
   if message == "request_permissions requires at least one permission" { score = score + 10 }
 }

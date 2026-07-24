@@ -32,8 +32,7 @@ const decode_view_image_value: ImageValueJson -> ImageValueParseResult = value =
 
       let path_lookup = json_object_get("path", object);
       if let `Found path_value = path_lookup {
-        if let `String path_text = path_value { path = path_text } else { failure =
-            "path must be a string" }
+        if let `String path_text = path_value { path = path_text } else { failure = "path must be a string" }
       }
 
       let environment_lookup = json_object_get("environment_id", object);
@@ -74,7 +73,7 @@ const decode_view_image_value: ImageValueJson -> ImageValueParseResult = value =
           .path = path,
           .environment_id = environment_id,
           .detail = detail,
-        ]
+        ];
         `Parsed args;
       } else {
         view_image_parse_failure failure

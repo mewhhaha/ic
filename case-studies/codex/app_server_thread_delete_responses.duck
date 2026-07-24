@@ -1,7 +1,7 @@
 module () where
 
 const { .json_object, .json_object_empty, .json_object_prepend, .json_string } =
-  import "duck:prelude/json/values" ()
+  import "duck:prelude/json/values" ();
 const {} = import "./app_server_types.duck" ();
 
 type ThreadDeleteResponseJson = AppServerJson
@@ -10,8 +10,7 @@ const materialize_thread_delete_response: [] -> ThreadDeleteResponseJson = () =>
   json_object(json_object_empty())
 };
 
-const materialize_thread_deleted_notification: Text -> ThreadDeleteResponseJson = (thread_id:
-  Text) => {
+const materialize_thread_deleted_notification: Text -> ThreadDeleteResponseJson = (thread_id: Text) => {
     let fields = json_object_empty();
     fields = json_object_prepend("threadId", json_string thread_id, fields)
     json_object fields

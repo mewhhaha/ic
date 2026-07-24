@@ -75,8 +75,7 @@ const retarget_workspace_roots: [Text, Text, SettingsTexts] -> SettingsTexts = (
   settings_texts.reverse(reversed)
 };
 
-const resolve_permission_settings: [SettingsPermissionResolution, SettingsTextOption] ->
-  SettingsPermissionResult = (
+const resolve_permission_settings: [SettingsPermissionResolution, SettingsTextOption] -> SettingsPermissionResult = (
     permission_resolution: SettingsPermissionResolution,
     requested: SettingsTextOption,
   ) => {
@@ -103,8 +102,7 @@ const prefer_explicit_json: [SettingsJsonOption, SettingsJson] -> SettingsJsonOp
 };
 
 const resolve_thread_settings_update: SettingsPlanInput -> SettingsResolvedPlanResult = (
-  input: SettingsPlanInput
-) => {
+  input: SettingsPlanInput ) => {
   let params = input.params;
   let permission_result = resolve_permission_settings(
     input.permission_resolution,
@@ -137,7 +135,7 @@ const resolve_thread_settings_update: SettingsPlanInput -> SettingsResolvedPlanR
         params.collaboration_mode,
         params.personality,
       ];
-      let plan: SettingsPlan = [params.thread_id, overrides, roots]
+      let plan: SettingsPlan = [params.thread_id, overrides, roots];
       `Ok plan;
     } else {
       let active_permission_profile: SettingsJsonOption = `None ();
@@ -155,7 +153,7 @@ const resolve_thread_settings_update: SettingsPlanInput -> SettingsResolvedPlanR
         params.collaboration_mode,
         params.personality,
       ];
-      let plan: SettingsPlan = [params.thread_id, overrides, roots]
+      let plan: SettingsPlan = [params.thread_id, overrides, roots];
       `Ok plan;
     }
   } else if let `Err reason = permission_result {
@@ -166,8 +164,7 @@ const resolve_thread_settings_update: SettingsPlanInput -> SettingsResolvedPlanR
 };
 
 const plan_thread_settings_update: SettingsPlanInput -> SettingsPlanResult = (
-  input: SettingsPlanInput
-) => {
+  input: SettingsPlanInput ) => {
   if !(input.params.has_changes) {
     `NoThreadSettingsChanges ()
   } else {

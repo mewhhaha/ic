@@ -1,7 +1,7 @@
 module () where
 
 const { .json_object_get, .json_object_key_count_borrowed, .json_object_length_borrowed } =
-  import "duck:prelude/json/values" ()
+  import "duck:prelude/json/values" ();
 const {} = import "duck:prelude/json/values" ();
 const { .format_i32 } = import "duck:prelude/numeric" ();
 const { .text_append } = import "duck:prelude/runtime" ();
@@ -47,8 +47,7 @@ let decode_update_plan_value: Json -> PlanValueParseResult = value => {
     let root_keys_valid = json_object_length_borrowed(&object) == known_root_key_count;
     if !(root_keys_valid) {
       update_plan_parse_failure "update_plan arguments contain an unknown field"
-    } else if json_object_key_count_borrowed("explanation", &object) > 1 ||
-    json_object_key_count_borrowed(
+    } else if json_object_key_count_borrowed("explanation", &object) > 1 || json_object_key_count_borrowed(
       "plan",
       &object,
     ) > 1 {
@@ -93,8 +92,7 @@ let decode_update_plan_value: Json -> PlanValueParseResult = value => {
                   if !(keys_valid) {
                     plan_failure = context <> " contains an unknown field"
                     done = true
-                  } else if json_object_key_count_borrowed("step", &fields) != 1 ||
-                  json_object_key_count_borrowed(
+                  } else if json_object_key_count_borrowed("step", &fields) != 1 || json_object_key_count_borrowed(
                     "status",
                     &fields,
                   ) != 1 {
@@ -105,8 +103,7 @@ let decode_update_plan_value: Json -> PlanValueParseResult = value => {
                     let status: PlanValueStatus = `Pending ();
                     let step_lookup = json_object_get("step", fields);
                     if let `Found step_field = step_lookup {
-                      if let `String text = step_field { step_text = text } else { plan_failure =
-                          context <> ".step must be a string" }
+                      if let `String text = step_field { step_text = text } else { plan_failure = context <> ".step must be a string" }
                     }
 
                     if plan_failure == "" {
@@ -120,8 +117,7 @@ let decode_update_plan_value: Json -> PlanValueParseResult = value => {
                           } else if status_text == "completed" {
                             status = `Completed ()
                           } else {
-                            plan_failure =
-                              context <> ".status must be pending, in_progress, or completed"
+                            plan_failure = context <> ".status must be pending, in_progress, or completed"
                           }
                         } else {
                           plan_failure = context <> ".status must be a string"
@@ -153,7 +149,7 @@ let decode_update_plan_value: Json -> PlanValueParseResult = value => {
               let args: PlanValueArgs = [
                 .explanation = explanation,
                 .plan = reverse_update_plan_steps reversed,
-              ]
+              ];
               `Parsed args;
             } else {
               update_plan_parse_failure plan_failure

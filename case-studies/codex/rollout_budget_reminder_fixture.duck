@@ -41,8 +41,7 @@ if let `Some reminder = pending_rollout_budget_reminder(&budget, &"root", &"wind
 }
 
 budget = mark_rollout_budget_reminder_delivered(budget, "root", "window-1", &initial)
-if let `None () = pending_rollout_budget_reminder(&budget, &"root", &"window-1") { score = score +
-  10 }
+if let `None () = pending_rollout_budget_reminder(&budget, &"root", &"window-1") { score = score + 10 }
 
 let usage: FixtureUsage = [.input_tokens = 40, .cached_input_tokens = 0, .output_tokens = 0];
 let usage_result = record_rollout_budget_usage(budget, usage);

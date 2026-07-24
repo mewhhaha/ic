@@ -1,7 +1,7 @@
 module () where
 
 const { .json_object, .json_object_empty, .json_object_prepend, .json_string } =
-  import "duck:prelude/json" ()
+  import "duck:prelude/json" ();
 const {
   .decode_thread_archive,
   .decode_thread_compact_start,
@@ -20,12 +20,10 @@ let unsubscribe = decode_thread_unsubscribe(params());
 let compact = decode_thread_compact_start(params());
 let score = 0;
 
-if let `MethodOk method = archive { if let `ThreadArchive id = method { if id == "thread-1" { score
-  = score + 1 } } }
+if let `MethodOk method = archive { if let `ThreadArchive id = method { if id == "thread-1" { score = score + 1 } } }
 if let `MethodOk method = unarchive { if let `ThreadUnarchive id = method { if id == "thread-1" {
   score = score + 10 } } }
-if let `MethodOk method = unsubscribe { if let `ThreadUnsubscribe id = method { if id == "thread-1"
-  { score = score + 100 } } }
+if let `MethodOk method = unsubscribe { if let `ThreadUnsubscribe id = method { if id == "thread-1" { score = score + 100 } } }
 if let `MethodOk method = compact { if let `ThreadCompactStart id = method { if id == "thread-1" {
   score = score + 1000 } } }
 

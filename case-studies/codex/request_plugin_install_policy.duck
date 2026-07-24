@@ -13,8 +13,7 @@ type InstallPolicyRecommendedArgs = RequestPluginInstallRecommendedArgs
 type InstallPolicyHostRequest = RequestPluginInstallHostRequest
 type InstallPolicyToolType = DiscoverableToolType
 
-const candidate_matches_type = (candidate: InstallPolicyCandidate, expected:
-  InstallPolicyToolType) => {
+const candidate_matches_type = (candidate: InstallPolicyCandidate, expected: InstallPolicyToolType) => {
     if let `Connector () = expected {
       if let `Connector () = candidate.tool_type { true } else { false }
     } else {
@@ -22,8 +21,7 @@ const candidate_matches_type = (candidate: InstallPolicyCandidate, expected:
     }
   };
 
-let rec find_list_candidate: [InstallPolicyCandidates, Text, InstallPolicyToolType] ->
-  InstallPolicyCandidateOption = (
+let rec find_list_candidate: [InstallPolicyCandidates, Text, InstallPolicyToolType] -> InstallPolicyCandidateOption = (
     values: InstallPolicyCandidates,
     id: Text,
     tool_type: InstallPolicyToolType,
@@ -69,7 +67,7 @@ let elicitation_plan: [Text, Text, InstallPolicyCandidate] -> InstallPolicyPlan 
     .suggestion_id = text_append ["request_plugin_install_", call_id],
     .suggest_reason = reason,
     .candidate = candidate,
-  ]
+  ];
   `Elicit request;
 };
 
@@ -94,18 +92,16 @@ let plan_list_plugin_install_request: [Text, Bool, InstallPolicyListArgs,
           if let `InstallCandidatePresent selected = candidate { elicitation_plan(
             call_id,
             reason,
-            selected,
-          ) } else { `RespondToModel
-            "tool_id must match one of the discoverable tools returned by list_available_plugins_to_install" }
+            selected
+          ) } else { `RespondToModel "tool_id must match one of the discoverable tools returned by list_available_plugins_to_install" }
         }
       } else {
         let candidate = find_list_candidate(values, args.tool_id, args.tool_type);
         if let `InstallCandidatePresent selected = candidate { elicitation_plan(
           call_id,
           reason,
-          selected,
-        ) } else { `RespondToModel
-          "tool_id must match one of the discoverable tools returned by list_available_plugins_to_install" }
+          selected
+        ) } else { `RespondToModel "tool_id must match one of the discoverable tools returned by list_available_plugins_to_install" }
       }
     }
   };
@@ -131,9 +127,8 @@ let plan_recommended_plugin_install_request: [
     if let `InstallCandidatePresent selected = candidate { elicitation_plan(
       call_id,
       reason,
-      selected,
-    ) } else { `RespondToModel
-      "plugin_id must match one of the entries in the <recommended_plugins> list" }
+      selected
+    ) } else { `RespondToModel "plugin_id must match one of the entries in the <recommended_plugins> list" }
   }
 };
 

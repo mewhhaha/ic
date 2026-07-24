@@ -36,8 +36,7 @@ let trace_specs: FixtureSpecs -> Text = specs => {
         trace = trace <> "function:" <> name <> "|"
       } else if let `VisibleNamespace namespace = spec {
         let [name, description, functions] = namespace;
-        trace =
-          trace <> "namespace:" <> name <> ":" <> description <> ":" <> trace_functions functions <> "|"
+        trace = trace <> "namespace:" <> name <> ":" <> description <> ":" <> trace_functions functions <> "|"
       } else if let `VisibleWebSearch name = spec {
         trace = trace <> "web:" <> name <> "|"
       }

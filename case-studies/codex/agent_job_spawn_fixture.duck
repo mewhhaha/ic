@@ -51,8 +51,7 @@ if let `RejectSpawn message = empty {
 
 let remote = plan_spawn_agents_on_csv(`Function "{}", "/workspace", 1, true, 32, `None ());
 if let `RejectSpawn message = remote {
-  if message == "spawn_agents_on_csv is not supported for remote environments" { score = score +
-    1000 }
+  if message == "spawn_agents_on_csv is not supported for remote environments" { score = score + 1000 }
 }
 
 let zero_runtime = plan_spawn_agents_on_csv(

@@ -21,8 +21,7 @@ type AppServerTurn = [
   AppServerTurnErrorOption,
   AppServerTurnI64Option,
   AppServerTurnI64Option,
-  AppServerTurnI64Option,
-]
+  AppServerTurnI64Option ]
 type AppServerTurnOption = Option AppServerTurn
 type AppServerTurnTerminal =
   | `TurnCompleted Unit
@@ -48,23 +47,20 @@ type AppServerThreadTurnsCursorOption = Option AppServerThreadTurnsCursor
 type AppServerThreadTurnsCursorPage = [
   AppServerTurns,
   AppServerThreadTurnsCursorOption,
-  AppServerThreadTurnsCursorOption,
-]
+  AppServerThreadTurnsCursorOption ]
 type AppServerThreadTurnsCursorPageResult = Result Text AppServerThreadTurnsCursorPage
 type AppServerThreadTurnsPaginationInput = [
   AppServerTurns,
   AppServerThreadTurnsCursorOption,
   I32,
   AppServerSortDirection,
-  AppServerTurnItemsView,
-]
+  AppServerTurnItemsView ]
 type AppServerThreadItemEntry = [Text, AppServerJson]
 type AppServerThreadItemEntries = List AppServerThreadItemEntry
 type AppServerThreadItemsPage = [
   AppServerThreadItemEntries,
   AppServerTextOption,
-  AppServerTextOption,
-]
+  AppServerTextOption ]
 
 type AppServerThreadTurnsListRoute =
   | `LegacyTurnsReplay Unit

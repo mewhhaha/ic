@@ -1,7 +1,7 @@
 module () where
 
 const { .json_array_empty, .json_array_prepend, .json_object_get } =
-  import "duck:prelude/json/values" ()
+  import "duck:prelude/json/values" ();
 const { .list_map } = import "duck:prelude/collections" ();
 const {} = import "./app_server_turn_types.duck" ();
 
@@ -50,8 +50,7 @@ const item_ids_differ: [ItemViewsJson, ItemViewsJson] -> Bool = (
   }
 };
 
-const summarize_turn_items: ItemViewsJsonArray -> ItemViewsJsonArray = (items:
-  ItemViewsJsonArray) => {
+const summarize_turn_items: ItemViewsJsonArray -> ItemViewsJsonArray = (items: ItemViewsJsonArray) => {
     let current = items;
     let first_user_message: ItemViewsJsonOption = `None ();
     let final_agent_message: ItemViewsJsonOption = `None ();

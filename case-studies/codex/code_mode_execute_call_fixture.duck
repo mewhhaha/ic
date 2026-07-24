@@ -25,8 +25,7 @@ let score = 0;
 let valid: FixtureInvocation = [
   .call_id = "call-exec",
   .tool_name = ["", "exec"],
-  .payload =
-    `ExecuteCustomPayload "// @exec: {\"yield_time_ms\":5,\"max_output_tokens\":7}\ntext('ok')",
+  .payload = `ExecuteCustomPayload "// @exec: {\"yield_time_ms\":5,\"max_output_tokens\":7}\ntext('ok')",
   .enabled_tools = enabled_tools];
 if let `StartCodeModeExecute request = plan_code_mode_execute_call valid {
   if request.tool_call_id == "call-exec" && request.source == "text('ok')" {

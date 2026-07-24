@@ -17,8 +17,7 @@ type HookStopParse =
 type HookPermissionOutput = [
   HookUniversalOutput,
   HookPermissionDecisionOption,
-  HookOutputTextOption,
-]
+  HookOutputTextOption ]
 type HookPermissionParse =
   | `PermissionOk HookPermissionOutput
   | `PermissionErr Text
@@ -28,8 +27,7 @@ type HookPreToolOutput = [
   HookOutputTextOption,
   HookOutputTextOption,
   HookUpdatedInput,
-  HookOutputTextOption,
-]
+  HookOutputTextOption ]
 type HookPreToolParse =
   | `PreToolOk HookPreToolOutput
   | `PreToolErr Text
@@ -45,8 +43,7 @@ type HookPostToolOutput = [
   HookOutputTextOption,
   HookOutputTextOption,
   HookOutputTextOption,
-  HookOutputTextOption,
-]
+  HookOutputTextOption ]
 type HookPostToolParse =
   | `PostToolOk HookPostToolOutput
   | `PostToolErr Text
@@ -56,8 +53,7 @@ type HookUserPromptOutput = [
   Bool,
   HookOutputTextOption,
   HookOutputTextOption,
-  HookOutputTextOption,
-]
+  HookOutputTextOption ]
 type HookUserPromptParse =
   | `UserPromptOk HookUserPromptOutput
   | `UserPromptErr Text

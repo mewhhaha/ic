@@ -9,8 +9,7 @@ type FixtureEnvironments = WaitForEnvironments
 type FixturePayload = WaitForEnvironmentPayload
 
 let environments: FixtureEnvironments = `Cons (
-  [[.environment_id = "gpu", .status = `Starting ()] as FixtureEnvironment, `Nil
-    ()] as FixtureEnvironmentNode
+  [[.environment_id = "gpu", .status = `Starting ()] as FixtureEnvironment, `Nil ()] as FixtureEnvironmentNode
 );
 let unsupported: FixturePayload = `Unsupported ();
 let valid: FixturePayload = `Function "{\"environment_id\":\"gpu\"}";

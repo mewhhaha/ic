@@ -32,10 +32,8 @@ let requested_profile: FixtureProfile = [
       [
         [.path = "/workspace", .access = `Read ()] as FixturePath,
         `Cons (
-          [[.path = "/workspace/out", .access = `Write ()] as FixturePath, `Nil
-            ()] as FixturePathNode
-        ),
-      ] as FixturePathNode
+          [[.path = "/workspace/out", .access = `Write ()] as FixturePath, `Nil ()] as FixturePathNode
+        ) ] as FixturePathNode
     )] as FixtureFileSystem
   )];
 let granted_profile: FixtureProfile = [
@@ -48,12 +46,9 @@ let granted_profile: FixtureProfile = [
           [
             [.path = "/workspace/out/build", .access = `Write ()] as FixturePath,
             `Cons (
-              [[.path = "/workspace/private", .access = `Write ()] as FixturePath, `Nil
-                ()] as FixturePathNode
-            ),
-          ] as FixturePathNode
-        ),
-      ] as FixturePathNode
+              [[.path = "/workspace/private", .access = `Write ()] as FixturePath, `Nil ()] as FixturePathNode
+            ) ] as FixturePathNode
+        ) ] as FixturePathNode
     )] as FixtureFileSystem
   )];
 let accepted = intersect_request_permission_profiles(&requested_profile, granted_profile);
@@ -89,12 +84,9 @@ let unsafe_permissions: FixtureProfile = [
           [
             [.path = "/workspace/out/build", .access = `Write ()] as FixturePath,
             `Cons (
-              [[.path = "/workspace/private", .access = `Write ()] as FixturePath, `Nil
-                ()] as FixturePathNode
-            ),
-          ] as FixturePathNode
-        ),
-      ] as FixturePathNode
+              [[.path = "/workspace/private", .access = `Write ()] as FixturePath, `Nil ()] as FixturePathNode
+            ) ] as FixturePathNode
+        ) ] as FixturePathNode
     )] as FixtureFileSystem
   )];
 let unsafe_response: FixtureResponse = [

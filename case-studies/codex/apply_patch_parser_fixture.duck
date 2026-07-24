@@ -15,7 +15,7 @@ const hunks = comptime list FixtureHunk;
 
 let score: I32 = 0;
 let patch =
-  "*** Begin Patch\n*** Environment ID: remote\n*** Add File: docs/new.txt\n+hello\n+world\n*** Delete File: old.txt\n*** Update File: src/old.ts\n*** Move to: src/new.ts\n@@ function run\n-old\n+new\n@@\n tail\n+last\n*** End of File\n*** End Patch"
+  "*** Begin Patch\n*** Environment ID: remote\n*** Add File: docs/new.txt\n+hello\n+world\n*** Delete File: old.txt\n*** Update File: src/old.ts\n*** Move to: src/new.ts\n@@ function run\n-old\n+new\n@@\n tail\n+last\n*** End of File\n*** End Patch";
 let parsed = parse_apply_patch_lines(text_split [patch, "\n"]);
 
 if let `Ok document = parsed {
@@ -61,8 +61,7 @@ if let `Ok document = parsed {
 if let `Err message = parse_apply_patch_lines(
   text_split ["*** Begin Patch\n*** Update File: empty.txt\n*** End Patch", "\n"]
 ) {
-  if message == "invalid hunk at line 2, Update file hunk for path 'empty.txt' is empty" { score =
-      score + 10000 }
+  if message == "invalid hunk at line 2, Update file hunk for path 'empty.txt' is empty" { score = score + 10000 }
 }
 
 if let `Err message = parse_apply_patch_lines(

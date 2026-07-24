@@ -12,8 +12,7 @@ type ImageContentRewriteStatus =
 
 type ImageContentRewrite = [HistoryContents, ImageProcessingResults, ImageContentRewriteStatus, I32]
 
-const rewrite_image_contents: [HistoryContents, ImageProcessingResults, I32] ->
-  ImageContentRewrite = (
+const rewrite_image_contents: [HistoryContents, ImageProcessingResults, I32] -> ImageContentRewrite = (
     contents,
     results,
     first_request_index,
@@ -48,8 +47,7 @@ const rewrite_image_contents: [HistoryContents, ImageProcessingResults, I32] ->
                 rewritten = `InputText "image content omitted because it could not be processed"
                 request_index = request_index + 1
               } else if result.status_code == 2 {
-                rewritten =
-                  `InputText "image content omitted because it exceeded the supported size limit; use a smaller image"
+                rewritten = `InputText "image content omitted because it exceeded the supported size limit; use a smaller image"
                 request_index = request_index + 1
               } else {
                 status = `ImageContentRewriteInvalid (
@@ -60,11 +58,9 @@ const rewrite_image_contents: [HistoryContents, ImageProcessingResults, I32] ->
               status = `ImageContentRewriteInvalid (`MissingImageProcessingResult request_index)
             }
           } else if plan.status_code == 2 {
-            rewritten =
-              `InputText "image content omitted because remote image URLs are not supported"
+            rewritten = `InputText "image content omitted because remote image URLs are not supported"
           } else if plan.status_code == 3 {
-            rewritten =
-              `InputText "image content omitted because detail 'low' is not supported; use 'high', 'original', or 'auto'"
+            rewritten = `InputText "image content omitted because detail 'low' is not supported; use 'high', 'original', or 'auto'"
           }
         }
 

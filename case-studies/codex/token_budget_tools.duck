@@ -20,8 +20,7 @@ const request_new_context_window_tool: BudgetWindow -> BudgetNewContextResult = 
 };
 
 const render_context_remaining_tool_output: &BudgetI64Option -> Text = (
-  tokens_left: &BudgetI64Option
-) => {
+  tokens_left: &BudgetI64Option ) => {
   if let `Some value = tokens_left {
     text_append("You have ", text_append(format_i64 value, " tokens left in this context window."))
   } else {
@@ -30,8 +29,7 @@ const render_context_remaining_tool_output: &BudgetI64Option -> Text = (
 };
 
 const render_context_remaining_code_mode_output: &BudgetI64Option -> Text = (
-  tokens_left: &BudgetI64Option
-) => {
+  tokens_left: &BudgetI64Option ) => {
   if let `Some value = tokens_left {
     text_append("{\"tokens_left\":", text_append(format_i64 value, "}"))
   } else {

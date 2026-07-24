@@ -31,8 +31,7 @@ let output_members = json_object_prepend(
     json_object_prepend("required", json_array ok_required, json_object_empty()),
   ),
 );
-if materialize_code_mode_output_type(json_object output_members) == "{ ok: boolean; }" { score =
-    score + 1 }
+if materialize_code_mode_output_type(json_object output_members) == "{ ok: boolean; }" { score = score + 1 }
 
 let content_members = json_object_prepend(
   "type",
@@ -82,8 +81,7 @@ let mcp_output = json_object(
     json_object_prepend("properties", json_object mcp_properties, json_object_empty()),
   )
 );
-if materialize_code_mode_output_type mcp_output == "CallToolResult<{ echo: string; }>" { score =
-    score + 10 }
+if materialize_code_mode_output_type mcp_output == "CallToolResult<{ echo: string; }>" { score = score + 10 }
 
 let raw_mcp_properties = json_object_prepend(
   "content",

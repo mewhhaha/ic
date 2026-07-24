@@ -2,7 +2,7 @@ module () where
 
 const {} = import "duck:prelude/types" ();
 const { .goal_continuation_is_deferred, .thread_is_ephemeral, .turns_are_excluded } =
-  import "./app_server_types.duck" ()
+  import "./app_server_types.duck" ();
 const {} = import "./app_server_thread_lifecycle_types.duck" ();
 
 type LifecycleTextOption = AppServerTextOption
@@ -36,8 +36,7 @@ type LifecycleUnsubscribeInput = AppServerThreadUnsubscribePlanInput
 type LifecycleUnsubscribeStatus = AppServerThreadUnsubscribeStatus
 
 const plan_thread_start: LifecycleStartInput -> LifecycleStartPlanResult = (
-  input: LifecycleStartInput
-) => {
+  input: LifecycleStartInput ) => {
   let [history_mode, start_source, persistence, raw_events, paginated_lists] = input;
   let effective_history_mode: LifecycleHistoryMode = if let `Some mode = history_mode { mode
   } else { `LegacyHistory () };
@@ -53,7 +52,7 @@ const plan_thread_start: LifecycleStartInput -> LifecycleStartPlanResult = (
         initial_history,
         persistence,
         raw_events,
-      ]
+      ];
       `Ok plan;
     }
   } else {
@@ -62,14 +61,13 @@ const plan_thread_start: LifecycleStartInput -> LifecycleStartPlanResult = (
       initial_history,
       persistence,
       raw_events,
-    ]
+    ];
     `Ok plan;
   }
 };
 
 const plan_decoded_thread_start: LifecycleDecodedStartInput -> LifecycleStartPlanResult = (
-  input: LifecycleDecodedStartInput
-) => {
+  input: LifecycleDecodedStartInput ) => {
   let [params, paginated_lists] = input;
   let persistence: LifecycleThreadPersistence = if let `Some ephemeral = params.ephemeral {
     if ephemeral { `EphemeralThread () } else { `PersistentThread () }
@@ -87,8 +85,7 @@ const plan_decoded_thread_start: LifecycleDecodedStartInput -> LifecycleStartPla
 };
 
 let plan_thread_resume: LifecycleResumeInput -> LifecycleResumePlanResult = (
-  input: LifecycleResumeInput
-) => {
+  input: LifecycleResumeInput ) => {
   let [loaded, thread_id, history, path, turns, initial_turns_page] = input;
   let current = loaded;
   let running = false;
@@ -143,31 +140,30 @@ let plan_thread_resume: LifecycleResumeInput -> LifecycleResumePlanResult = (
       `Err "paginated threads do not support initialTurnsPage; use turnsBackwardsCursor and itemsBackwardsCursor"
     } else {
       let source: LifecycleResumeSource = `RejoinThread running_thread;
-      let plan: LifecycleResumePlan = [source, include_turns, initial_turns_page]
+      let plan: LifecycleResumePlan = [source, include_turns, initial_turns_page];
       `Ok plan;
     }
   } else if running {
     let source: LifecycleResumeSource = `RejoinThread running_thread;
-    let plan: LifecycleResumePlan = [source, include_turns, initial_turns_page]
+    let plan: LifecycleResumePlan = [source, include_turns, initial_turns_page];
     `Ok plan;
   } else if let `Some history_value = history {
     let source: LifecycleResumeSource = `ResumeHistory history_value;
-    let plan: LifecycleResumePlan = [source, include_turns, initial_turns_page]
+    let plan: LifecycleResumePlan = [source, include_turns, initial_turns_page];
     `Ok plan;
   } else if let `Some path_value = path {
     let source: LifecycleResumeSource = `ResumePath path_value;
-    let plan: LifecycleResumePlan = [source, include_turns, initial_turns_page]
+    let plan: LifecycleResumePlan = [source, include_turns, initial_turns_page];
     `Ok plan;
   } else {
     let source: LifecycleResumeSource = `ResumeThreadId thread_id;
-    let plan: LifecycleResumePlan = [source, include_turns, initial_turns_page]
+    let plan: LifecycleResumePlan = [source, include_turns, initial_turns_page];
     `Ok plan;
   }
 };
 
 let plan_decoded_thread_resume: LifecycleDecodedResumeInput -> LifecycleResumePlanResult = (
-  input: LifecycleDecodedResumeInput
-) => {
+  input: LifecycleDecodedResumeInput ) => {
   let [params, loaded] = input;
   let plan_input: LifecycleResumeInput = [
     loaded,
@@ -180,10 +176,9 @@ let plan_decoded_thread_resume: LifecycleDecodedResumeInput -> LifecycleResumePl
   plan_thread_resume plan_input
 };
 
-const plan_thread_fork: LifecycleForkInput -> LifecycleForkPlanResult = (input:
-  LifecycleForkInput) => {
+const plan_thread_fork: LifecycleForkInput -> LifecycleForkPlanResult = (input: LifecycleForkInput) => {
     let [thread_id, last_turn_id, before_turn_id, path, persistence, turns, goal_continuation] =
-      input
+      input;
     let both_boundaries = false;
     if let `Some _ = last_turn_id { if let `Some _ = before_turn_id { both_boundaries = true } }
 
@@ -201,14 +196,13 @@ const plan_thread_fork: LifecycleForkInput -> LifecycleForkPlanResult = (input:
       } else {
         `ForkAllTurns ()
       };
-      let plan: LifecycleForkPlan = [source, boundary, persistence, turns, goal_continuation]
+      let plan: LifecycleForkPlan = [source, boundary, persistence, turns, goal_continuation];
       `Ok plan;
     }
   };
 
 const plan_decoded_thread_fork: LifecycleForkParams -> LifecycleForkPlanResult = (
-  params: LifecycleForkParams
-) => {
+  params: LifecycleForkParams ) => {
   let plan_input: LifecycleForkInput = [
     params.thread_id,
     params.last_turn_id,
@@ -222,8 +216,7 @@ const plan_decoded_thread_fork: LifecycleForkParams -> LifecycleForkPlanResult =
 };
 
 const plan_thread_unsubscribe: LifecycleUnsubscribeInput -> LifecycleUnsubscribeStatus = (
-  input: LifecycleUnsubscribeInput
-) => {
+  input: LifecycleUnsubscribeInput ) => {
   let [load_state, subscription] = input;
   if let `ThreadNotLoaded () = load_state {
     `UnsubscribeNotLoaded ()

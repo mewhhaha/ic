@@ -6,7 +6,7 @@ const citation_module = import "./citation_parser.duck";
 const { .finish_citations, .new_citation_parser, .push_citation_chunk } = citation_module();
 const proposed_plan_module = import "./proposed_plan.duck";
 const { .finish_proposed_plan, .new_proposed_plan_parser, .push_proposed_plan_chunk } =
-  proposed_plan_module()
+  proposed_plan_module();
 const {} = import "./assistant_text_types.duck" ();
 
 type StreamAssistantTextParser = AssistantTextParser
@@ -63,8 +63,7 @@ const push_assistant_text_chunk: [StreamAssistantTextParser, Text] -> StreamAssi
 };
 
 const finish_assistant_text: StreamAssistantTextParser -> StreamAssistantTextChunk = (
-  parser: StreamAssistantTextParser
-) => {
+  parser: StreamAssistantTextParser ) => {
   let citation_chunk = finish_citations parser.citation_parser;
   let [citation_parser, citation_visible_text, citations] = citation_chunk;
   let proposed_plan_parser: StreamPlanParser = parser.proposed_plan_parser;

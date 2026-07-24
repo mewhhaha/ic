@@ -108,8 +108,7 @@ const set_estimated_prefill: [CompactWindow, I64] -> CompactWindow = (
 };
 
 const auto_compact_window_snapshot: &CompactWindow -> CompactWindowSnapshot = (
-  window: &CompactWindow
-) => {
+  window: &CompactWindow ) => {
   let prefill: CompactWindowTokenOption = `None ();
   if let `Some current = window.prefill_input_tokens {
     if let `ServerObserved tokens = current {

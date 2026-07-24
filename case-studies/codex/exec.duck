@@ -93,7 +93,7 @@ const resolve_command: [
         let command: ProcessTexts = texts.prepend(
           shell_path,
           texts.prepend(flag, texts.singleton(command_text)),
-        )
+        );
         `Ok ([command, `Zsh ()]);
       }
     } else {
@@ -112,20 +112,20 @@ const resolve_command: [
             shell_path,
             texts.prepend("-NoProfile", texts.prepend("-Command", texts.singleton(command_text))),
           )
-        }
+        };
         `Ok ([command, shell_type]);
       } else if let `Cmd () = shell_type {
         let command: ProcessTexts = texts.prepend(
           shell_path,
           texts.prepend("/c", texts.singleton(command_text)),
-        )
+        );
         `Ok ([command, shell_type]);
       } else {
         let flag = if use_login_shell { "-lc" } else { "-c" };
         let command: ProcessTexts = texts.prepend(
           shell_path,
           texts.prepend(flag, texts.singleton(command_text)),
-        )
+        );
         `Ok ([command, shell_type]);
       }
     }
@@ -235,8 +235,7 @@ const process_exited: [ProcessState, ProcessI32Option] -> ProcessState = (
   [true, exit_code, failure, sandbox_denied];
 };
 
-const process_failed: [ProcessState, Text] -> ProcessState = (state: ProcessState, message:
-  Text) => {
+const process_failed: [ProcessState, Text] -> ProcessState = (state: ProcessState, message: Text) => {
     let [_, exit_code, _, sandbox_denied] = state;
     [true, exit_code, `Some message, sandbox_denied];
   };

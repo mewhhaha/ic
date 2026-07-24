@@ -4,8 +4,7 @@ const current_time_module = import "./current_time_format.duck";
 const { .render_current_time_reminder } = current_time_module();
 
 let score = 0;
-if render_current_time_reminder 1781717655i64 == "It is 2026-06-17 17:34:15 UTC." { score = score +
-  1 }
+if render_current_time_reminder 1781717655i64 == "It is 2026-06-17 17:34:15 UTC." { score = score + 1 }
 if render_current_time_reminder - 1i64 == "It is 1969-12-31 23:59:59 UTC." { score = score + 10 }
 
 return { .score = score };

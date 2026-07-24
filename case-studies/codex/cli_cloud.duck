@@ -93,7 +93,7 @@ let parse_cloud_exec: CloudArgs -> CloudCommandResult = (args: CloudArgs) => {
         .environment = environment,
         .attempts = facts.attempts,
         .branch = facts.branch,
-      ]
+      ];
       `Ok (`CloudExec options);
     } else {
       `Err "cloud exec requires --env"
@@ -167,7 +167,7 @@ let parse_cloud_list: CloudArgs -> CloudCommandResult = (args: CloudArgs) => {
       .limit = facts.limit,
       .cursor = facts.cursor,
       .json = facts.json,
-    ]
+    ];
     `Ok (`CloudList options);
   } else {
     `Err "cloud list scanner returned an unknown result"
@@ -219,8 +219,7 @@ let rec scan_cloud_task_from: [CloudArgs, CloudTaskFacts] -> CloudTaskFactsResul
   }
 };
 
-let parse_cloud_task: [Text, CloudArgs] -> CloudCommandResult = (command: Text, args:
-  CloudArgs) => {
+let parse_cloud_task: [Text, CloudArgs] -> CloudCommandResult = (command: Text, args: CloudArgs) => {
     let initial: CloudTaskFacts = [.task_id = `None (), .attempt = `None ()];
     let scanned: CloudTaskFactsResult = scan_cloud_task_from(args, initial);
     if let `Err message = scanned {

@@ -35,8 +35,7 @@ if let `LiveTextAndImage preserved = live {
                 if let `SearchTextPresent country = preserved_location.country {
                   if let `SearchTextPresent timezone = preserved_location.timezone {
                     if country == "US" && timezone == "America/Los_Angeles" {
-                      if let `ContextSizePresent context_size =
-                        preserved_config.search_context_size {
+                      if let `ContextSizePresent context_size = preserved_config.search_context_size {
                           if let `Low () = context_size { config_valid = true }
                         }
                     }

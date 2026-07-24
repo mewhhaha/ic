@@ -2,20 +2,19 @@ module () where
 
 const {} = import "./tool_types.duck" ();
 const { .view_image_output_schema, .view_image_tool_specs } =
-  import "./view_image_registration.duck" ()
+  import "./view_image_registration.duck" ();
 
 type FixtureSpecs = ToolSpecs
 
 let full_parameters =
-  "{\"type\":\"object\",\"properties\":{\"detail\":{\"type\":\"string\",\"enum\":[\"high\",\"original\"],\"description\":\"Image detail level. Defaults to `high`; use `original` to preserve exact resolution.\"},\"environment_id\":{\"type\":\"string\",\"description\":\"Environment id from <environment_context>. Omit to use the primary environment.\"},\"path\":{\"type\":\"string\",\"description\":\"Local filesystem path to an image file.\"}},\"required\":[\"path\"],\"additionalProperties\":false}"
+  "{\"type\":\"object\",\"properties\":{\"detail\":{\"type\":\"string\",\"enum\":[\"high\",\"original\"],\"description\":\"Image detail level. Defaults to `high`; use `original` to preserve exact resolution.\"},\"environment_id\":{\"type\":\"string\",\"description\":\"Environment id from <environment_context>. Omit to use the primary environment.\"},\"path\":{\"type\":\"string\",\"description\":\"Local filesystem path to an image file.\"}},\"required\":[\"path\"],\"additionalProperties\":false}";
 let score = 0;
 let specs: FixtureSpecs = view_image_tool_specs(true, true, true);
 if let `Cons node = specs {
   let [spec, tail] = node;
   let [name, kind, description, parameters, output, strict] = spec;
   let [namespace, local_name] = name;
-  let output_valid = if let `ToolOutputSchemaPresent schema = output { schema ==
-    view_image_output_schema() } else { false };
+  let output_valid = if let `ToolOutputSchemaPresent schema = output { schema == view_image_output_schema() } else { false };
   if namespace == "" && local_name == "view_image" && description == "View a local image file from the filesystem when visual inspection is needed. Use this for images already available on disk." && parameters == full_parameters && output_valid && !(
     strict
   ) {

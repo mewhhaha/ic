@@ -21,8 +21,7 @@ let ts: FixtureResult = parse_app_server_tools("generate-ts", ts_args);
 if let `Ok command = ts {
   if let `GenerateAppServerTs options = command {
     if let `Some prettier = options.prettier {
-      if options.out_dir == "generated" && prettier == "prettier" && options.experimental { score =
-          score + 1 }
+      if options.out_dir == "generated" && prettier == "prettier" && options.experimental { score = score + 1 }
     }
   }
 }

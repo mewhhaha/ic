@@ -51,14 +51,12 @@ const verify_image_preparation_custom_response_fixture: () -> I32 = () => {
           score = score + 1
           if let `Cons first_node = rewritten_contents {
             let [first, after_first] = first_node;
-            if let `InputText value = first { if value ==
-              "image content omitted because it exceeded the supported size limit; use a smaller image" { score = score + 10 } }
+            if let `InputText value = first { if value == "image content omitted because it exceeded the supported size limit; use a smaller image" { score = score + 10 } }
             if let `Cons second_node = after_first {
               let [second, content_tail] = second_node;
               if let `InputAudio url = second {
                 if url == "data:audio/wav;base64,AA==" {
-                  if let `Nil () = content_tail { if let `Nil () = response_tail { score = score +
-                    100 } }
+                  if let `Nil () = content_tail { if let `Nil () = response_tail { score = score + 100 } }
                 }
               }
             }

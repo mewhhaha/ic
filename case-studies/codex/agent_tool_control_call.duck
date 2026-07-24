@@ -16,8 +16,7 @@ const plan_agent_message: [AgentToolContext, AgentToolMessageArguments, Bool] ->
   let target = resolve_agent_path(context.current_path, arguments.target);
   if let `InvalidPath message = target { return `AgentToolRejected message; }
   if let `Path path = target {
-    if followup && path == "/root" { return `AgentToolRejected
-      "Follow-up tasks can't target the root agent"; }
+    if followup && path == "/root" { return `AgentToolRejected "Follow-up tasks can't target the root agent"; }
     if followup { `FollowupTaskPlanned [path, arguments.message] } else { `SendMessagePlanned [
       path,
       arguments.message,

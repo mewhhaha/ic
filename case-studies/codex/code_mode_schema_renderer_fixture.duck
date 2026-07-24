@@ -12,7 +12,7 @@ const {
   .json_string,
 } = import "duck:prelude/json/values" ();
 const { .normalize_code_mode_identifier, .render_json_schema_to_typescript } =
-  import "./code_mode_schema_renderer.duck" ()
+  import "./code_mode_schema_renderer.duck" ();
 
 const typed_schema: Text -> Json = name => {
   json_object(json_object_prepend("type", json_string name, json_object_empty()))
@@ -44,8 +44,7 @@ let union_variants = json_array_prepend(
 let union_schema = json_object(
   json_object_prepend("anyOf", json_array union_variants, json_object_empty())
 );
-if render_json_schema_to_typescript union_schema == "\"x\" | number | boolean | null" { score =
-    score + 10 }
+if render_json_schema_to_typescript union_schema == "\"x\" | number | boolean | null" { score = score + 10 }
 
 let enum_values = json_array_prepend(
   json_string "b",
@@ -71,11 +70,9 @@ let repeated_members = json_object_prepend(
   json_object_prepend("items", boolean_schema, json_object_empty()),
 );
 let unknown_array_members = json_object_prepend("type", json_string "array", json_object_empty());
-if render_json_schema_to_typescript(json_object
-  tuple_members) == "[string, number]" && render_json_schema_to_typescript(
+if render_json_schema_to_typescript(json_object tuple_members) == "[string, number]" && render_json_schema_to_typescript(
     json_object repeated_members
-  ) == "Array<boolean>" && render_json_schema_to_typescript(json_object unknown_array_members) ==
-  "unknown[]" {
+  ) == "Array<boolean>" && render_json_schema_to_typescript(json_object unknown_array_members) == "unknown[]" {
     score = score + 1000
   }
 
@@ -98,8 +95,7 @@ let sorted_object_members = json_object_prepend(
     ),
   ),
 );
-if render_json_schema_to_typescript(json_object
-  sorted_object_members) == "{ \"a-b\"?: number; z: string; }" { score = score + 10000 }
+if render_json_schema_to_typescript(json_object sorted_object_members) == "{ \"a-b\"?: number; z: string; }" { score = score + 10000 }
 
 let location_property_members = json_object_prepend("location", string_schema, json_object_empty());
 let location_required = json_array_prepend(json_string "location", json_array_empty());
@@ -137,9 +133,8 @@ let documented_members = json_object_prepend(
   ),
 );
 let documented_expected =
-  "{\n  // look up weather\n  // for locations\n  weather: Array<{ location: string; }>;\n}"
-if render_json_schema_to_typescript(json_object documented_members) == documented_expected { score =
-    score + 100000 }
+  "{\n  // look up weather\n  // for locations\n  weather: Array<{ location: string; }>;\n}";
+if render_json_schema_to_typescript(json_object documented_members) == documented_expected { score = score + 100000 }
 
 let additional_members = json_object_prepend(
   "type",

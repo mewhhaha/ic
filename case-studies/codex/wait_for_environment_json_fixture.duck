@@ -7,8 +7,7 @@ if let `Parsed args = parse_wait_for_environment_args "{\"environment_id\":\"gpu
   if args.environment_id == "gpu" { score = score + 1 }
 }
 if let `ParseFailed message = parse_wait_for_environment_args "{}" {
-  if message == "failed to parse function arguments: environment_id is required" { score = score +
-    10 }
+  if message == "failed to parse function arguments: environment_id is required" { score = score + 10 }
 }
 if let `ParseFailed message = parse_wait_for_environment_args "[]" {
   if message == "failed to parse function arguments: wait_for_environment arguments must be an object" { score = score + 100 }

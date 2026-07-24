@@ -2,11 +2,11 @@ module () where
 
 const { .json_object_prepend, .json_string } = import "duck:prelude/json/values" ();
 const { .parse_agent_job_csv, .render_agent_job_instruction, .validate_agent_job_csv_rows } =
-  import "./agent_job_csv.duck" ()
+  import "./agent_job_csv.duck" ();
 
 let score = 0;
 let parsed =
-  parse_agent_job_csv "id,name,path\r\n1,\"alpha, beta\",src/lib.rs\r\n2,\"a\"\"b\",docs/readme.md\r\n\r\n"
+  parse_agent_job_csv "id,name,path\r\n1,\"alpha, beta\",src/lib.rs\r\n2,\"a\"\"b\",docs/readme.md\r\n\r\n";
 if let `CsvParsed document = parsed {
   if validate_agent_job_csv_rows document == "" {
     if let `Cons first_node = document.rows {
@@ -28,8 +28,7 @@ if let `CsvParsed document = parsed {
 
 let bad = parse_agent_job_csv "id,name\n1,alpha,extra\n";
 if let `CsvParsed document = bad {
-  if validate_agent_job_csv_rows document == "csv row 2 has 3 fields but header has 2" { score =
-      score + 100 }
+  if validate_agent_job_csv_rows document == "csv row 2 has 3 fields but header has 2" { score = score + 100 }
 }
 
 let row = json_object_prepend(

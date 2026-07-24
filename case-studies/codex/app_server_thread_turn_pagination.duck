@@ -14,8 +14,7 @@ type TurnPaginationInput = AppServerThreadTurnsPaginationInput
 type TurnPaginationPage = AppServerThreadTurnsCursorPage
 type TurnPaginationPageResult = AppServerThreadTurnsCursorPageResult
 
-let turns_from_cursor: [TurnPaginationTurns, TurnPaginationCursorOption] ->
-  TurnPaginationTurnsResult = (
+let turns_from_cursor: [TurnPaginationTurns, TurnPaginationCursorOption] -> TurnPaginationTurnsResult = (
     ordered: TurnPaginationTurns,
     cursor: TurnPaginationCursorOption,
   ) => {
@@ -53,8 +52,7 @@ let turns_from_cursor: [TurnPaginationTurns, TurnPaginationCursorOption] ->
   };
 
 let paginate_thread_turns: TurnPaginationInput -> TurnPaginationPageResult = (
-  input: TurnPaginationInput
-) => {
+  input: TurnPaginationInput ) => {
   let [history, cursor, page_size, sort_direction, items_view] = input;
   let projected: TurnPaginationTurns = apply_thread_turns_items_view(history, items_view);
   let ordered: TurnPaginationTurns = if let `Descending () = sort_direction { list_reverse(
@@ -99,7 +97,7 @@ let paginate_thread_turns: TurnPaginationInput -> TurnPaginationPageResult = (
       }
     }
 
-    let page: TurnPaginationPage = [page_turns, next_cursor, backwards_cursor]
+    let page: TurnPaginationPage = [page_turns, next_cursor, backwards_cursor];
     `Ok page;
   } else {
     `Err "thread/turns/list could not paginate turns"
