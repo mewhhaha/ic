@@ -4469,7 +4469,8 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
 
       if (
         resolved?.tag === "struct_type" &&
-        resolved.nominal_name !== undefined
+        resolved.nominal_name !== undefined &&
+        !resolved.nominal_name.includes(" ")
       ) {
         type_expr = { tag: "var", name: resolved.nominal_name };
       }
@@ -4748,7 +4749,10 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
         if (resolved?.tag === "union_type") {
           union_type_value = resolved;
 
-          if (resolved.nominal_name !== undefined) {
+          if (
+            resolved.nominal_name !== undefined &&
+            !resolved.nominal_name.includes(" ")
+          ) {
             type_expr = { tag: "var", name: resolved.nominal_name };
           }
         }
