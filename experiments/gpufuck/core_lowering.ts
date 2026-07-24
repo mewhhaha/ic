@@ -337,7 +337,10 @@ class DuckCoreLowering {
       if (statement.tag !== "bind" || statement.kind !== "const") {
         continue;
       }
-      if (this.#types.has(statement.name)) {
+      if (
+        this.#types.has(statement.name) ||
+        this.#type_aliases.has(statement.name)
+      ) {
         continue;
       }
       if (statement.value.tag === "type_name") {
@@ -358,6 +361,51 @@ class DuckCoreLowering {
       if (definition !== undefined) {
         this.#types.set(statement.name, definition);
       }
+    }
+
+    for (const [name, definition] of [...this.#types]) {
+      const match = /^_(.+)#shadow\d+$/.exec(name);
+      if (match === null) {
+        continue;
+      }
+      const source_name = match[1];
+      if (source_name === undefined) {
+        throw new Error("Duck gpufuck lowering lost shadow source type");
+      }
+      const source_definition = this.#types.get(source_name);
+      if (
+        source_definition === undefined ||
+        source_definition.shape !== definition.shape
+      ) {
+        continue;
+      }
+      let definition_entries = definition.cases;
+      let source_entries = source_definition.cases;
+      if (definition.shape === "struct") {
+        definition_entries = definition.fields;
+        source_entries = source_definition.fields;
+      }
+      if (definition_entries.length !== source_entries.length) {
+        continue;
+      }
+      let same_definition = true;
+      for (let index = 0; index < definition_entries.length; index += 1) {
+        const entry = definition_entries[index];
+        const source_entry = source_entries[index];
+        if (
+          entry === undefined || source_entry === undefined ||
+          entry.name !== source_entry.name ||
+          !this.same_type(entry.type, source_entry.type)
+        ) {
+          same_definition = false;
+          break;
+        }
+      }
+      if (!same_definition) {
+        continue;
+      }
+      this.#type_aliases.set(name, source_name);
+      this.#types.delete(name);
     }
 
     this.canonicalize_generated_struct_types();

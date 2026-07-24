@@ -229,6 +229,7 @@ export function route_execute_command(
           "test",
           "--allow-read",
           "--allow-write",
+          "--allow-run",
           "examples/examples.test.ts",
           "--filter",
           "example runs: " + example.path,

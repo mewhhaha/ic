@@ -48,6 +48,20 @@ as_character(68) == 'D'
   assert_includes(Source.wat(runtime_character), "i32.const 68");
 });
 
+Deno.test("source cast wrappers retain inferred character results", () => {
+  const source = `
+const cast = (value, const target) => @cast(value, target);
+let is_line_break = (byte: I32) => {
+  let character = cast(byte, Char);
+  character == '\\n'
+};
+is_line_break(10)
+`;
+
+  assert_equals(Source.analyze(source).diagnostics, []);
+  assert_includes(Source.wat(source), "i32.const 10");
+});
+
 Deno.test("Char equality is closed over Char and arithmetic rejects Char", () => {
   assert_equals(Source.analyze("'c' == 'C'").diagnostics, []);
 

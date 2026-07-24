@@ -1,6 +1,6 @@
 import type { DuckInitValue } from "../src/frontend.ts";
 
-export type ExampleRoute = "ic" | "core" | "managed";
+export type ExampleRoute = "ic" | "core" | "managed" | "gpufuck";
 
 export type ExampleRun = {
   name?: string;
@@ -17,7 +17,7 @@ export type SuccessExample = {
 
 export type CompileFailureExample = {
   path: string;
-  route: ExampleRoute;
+  route: Exclude<ExampleRoute, "gpufuck">;
   message: string;
 };
 
@@ -217,6 +217,11 @@ export const success_examples: SuccessExample[] = [
   {
     path: "examples/compile_time/22_generic_extension.duck",
     route: "core",
+    runs: run(42),
+  },
+  {
+    path: "examples/compile_time/23_derived_sequence.duck",
+    route: "gpufuck",
     runs: run(42),
   },
 

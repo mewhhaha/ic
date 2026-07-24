@@ -68,6 +68,63 @@ Deno.test("Duck handler elaboration runs a deep scalar counter", async () => {
   assert_equals(await run_i32(counter_source), 2);
 });
 
+Deno.test("locally handled effects resume through runtime range loops", async () => {
+  assert_equals(
+    await run_i32(`
+effect Counter {
+  add: (I32) => Unit
+}
+let run = (count: I32) => {
+  for index in 0..count {
+    _ <- Counter.add(index)
+  }
+  0
+};
+let counter = {
+  let count = 0;
+  handler Counter {
+    add: (amount, !resume) => {
+      count = count + amount
+      !resume(())
+    },
+    return: _ => count,
+  }
+};
+try run(5) with counter
+`),
+    10,
+  );
+});
+
+Deno.test("an aborting loop handler skips the recursive continuation", async () => {
+  assert_equals(
+    await run_i32(`
+effect Stop {
+  stop: (I32) => Unit
+}
+let run: () -> <Stop> I32 = () => {
+  let index = 0;
+
+  loop {
+    if index == 3 {
+      _ <- Stop.stop(index)
+    }
+
+    index = index + 1
+  }
+
+  99
+};
+let stop = handler Stop {
+  stop: (value, !resume) => value,
+  return: value => value,
+};
+try run() with stop
+`),
+    3,
+  );
+});
+
 Deno.test("Duck handler elaboration lowers an inferred nested effect function", async () => {
   assert_equals(
     await run_i32(`

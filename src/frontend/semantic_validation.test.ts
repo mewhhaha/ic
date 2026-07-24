@@ -360,6 +360,33 @@ Deno.test("calls distinguish argument packs from tuple values", () => {
   );
 });
 
+Deno.test("semantic validation accepts declared iterator state structs", () => {
+  const source = parse_source(`
+type Counter = struct { .next_value = I32, .end = I32 }
+
+extend Counter {
+  type Item = I32,
+  .has_next = counter => counter.next_value < counter.end,
+  .next = counter => {
+    let next = [
+      .next_value = counter.next_value + 1,
+      .end = counter.end,
+    ];
+    [counter.next_value, next]
+  },
+}
+
+let counter: Counter = [.next_value = 0, .end = 3];
+let total = 0;
+for value in counter {
+  total = total + value
+}
+total
+`);
+
+  assert_equals(validate_frontend_semantics(source), []);
+});
+
 Deno.test("semantic warning liveness traverses handlers and type tests", async () => {
   for (
     const path of [

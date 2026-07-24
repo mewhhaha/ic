@@ -25,7 +25,6 @@ export async function main(runner: EditorRunner): Promise<EditorResult> {
 function decode_result(value: DuckHostValue): EditorResult {
   if (
     value.kind !== "constructor" ||
-    value.name !== "duck::$DuckStruct:duck_entry_result_type" ||
     value.fields.length !== 1
   ) {
     throw new Error("editor module must return a one-slot product");

@@ -1,7 +1,61 @@
 module (!init: Init) where
 
-const { .cast, .not, .slice, .struct } = import "duck:prelude" ();
-const { .iterator_count, .iterator_map } = import "duck:prelude/iterators" ();
+const { .cast, .struct } = import "duck:prelude/types" ();
+const { .derive_sequence } = import "duck:prelude/collections" ();
+const { .iterator_count } = import "duck:prelude/iterators" ();
+
+type Key =
+  | `Character Char
+  | `ArrowLeft Unit
+  | `ArrowRight Unit
+  | `Escape Unit
+  | `Backspace Unit
+  | `Enter Unit
+  | `Tab Unit
+  | `ControlC Unit
+type KeyDecoder =
+  | `Ground Unit
+  | `EscapePrefix Unit
+  | `ControlSequence Unit
+@[derive_sequence(
+  Key,
+  () => `NoKeys (),
+  keys => if let `NoKeys () = keys { true } else { false },
+  keys => match keys {
+    | `MoreKeys node => node[0]
+    | _ => `Escape ()
+  },
+  keys => match keys {
+    | `MoreKeys node => node[1]
+    | _ => keys
+  },
+  (key: Key, tail) => `MoreKeys [key, tail],
+)]
+type KeySequence =
+  | `NoKeys Unit
+  | `MoreKeys KeySequenceNode
+type KeySequenceNode = [Key, KeySequence]
+type EditorCommand =
+  | `Save Unit
+  | `Quit Unit
+@[derive_sequence(
+  EditorCommand,
+  () => `NoCommands (),
+  commands => if let `NoCommands () = commands { true } else { false },
+  commands => match commands {
+    | `MoreCommands node => node[0]
+    | _ => `Quit ()
+  },
+  commands => match commands {
+    | `MoreCommands node => node[1]
+    | _ => commands
+  },
+  (command: EditorCommand, tail) => `MoreCommands [command, tail],
+)]
+type EditorCommands =
+  | `NoCommands Unit
+  | `MoreCommands EditorCommandNode
+type EditorCommandNode = [EditorCommand, EditorCommands]
 
 type PieceTree = | `Empty Unit | `Leaf PieceLeaf | `Branch PieceBranch
 type PieceLeaf = struct { .piece = Bytes, .lines = I32 }
@@ -21,34 +75,10 @@ type Status = | `Ready Unit | `SaveFailed Unit
 type Highlight = struct { .start = I32, .end = I32 }
 type TerminalSize = struct { .columns = I32, .rows = I32 }
 type OutputBuilder = struct { .buffer = Bytes, .length = I32 }
-type Key =
-  | `Character Char
-  | `ArrowLeft Unit
-  | `ArrowRight Unit
-  | `Escape Unit
-  | `Backspace Unit
-  | `Enter Unit
-  | `Tab Unit
-  | `ControlC Unit
-type KeyDecoder =
-  | `Ground Unit
-  | `EscapePrefix Unit
-  | `ControlSequence Unit
-type KeySequence =
-  | `NoKeys Unit
-  | `MoreKeys KeySequenceNode
-type KeySequenceNode = [Key, KeySequence]
 type KeyDecodeStep = struct {
   .decoder = KeyDecoder,
   .keys = KeySequence,
 }
-type EditorCommand =
-  | `Save Unit
-  | `Quit Unit
-type EditorCommands =
-  | `NoCommands Unit
-  | `MoreCommands EditorCommandNode
-type EditorCommandNode = [EditorCommand, EditorCommands]
 type EditorStep = struct {
   .editor = Editor,
   .commands = EditorCommands,
@@ -56,6 +86,10 @@ type EditorStep = struct {
 type EditorInputStep = struct {
   .editor = Editor,
   .decoder = KeyDecoder,
+  .commands = EditorCommands,
+}
+type AppliedKeys = struct {
+  .editor = Editor,
   .commands = EditorCommands,
 }
 type RenderView = struct {
@@ -72,10 +106,16 @@ type Editor = struct {
   .status = Status,
 }
 
-const escape_character: Char = cast(27, Char);
-const control_c_character: Char = cast(3, Char);
-const backspace_character: Char = cast(8, Char);
-const delete_character: Char = cast(127, Char);
+effect RenderOutput {
+  append: (I32) => Unit
+}
+
+const { .not, .slice } = import "duck:prelude" ();
+
+const escape_character = cast(27, Char);
+const control_c_character = cast(3, Char);
+const backspace_character = cast(8, Char);
+const delete_character = cast(127, Char);
 const control_sequence_introducer: Char = '[';
 const cursor_home_command: Char = 'H';
 const erase_display_command: Char = 'J';
@@ -91,18 +131,18 @@ const terminal_line_break_byte_count = 2;
 // The frame emits two 3-byte cursor/display sequences and at most four 4-byte style sequences.
 const terminal_frame_control_capacity = 22;
 
-const empty_piece_tree: () -> PieceTree = () => {
+const empty_piece_tree = () => {
   let tree: PieceTree = `Empty ();
   tree
 };
 
-const empty_piece_cursor: () -> List PieceTree = () => {
+const empty_piece_cursor = () => {
   let cursor: List PieceTree = `Nil ();
   cursor
 };
 
-const is_line_break = (byte: I32) => {
-  let character: Char = cast(byte, Char);
+let is_line_break = (byte: I32) => {
+  let character = cast(byte, Char);
   character == '\n'
 };
 
@@ -217,10 +257,7 @@ let byte_at = (table: PieceTable, wanted: I32) => {
   found
 };
 
-let rec split_piece_tree: [
-  PieceTree,
-  I32,
-] -> (PieceTree, PieceTree) = (tree: PieceTree, position: I32) => {
+let rec split_piece_tree = (tree: PieceTree, position: I32) => {
   let length = piece_tree_length tree;
 
   if position <= 0 {
@@ -488,23 +525,17 @@ let insert_byte = (editor, byte) => {
   collapse(updated, position + 1)
 };
 
-let empty_editor_commands = () => {
-  let commands: EditorCommands = `NoCommands ();
-  commands
-};
-
 let continue_editing = editor => {
   EditorStep.new {
     .editor = editor,
-    .commands = empty_editor_commands(),
+    .commands = EditorCommands.empty(),
   }
 };
 
 let request_editor_command = (editor, command: EditorCommand) => {
-  let commands: EditorCommands = `MoreCommands [command, empty_editor_commands()];
   EditorStep.new {
     .editor = editor,
-    .commands = commands,
+    .commands = EditorCommands.prepend(command, EditorCommands.empty()),
   }
 };
 
@@ -576,7 +607,7 @@ let apply_insert_key = (editor, key: Key) => match key {
   | _ => continue_editing editor
 };
 
-let apply_key: [Editor, Key] -> EditorStep = (editor, key) => match key {
+let apply_key = (editor, key) => match key {
   | `ArrowLeft () => {
     let updated = move_head(
       editor,
@@ -614,23 +645,17 @@ let apply_key: [Editor, Key] -> EditorStep = (editor, key) => match key {
   }
 };
 
-let empty_keys = () => {
-  let keys: KeySequence = `NoKeys ();
-  keys
-};
-
 let decoded_without_key = decoder => {
   KeyDecodeStep.new {
     .decoder = decoder,
-    .keys = empty_keys(),
+    .keys = KeySequence.empty(),
   }
 };
 
 let decoded_key = (decoder, key: Key) => {
-  let keys: KeySequence = `MoreKeys [key, empty_keys()];
   KeyDecodeStep.new {
     .decoder = decoder,
-    .keys = keys,
+    .keys = KeySequence.prepend(key, KeySequence.empty()),
   }
 };
 
@@ -645,7 +670,7 @@ let decode_ground_character = character => match character {
   | _ => decoded_key(`Ground (), `Character character)
 };
 
-let decode_key_character: [KeyDecoder, Char] -> KeyDecodeStep = (decoder, character) => {
+let decode_key_character = (decoder, character) => {
   match decoder {
     | `Ground () => decode_ground_character character
     | `EscapePrefix () => {
@@ -653,10 +678,9 @@ let decode_key_character: [KeyDecoder, Char] -> KeyDecodeStep = (decoder, charac
         decoded_without_key(`ControlSequence ())
       } else {
         let decoded = decode_ground_character character;
-        let keys: KeySequence = `MoreKeys [`Escape (), decoded.keys];
         KeyDecodeStep.new {
           .decoder = decoded.decoder,
-          .keys = keys,
+          .keys = KeySequence.prepend(`Escape (), decoded.keys),
         }
       }
     }
@@ -670,44 +694,48 @@ let decode_key_character: [KeyDecoder, Char] -> KeyDecodeStep = (decoder, charac
   }
 };
 
-let apply_keys: [Editor, KeyDecoder, Bytes] -> EditorInputStep = (editor, decoder, bytes) => {
+let rec prepend_commands = (
+  pending: EditorCommands,
+  reversed: EditorCommands,
+) => match pending {
+  | `MoreCommands node => {
+    prepend_commands(node[1], `MoreCommands [node[0], reversed])
+  }
+  | `NoCommands () => reversed
+};
+
+let rec apply_decoded_keys = (
+  editor: Editor,
+  keys: KeySequence,
+  reversed_commands: EditorCommands,
+) => match keys {
+  | `MoreKeys node => {
+    let step = apply_key(editor, node[0]);
+    let commands = prepend_commands(step.commands, reversed_commands);
+    apply_decoded_keys(step.editor, node[1], commands)
+  }
+  | `NoKeys () => AppliedKeys.new {
+    .editor = editor,
+    .commands = reversed_commands,
+  }
+};
+
+let apply_keys = (editor, decoder, bytes) => {
   let updated = editor;
   let current_decoder = decoder;
-  let reversed_commands = empty_editor_commands();
+  let reversed_commands = EditorCommands.empty();
 
   for byte in bytes {
-    let character: Char = cast(byte, Char);
+    let character = cast(byte, Char);
     let decoded = decode_key_character(current_decoder, character);
     current_decoder = decoded.decoder
-    let pending_keys = decoded.keys;
-    let keys_done = false;
-
-    loop {
-      if let `MoreKeys key_node = pending_keys {
-        let [key, remaining_keys] = key_node;
-        pending_keys = remaining_keys
-        let step = apply_key(updated, key);
-        updated = step.editor
-        let pending_commands = step.commands;
-        let commands_done = false;
-
-        loop {
-          if let `MoreCommands command_node = pending_commands {
-            let [command, remaining_commands] = command_node;
-            reversed_commands = `MoreCommands [command, reversed_commands]
-            pending_commands = remaining_commands
-          } else {
-            commands_done = true
-          }
-
-          if commands_done { break; }
-        }
-      } else {
-        keys_done = true
-      }
-
-      if keys_done { break; }
-    }
+    let applied = apply_decoded_keys(
+      updated,
+      decoded.keys,
+      reversed_commands,
+    );
+    updated = applied.editor
+    reversed_commands = applied.commands
   }
 
   if let `EscapePrefix () = current_decoder {
@@ -716,26 +744,10 @@ let apply_keys: [Editor, KeyDecoder, Bytes] -> EditorInputStep = (editor, decode
     current_decoder = `Ground ()
   }
 
-  let commands = empty_editor_commands();
-  let pending_commands = reversed_commands;
-  let commands_done = false;
-
-  loop {
-    if let `MoreCommands command_node = pending_commands {
-      let [command, remaining_commands] = command_node;
-      commands = `MoreCommands [command, commands]
-      pending_commands = remaining_commands
-    } else {
-      commands_done = true
-    }
-
-    if commands_done { break; }
-  }
-
   EditorInputStep.new {
     .editor = updated,
     .decoder = current_decoder,
-    .commands = commands,
+    .commands = EditorCommands.reverse(reversed_commands),
   }
 };
 
@@ -752,23 +764,42 @@ let append_output_byte = (output, byte) => {
   OutputBuilder.new { .buffer = buffer, .length = output.length + 1 }
 };
 
-let append_output_character = (output, character: Char) => {
-  append_output_byte(output, cast(character, I32))
+let render_output = capacity => {
+  let output = output_builder capacity;
+  handler RenderOutput {
+    append: (byte, !resume) => {
+      output = append_output_byte(output, byte)
+      !resume(())
+    },
+    return: _ => slice(&output.buffer, 0, output.length),
+  }
 };
 
-let append_control_sequence = (output, command: Char) => {
-  let updated = append_output_character(output, escape_character);
-  updated = append_output_character(updated, control_sequence_introducer)
-  append_output_character(updated, command)
+let emit_output_byte = byte => {
+  _ <- RenderOutput.append(byte)
+  ()
 };
 
-let append_sgr = (output, parameter: Char) => {
-  let updated = append_control_sequence(output, parameter);
-  append_output_character(updated, select_graphic_rendition_command)
+let emit_output_character = (character: Char) => {
+  _ <- emit_output_byte(cast(character, I32))
+  ()
+};
+
+let emit_control_sequence = (command: Char) => {
+  _ <- emit_output_character escape_character
+  _ <- emit_output_character control_sequence_introducer
+  _ <- emit_output_character command
+  ()
+};
+
+let emit_sgr = (parameter: Char) => {
+  _ <- emit_control_sequence parameter
+  _ <- emit_output_character select_graphic_rendition_command
+  ()
 };
 
 const display_byte = (byte: I32) => {
-  let character: Char = cast(byte, Char);
+  let character = cast(byte, Char);
   if character == '\t' { cast(' ', I32) } else { byte }
 };
 
@@ -788,71 +819,73 @@ let render = view => {
   let line_break_capacity = visible_rows * terminal_line_break_byte_count;
   let output_capacity =
     document.length() + line_break_capacity + visible_columns + terminal_frame_control_capacity;
-  let output = output_builder(output_capacity);
-  output = append_control_sequence(output, cursor_home_command)
-  output = append_control_sequence(output, erase_display_command)
-  let highlighted = false;
-  let row = 0;
-  let column = 0;
-  let document_bytes = IntoIterator.iterator(document);
-  let displayed_bytes = iterator_map(document_bytes, display_byte);
 
-  for position, byte in displayed_bytes {
-    if row >= visible_rows { break; }
-    let character: Char = cast(byte, Char);
+  try {
+    _ <- emit_control_sequence cursor_home_command
+    _ <- emit_control_sequence erase_display_command
+    let highlighted = false;
+    let row = 0;
+    let column = 0;
 
-    if position == selected_start {
-      output = append_sgr(output, inverse_video_parameter)
-      highlighted = true
-    }
+    for position in 0..document.length() {
+      let byte = display_byte document[position];
+      let character = cast(byte, Char);
 
-    if position == selected_end && highlighted {
-      output = append_sgr(output, reset_style_parameter)
-      highlighted = false
-    }
+      if row < visible_rows {
+        if position == selected_start {
+          _ <- emit_sgr inverse_video_parameter
+          highlighted = true
+        }
 
-    if character == '\n' {
-      output = append_output_character(output, '\r')
-      output = append_output_character(output, '\n')
-      row = row + 1
-      column = 0
-    } else if column < visible_columns {
-      output = append_output_byte(output, byte)
+        if position == selected_end && highlighted {
+          _ <- emit_sgr reset_style_parameter
+          highlighted = false
+        }
 
-      if not(is_utf8_continuation byte) {
-        column = column + 1
+        if character == '\n' {
+          _ <- emit_output_character '\r'
+          _ <- emit_output_character '\n'
+          row = row + 1
+          column = 0
+        } else if column < visible_columns {
+          _ <- emit_output_byte byte
+
+          if not(is_utf8_continuation byte) {
+            column = column + 1
+          }
+        }
       }
     }
-  }
 
-  if highlighted {
-    output = append_sgr(output, reset_style_parameter)
-  }
-
-  for _ in row..visible_rows {
-    output = append_output_character(output, '\r')
-    output = append_output_character(output, '\n')
-  }
-
-  output = append_sgr(output, inverse_video_parameter)
-  let label = if let `SaveFailed () = status {
-    " SAVE FAILED  w retry  q quit "
-  } else if let `Insert () = mode {
-    " INSERT  esc normal "
-  } else if let `Extend () = mode {
-    " EXTEND  h/l move  d delete  i/a insert  w save  q quit "
-  } else {
-    " NORMAL  h/l move  v extend  d delete  i/a insert  w save  q quit "
-  };
-
-  for label_index, byte in label {
-    if label_index < visible_columns {
-      output = append_output_byte(output, byte)
+    if highlighted {
+      _ <- emit_sgr reset_style_parameter
     }
-  }
 
-  output = append_sgr(output, reset_style_parameter)
-  slice(&output.buffer, 0, output.length)
+    for _ in row..visible_rows {
+      _ <- emit_output_character '\r'
+      _ <- emit_output_character '\n'
+    }
+
+    _ <- emit_sgr inverse_video_parameter
+    let label = if let `SaveFailed () = status {
+      " SAVE FAILED  w retry  q quit "
+    } else if let `Insert () = mode {
+      " INSERT  esc normal "
+    } else if let `Extend () = mode {
+      " EXTEND  h/l move  d delete  i/a insert  w save  q quit "
+    } else {
+      " NORMAL  h/l move  v extend  d delete  i/a insert  w save  q quit "
+    };
+
+    for label_index in 0..label.length() {
+      if label_index < visible_columns {
+        _ <- emit_output_byte label[label_index]
+      }
+    }
+
+    _ <- emit_sgr reset_style_parameter
+    ()
+  } with render_output output_capacity
 };
 
 document <- Terminal.load()
@@ -885,7 +918,7 @@ loop {
   _ <- Terminal.write(&frame)
   read_result <- Terminal.read()
   let `Keys keys = read_result else { break; };
-  let input_step = apply_keys(editor, key_decoder, keys);
+  let input_step: EditorInputStep = apply_keys(editor, key_decoder, keys);
   editor = input_step.editor
   key_decoder = input_step.decoder
   let quit_requested = false;

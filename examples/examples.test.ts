@@ -15,6 +15,7 @@ import {
   trap_examples,
 } from "./manifest.ts";
 import { corpus_feature_examples } from "./corpus_coverage.ts";
+import { DuckCompiler } from "../experiments/gpufuck/compiler.ts";
 
 const decoder = new TextDecoder();
 
@@ -22,6 +23,11 @@ for (const example of success_examples) {
   Deno.test("example runs: " + example.path, async () => {
     if (example.route === "managed") {
       await run_managed_example(example);
+      return;
+    }
+
+    if (example.route === "gpufuck") {
+      await run_gpufuck_example(example);
       return;
     }
 
@@ -132,7 +138,7 @@ Deno.test("example manifest accounts for every .duck file", () => {
 
   const actual = new Set(collect_duck_files("examples"));
   assert_equals([...actual].sort(), [...expected].sort());
-  assert_equals(success_examples.length, 94);
+  assert_equals(success_examples.length, 95);
   assert_equals(compile_failure_examples.length, 13);
   assert_equals(trap_examples.length, 4);
   assert_equals(test_example_paths.length, 1);
@@ -199,6 +205,10 @@ function compile_example(example: SuccessExample): string {
     throw new Error("Managed examples compile through Source.artifact_file");
   }
 
+  if (example.route === "gpufuck") {
+    throw new Error("Gpufuck examples compile through DuckCompiler");
+  }
+
   example.route satisfies never;
   throw new Error("Unknown example route");
 }
@@ -221,6 +231,27 @@ async function run_managed_example(example: SuccessExample): Promise<void> {
     }
   } finally {
     program.dispose();
+  }
+}
+
+async function run_gpufuck_example(example: SuccessExample): Promise<void> {
+  const compiler = await DuckCompiler.create();
+
+  try {
+    for (const example_run of example.runs) {
+      const execution = await compiler.run_file(example.path);
+
+      if (execution.value.kind !== "integer") {
+        throw new Error(
+          "Gpufuck example returned " + execution.value.kind + ": " +
+            example.path,
+        );
+      }
+
+      assert_equals(execution.value.value, example_run.expected);
+    }
+  } finally {
+    compiler.destroy();
   }
 }
 

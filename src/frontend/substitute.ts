@@ -614,7 +614,7 @@ function substitute_front_type_expr(
 
   if (type.tag === "product") {
     return {
-      tag: "product",
+      ...type,
       entries: type.entries.map((entry) => ({
         ...entry,
         type_expr: substitute_front_type_expr(

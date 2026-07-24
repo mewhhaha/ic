@@ -10,6 +10,7 @@ import type {
 import { collect_linear_closure_names } from "./linear_closure_names.ts";
 import { apply_function_result_context } from "./parser_stmt/binding.ts";
 import { stmt_result_expr } from "./block_result.ts";
+import { analyze_front_expression_effects } from "./effect_analysis.ts";
 import {
   source_facts,
   type SourceFacts,
@@ -24,6 +25,7 @@ type FunctionBinding = {
   name: string;
   owner: object;
   pattern?: Pattern;
+  recursive: boolean;
   type_annotation?: TypeExpr;
   value: FrontExpr;
 };
@@ -42,10 +44,16 @@ export function infer_front_function_signatures(source: Source): Source {
   const components = function_components(
     new Map(initial_bindings.map((binding) => [binding.name, binding])),
   );
+  const effectful = effectful_function_names(source, initial_bindings);
 
   for (let round = 0; round < maximum_rounds; round += 1) {
     const facts = source_facts(inferred);
-    const signatures = inferred_signatures(inferred, facts, components);
+    const signatures = inferred_signatures(
+      inferred,
+      facts,
+      components,
+      effectful,
+    );
 
     if (signatures.size === 0) {
       return inferred;
@@ -134,6 +142,7 @@ function inferred_signatures(
   source: Source,
   facts: SourceFacts,
   components: readonly (readonly string[])[],
+  effectful: ReadonlySet<string>,
 ): Map<string, InferredSignature> {
   const bindings = new Map(
     function_bindings(source).map((binding) => [binding.name, binding]),
@@ -142,6 +151,9 @@ function inferred_signatures(
 
   for (const component of components) {
     for (const name of component) {
+      if (effectful.has(name)) {
+        continue;
+      }
       const binding = bindings.get(name);
 
       if (binding === undefined) {
@@ -158,6 +170,86 @@ function inferred_signatures(
   }
 
   return signatures;
+}
+
+function effectful_function_names(
+  source: Source,
+  bindings: FunctionBinding[],
+): ReadonlySet<string> {
+  const effectful = new Set<string>();
+  const fully_handled = new Set<string>();
+
+  for (const binding of bindings) {
+    if (binding.value.tag !== "lam" && binding.value.tag !== "rec") {
+      continue;
+    }
+
+    if (contains_handler(binding.value.body)) {
+      const effects = analyze_front_expression_effects(
+        source,
+        binding.value.body,
+      );
+
+      if (effects.length > 0) {
+        effectful.add(binding.name);
+      } else {
+        fully_handled.add(binding.name);
+      }
+      continue;
+    }
+
+    if (contains_state_binding(binding.value.body)) {
+      effectful.add(binding.name);
+    }
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+
+    for (const binding of bindings) {
+      if (
+        effectful.has(binding.name) || fully_handled.has(binding.name) ||
+        (binding.value.tag !== "lam" && binding.value.tag !== "rec")
+      ) {
+        continue;
+      }
+
+      const references = new Set<string>();
+      collect_linear_closure_names(binding.value.body, references);
+
+      if ([...references].some((name) => effectful.has(name))) {
+        effectful.add(binding.name);
+        changed = true;
+      }
+    }
+  }
+
+  return effectful;
+}
+
+function contains_handler(value: unknown): boolean {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+
+  if ("tag" in value && value.tag === "try_with") {
+    return true;
+  }
+
+  return Object.values(value).some(contains_handler);
+}
+
+function contains_state_binding(value: unknown): boolean {
+  if (value === null || typeof value !== "object") {
+    return false;
+  }
+
+  if ("tag" in value && value.tag === "state_bind") {
+    return true;
+  }
+
+  return Object.values(value).some(contains_state_binding);
 }
 
 function inferred_signature(
@@ -184,14 +276,14 @@ function inferred_signature(
   let type_annotation = binding.type_annotation;
   let annotation = binding.annotation;
   let pattern = binding.pattern;
-  const has_explicit_parameter = binding.value.params.some((param) => {
-    return param.type_annotation !== undefined ||
-      param.annotation !== undefined;
-  });
+  const has_explicit_parameter = binding.value.params.some((param) =>
+    param.annotation !== undefined || param.type_annotation !== undefined
+  );
+  const result_is_nominal = fact.call_result?.nominal !== undefined;
 
   if (
     type_annotation === undefined && annotation === undefined &&
-    !has_explicit_parameter &&
+    (!has_explicit_parameter || binding.recursive || result_is_nominal) &&
     fact.call_params.length === binding.value.params.length
   ) {
     const param_types = fact.call_params.map(source_type_expr);
@@ -199,7 +291,7 @@ function inferred_signature(
 
     if (
       result_type?.tag === "product" &&
-      returns_value_pack_syntax(binding.value.body)
+      returns_value_pack_syntax(binding.value.body, binding.name)
     ) {
       result_type = { ...result_type, value_pack: true };
     }
@@ -319,6 +411,19 @@ function source_type_expr(
     ) {
       type = function_type(params, result);
     }
+  } else if (fact.nominal !== undefined) {
+    type = { tag: "name", name: fact.nominal };
+
+    for (const argument of fact.type_arguments || []) {
+      const argument_type = source_type_expr(argument);
+
+      if (argument_type === undefined) {
+        type = undefined;
+        break;
+      }
+
+      type = { tag: "apply", func: type, arg: argument_type };
+    }
   } else if (fact.name === "struct" && fact.fields !== undefined) {
     const entries = fact.fields.map((field) => {
       const field_type = source_type_expr(field.type);
@@ -389,17 +494,27 @@ function function_type(params: TypeExpr[], result: TypeExpr): TypeExpr {
   return { tag: "arrow", param, effects: undefined, result };
 }
 
-function returns_value_pack_syntax(expr: FrontExpr): boolean {
+function returns_value_pack_syntax(
+  expr: FrontExpr,
+  recursive_name: string,
+): boolean {
   if (expr.tag === "product") {
     return expr.value_pack === true;
   }
 
+  if (
+    expr.tag === "app" && expr.func.tag === "var" &&
+    expr.func.name === recursive_name
+  ) {
+    return true;
+  }
+
   if (expr.tag === "captured" || expr.tag === "comptime") {
-    return returns_value_pack_syntax(expr.expr);
+    return returns_value_pack_syntax(expr.expr, recursive_name);
   }
 
   if (expr.tag === "scratch") {
-    return returns_value_pack_syntax(expr.body);
+    return returns_value_pack_syntax(expr.body, recursive_name);
   }
 
   if (expr.tag === "block") {
@@ -410,17 +525,20 @@ function returns_value_pack_syntax(expr: FrontExpr): boolean {
     }
 
     const result = stmt_result_expr(final_statement);
-    return result !== undefined && returns_value_pack_syntax(result);
+    return result !== undefined &&
+      returns_value_pack_syntax(result, recursive_name);
   }
 
   if (expr.tag === "if" || expr.tag === "if_let") {
-    return returns_value_pack_syntax(expr.then_branch) &&
-      returns_value_pack_syntax(expr.else_branch);
+    return returns_value_pack_syntax(expr.then_branch, recursive_name) &&
+      returns_value_pack_syntax(expr.else_branch, recursive_name);
   }
 
   if (expr.tag === "match") {
     return expr.arms.length > 0 &&
-      expr.arms.every((arm) => returns_value_pack_syntax(arm.body));
+      expr.arms.every((arm) =>
+        returns_value_pack_syntax(arm.body, recursive_name)
+      );
   }
 
   return false;
@@ -591,6 +709,8 @@ function function_binding(
     name: binding.name,
     owner,
     pattern: binding.pattern,
+    recursive: binding.value.tag === "rec" ||
+      ("is_recursive" in binding && binding.is_recursive === true),
     type_annotation: binding.type_annotation,
     value: binding.value,
   };

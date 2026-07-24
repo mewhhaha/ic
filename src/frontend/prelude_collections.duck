@@ -102,9 +102,67 @@ const list_length = values => {
   length
 };
 
+const sequence_methods = (
+  const item_type,
+  const empty,
+  const is_empty,
+  const first,
+  const rest,
+  const prepend,
+) => (const target) => comptime {
+  const _ = target;
+  const make_empty = () => {
+    let sequence: target = empty();
+    sequence
+  };
+  const add_first = (value: item_type, tail: target) => {
+    let sequence: target = prepend(value, tail);
+    sequence
+  };
+
+  const reverse = (values: target) => {
+    let current: target = values;
+    let reversed: target = make_empty();
+
+    loop {
+      if is_empty current { break; }
+      let value = first current;
+      reversed = add_first(value, reversed)
+      current = rest current
+    }
+
+    reversed
+  };
+
+  {
+    .empty = make_empty,
+    .prepend = add_first,
+    .reverse,
+  }
+};
+
+const derive_sequence = (
+  const item_type,
+  const empty,
+  const is_empty,
+  const first,
+  const rest,
+  const prepend,
+) => (const target) => `Replace (comptime {
+  target :+ sequence_methods(
+    item_type,
+    empty,
+    is_empty,
+    first,
+    rest,
+    prepend,
+  )(target)
+});
+
 return {
   .list_map,
   .list_reverse,
   .list_take,
   .list_length,
+  .derive_sequence,
 };

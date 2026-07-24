@@ -30,6 +30,7 @@ import type {
 } from "./ast.ts";
 import { elaborate_product_expr } from "./aggregate.ts";
 import { call_message } from "./call_message.ts";
+import { compiler_builtin_args } from "./compiler_builtin_args.ts";
 import { lookup_type_field } from "./fields.ts";
 import { validate_const_expr } from "./constness.ts";
 import { collect_linear_closure_names } from "./linear_closure_names.ts";
@@ -52,7 +53,11 @@ import {
   function_type_expr,
   parse_type_expr,
 } from "./type_expr.ts";
-import { front_type_from_type_name, same_type } from "./types.ts";
+import {
+  common_front_type,
+  front_type_from_type_name,
+  same_type,
+} from "./types.ts";
 import { f32x4_builtin_call, validate_f32x4_lane_argument } from "./f32x4.ts";
 import { scan_source, source_tokens, tokenize } from "./tokenize.ts";
 import { validate_union_payload_type } from "./union_payload.ts";
@@ -81,6 +86,7 @@ type SemanticEnv = {
   has_compiletime_locals: boolean;
   declarations: Map<string, TypeDeclaration>;
   effects: Map<string, EffectDeclaration>;
+  iterator_type_names: Set<string>;
   records: Map<string, RecordDeclaration>;
   active_specialized_calls: Set<FrontExpr>;
   warn_raw_intrinsics: boolean;
@@ -137,6 +143,7 @@ export function validate_frontend_semantics(
     has_compiletime_locals: false,
     declarations: declaration_index(declarations),
     effects: effect_index(declarations),
+    iterator_type_names: iterator_type_names(declarations),
     records: record_index(declarations),
     active_specialized_calls: new Set(),
     warn_raw_intrinsics: options.warnings === true &&
@@ -238,6 +245,24 @@ function effect_index(
   }
 
   return index;
+}
+
+function iterator_type_names(declarations: Declaration[]): Set<string> {
+  const names = new Set<string>();
+
+  for (const declaration of declarations) {
+    if (declaration.tag !== "extend") {
+      continue;
+    }
+
+    const members = new Set(declaration.fields.map((field) => field.name));
+
+    if (members.has("has_next") && members.has("next")) {
+      names.add(declaration.type_name);
+    }
+  }
+
+  return names;
 }
 
 function record_index(
@@ -490,9 +515,21 @@ function validate_statement(
     }
 
     env.bindings.set(stmt.name, binding);
+    if (stmt.kind === "const" && env.declarations.has(stmt.name)) {
+      binding.used = true;
+    }
 
     if (stmt.pattern !== undefined && stmt.pattern.tag !== "binding") {
       bind_pattern_types(stmt.pattern, type, env, stmt.kind === "const");
+      const field_result = struct_fields_with_env(stmt.value, env);
+      if (field_result !== undefined) {
+        bind_pattern_field_values(
+          stmt.pattern,
+          field_result.fields,
+          field_result.env,
+          env,
+        );
+      }
     }
 
     return;
@@ -594,6 +631,12 @@ function validate_statement(
     } else if (
       collection_type.tag === "struct" && collection_type.field_types
     ) {
+      if (is_declared_iterator(collection_type.field_types, env)) {
+        bind_collection_loop_names(stmt, body, item_type);
+        validate_statements(stmt.body, body, diagnostics);
+        return;
+      }
+
       try {
         item_type = dynamic_index_type_from_fields(collection_type.field_types);
       } catch (error) {
@@ -617,18 +660,7 @@ function validate_statement(
       }
     }
 
-    if (stmt.index !== undefined) {
-      bind_local(
-        body,
-        stmt.index,
-        { tag: "int", type: "i32" },
-        undefined,
-        false,
-        false,
-      );
-    }
-
-    bind_local(body, stmt.item, item_type, undefined, false, false);
+    bind_collection_loop_names(stmt, body, item_type);
     validate_statements(stmt.body, body, diagnostics);
     return;
   }
@@ -3348,17 +3380,10 @@ function infer_type(
     }
 
     const else_type = infer_type(expr.else_branch, env, active_calls);
+    const common = common_front_type(then_type, else_type);
 
-    if (then_type.tag === "unknown") {
-      return else_type;
-    }
-
-    if (else_type.tag === "unknown") {
-      return then_type;
-    }
-
-    if (same_type(then_type, else_type)) {
-      return then_type;
+    if (common !== undefined) {
+      return common;
     }
   }
 
@@ -3383,18 +3408,31 @@ function infer_type(
     }
 
     const else_type = infer_type(expr.else_branch, env, active_calls);
+    const common = common_front_type(then_type, else_type);
 
-    if (then_type.tag === "unknown") {
-      return else_type;
+    if (common !== undefined) {
+      return common;
+    }
+  }
+
+  if (expr.tag === "match") {
+    const target_type = infer_type(expr.target, env, active_calls);
+    let result: FrontType = { tag: "never" };
+
+    for (const arm of expr.arms) {
+      const arm_env = child_env(env);
+      bind_pattern_types(arm.pattern, target_type, arm_env, false);
+      const arm_type = infer_type(arm.body, arm_env, active_calls);
+      const common = common_front_type(result, arm_type);
+
+      if (common === undefined) {
+        return { tag: "unknown" };
+      }
+
+      result = common;
     }
 
-    if (else_type.tag === "unknown") {
-      return then_type;
-    }
-
-    if (same_type(then_type, else_type)) {
-      return then_type;
-    }
+    return result;
   }
 
   if (expr.tag === "lam" || expr.tag === "rec") {
@@ -3402,6 +3440,23 @@ function infer_type(
   }
 
   if (expr.tag === "app") {
+    if (
+      expr.func.tag === "var" &&
+      (expr.func.name === "@cast" || expr.func.name === "@seal" ||
+        expr.func.name === "@representation" ||
+        expr.func.name === "@integer.wrap") &&
+      !env.bindings.has(expr.func.name)
+    ) {
+      const args = compiler_builtin_args(expr);
+      const target = args[1];
+
+      if (args.length !== 2 || target === undefined) {
+        return { tag: "unknown" };
+      }
+
+      return infer_type_value(target, env, active_calls, new Set());
+    }
+
     const f32x4_call = f32x4_builtin_call(expr);
 
     if (
@@ -4617,7 +4672,7 @@ function callable_body_env(
       }
     }
 
-    bind_local(
+    const parameter = bind_local(
       body_env,
       param.name,
       param_type,
@@ -4625,6 +4680,24 @@ function callable_body_env(
       param.is_const,
       param.is_linear,
     );
+
+    if (param.is_const) {
+      let arg = args[index];
+      const binding = bindings?.find((candidate) => candidate.param === param);
+
+      if (binding !== undefined) {
+        arg = binding.arg;
+      }
+
+      if (
+        arg !== undefined &&
+        infer_type_value(arg, call_env, active_calls, new Set()).tag !==
+          "unknown"
+      ) {
+        parameter.value = arg;
+        parameter.value_env = call_env;
+      }
+    }
   }
 
   if (callable.target.tag === "rec") {
@@ -4632,6 +4705,43 @@ function callable_body_env(
   }
 
   return body_env;
+}
+
+function infer_type_value(
+  expr: FrontExpr,
+  env: SemanticEnv,
+  active_calls: Set<FrontExpr>,
+  seen: Set<SemanticBinding>,
+): FrontType {
+  if (expr.tag === "type_name") {
+    return resolve_type_name(expr.name, env);
+  }
+
+  if (expr.tag === "set_type") {
+    return type_from_type_expr(expr.type_expr, env);
+  }
+
+  if (expr.tag !== "var") {
+    return { tag: "unknown" };
+  }
+
+  const binding = env.bindings.get(expr.name);
+
+  if (
+    binding === undefined || binding.value === undefined ||
+    seen.has(binding)
+  ) {
+    return resolve_type_name(expr.name, env);
+  }
+
+  seen.add(binding);
+  const value_env = binding.value_env;
+
+  if (value_env === undefined) {
+    return infer_type(binding.value, env, active_calls);
+  }
+
+  return infer_type_value(binding.value, value_env, active_calls, seen);
 }
 
 function arrow_parameter_types(
@@ -4869,23 +4979,113 @@ function struct_fields_of(
   expr: FrontExpr,
   env: SemanticEnv,
 ): Field[] | undefined {
+  return struct_fields_with_env(expr, env)?.fields;
+}
+
+function struct_fields_with_env(
+  expr: FrontExpr,
+  env: SemanticEnv,
+): { fields: Field[]; env: SemanticEnv } | undefined {
+  if (expr.tag === "captured" || expr.tag === "comptime") {
+    return struct_fields_with_env(expr.expr, env);
+  }
+
   if (expr.tag === "struct_value") {
-    return expr.fields;
+    return { fields: expr.fields, env };
   }
 
   if (expr.tag === "product") {
-    return elaborate_product_expr(expr).fields;
+    return { fields: elaborate_product_expr(expr).fields, env };
   }
 
   if (expr.tag === "var" || expr.tag === "linear") {
     const binding = env.bindings.get(expr.name);
 
-    if (binding) {
-      return binding.struct_fields;
+    if (binding?.struct_fields !== undefined) {
+      let value_env = env;
+      if (binding.value_env !== undefined) {
+        value_env = binding.value_env;
+      }
+      return { fields: binding.struct_fields, env: value_env };
+    }
+  }
+
+  if (expr.tag === "app") {
+    const callable = resolve_called_function(expr.func, env);
+    if (callable?.target === undefined) {
+      return undefined;
+    }
+    const body_env = callable_body_env(callable, expr.args, env, new Set());
+
+    if (callable.target.body.tag === "block") {
+      const result = semantic_block_result(
+        callable.target.body,
+        body_env,
+        new Set(),
+      );
+      if (result !== undefined) {
+        return struct_fields_with_env(result.expr, result.env);
+      }
+    } else {
+      return struct_fields_with_env(callable.target.body, body_env);
     }
   }
 
   return undefined;
+}
+
+function bind_pattern_field_values(
+  pattern: Pattern,
+  fields: Field[],
+  field_env: SemanticEnv,
+  env: SemanticEnv,
+): void {
+  if (pattern.tag !== "product") {
+    return;
+  }
+
+  for (let index = 0; index < pattern.entries.length; index += 1) {
+    const entry = pattern.entries[index];
+    if (entry === undefined) {
+      continue;
+    }
+    let field: Field | undefined = fields[index];
+    if (entry.label !== undefined) {
+      field = fields.find((candidate) => candidate.name === entry.label);
+    }
+    if (field === undefined) {
+      continue;
+    }
+    if (entry.pattern.tag === "binding") {
+      const binding = env.bindings.get(entry.pattern.name);
+      if (binding !== undefined) {
+        let field_binding: SemanticBinding | undefined;
+        if (field.value.tag === "var" || field.value.tag === "linear") {
+          field_binding = field_env.bindings.get(field.value.name);
+        }
+        if (field_binding?.value !== undefined) {
+          binding.value = field_binding.value;
+          binding.value_env = field_binding.value_env;
+          if (binding.value_env === undefined) {
+            binding.value_env = field_env;
+          }
+        } else {
+          binding.value = field.value;
+          binding.value_env = field_env;
+        }
+      }
+      continue;
+    }
+    const nested = struct_fields_with_env(field.value, field_env);
+    if (nested !== undefined) {
+      bind_pattern_field_values(
+        entry.pattern,
+        nested.fields,
+        nested.env,
+        env,
+      );
+    }
+  }
 }
 
 function contextual_binding_fields(
@@ -5079,6 +5279,53 @@ function bind_pattern_types(
   }
 }
 
+function bind_collection_loop_names(
+  stmt: Extract<Stmt, { tag: "for_collection" }>,
+  env: SemanticEnv,
+  item_type: FrontType,
+): void {
+  if (stmt.index !== undefined) {
+    bind_local(
+      env,
+      stmt.index,
+      { tag: "int", type: "i32" },
+      undefined,
+      false,
+      false,
+    );
+  }
+
+  bind_local(env, stmt.item, item_type, undefined, false, false);
+}
+
+function is_declared_iterator(
+  fields: TypeField[],
+  env: SemanticEnv,
+): boolean {
+  for (const name of env.iterator_type_names) {
+    const declaration = env.declarations.get(name);
+
+    if (
+      declaration?.body.tag !== "product" ||
+      declaration.body.fields.length !== fields.length
+    ) {
+      continue;
+    }
+
+    const matches = declaration.body.fields.every((field, index) => {
+      const candidate = fields[index];
+      return candidate !== undefined && candidate.name === field.name &&
+        candidate.type_name === field.type_name;
+    });
+
+    if (matches) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function validate_pattern_values(
   pattern: Pattern,
   env: SemanticEnv,
@@ -5189,6 +5436,7 @@ function child_env(env: SemanticEnv): SemanticEnv {
     has_compiletime_locals: env.has_compiletime_locals,
     declarations: env.declarations,
     effects: env.effects,
+    iterator_type_names: env.iterator_type_names,
     records: env.records,
     active_specialized_calls: env.active_specialized_calls,
     warn_raw_intrinsics: env.warn_raw_intrinsics,

@@ -2,6 +2,7 @@ import { assert_equals } from "../assert.ts";
 import type { Stmt } from "./ast.ts";
 import { parse_source } from "./parser.ts";
 import { infer_front_function_signatures } from "./signature_inference.ts";
+import { substitute_front_stmt } from "./substitute.ts";
 import { format_type_expr } from "./type_expr.ts";
 
 function binding_signature(statement: Stmt | undefined): string | undefined {
@@ -87,6 +88,51 @@ even(10)
     odd?.type_annotation && format_type_expr(odd.type_annotation),
     "I32 -> I32",
   );
+});
+
+Deno.test("recursive match results infer from the terminating branch", () => {
+  const source = infer_front_function_signatures(parse_source(`
+type Numbers = | \`More [I32, Numbers] | \`End Unit
+let rec last = (values: Numbers) => match values {
+  | \`More node => last(node[1])
+  | \`End () => 0
+};
+last(\`More [42, \`End ()])
+`));
+
+  assert_equals(binding_signature(source.statements[0]), "Numbers -> I32");
+});
+
+Deno.test("recursive value-pack results remain transient", () => {
+  const source = infer_front_function_signatures(parse_source(`
+let rec pair = (value: I32) => {
+  if value == 0 { (1, 2) } else { pair(value - 1) }
+};
+let (left, right) = pair(3);
+left + right
+`));
+
+  assert_equals(binding_signature(source.statements[0]), "I32 -> (I32, I32)");
+});
+
+Deno.test("substitution preserves inferred value-pack signatures", () => {
+  const source = infer_front_function_signatures(parse_source(`
+let pair = value => (value, value);
+let (left, right) = pair(1);
+left + right
+`));
+  const pair = source.statements[0];
+
+  if (pair === undefined) {
+    throw new Error("Missing pair binding");
+  }
+
+  const substituted = substitute_front_stmt(
+    pair,
+    new Map([["unrelated", { tag: "num", type: "i32", value: 0 }]]),
+  );
+
+  assert_equals(binding_signature(substituted), "I32 -> (I32, I32)");
 });
 
 Deno.test("unconstrained polymorphic functions remain unspecialized", () => {

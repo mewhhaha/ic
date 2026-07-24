@@ -53,30 +53,31 @@ just duck test examples/testing/01_inline_tests.duck
 
 ## Compile Time
 
-| Example                              | Focus                                          | Route | Result |
-| ------------------------------------ | ---------------------------------------------- | ----- | ------ |
-| `01_comptime_adder.duck`             | compile-time closure construction              | IC    | `42`   |
-| `02_higher_order_compose.duck`       | higher-order composition                       | IC    | `41`   |
-| `03_const_parameter_twice.duck`      | const call-site specialization                 | IC    | `42`   |
-| `04_const_capture_snapshot.duck`     | binding-time const capture                     | IC    | `42`   |
-| `05_static_recursion_factorial.duck` | statically reducible recursion                 | IC    | `42`   |
-| `06_generic_type_constructor.duck`   | generic sum type declaration                   | Core  | `42`   |
-| `07_struct_fact_checker.duck`        | named product declaration and projection       | Core  | `42`   |
-| `08_union_fact_checker.duck`         | named sum declaration and case selection       | Core  | `42`   |
-| `09_type_pattern_check.duck`         | product alias and annotated construction       | Core  | `42`   |
-| `10_extensions_and_protocols.duck`   | lexical extension and protocol specialization  | IC    | `42`   |
-| `11_indexed_calculator.duck`         | closed calculator sum                          | Core  | `42`   |
-| `12_type_specialization.duck`        | deriving a function from a struct type         | Core  | `42`   |
-| `13_derived_nested_equality.duck`    | recursive structural type derivation           | Core  | `42`   |
-| `14_rank_n_identity.duck`            | rank-N function parameter                      | Core  | `42`   |
-| `15_open_imports.duck`               | open import exclusion and renaming             | IC    | `42`   |
-| `16_attributes_and_import_meta.duck` | stacked source attributes and host metadata    | Core  | `42`   |
-| `17_newtypes_and_literal_types.duck` | newtypes, exact literal types, and widening    | Core  | `42`   |
-| `18_ducks_and_operators.duck`        | source ducks, extensions, and custom operators | Core  | `42`   |
-| `19_include_and_type_of.duck`        | included text and exact compile-time type      | Core  | `18`   |
-| `20_variadic_value_packs.duck`       | variadic pack iteration and rest matching      | Core  | `42`   |
-| `21_type_patterns.duck`              | structural compile-time type matching          | Core  | `42`   |
-| `22_generic_extension.duck`          | generic extension parameter declaration        | Core  | `42`   |
+| Example                              | Focus                                          | Route   | Result |
+| ------------------------------------ | ---------------------------------------------- | ------- | ------ |
+| `01_comptime_adder.duck`             | compile-time closure construction              | IC      | `42`   |
+| `02_higher_order_compose.duck`       | higher-order composition                       | IC      | `41`   |
+| `03_const_parameter_twice.duck`      | const call-site specialization                 | IC      | `42`   |
+| `04_const_capture_snapshot.duck`     | binding-time const capture                     | IC      | `42`   |
+| `05_static_recursion_factorial.duck` | statically reducible recursion                 | IC      | `42`   |
+| `06_generic_type_constructor.duck`   | generic sum type declaration                   | Core    | `42`   |
+| `07_struct_fact_checker.duck`        | named product declaration and projection       | Core    | `42`   |
+| `08_union_fact_checker.duck`         | named sum declaration and case selection       | Core    | `42`   |
+| `09_type_pattern_check.duck`         | product alias and annotated construction       | Core    | `42`   |
+| `10_extensions_and_protocols.duck`   | lexical extension and protocol specialization  | IC      | `42`   |
+| `11_indexed_calculator.duck`         | closed calculator sum                          | Core    | `42`   |
+| `12_type_specialization.duck`        | deriving a function from a struct type         | Core    | `42`   |
+| `13_derived_nested_equality.duck`    | recursive structural type derivation           | Core    | `42`   |
+| `14_rank_n_identity.duck`            | rank-N function parameter                      | Core    | `42`   |
+| `15_open_imports.duck`               | open import exclusion and renaming             | IC      | `42`   |
+| `16_attributes_and_import_meta.duck` | stacked source attributes and host metadata    | Core    | `42`   |
+| `17_newtypes_and_literal_types.duck` | newtypes, exact literal types, and widening    | Core    | `42`   |
+| `18_ducks_and_operators.duck`        | source ducks, extensions, and custom operators | Core    | `42`   |
+| `19_include_and_type_of.duck`        | included text and exact compile-time type      | Core    | `18`   |
+| `20_variadic_value_packs.duck`       | variadic pack iteration and rest matching      | Core    | `42`   |
+| `21_type_patterns.duck`              | structural compile-time type matching          | Core    | `42`   |
+| `22_generic_extension.duck`          | generic extension parameter declaration        | Core    | `42`   |
+| `23_derived_sequence.duck`           | source-defined sequence derivation             | Gpufuck | `42`   |
 
 ## Functions And Control Flow
 

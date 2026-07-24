@@ -10,6 +10,7 @@ import { throw_source_diagnostic } from "./semantic_diagnostic.ts";
 import { elaborate_front_type_sets } from "./type_set_elaborate.ts";
 import { import_meta_binding_name } from "./import_meta.ts";
 import { elaborate_front_effects } from "./effect_elaborate.ts";
+import { pattern_bindings } from "./pattern.ts";
 import {
   derive_missing_source_spans,
   has_source_span,
@@ -32,6 +33,7 @@ export function expand_source_attributes(source: Source): Source {
   const type_override_offsets = new Map<Stmt, number>();
   const evaluation_source: Source = {
     ...source,
+    module: undefined,
     declarations: source.declarations?.filter((declaration) =>
       declaration.tag !== "effect"
     ),
@@ -312,12 +314,13 @@ function evaluate_attribute(
     func: attribute,
     args: [value],
   };
+  const demanded_context = demanded_attribute_context(context, call);
 
   try {
     const evaluated = elaborate_front_type_sets({
       tag: "program",
       declarations,
-      statements: [...context, { tag: "expr", expr: call }],
+      statements: [...demanded_context, { tag: "expr", expr: call }],
     });
     const result = evaluated.statements.at(-1);
 
@@ -333,7 +336,7 @@ function evaluate_attribute(
         tag: "program",
         declarations,
         statements: [
-          ...context,
+          ...demanded_attribute_context(context, [call, result.expr.value]),
           { tag: "expr", expr: result.expr.value },
         ],
       }).statements.at(-1);
@@ -357,6 +360,59 @@ function evaluate_attribute(
 
     throw error;
   }
+}
+
+function demanded_attribute_context(
+  context: Stmt[],
+  value: unknown,
+): Stmt[] {
+  const bindings = new Map<string, Extract<Stmt, { tag: "bind" }>>();
+
+  for (const statement of context) {
+    if (statement.tag !== "bind") {
+      continue;
+    }
+    let names = [statement.name];
+    if (statement.pattern !== undefined) {
+      names = pattern_bindings(statement.pattern).map((binding) =>
+        binding.name
+      );
+    }
+    for (const name of names) {
+      bindings.set(name, statement);
+    }
+  }
+
+  const demanded = new Set<Stmt>();
+  const pending: unknown[] = [value];
+  const visited = new WeakSet<object>();
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === null || typeof current !== "object") {
+      continue;
+    }
+    if (visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+
+    if (
+      "tag" in current && (current.tag === "var" || current.tag === "linear") &&
+      "name" in current && typeof current.name === "string"
+    ) {
+      const binding = bindings.get(current.name);
+      if (binding !== undefined && !demanded.has(binding)) {
+        demanded.add(binding);
+        pending.push(binding.value);
+        pending.push(binding.attribute_groups);
+      }
+    }
+
+    pending.push(...Object.values(current));
+  }
+
+  return context.filter((statement) => demanded.has(statement));
 }
 
 function expect_unit_action(

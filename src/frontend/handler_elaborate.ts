@@ -12,6 +12,7 @@ import type { FrontEffectAnalysis } from "./effect_analysis.ts";
 import { specialize_effect_operation } from "./effect_operation.ts";
 import { substitute_front_expr } from "./substitute.ts";
 import { prim_returns_bool } from "./numeric.ts";
+import { format_type_expr, function_type_expr } from "./type_expr.ts";
 
 type HandlerExpr = Extract<FrontExpr, { tag: "handler" }>;
 
@@ -110,6 +111,8 @@ type Elaboration = {
   next_handler: number;
   next_resume: number;
   next_factory: number;
+  next_loop: number;
+  effect_loops: WeakSet<object>;
 };
 
 export function elaborate_front_handlers(
@@ -344,6 +347,8 @@ function create_elaboration(
     next_handler: 0,
     next_resume: 0,
     next_factory: 0,
+    next_loop: 0,
+    effect_loops: new WeakSet(),
   };
 }
 
@@ -506,6 +511,12 @@ function compile_top_level_stmt(
   elaboration: Elaboration,
 ): { stmt: Stmt; ctx: CompileCtx } {
   if (stmt.tag === "state_bind") {
+    const operation = operation_from_state_bind(stmt, elaboration.index);
+    const effect = elaboration.index.effects.get(operation.effect);
+    expect(effect, "Missing effect declaration: " + operation.effect);
+    if (effect.implementation === "host") {
+      return { stmt, ctx };
+    }
     throw new Error(
       "Effect operation at module root must be inside an effect function",
     );
@@ -670,6 +681,17 @@ function compile_expr(
 
   if (expr.tag === "block") {
     return compile_statements(expr.statements, ctx, cont, elaboration);
+  }
+
+  if (
+    expr.tag === "loop" &&
+    (elaboration.effect_loops.has(expr) ||
+      expr.body.some((stmt) => {
+        return statement_has_direct_duck_effects(stmt, elaboration) ||
+          stmt_calls_duck_function(stmt, ctx, elaboration);
+      }))
+  ) {
+    return compile_effectful_loop(expr, ctx, cont, elaboration);
   }
 
   if (expr.tag === "app") {
@@ -1026,6 +1048,20 @@ function compile_expr(
       body_ctx.resumptions.delete(param.name);
     }
 
+    if (expr_contains_handler(expr.body)) {
+      const compiled_body = compile_expr(
+        expr.body,
+        body_ctx,
+        (value, next_ctx) => normal_result(value, next_ctx),
+        elaboration,
+      );
+      expect(
+        compiled_body.target === undefined,
+        "Function-local handler escaped its function body",
+      );
+      return cont({ ...expr, body: compiled_body.expr }, ctx);
+    }
+
     const body = rewrite_pure_expr(expr.body, body_ctx, elaboration);
     return cont({ ...expr, body }, ctx);
   }
@@ -1205,6 +1241,459 @@ function compile_statements(
   return compile_statement_at(statements, 0, ctx, cont, elaboration);
 }
 
+function compile_effectful_loop(
+  expr: Extract<FrontExpr, { tag: "loop" }>,
+  ctx: CompileCtx,
+  cont: CpsCont,
+  elaboration: Elaboration,
+): CpsResult {
+  const loop_name = "__duck_effect_loop_" + elaboration.next_loop.toString();
+  elaboration.next_loop += 1;
+  const parameters = effect_loop_parameters(expr.body, ctx, elaboration);
+  const recursive_call: FrontExpr = {
+    tag: "app",
+    func: { tag: "var", name: loop_name },
+    args: parameters.map((param) => ({ tag: "var", name: param.name })),
+  };
+  const after = cont(unit_value(), clone_compile_ctx(ctx));
+  const body = rewrite_effect_loop_control(
+    expr.body,
+    after.expr,
+    recursive_call,
+  );
+  body.push({ tag: "expr", expr: recursive_call });
+  const body_ctx = clone_compile_ctx(ctx);
+  body_ctx.values.set(loop_name, "unknown");
+  const compiled_body = compile_statements(
+    body,
+    body_ctx,
+    (value, next_ctx) => {
+      if (after.target === undefined) {
+        return normal_result(value, next_ctx);
+      }
+
+      return targeted_result(value, after.target, next_ctx);
+    },
+    elaboration,
+  );
+  expect(
+    compiled_body.target === after.target,
+    "Effect loop crossed an incompatible handler delimiter",
+  );
+  const loop: Extract<FrontExpr, { tag: "lam" }> = {
+    tag: "lam",
+    params: parameters,
+    body: compiled_body.expr,
+  };
+  const initial_call: FrontExpr = {
+    tag: "app",
+    func: { tag: "var", name: loop_name },
+    args: parameters.map((param) => ({ tag: "var", name: param.name })),
+  };
+  const statements: Stmt[] = [
+    {
+      tag: "bind",
+      kind: "let",
+      name: loop_name,
+      is_linear: false,
+      is_recursive: true,
+      annotation: undefined,
+      value: loop,
+    },
+    { tag: "expr", expr: initial_call },
+  ];
+  return {
+    expr: { tag: "block", statements },
+    target: after.target,
+    ctx: merge_branch_ctx(after.ctx, compiled_body.ctx),
+  };
+}
+
+function effect_loop_parameters(
+  statements: Stmt[],
+  ctx: CompileCtx,
+  elaboration: Elaboration,
+): {
+  name: string;
+  is_const: false;
+  is_linear: false;
+  annotation: string | undefined;
+}[] {
+  const names = assigned_loop_names(statements);
+
+  for (const frame of ctx.delimiters) {
+    for (const name of frame.state_names) {
+      names.add(name);
+    }
+  }
+
+  const parameters: {
+    name: string;
+    is_const: false;
+    is_linear: false;
+    annotation: string | undefined;
+  }[] = [];
+
+  for (const name of names) {
+    let annotation: string | undefined;
+
+    if (name.startsWith("__duck_effect_range_")) {
+      annotation = "I32";
+    } else {
+      for (const frame of ctx.delimiters) {
+        const state = frame.recipe.handler.state.find((candidate) => {
+          return candidate.name === name;
+        });
+
+        if (state !== undefined) {
+          annotation = state.annotation;
+
+          if (annotation === undefined) {
+            annotation = simple_expr_type_name(
+              state.value,
+              new Map(),
+              elaboration,
+            );
+          }
+
+          if (annotation !== undefined) {
+            break;
+          }
+        }
+
+        const prefix_binding = frame.recipe.prefix.find((candidate) => {
+          return candidate.tag === "bind" && candidate.name === name;
+        });
+
+        if (prefix_binding?.tag === "bind") {
+          annotation = prefix_binding.annotation;
+
+          if (annotation === undefined) {
+            annotation = simple_expr_type_name(
+              prefix_binding.value,
+              new Map(),
+              elaboration,
+            );
+          }
+
+          if (annotation !== undefined) {
+            break;
+          }
+        }
+      }
+
+      if (annotation === undefined) {
+        for (const statement of elaboration.source.statements) {
+          if (statement.tag !== "bind" || statement.name !== name) {
+            continue;
+          }
+
+          annotation = statement.annotation;
+
+          if (annotation === undefined) {
+            annotation = simple_expr_type_name(
+              statement.value,
+              new Map(),
+              elaboration,
+            );
+          }
+
+          break;
+        }
+      }
+    }
+
+    parameters.push({
+      name,
+      is_const: false,
+      is_linear: false,
+      annotation,
+    });
+  }
+
+  return parameters;
+}
+
+function assigned_loop_names(statements: Stmt[]): Set<string> {
+  const names = new Set<string>();
+  collect_assigned_loop_names(statements, names);
+  return names;
+}
+
+function collect_assigned_loop_names(
+  value: unknown,
+  names: Set<string>,
+): void {
+  if (value === null || typeof value !== "object") {
+    return;
+  }
+
+  if (
+    "tag" in value &&
+    (value.tag === "assign" || value.tag === "index_assign") &&
+    "name" in value &&
+    typeof value.name === "string"
+  ) {
+    names.add(value.name);
+    return;
+  }
+
+  if (
+    "tag" in value &&
+    (value.tag === "lam" || value.tag === "rec" || value.tag === "handler")
+  ) {
+    return;
+  }
+
+  for (const child of Object.values(value)) {
+    collect_assigned_loop_names(child, names);
+  }
+}
+
+function rewrite_effect_loop_control(
+  statements: Stmt[],
+  break_value: FrontExpr,
+  continue_value: FrontExpr,
+): Stmt[] {
+  return statements.map((stmt) => {
+    if (stmt.tag === "break") {
+      expect(
+        stmt.value === undefined,
+        "Effectful loops do not yet support break values",
+      );
+      return { tag: "return", value: break_value };
+    }
+
+    if (stmt.tag === "continue") {
+      return { tag: "return", value: continue_value };
+    }
+
+    if (stmt.tag === "if_stmt") {
+      return {
+        ...stmt,
+        body: rewrite_effect_loop_control(
+          stmt.body,
+          break_value,
+          continue_value,
+        ),
+      };
+    }
+
+    if (stmt.tag === "if_let_stmt") {
+      return {
+        ...stmt,
+        body: rewrite_effect_loop_control(
+          stmt.body,
+          break_value,
+          continue_value,
+        ),
+      };
+    }
+
+    if (stmt.tag === "expr") {
+      return {
+        ...stmt,
+        expr: rewrite_effect_loop_control_expr(
+          stmt.expr,
+          break_value,
+          continue_value,
+        ),
+      };
+    }
+
+    return stmt;
+  });
+}
+
+function rewrite_effect_loop_control_expr(
+  expr: FrontExpr,
+  break_value: FrontExpr,
+  continue_value: FrontExpr,
+): FrontExpr {
+  if (expr.tag === "block") {
+    return {
+      ...expr,
+      statements: rewrite_effect_loop_control(
+        expr.statements,
+        break_value,
+        continue_value,
+      ),
+    };
+  }
+
+  if (expr.tag === "if") {
+    return {
+      ...expr,
+      then_branch: rewrite_effect_loop_control_expr(
+        expr.then_branch,
+        break_value,
+        continue_value,
+      ),
+      else_branch: rewrite_effect_loop_control_expr(
+        expr.else_branch,
+        break_value,
+        continue_value,
+      ),
+    };
+  }
+
+  if (expr.tag === "if_let") {
+    return {
+      ...expr,
+      then_branch: rewrite_effect_loop_control_expr(
+        expr.then_branch,
+        break_value,
+        continue_value,
+      ),
+      else_branch: rewrite_effect_loop_control_expr(
+        expr.else_branch,
+        break_value,
+        continue_value,
+      ),
+    };
+  }
+
+  return expr;
+}
+
+function effectful_range_block(
+  stmt: Extract<Stmt, { tag: "for_range" }>,
+  elaboration: Elaboration,
+): FrontExpr {
+  expect(
+    !statements_continue_current_loop(stmt.body),
+    "Effectful range loops do not yet support continue",
+  );
+  const suffix = elaboration.next_loop.toString();
+  const end_name = "__duck_effect_range_end_" + suffix;
+  const step_name = "__duck_effect_range_step_" + suffix;
+  const index_name = "__duck_effect_range_index_" + suffix;
+  const step = static_range_step(stmt.step);
+  const comparison = range_comparison_primitive(step, stmt.end_bound);
+  const condition: FrontExpr = {
+    tag: "prim",
+    prim: comparison,
+    left: { tag: "var", name: index_name },
+    right: { tag: "var", name: end_name },
+  };
+  const done: FrontExpr = {
+    tag: "prim",
+    prim: "i32.eq",
+    left: condition,
+    right: { tag: "bool", value: false },
+  };
+  const body: Stmt[] = [
+    { tag: "if_stmt", cond: done, body: [{ tag: "break" }] },
+    {
+      tag: "bind",
+      kind: "let",
+      name: stmt.index,
+      is_linear: false,
+      annotation: "I32",
+      value: { tag: "var", name: index_name },
+    },
+    ...stmt.body,
+    {
+      tag: "assign",
+      name: index_name,
+      mode: "same",
+      value: {
+        tag: "prim",
+        prim: "i32.add",
+        left: { tag: "var", name: index_name },
+        right: { tag: "var", name: step_name },
+      },
+    },
+  ];
+  const loop: Extract<FrontExpr, { tag: "loop" }> = {
+    tag: "loop",
+    body,
+  };
+  elaboration.effect_loops.add(loop);
+  return {
+    tag: "block",
+    statements: [
+      {
+        tag: "bind",
+        kind: "let",
+        name: end_name,
+        is_linear: false,
+        annotation: "I32",
+        value: stmt.end,
+      },
+      {
+        tag: "bind",
+        kind: "let",
+        name: step_name,
+        is_linear: false,
+        annotation: "I32",
+        value: stmt.step,
+      },
+      {
+        tag: "bind",
+        kind: "let",
+        name: index_name,
+        is_linear: false,
+        annotation: "I32",
+        value: stmt.start,
+      },
+      { tag: "expr", expr: loop },
+    ],
+  };
+}
+
+function static_range_step(step: FrontExpr): number {
+  expect(
+    step.tag === "num" && step.type === "i32" &&
+      typeof step.value === "number" && step.value !== 0,
+    "Effectful range loop step must be a nonzero compile-time I32",
+  );
+  return step.value;
+}
+
+function range_comparison_primitive(
+  step: number,
+  end_bound: "exclusive" | "inclusive",
+): "i32.lt_s" | "i32.le_s" | "i32.gt_s" | "i32.ge_s" {
+  if (step > 0) {
+    if (end_bound === "inclusive") {
+      return "i32.le_s";
+    }
+
+    return "i32.lt_s";
+  }
+
+  if (end_bound === "inclusive") {
+    return "i32.ge_s";
+  }
+
+  return "i32.gt_s";
+}
+
+function statements_continue_current_loop(statements: Stmt[]): boolean {
+  for (const stmt of statements) {
+    if (stmt.tag === "continue") {
+      return true;
+    }
+
+    if (
+      stmt.tag === "if_stmt" &&
+      statements_continue_current_loop(stmt.body)
+    ) {
+      return true;
+    }
+
+    if (
+      stmt.tag === "if_let_stmt" &&
+      statements_continue_current_loop(stmt.body)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function compile_statement_at(
   statements: Stmt[],
   index: number,
@@ -1217,7 +1706,9 @@ function compile_statement_at(
   const is_final = index + 1 >= statements.length;
 
   function rest(next_ctx: CompileCtx): CpsResult {
-    expect(!is_final, "Handler block has no result expression");
+    if (is_final) {
+      return cont(unit_value(), next_ctx);
+    }
     return compile_statement_at(
       statements,
       index + 1,
@@ -1445,10 +1936,27 @@ function compile_statement_at(
   }
 
   if (stmt.tag === "for_range" || stmt.tag === "for_collection") {
-    expect(
-      !stmt.body.some(stmt_has_duck_operation),
-      "Local effects inside runtime loops require recursive CPS lowering",
-    );
+    if (
+      stmt.body.some((body_statement) => {
+        return statement_has_direct_duck_effects(
+          body_statement,
+          elaboration,
+        ) ||
+          stmt_calls_duck_function(body_statement, ctx, elaboration);
+      })
+    ) {
+      expect(
+        stmt.tag === "for_range",
+        "Local effects in collection loops require iterator CPS lowering",
+      );
+      return compile_expr(
+        effectful_range_block(stmt, elaboration),
+        ctx,
+        (_value, next_ctx) => rest(next_ctx),
+        elaboration,
+      );
+    }
+
     const next = rest(ctx);
     return prepend_stmt_result(rewrite_pure_stmt(stmt, ctx, elaboration), next);
   }
@@ -2114,9 +2622,15 @@ function compile_duck_function_call(
 
       body_ctx.active_calls.add(binding.name);
       const body = substitute_front_expr(binding.value.body, replacements);
-      const result = compile_expr(body, body_ctx, cont, elaboration);
-      result.ctx.active_calls.delete(binding.name);
-      return result;
+      return compile_expr(
+        body,
+        body_ctx,
+        (value, next_ctx) => {
+          next_ctx.active_calls.delete(binding.name);
+          return cont(value, next_ctx);
+        },
+        elaboration,
+      );
     },
     elaboration,
   );
@@ -2174,9 +2688,15 @@ function compile_cps_function_call(
     }
   }
 
-  const result = compile_expr(body, body_ctx, cont, elaboration);
-  result.ctx.active_calls.delete(binding.name);
-  return result;
+  return compile_expr(
+    body,
+    body_ctx,
+    (value, next_ctx) => {
+      next_ctx.active_calls.delete(binding.name);
+      return cont(value, next_ctx);
+    },
+    elaboration,
+  );
 }
 
 function compile_expr_list(
@@ -2366,7 +2886,10 @@ function rewrite_pure_expr(
 
   if (expr.tag === "loop") {
     expect(
-      !expr.body.some(stmt_has_duck_operation),
+      !expr.body.some((stmt) => {
+        return statement_has_direct_duck_effects(stmt, elaboration) ||
+          stmt_calls_duck_function(stmt, ctx, elaboration);
+      }),
       "Local effects inside runtime loops require recursive CPS lowering",
     );
     return {
@@ -2495,6 +3018,15 @@ function rewrite_pure_stmt(
   }
 
   if (stmt.tag === "state_bind") {
+    const operation = operation_from_state_bind(stmt, elaboration.index);
+    const effect = elaboration.index.effects.get(operation.effect);
+    expect(effect, "Missing effect declaration: " + operation.effect);
+    if (effect.implementation === "host") {
+      return {
+        ...stmt,
+        value: rewrite_pure_expr(stmt.value, ctx, elaboration),
+      };
+    }
     throw new Error("Effect operation requires CPS elaboration");
   }
 
@@ -2748,11 +3280,11 @@ function handler_result_expr(expr: FrontExpr): FrontExpr | undefined {
   const final_stmt = expr.statements[expr.statements.length - 1];
 
   if (final_stmt && final_stmt.tag === "return") {
-    return final_stmt.value;
+    return handler_result_expr(final_stmt.value);
   }
 
   if (final_stmt && final_stmt.tag === "expr") {
-    return final_stmt.expr;
+    return handler_result_expr(final_stmt.expr);
   }
 
   return undefined;
@@ -2817,6 +3349,10 @@ function function_binding_has_duck_effects(
   value: Extract<FrontExpr, { tag: "lam" | "rec" }>,
   elaboration: Elaboration,
 ): boolean {
+  if (expr_contains_handler(value.body)) {
+    return function_has_duck_effects(name, elaboration);
+  }
+
   if (function_body_has_direct_duck_effects(value.body, elaboration)) {
     return true;
   }
@@ -4196,6 +4732,12 @@ function simple_expr_type_name(
         (stmt.value.tag !== "lam" && stmt.value.tag !== "rec")
       ) {
         continue;
+      }
+
+      const function_type = function_type_expr(stmt.type_annotation);
+
+      if (function_type !== undefined) {
+        return format_type_expr(function_type.result);
       }
 
       const call_types = new Map<string, string>();

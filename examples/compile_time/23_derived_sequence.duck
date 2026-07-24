@@ -1,0 +1,34 @@
+const { .derive_sequence } = import "duck:prelude/collections" ();
+
+@[derive_sequence(
+  I32,
+  () => `NoCommands (),
+  commands => if let `NoCommands () = commands { true } else { false },
+  commands => match commands {
+    | `MoreCommands node => node[0]
+    | _ => 0
+  },
+  commands => match commands {
+    | `MoreCommands node => node[1]
+    | _ => commands
+  },
+  (value: I32, tail) => `MoreCommands [value, tail],
+)]
+type Commands =
+  | `NoCommands Unit
+  | `MoreCommands CommandNode
+
+type CommandNode = [I32, Commands]
+
+let values: Commands = Commands.prepend(
+  2,
+  Commands.prepend(40, Commands.empty()),
+);
+
+match values {
+  | `MoreCommands first => match first[1] {
+    | `MoreCommands second => first[0] + second[0]
+    | _ => first[0]
+  }
+  | _ => 0
+}

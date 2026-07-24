@@ -974,7 +974,21 @@ function rewrite_statements(
       });
 
       if (elaborated_candidate.kind === "const") {
-        set_scope_type_value(scope, elaborated_candidate.name, binding_value);
+        let type_value = binding_value;
+        const forward_value = scope.type_values.get(
+          elaborated_candidate.name,
+        );
+
+        if (
+          (binding_value.tag === "struct_type" ||
+            binding_value.tag === "union_type") &&
+          (forward_value?.tag === "with" ||
+            forward_value?.tag === "struct_update")
+        ) {
+          type_value = forward_value;
+        }
+
+        set_scope_type_value(scope, elaborated_candidate.name, type_value);
 
         if (
           binding_value.tag === "union_type" &&
@@ -999,6 +1013,14 @@ function rewrite_statements(
       if (
         elaborated_candidate.kind === "const" &&
         is_comptime_descriptor_value(elaborated_candidate.value)
+      ) {
+        continue;
+      }
+
+      if (
+        elaborated_candidate.kind === "const" &&
+        binding_value.tag === "with" &&
+        scope.declared_union_types.has(elaborated_candidate.name)
       ) {
         continue;
       }
@@ -2306,7 +2328,16 @@ function elaborate_match_expr(
     bind_target = false;
   }
 
-  let result: FrontExpr = { tag: "unit" };
+  const unreachable_message: FrontExpr = {
+    tag: "text",
+    value: "Exhaustive match reached its fallback",
+  };
+  let result: FrontExpr = {
+    tag: "app",
+    func: { tag: "var", name: "@panic" },
+    arg: unreachable_message,
+    args: [unreachable_message],
+  };
 
   for (let index = arms.length - 1; index >= 0; index -= 1) {
     const arm = arms[index];
@@ -3523,8 +3554,8 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
         type_expr: normalize_scope_type_expr(expr.type_expr, scope),
       };
 
-    case "struct_type":
-      return {
+    case "struct_type": {
+      const struct_type: Extract<FrontExpr, { tag: "struct_type" }> = {
         ...expr,
         fields: expr.fields.map((field) => ({
           ...field,
@@ -3532,9 +3563,15 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
           set_member: normalize_scope_type_expr(field.set_member, scope),
         })),
       };
+      return nominalize_struct_type_fields(
+        struct_type,
+        scope.type_values,
+        new Set(),
+      );
+    }
 
-    case "union_type":
-      return {
+    case "union_type": {
+      const union_type: Extract<FrontExpr, { tag: "union_type" }> = {
         ...expr,
         cases: expr.cases.map((union_case) => ({
           ...union_case,
@@ -3548,6 +3585,12 @@ function rewrite_expr(expr: FrontExpr, scope: TypeSetScope): FrontExpr {
           ),
         })),
       };
+      return nominalize_union_type_cases(
+        union_type,
+        scope.type_values,
+        new Set(),
+      );
+    }
 
     case "prim": {
       const value: FrontExpr = {
@@ -7801,7 +7844,9 @@ function nominalize_struct_type_fields(
         return field;
       }
 
-      const expected = format_type_expr(field_type);
+      const expected = format_type_expr(
+        expand_struct_type_aliases(field_type, type_values, new Set()),
+      );
 
       for (const [name, candidate] of type_values) {
         if (resolving.has(name)) {
@@ -7816,7 +7861,13 @@ function nominalize_struct_type_fields(
 
         if (
           resolved?.tag === "struct_type" &&
-          format_type_expr(prelude_type_expr(resolved)) === expected
+          format_type_expr(
+              expand_struct_type_aliases(
+                prelude_type_expr(resolved),
+                type_values,
+                new Set(),
+              ),
+            ) === expected
         ) {
           return { name: field.name, type_name: name };
         }
@@ -7825,6 +7876,169 @@ function nominalize_struct_type_fields(
       return field;
     }),
   };
+}
+
+function nominalize_union_type_cases(
+  value: Extract<FrontExpr, { tag: "union_type" }>,
+  type_values: Map<string, FrontExpr>,
+  resolving: Set<string>,
+): Extract<FrontExpr, { tag: "union_type" }> {
+  return {
+    ...value,
+    cases: value.cases.map((union_case) => {
+      const case_type = parse_type_expr(tokenize(union_case.type_name));
+
+      if (case_type.tag !== "product") {
+        return union_case;
+      }
+
+      const expected = format_type_expr(
+        expand_struct_type_aliases(case_type, type_values, new Set()),
+      );
+
+      for (const [name, candidate] of type_values) {
+        if (resolving.has(name)) {
+          continue;
+        }
+
+        const resolved = resolve_front_type_value(
+          candidate,
+          type_values,
+          new Set([...resolving, name]),
+        );
+
+        if (
+          resolved?.tag === "struct_type" &&
+          format_type_expr(
+              expand_struct_type_aliases(
+                prelude_type_expr(resolved),
+                type_values,
+                new Set(),
+              ),
+            ) === expected
+        ) {
+          return { ...union_case, type_name: name };
+        }
+      }
+
+      return union_case;
+    }),
+  };
+}
+
+function expand_struct_type_aliases(
+  type: TypeExpr,
+  type_values: Map<string, FrontExpr>,
+  resolving: Set<string>,
+): TypeExpr {
+  if (type.tag === "name") {
+    if (resolving.has(type.name)) {
+      return type;
+    }
+
+    const candidate = type_values.get(type.name);
+
+    if (candidate === undefined) {
+      return type;
+    }
+
+    const next = new Set(resolving);
+    next.add(type.name);
+    const resolved = resolve_front_type_value(candidate, type_values, next);
+
+    if (resolved?.tag !== "struct_type") {
+      return type;
+    }
+
+    return {
+      tag: "product",
+      entries: resolved.fields.map((field) => ({
+        label: field.name,
+        type_expr: expand_struct_type_aliases(
+          parse_type_expr(tokenize(field.type_name)),
+          type_values,
+          next,
+        ),
+      })),
+    };
+  }
+
+  if (type.tag === "apply") {
+    return {
+      ...type,
+      func: expand_struct_type_aliases(type.func, type_values, resolving),
+      arg: expand_struct_type_aliases(type.arg, type_values, resolving),
+    };
+  }
+
+  if (type.tag === "product") {
+    return {
+      ...type,
+      entries: type.entries.map((entry) => ({
+        ...entry,
+        type_expr: expand_struct_type_aliases(
+          entry.type_expr,
+          type_values,
+          resolving,
+        ),
+      })),
+    };
+  }
+
+  if (type.tag === "tuple") {
+    return {
+      ...type,
+      items: type.items.map((item) =>
+        expand_struct_type_aliases(item, type_values, resolving)
+      ),
+    };
+  }
+
+  if (type.tag === "array") {
+    return {
+      ...type,
+      element: expand_struct_type_aliases(
+        type.element,
+        type_values,
+        resolving,
+      ),
+    };
+  }
+
+  if (type.tag === "arrow") {
+    return {
+      ...type,
+      param: expand_struct_type_aliases(type.param, type_values, resolving),
+      result: expand_struct_type_aliases(type.result, type_values, resolving),
+    };
+  }
+
+  if (type.tag === "forall") {
+    return {
+      ...type,
+      body: expand_struct_type_aliases(type.body, type_values, resolving),
+    };
+  }
+
+  if (type.tag === "borrow" || type.tag === "frozen") {
+    return {
+      ...type,
+      value: expand_struct_type_aliases(type.value, type_values, resolving),
+    };
+  }
+
+  if (
+    type.tag === "union" || type.tag === "intersection" ||
+    type.tag === "difference"
+  ) {
+    return {
+      ...type,
+      left: expand_struct_type_aliases(type.left, type_values, resolving),
+      right: expand_struct_type_aliases(type.right, type_values, resolving),
+    };
+  }
+
+  return type;
 }
 
 function product_type_with_namespace(

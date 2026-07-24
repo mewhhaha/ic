@@ -1467,7 +1467,12 @@ function analysis_route(
     return "core";
   }
 
-  return route_for_uri(uri);
+  const route = route_for_uri(uri);
+  if (route === "gpufuck") {
+    return "core";
+  }
+
+  return route;
 }
 
 function document_semantic_tokens(

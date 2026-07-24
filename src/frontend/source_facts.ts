@@ -764,6 +764,7 @@ class SourceFactRecorder {
     }
 
     this.record_declaration_definitions();
+    this.record_forward_type_namespace_members(scope);
 
     if (this.source.module !== undefined) {
       for (const param of this.source.module.params) {
@@ -779,6 +780,43 @@ class SourceFactRecorder {
     this.record_statements(this.source.statements, scope, undefined);
     this.record_called_closures();
     return this.facts;
+  }
+
+  record_forward_type_namespace_members(scope: Scope): void {
+    for (const statement of this.source.statements) {
+      if (
+        statement.tag !== "bind" || statement.kind !== "const" ||
+        (statement.value.tag !== "with" &&
+          statement.value.tag !== "struct_update")
+      ) {
+        continue;
+      }
+
+      const base = scope.get(statement.name);
+
+      if (base?.resolved_name !== "Type" || base.constructed === undefined) {
+        continue;
+      }
+
+      const namespace = clone_source_type(base, new Map(), new Map());
+      namespace.members = new Map(base.members);
+
+      for (const field of statement.value.fields) {
+        const member = this.record_expr(
+          field.value,
+          scope,
+          undefined,
+          undefined,
+        );
+
+        if (member !== undefined) {
+          namespace.members.set(field.name, member);
+        }
+      }
+
+      scope.set(statement.name, namespace);
+      this.namespaces.set(statement.name, namespace);
+    }
   }
 
   record_called_closures(): void {
@@ -1165,6 +1203,15 @@ class SourceFactRecorder {
           definition_type = named_type("unknown");
           scope_type = definition_type;
         }
+      }
+
+      if (
+        statement.kind === "const" && scope_type?.resolved_name === "Type" &&
+        (this.type_values.has(statement.name) ||
+          this.declarations.has(statement.name))
+      ) {
+        scope_type.constructed = this.type_from_name(statement.name);
+        this.namespaces.set(statement.name, scope_type);
       }
 
       this.record_definition(statement, "name", definition_type);
@@ -3411,6 +3458,7 @@ class SourceFactRecorder {
 
     const expected_fields = source_fields(type);
     let valid = type !== undefined && expected_fields !== undefined;
+    const added_members = new Map<string, SourceTypeFact>();
 
     for (const field of expr.fields) {
       let field_expected: SourceTypeFact | undefined;
@@ -3428,12 +3476,28 @@ class SourceFactRecorder {
         break_types,
       );
 
+      if (field_type !== undefined) {
+        added_members.set(field.name, field_type);
+      }
+
       if (
         field_expected === undefined || field_type === undefined ||
         !source_types_compatible(field_expected, field_type)
       ) {
         valid = false;
       }
+    }
+
+    if (base?.constructed !== undefined) {
+      const namespace = named_type("Type");
+      namespace.constructed = base.constructed;
+      namespace.members = new Map(base.members);
+
+      for (const [name, member] of added_members) {
+        namespace.members.set(name, member);
+      }
+
+      return namespace;
     }
 
     if (valid) {
@@ -6781,17 +6845,45 @@ function common_type_facts(
     return undefined;
   }
 
-  const first = types[0];
+  let first: SourceTypeFact | undefined;
 
-  if (first === undefined || first.resolved_name === "unknown") {
+  for (const type of types) {
+    if (
+      type !== undefined && type.resolved_name !== "unknown" &&
+      !is_type_variable(type)
+    ) {
+      first = type;
+      break;
+    }
+  }
+
+  if (first === undefined) {
+    const candidate = types[0];
+
+    if (
+      candidate !== undefined && is_type_variable(candidate) &&
+      types.every((type) => type !== undefined && is_type_variable(type))
+    ) {
+      return candidate;
+    }
+
     return undefined;
   }
 
-  for (let index = 1; index < types.length; index += 1) {
-    const type = types[index];
+  for (const type of types) {
+    if (type === undefined) {
+      return undefined;
+    }
+
+    if (is_type_variable(type)) {
+      continue;
+    }
+
+    if (type.resolved_name === "unknown") {
+      return undefined;
+    }
 
     if (
-      type === undefined || type.resolved_name === "unknown" ||
       !source_types_compatible(first, type) ||
       !source_types_compatible(type, first)
     ) {

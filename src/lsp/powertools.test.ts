@@ -108,6 +108,7 @@ Deno.test("powertools discovers compile expand and runnable code lenses", () => 
         "test",
         "--allow-read",
         "--allow-write",
+        "--allow-run",
         "examples/examples.test.ts",
         "--filter",
         "example runs: examples/compile_time/01_comptime_adder.duck",
