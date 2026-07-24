@@ -39,17 +39,15 @@ import {
   type CoreStmt,
 } from "../../src/core/ast.ts";
 import { analyze_core_demand } from "../../src/core/demand.ts";
-import { core_proof } from "../../src/core/backend/graph.ts";
 import { core_from_source } from "../../src/core/from_source.ts";
-import { core_proof_diagnostic_error } from "../../src/core/proof/diagnostic.ts";
 import type { Source } from "../../src/frontend/ast.ts";
 import {
-  expanded_source_for_core_route,
-  source_with_expanded_attributes,
-} from "../../src/frontend/core_pipeline.ts";
+  expanded_source_for_gpufuck,
+} from "../../src/frontend/gpufuck_pipeline.ts";
+import { source_with_expanded_attributes } from "../../src/frontend/attribute_expand.ts";
 import { infer_default_effect_handlers } from "../../src/frontend/default_handler.ts";
 import { specialize_front_effects } from "../../src/frontend/effect_specialize.ts";
-import { source_with_managed_callable_exports } from "../../src/frontend/managed_exports.ts";
+import { source_with_host_callable_exports } from "../../src/frontend/host_exports.ts";
 import { tokenize } from "../../src/frontend/tokenize.ts";
 import {
   format_type_expr,
@@ -97,44 +95,12 @@ export function lower_duck_source_to_gpufuck(
   source: Source,
   source_byte_length: number,
 ): LoweredDuckGpufuckModule {
-  if (source_needs_ownership_proof(source)) {
-    let source_core: CoreProgram | undefined;
-
-    try {
-      source_core = core_from_source(source);
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        (!error.message.startsWith("Unbound core value: ") &&
-          error.message !==
-            "Effect state binding must be elaborated before Core lowering" &&
-          error.message !==
-            "`is` expression must be elaborated before Core lowering" &&
-          error.message !==
-            "Cannot lower array spread to the fixed aggregate representation")
-      ) {
-        throw error;
-      }
-    }
-
-    if (source_core !== undefined) {
-      const source_proof = core_proof(source_core);
-      for (const issue of source_proof.issues) {
-        const diagnostic = core_proof_diagnostic_error(issue);
-
-        if (diagnostic !== undefined) {
-          throw diagnostic;
-        }
-      }
-    }
-  }
-
   source = source_with_expanded_attributes(source);
-  source = source_with_managed_callable_exports(source);
+  source = source_with_host_callable_exports(source);
   const abi_source = infer_default_effect_handlers(
     specialize_front_effects(source),
   );
-  let compiled_source = expanded_source_for_core_route(source);
+  let compiled_source = expanded_source_for_gpufuck(source);
   compiled_source = {
     ...compiled_source,
     statements: compiled_source.statements.map((statement) => {
@@ -187,36 +153,6 @@ export function lower_duck_source_to_gpufuck(
     type_aliases,
     declared_types,
   ).lower();
-}
-
-function source_needs_ownership_proof(value: unknown): boolean {
-  if (value === null || typeof value !== "object") {
-    return false;
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      if (source_needs_ownership_proof(entry)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  if ("tag" in value) {
-    if (
-      value.tag === "borrow" || value.tag === "freeze" ||
-      value.tag === "scratch"
-    ) {
-      return true;
-    }
-  }
-
-  for (const child of Object.values(value)) {
-    if (source_needs_ownership_proof(child)) {
-      return true;
-    }
-  }
-  return false;
 }
 
 class DuckCoreLowering {
@@ -3308,7 +3244,7 @@ class DuckCoreLowering {
       const recursive = this.#core.recFunctions?.[callable.name];
       if (recursive === undefined) {
         throw new Error(
-          "Duck gpufuck lowering cannot find managed callable " +
+          "Duck gpufuck lowering cannot find host callable " +
             callable.name,
         );
       }
@@ -3325,12 +3261,12 @@ class DuckCoreLowering {
     while (pending_dependencies.length > 0) {
       const dependency_name = pending_dependencies.pop();
       if (dependency_name === undefined) {
-        throw new Error("Duck managed callable dependency scan lost a name");
+        throw new Error("Duck host callable dependency scan lost a name");
       }
       const dependency = this.#source_functions.get(dependency_name);
       if (dependency === undefined) {
         throw new Error(
-          "Duck managed callable dependency scan cannot find " +
+          "Duck host callable dependency scan cannot find " +
             dependency_name,
         );
       }
@@ -3381,7 +3317,7 @@ class DuckCoreLowering {
       ) {
         if (function_body.kind !== "lambda") {
           throw new Error(
-            "Duck managed callable dependency is not a function: " +
+            "Duck host callable dependency is not a function: " +
               statement.name,
           );
         }
@@ -3393,7 +3329,7 @@ class DuckCoreLowering {
         parameters,
         annotation: this.require_type(
           lowered.type,
-          "managed callable dependency " + statement.name,
+          "host callable dependency " + statement.name,
         ),
         body: function_body,
       });
@@ -3401,7 +3337,7 @@ class DuckCoreLowering {
         statement.name,
         this.require_type(
           lowered.type,
-          "managed callable dependency " + statement.name,
+          "host callable dependency " + statement.name,
         ),
       );
     }
@@ -3409,13 +3345,13 @@ class DuckCoreLowering {
       const recursive = this.#core.recFunctions?.[callable.name];
       if (recursive === undefined) {
         throw new Error(
-          "Duck gpufuck lowering cannot find managed callable " +
+          "Duck gpufuck lowering cannot find host callable " +
             callable.name,
         );
       }
       if (recursive.params.length !== callable.params.length) {
         throw new Error(
-          "Duck managed callable " + callable.name + " has " +
+          "Duck host callable " + callable.name + " has " +
             recursive.params.length.toString() + " Core parameters for " +
             callable.params.length.toString() + " ABI parameters",
         );
@@ -3426,7 +3362,7 @@ class DuckCoreLowering {
         const contract = callable.params[index];
         if (parameter === undefined || contract === undefined) {
           throw new Error(
-            "Duck managed callable " + callable.name +
+            "Duck host callable " + callable.name +
               " lost parameter " + index.toString(),
           );
         }
@@ -3511,7 +3447,7 @@ class DuckCoreLowering {
       const parameter = callable.params[index];
       if (parameter === undefined) {
         throw new Error(
-          "Duck managed callable " + callable.name +
+          "Duck host callable " + callable.name +
             " lost parameter " + index.toString(),
         );
       }

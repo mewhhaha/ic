@@ -499,6 +499,18 @@ condition_index_expression = (
 
 condition_parenthesized_expression = ("(" condition_expression ")") ;
 
+condition_positional_product = (
+                                 "("
+                                 condition_expression
+                                 ","
+                                 (
+                                   condition_expression
+                                   (("," condition_expression))*
+                                 )
+                                 (",")?
+                                 ")"
+                               ) ;
+
 binary_expression = (left:(_expression) operator:(operator_symbol) right:(_expression)) ;
 
 is_expression = (value:(_expression) operator:("is") type:(type_reference)) ;
@@ -514,7 +526,11 @@ scratch_expression = ("scratch" body:(block)) ;
 
 loop_expression = ("loop" body:(block)) ;
 
-match_expression = ("match" target:(condition_expression) cases:(match_case_block)) ;
+match_expression = (
+                     "match"
+                     target:((condition_expression | condition_positional_product))
+                     cases:(match_case_block)
+                   ) ;
 
 match_case_block = ("{" match_case (((",")? match_case))* (",")? "}") ;
 

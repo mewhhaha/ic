@@ -367,7 +367,9 @@ export function apply_function_result_context(
   let params = value.params;
   if (parameter_types.length === value.params.length) {
     params = value.params.map((param, index) => {
-      if (param.type_annotation !== undefined) {
+      if (
+        param.annotation !== undefined || param.type_annotation !== undefined
+      ) {
         return param;
       }
       const parameter_type = parameter_types[index];

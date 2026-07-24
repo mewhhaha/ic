@@ -1,0 +1,27 @@
+module () where
+
+const { .struct } = import "duck:prelude/types" ();
+
+type ContextualUserContent =
+  | `InputText Text
+  | `InputImage Text
+  | `InputAudio Text
+  | `OutputText Text
+
+type ContextualUserContents = List ContextualUserContent
+
+type ContextualHookPromptFragment = struct {
+  .text = Text,
+  .hook_run_id = Text,
+}
+type ContextualHookPromptFragments = List ContextualHookPromptFragment
+type ContextualHookPromptFragmentOption = Option ContextualHookPromptFragment
+
+type ContextualHookPrompt = struct {
+  .id = Text,
+  .fragments = ContextualHookPromptFragments,
+}
+type ContextualHookPromptOption = Option ContextualHookPrompt
+type ContextualTextOption = Option Text
+
+return {};

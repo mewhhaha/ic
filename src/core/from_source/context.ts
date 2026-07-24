@@ -1,17 +1,7 @@
-import type {
-  FrontExpr,
-  FrontHostImportOwnerReason,
-  Stmt,
-  TypeExpr,
-} from "../../frontend/ast.ts";
+import type { FrontExpr, Stmt, TypeExpr } from "../../frontend/ast.ts";
 import { format_type_expr, parse_type_expr } from "../../frontend/type_expr.ts";
 import { tokenize } from "../../frontend/tokenize.ts";
-import type {
-  CoreExpr,
-  CoreHostImportOwnerReason,
-  CoreParam,
-  CoreStmt,
-} from "../ast.ts";
+import type { CoreExpr, CoreParam, CoreStmt } from "../ast.ts";
 import type { IntegerType } from "../../integer.ts";
 import { integer_type_from_name, integer_type_name } from "../../integer.ts";
 import type { ValType } from "../../op.ts";
@@ -26,9 +16,7 @@ export type CoreFromSourceCtx = {
   aliases: Map<string, string>;
   capability_methods: Map<string, Map<string, string>>;
   dynamic_capability_tables: Set<string>;
-  host_import_const_names: Set<string>;
   host_import_names: Set<string>;
-  host_import_type_values: Map<string, CoreHostImportOwnerReason>;
   linear_names: Set<string>;
   integer_types: Map<string, IntegerType>;
   numeric_types: Map<string, ValType>;
@@ -48,9 +36,7 @@ export function create_core_from_source_ctx(
     aliases: new Map(),
     capability_methods: new Map(),
     dynamic_capability_tables: new Set(),
-    host_import_const_names: new Set(),
     host_import_names: new Set(),
-    host_import_type_values: new Map(),
     linear_names: new Set(),
     integer_types: new Map(),
     numeric_types: new Map(),
@@ -71,9 +57,7 @@ export function fork_core_from_source_ctx(
     aliases: new Map(ctx.aliases),
     capability_methods: clone_capability_methods(ctx.capability_methods),
     dynamic_capability_tables: new Set(ctx.dynamic_capability_tables),
-    host_import_const_names: new Set(ctx.host_import_const_names),
     host_import_names: new Set(ctx.host_import_names),
-    host_import_type_values: new Map(ctx.host_import_type_values),
     linear_names: new Set(ctx.linear_names),
     integer_types: new Map(ctx.integer_types),
     numeric_types: new Map(ctx.numeric_types),
@@ -110,8 +94,6 @@ export function record_core_from_source_type_value(
   if (stmt.kind !== "const") {
     return;
   }
-
-  ctx.host_import_const_names.add(stmt.name);
 
   if (stmt.value.tag === "set_type") {
     ctx.type_set_aliases.set(stmt.name, stmt.value.type_expr);
@@ -163,19 +145,6 @@ export function record_core_from_source_type_value(
       ctx.scalar_annotation_aliases.set(stmt.name, scalar_annotation);
     }
   }
-
-  const reason = front_host_import_type_value_reason(
-    stmt.value,
-    ctx,
-    new Set(),
-  );
-
-  if (!reason) {
-    ctx.host_import_type_values.delete(stmt.name);
-    return;
-  }
-
-  ctx.host_import_type_values.set(stmt.name, reason);
 }
 
 function core_scalar_type_value_base(expr: FrontExpr): string | undefined {
@@ -388,34 +357,6 @@ function expand_core_annotation_aliases(
   };
 }
 
-export function core_host_import_owner_reason(
-  reason: FrontHostImportOwnerReason,
-  ctx: CoreFromSourceCtx,
-): CoreHostImportOwnerReason {
-  if (reason === "bytes") {
-    return "text";
-  }
-
-  if (typeof reason === "string") {
-    return reason;
-  }
-
-  const resolved = ctx.host_import_type_values.get(reason.name);
-
-  if (!resolved) {
-    if (ctx.host_import_const_names.has(reason.name)) {
-      throw new Error(
-        "Host import owner type " + reason.name +
-          " must resolve to a struct or union type-value",
-      );
-    }
-
-    throw new Error("Missing host import owner type value: " + reason.name);
-  }
-
-  return resolved;
-}
-
 export function resolve_core_name(
   ctx: CoreFromSourceCtx,
   name: string,
@@ -496,47 +437,6 @@ export function shadow_core_name(
   const bound = fresh_core_shadow_name(ctx, name);
   ctx.aliases.set(name, bound);
   return bound;
-}
-
-function front_host_import_type_value_reason(
-  expr: FrontExpr,
-  ctx: CoreFromSourceCtx,
-  seen: Set<string>,
-): CoreHostImportOwnerReason | undefined {
-  switch (expr.tag) {
-    case "struct_type":
-      return "runtime_aggregate";
-
-    case "union_type":
-      return "runtime_union";
-
-    case "var": {
-      if (seen.has(expr.name)) {
-        throw new Error("Recursive host import owner type alias: " + expr.name);
-      }
-
-      const reason = ctx.host_import_type_values.get(expr.name);
-
-      if (!reason) {
-        return undefined;
-      }
-
-      seen.add(expr.name);
-      return reason;
-    }
-
-    case "comptime":
-      return front_host_import_type_value_reason(expr.expr, ctx, seen);
-
-    case "captured":
-      return front_host_import_type_value_reason(expr.expr, ctx, seen);
-
-    case "with":
-      return front_host_import_type_value_reason(expr.base, ctx, seen);
-
-    default:
-      return undefined;
-  }
 }
 
 function fresh_core_shadow_name(

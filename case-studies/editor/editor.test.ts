@@ -4,6 +4,7 @@ import { build_binding_index } from "../../src/frontend/binding_index.ts";
 import { parse_source_with_diagnostics } from "../../src/frontend/parser.ts";
 import { source_facts } from "../../src/frontend/source_facts.ts";
 import { hover } from "../../src/lsp/hover.ts";
+import { create_state, handle_message } from "../../src/lsp/server.ts";
 import { main } from "./editor.ts";
 import { mock_runner } from "./host.ts";
 
@@ -19,6 +20,34 @@ Deno.test("editor source infers local types without diagnostics", () => {
   });
 
   assert_equals(analysis.diagnostics, []);
+});
+
+Deno.test("editor opens in the language server without diagnostics", async () => {
+  const source_url = new URL("./editor.duck", import.meta.url);
+  const root_url = new URL("../../", import.meta.url);
+  const state = create_state();
+  handle_message(state, {
+    id: 1,
+    method: "initialize",
+    params: { rootUri: root_url.href },
+  });
+  const messages = handle_message(state, {
+    method: "textDocument/didOpen",
+    params: {
+      textDocument: {
+        uri: source_url.href,
+        languageId: "duck",
+        version: 1,
+        text: await Deno.readTextFile(source_url),
+      },
+    },
+  }) as [{
+    params: {
+      diagnostics: unknown[];
+    };
+  }];
+
+  assert_equals(messages[0]?.params.diagnostics, []);
 });
 
 Deno.test("editor language service retains inferred local structure", async () => {

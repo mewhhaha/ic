@@ -1,0 +1,133 @@
+module () where
+
+const {
+  .text_append,
+  .text_contains,
+  .text_ends_with,
+  .text_escape_xml,
+  .text_find_from,
+  .text_length,
+  .text_slice,
+  .text_starts_with,
+  .text_trim_whitespace,
+} = import "duck:prelude/runtime" ();
+const {} = import "./contextual_user_message_types.duck" ();
+
+type HookPromptFragment = ContextualHookPromptFragment
+type HookPromptFragmentOption = ContextualHookPromptFragmentOption
+type UserTextOption = ContextualTextOption
+
+const unescape_hook_prompt_xml = (text: Text) => {
+  let output: Text = "";
+  let start = 0;
+  let valid = true;
+
+  loop {
+    let ampersand = text_find_from [text, "&", start];
+    if ampersand < 0 {
+      output = text_append [output, text_slice [text, start, text_length text]]
+      break;
+    }
+
+    output = text_append [output, text_slice [text, start, ampersand]]
+    let semicolon = text_find_from [text, ";", ampersand + 1];
+    if semicolon < 0 {
+      valid = false
+      break;
+    }
+
+    let entity = text_slice [text, ampersand + 1, semicolon];
+    let replacement: Text = "";
+    if entity == "amp" {
+      replacement = "&"
+    } else if entity == "lt" {
+      replacement = "<"
+    } else if entity == "gt" {
+      replacement = ">"
+    } else if entity == "quot" {
+      replacement = "\""
+    } else if entity == "apos" {
+      replacement = "'"
+    } else {
+      valid = false
+    }
+
+    if !(valid) {
+      break;
+    }
+
+    output = text_append [output, replacement]
+    start = semicolon + 1
+  }
+
+  let result: UserTextOption = `None ();
+  if valid {
+    result = `Some output
+  }
+  result
+};
+
+const parse_hook_prompt_fragment = (text: Text) => {
+  let result: HookPromptFragmentOption = `None ();
+  let trimmed = text_trim_whitespace text;
+  let start_marker = "<hook_prompt hook_run_id=\"";
+  let end_marker = "</hook_prompt>";
+  let opening_end = text_find_from [trimmed, "\">", text_length start_marker];
+  let content_end = text_length trimmed - text_length end_marker;
+  let has_shape = text_starts_with [trimmed, start_marker]
+    && text_ends_with [trimmed, end_marker]
+    && opening_end >= text_length start_marker
+    && opening_end + 2 <= content_end;
+
+  if has_shape {
+    let encoded_hook_run_id = text_slice [
+      trimmed,
+      text_length start_marker,
+      opening_end,
+    ];
+    let encoded_text = text_slice [trimmed, opening_end + 2, content_end];
+    let malformed_xml = text_contains [encoded_hook_run_id, "\""]
+      || text_contains [encoded_hook_run_id, "<"]
+      || text_contains [encoded_text, "<"];
+
+    if !(malformed_xml) {
+      let hook_run_id_result: UserTextOption = unescape_hook_prompt_xml encoded_hook_run_id;
+      let text_result: UserTextOption = unescape_hook_prompt_xml encoded_text;
+
+      if let `Some hook_run_id = hook_run_id_result {
+        if let `Some decoded_text = text_result {
+          if text_trim_whitespace hook_run_id != "" {
+            let fragment: HookPromptFragment = [
+              .text = decoded_text,
+              .hook_run_id = hook_run_id,
+            ];
+            result = `Some fragment
+          }
+        }
+      }
+    }
+  }
+
+  result
+};
+
+const render_hook_prompt_fragment = (fragment: HookPromptFragment) => {
+  let result: UserTextOption = `None ();
+  let [text, hook_run_id] = fragment;
+
+  if text_trim_whitespace hook_run_id != "" {
+    let rendered = "<hook_prompt hook_run_id=\"";
+    rendered = text_append [rendered, text_escape_xml hook_run_id]
+    rendered = text_append [rendered, "\">"]
+    rendered = text_append [rendered, text_escape_xml text]
+    rendered = text_append [rendered, "</hook_prompt>"]
+    result = `Some rendered
+  }
+
+  result
+};
+
+return {
+  .parse_hook_prompt_fragment,
+  .render_hook_prompt_fragment,
+};

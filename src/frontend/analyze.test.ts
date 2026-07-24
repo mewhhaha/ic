@@ -1,8 +1,5 @@
 import { assert_equals } from "../assert.ts";
-import {
-  compile_failure_examples,
-  success_examples,
-} from "../../examples/manifest.ts";
+import { success_examples } from "../../examples/manifest.ts";
 import { Source } from "../frontend.ts";
 import { ducklang_prelude_text } from "./prelude.ts";
 
@@ -81,104 +78,65 @@ Deno.test("Source.analyze returns compiler-owned syntax diagnostics", () => {
   assert_equals(diagnostic?.span.start === 0, false);
 });
 
-Deno.test("Source.analyze reports non-exhaustive matches", () => {
-  const analysis = Source.analyze("match 1 { | 1 => 10 }\n", {
-    route: "core",
-  });
-
-  assert_equals(analysis.diagnostics, [{
-    code: "DUCK2314",
-    severity: "error",
-    message: "Non-exhaustive match requires a wildcard or binding arm",
-    span: { start: 0, end: 0 },
-  }]);
-});
-
 const failure_goldens = [
   {
+    path: "examples/failures/compile/01_reused_linear_value.duck",
     code: "DUCK2201",
     message: "Linear value token was already consumed",
     span: { start: 26, end: 32 },
   },
   {
+    path: "examples/failures/compile/02_unused_linear_value.duck",
     code: "DUCK2202",
     message: "Linear value token was not consumed",
     span: { start: 0, end: 16 },
   },
   {
+    path: "examples/failures/compile/03_illegal_type_change.duck",
     code: "DUCK2301",
     message: "Assignment changes type for value",
     span: { start: 16, end: 35 },
   },
   {
+    path: "examples/failures/compile/04_mixed_integer_widths.duck",
     code: "DUCK2302",
     message: "Mixed i32 and i64 operands for operator +",
     span: { start: 0, end: 12 },
   },
   {
+    path: "examples/failures/compile/05_invalid_condition_type.duck",
     code: "DUCK2303",
     message: "If condition expects Bool, got Text",
     span: { start: 3, end: 8 },
   },
   {
+    path: "examples/failures/compile/06_missing_struct_field.duck",
     code: "DUCK2304",
     message: "Missing struct field: age",
     span: { start: 121, end: 129 },
   },
   {
+    path: "examples/failures/compile/07_invalid_union_payload.duck",
     code: "DUCK2305",
     message: "Union case Ok expects Int, got Text",
     span: { start: 49, end: 62 },
   },
   {
-    code: "DUCK2401",
-    message: "Rejected borrow borrow#0 in block#0: borrow over unique_heap " +
-      "text needs lexical lifetime tracking before the owner can be protected",
-    span: { start: 81, end: 95 },
-  },
-  {
-    code: "DUCK2402",
-    message: "Cannot freeze borrowed owner message in program#0 while " +
-      "borrow#0 is active",
-    span: { start: 66, end: 80 },
-  },
-  {
-    code: "DUCK2403",
-    message: "Rejected baseline proof scratch#0 scratch_return: unique_heap " +
-      "text cannot leave scratch without freeze or explicit promotion",
-    span: { start: 0, end: 24 },
-  },
-  {
-    code: "DUCK2404",
-    message: "Cannot mutate frozen/shareable core binding: message",
-    span: { start: 47, end: 62 },
-  },
-  {
+    path: "examples/failures/compile/12_missing_imported_export.duck",
     code: "DUCK2501",
     message: "Import ./missing_import_dependency.duck does not export missing",
     span: { start: 81, end: 88 },
   },
 ];
 
-Deno.test("Source.analyze_file matches every compile-failure golden", () => {
-  assert_equals(compile_failure_examples.length, failure_goldens.length);
-
-  for (let index = 0; index < compile_failure_examples.length; index += 1) {
-    const fixture = compile_failure_examples[index];
-    const expected = failure_goldens[index];
-
-    if (fixture === undefined || expected === undefined) {
-      throw new Error("Missing compile-failure diagnostic golden");
-    }
-
-    const analysis = Source.analyze_file(fixture.path, {
-      route: "core",
-    });
+Deno.test("Source.analyze_file matches shared frontend failure goldens", () => {
+  for (const expected of failure_goldens) {
+    const analysis = Source.analyze_file(expected.path);
     assert_equals(analysis.diagnostics.length, 1);
     const diagnostic = analysis.diagnostics[0];
 
     if (diagnostic === undefined) {
-      throw new Error("Missing diagnostic for " + fixture.path);
+      throw new Error("Missing diagnostic for " + expected.path);
     }
 
     assert_equals({
@@ -187,7 +145,9 @@ Deno.test("Source.analyze_file matches every compile-failure golden", () => {
       severity: diagnostic.severity,
       span: diagnostic.span,
     }, {
-      ...expected,
+      code: expected.code,
+      message: expected.message,
+      span: expected.span,
       severity: "error",
     });
   }
@@ -202,7 +162,6 @@ Deno.test("Source.analyze keeps every successful example route-agnostic", () => 
 
 Deno.test("Source.analyze accepts compile-time-only source modules", () => {
   const analysis = Source.analyze(ducklang_prelude_text, {
-    route: "core",
     uri: "file:///prelude.duck",
     warnings: true,
   });
@@ -219,58 +178,6 @@ Deno.test("Source.analyze continues after a recovered parse statement", () => {
     analysis.diagnostics.map((diagnostic) => diagnostic.code),
     ["DUCK1001", "DUCK2201"],
   );
-});
-
-Deno.test("Source.analyze gates pure Ic route diagnostics behind options", () => {
-  const text = "effect Counter { get: () => I32 }\n42\n";
-  assert_equals(Source.analyze(text).diagnostics, []);
-  const analysis = Source.analyze(text, { route: "ic" });
-  const diagnostic = analysis.diagnostics[0];
-
-  if (diagnostic === undefined) {
-    throw new Error("Missing pure Ic route diagnostic");
-  }
-
-  assert_equals(diagnostic.code, "DUCK2901");
-  assert_equals(
-    text.slice(diagnostic.span.start, diagnostic.span.end),
-    "effect Counter { get: () => I32 }",
-  );
-});
-
-Deno.test("Source.analyze keeps Core diagnostics enabled with imports", async () => {
-  const scratch = await Deno.readTextFile(
-    "examples/failures/compile/10_scratch_heap_escape.duck",
-  );
-  const text = 'const available = import "./dep.duck";\n' + scratch;
-  const analysis = Source.analyze(text, {
-    route: "core",
-    uri: "file:///main.duck",
-    resolve_import: (uri) => {
-      if (uri === "file:///dep.duck") {
-        return "module () where\nreturn { .available = 1 };";
-      }
-
-      return undefined;
-    },
-  });
-
-  assert_equals(analysis.diagnostics.length, 1);
-  assert_equals(analysis.diagnostics[0]?.code, "DUCK2403");
-  assert_equals(
-    analysis.diagnostics[0]?.span,
-    { start: 39, end: 63 },
-  );
-});
-
-Deno.test("Source.analyze reports every escaping scratch result", () => {
-  const text = 'scratch { @append("a", "b") }\n' +
-    'scratch { @append("c", "d") }';
-  const diagnostics = Source.analyze(text, { route: "core" }).diagnostics;
-
-  assert_equals(diagnostics.length, 2);
-  assert_equals(diagnostics[0]?.code, "DUCK2403");
-  assert_equals(diagnostics[1]?.code, "DUCK2403");
 });
 
 Deno.test("Source.analyze stays within the largest-example latency budget", async () => {

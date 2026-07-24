@@ -19,7 +19,6 @@ import {
   record_param_integer_type,
 } from "./expr.ts";
 import { validate_named_recursive_tail_binding } from "./rec.ts";
-import { record_optional_core_source_origin } from "../source_origin.ts";
 import { substitute_core_call_expr } from "../substitute.ts";
 import { core_runtime_buffer_builtin } from "../runtime_buffer.ts";
 import {
@@ -30,13 +29,6 @@ import {
 import { val_type_from_type_name } from "../../frontend/types.ts";
 
 export function core_stmt(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
-  return record_optional_core_source_origin(
-    core_stmt_untracked(stmt, ctx),
-    stmt,
-  );
-}
-
-function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
   switch (stmt.tag) {
     case "bind": {
       if (stmt.mutual !== undefined) {
@@ -67,7 +59,7 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
           result_type.name === "Text" || result_type.name === "Bytes" ||
           val_type_from_type_name(result_type.name) !== undefined);
 
-      if (stmt.is_recursive || stmt.managed_export || named_function) {
+      if (stmt.is_recursive || stmt.host_export || named_function) {
         const name = bind_core_name(ctx, stmt.name);
 
         if (stmt.is_linear) {
@@ -93,10 +85,6 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
       }
 
       let value = core_expr(source_value, ctx);
-
-      if (stmt.kind === "let") {
-        value = move_core_projection(value);
-      }
 
       if (value.tag === "rec") {
         value = {
@@ -177,16 +165,12 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
         value,
       };
 
-      if (integer && integer.width > 64) {
-        lowered.force_materialized = true;
-      }
-
       return lowered;
     }
 
     case "assign": {
       resolve_bound_core_value_name(ctx, stmt.name);
-      const value = move_core_projection(core_expr(stmt.value, ctx));
+      const value = core_expr(stmt.value, ctx);
 
       if (value.tag === "block") {
         inline_match_if_let_target(value);
@@ -223,7 +207,7 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
         tag: "index_assign",
         name: resolve_core_name(ctx, stmt.name),
         index: core_expr(stmt.index, ctx),
-        value: move_core_projection(core_expr(stmt.value, ctx)),
+        value: core_expr(stmt.value, ctx),
       };
 
     case "for_range": {
@@ -364,14 +348,6 @@ function core_stmt_untracked(stmt: Stmt, ctx: CoreFromSourceCtx): CoreStmt {
         text: stmt.text,
       };
   }
-}
-
-function move_core_projection(value: CoreExpr): CoreExpr {
-  if (value.tag === "field" || value.tag === "index") {
-    return { ...value, move: true };
-  }
-
-  return value;
 }
 
 function core_mutually_recursive_binding(
@@ -855,7 +831,7 @@ function core_recursive_binding_value(
   name: string,
   force_named = false,
 ): CoreExpr {
-  if (stmt.managed_export || force_named) {
+  if (stmt.host_export || force_named) {
     if (stmt.value.tag !== "lam" && stmt.value.tag !== "rec") {
       throw new Error(
         "Named function must be a lambda or recursive function: " +

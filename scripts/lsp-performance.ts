@@ -117,13 +117,13 @@ function benchmark_source(): { path: string; text: string } {
     }
   }
 
-  const grep_path = "case-studies/grep/grep.duck";
-  const grep_text = Deno.readTextFileSync(
-    new URL("../" + grep_path, import.meta.url),
+  const editor_path = "case-studies/editor/editor.duck";
+  const editor_text = Deno.readTextFileSync(
+    new URL("../" + editor_path, import.meta.url),
   );
 
-  if (largest === undefined || grep_text.length > largest.text.length) {
-    largest = { path: grep_path, text: grep_text };
+  if (largest === undefined || editor_text.length > largest.text.length) {
+    largest = { path: editor_path, text: editor_text };
   }
 
   if (largest === undefined) {

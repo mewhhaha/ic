@@ -102,8 +102,8 @@ function direct_lambda_alias_block(
     const ic_name = fresh(local, stmt.name);
     const value_env = clone_inline_value_env(local);
 
-    // Block-local bindings are inlined through the captured environment; this
-    // path does not emit separate Ic lets for the block prefix.
+    // Block-local bindings are inlined through the captured environment so
+    // aliases keep the same captured values as the enclosing function.
     push_binding(local, {
       name: stmt.name,
       ic_name,

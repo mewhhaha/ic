@@ -12,8 +12,6 @@ type UserInputQuestion = RequestUserInputQuestion
 type UserInputQuestionNode = RequestUserInputQuestionNode
 type UserInputQuestions = RequestUserInputQuestions
 
-// The named boundary gives native Core a terminal owner for the reversed list
-// before normalization selects its result branch.
 const reverse_questions: UserInputQuestions -> UserInputQuestions = questions => {
   let current = questions;
   let reversed: UserInputQuestions = `Nil ();

@@ -1,0 +1,148 @@
+module () where
+
+const {
+  .text_append,
+  .text_byte_is_ascii_digit,
+  .text_byte_is_ascii_lower,
+  .text_ends_with,
+  .text_equal_ascii_case_insensitive,
+  .text_find_from,
+  .text_get,
+  .text_length,
+  .text_slice,
+  .text_starts_with,
+  .text_trim_whitespace,
+} = import "duck:prelude/runtime" ();
+
+const matches_context_markers = (text: Text, start_marker: Text, end_marker: Text) => {
+  if text_length start_marker > text_length text {
+    false
+  } else if text_length end_marker > text_length text {
+    false
+  } else {
+    let start_candidate = text_slice [text, 0, text_length start_marker];
+    let end_start = text_length text - text_length end_marker;
+    let end_candidate = text_slice [text, end_start, text_length text];
+    text_equal_ascii_case_insensitive [
+      start_candidate,
+      start_marker,
+    ] && text_equal_ascii_case_insensitive [end_candidate, end_marker]
+  }
+};
+
+const is_marked_contextual_user_text = (text: Text) => {
+  let trimmed = text_trim_whitespace text;
+  matches_context_markers(
+    trimmed,
+    "# AGENTS.md instructions",
+    "</INSTRUCTIONS>",
+  )
+    || matches_context_markers(
+      trimmed,
+      "<environment_context>",
+      "</environment_context>",
+    )
+    || matches_context_markers(
+      trimmed,
+      "<skill>",
+      "</skill>",
+    )
+    || matches_context_markers(
+      trimmed,
+      "<user_shell_command>",
+      "</user_shell_command>",
+    )
+    || matches_context_markers(
+      trimmed,
+      "<turn_aborted>",
+      "</turn_aborted>",
+    )
+    || matches_context_markers(
+      trimmed,
+      "<subagent_notification>",
+      "</subagent_notification>",
+    )
+    || matches_context_markers(
+      trimmed,
+      "<recommended_plugins>",
+      "</recommended_plugins>",
+    )
+};
+
+const is_external_contextual_user_text = (text: Text) => {
+  let trimmed = text_trim_whitespace text;
+  let matched = false;
+  if text_starts_with [trimmed, "<external_"] {
+    let key_start = text_length "<external_";
+    let opening_end = text_find_from [trimmed, ">", key_start];
+    if opening_end >= key_start {
+      let key = text_slice [trimmed, key_start, opening_end];
+      let end_marker = text_append ["</external_", text_append [key, ">"]];
+      matched = text_ends_with [trimmed, end_marker]
+    }
+  }
+  matched
+};
+
+const is_internal_contextual_user_text = (text: Text) => {
+  let trimmed = text_trim_whitespace text;
+  let matched = false;
+  if text_starts_with [trimmed, "<goal_context>"] {
+    matched = text_ends_with [trimmed, "</goal_context>"]
+  } else if text_starts_with [trimmed, "<codex_internal_context source=\""] {
+    let source_start = text_length "<codex_internal_context source=\"";
+    let opening_end = text_find_from [trimmed, "\">", source_start];
+    if opening_end >= source_start {
+      let source = text_slice [trimmed, source_start, opening_end];
+      let valid_source = text_length source > 0;
+      if valid_source {
+        valid_source = text_byte_is_ascii_lower(text_get [source, 0])
+      }
+      if valid_source {
+        for index in 1..text_length source {
+          let byte = text_get [source, index];
+          if text_byte_is_ascii_lower byte || text_byte_is_ascii_digit byte || byte == 95 {
+            ()
+          } else {
+            valid_source = false
+          }
+        }
+      }
+      if valid_source {
+        matched = text_ends_with [trimmed, "</codex_internal_context>"]
+      }
+    }
+  }
+  matched
+};
+
+const is_legacy_contextual_user_warning = (text: Text) => {
+  let trimmed = text_trim_whitespace text;
+  text_starts_with [
+    trimmed,
+    "Warning: The maximum number of unified exec processes you can keep open is",
+  ]
+    || (
+      text_starts_with [trimmed, "Warning: apply_patch was requested via "]
+        && text_ends_with [trimmed, "Use the apply_patch tool instead of exec_command."]
+    )
+    || text_starts_with [
+      trimmed,
+      "Warning: Your account was flagged for potentially high-risk cyber activity",
+    ]
+};
+
+const is_standard_contextual_user_text = (text: Text) => {
+  is_marked_contextual_user_text text
+    || is_external_contextual_user_text text
+    || is_internal_contextual_user_text text
+    || is_legacy_contextual_user_warning text
+};
+
+return {
+  .is_marked_contextual_user_text,
+  .is_external_contextual_user_text,
+  .is_internal_contextual_user_text,
+  .is_legacy_contextual_user_warning,
+  .is_standard_contextual_user_text,
+};

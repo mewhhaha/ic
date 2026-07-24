@@ -231,7 +231,7 @@ export type Stmt =
     pattern?: Pattern;
     name: string;
     is_recursive?: boolean;
-    managed_export?: boolean;
+    host_export?: boolean;
     is_linear: boolean;
     annotation: string | undefined;
     type_annotation?: TypeExpr;

@@ -1,0 +1,66 @@
+module () where
+
+const {
+  .is_external_contextual_user_text,
+  .is_internal_contextual_user_text,
+  .is_legacy_contextual_user_warning,
+  .is_marked_contextual_user_text,
+  .is_standard_contextual_user_text,
+} = import "./contextual_user_fragment.duck" ();
+
+let score = 0;
+
+let recognizes_context =
+  is_marked_contextual_user_text(
+    "  <ENVIRONMENT_CONTEXT>ctx</ENVIRONMENT_CONTEXT>\n",
+  )
+    && is_standard_contextual_user_text(
+      "# AGENTS.md instructions\n\n<INSTRUCTIONS>\nbody\n</INSTRUCTIONS>",
+    )
+    && is_external_contextual_user_text("<external_note>body</external_note>")
+    && is_standard_contextual_user_text("<skill><name>test</name></skill>")
+    && is_standard_contextual_user_text(
+      "<user_shell_command>command</user_shell_command>",
+    )
+    && is_standard_contextual_user_text("<turn_aborted>interrupted</turn_aborted>")
+    && is_standard_contextual_user_text(
+      "<SUBAGENT_NOTIFICATION>{}</SUBAGENT_NOTIFICATION>",
+    )
+    && is_internal_contextual_user_text(
+      "<codex_internal_context source=\"extension\">body</codex_internal_context>",
+    )
+    && is_standard_contextual_user_text("<goal_context>legacy</goal_context>")
+    && is_standard_contextual_user_text(
+      "<recommended_plugins>- Example</recommended_plugins>",
+    )
+    && is_legacy_contextual_user_warning(
+      "Warning: The maximum number of unified exec processes you can keep open is 4.",
+    )
+    && is_standard_contextual_user_text(
+      "Warning: apply_patch was requested via exec_command. Use the apply_patch tool instead of exec_command.",
+    )
+    && is_standard_contextual_user_text(
+      "Warning: Your account was flagged for potentially high-risk cyber activity.",
+    );
+
+if recognizes_context {
+  score = score + 1
+}
+
+let rejects_visible_context =
+  !(is_standard_contextual_user_text("<project_context>body</project_context>"))
+    && !(is_internal_contextual_user_text(
+      "<codex_internal_context source=\"Extension\">body</codex_internal_context>",
+    ))
+    && !(is_external_contextual_user_text(
+      "<external_note>body</external_other>",
+    ))
+    && !(is_internal_contextual_user_text(
+      "<GOAL_CONTEXT>legacy</GOAL_CONTEXT>",
+    ));
+
+if rejects_visible_context {
+  score = score + 10
+}
+
+return { .score = score };

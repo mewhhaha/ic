@@ -27,11 +27,8 @@ read boundary as an immediate key. Rendering maps display bytes lazily and
 writes through a bounded output builder, while folds compute cached leaf
 metadata.
 
-The case study still exposes two toolchain gaps. A render-local byte-sink
-effect would be cleaner than explicit builder threading, but Duck effects cannot
-yet run inside runtime `for` and `loop` bodies. Key and command sequences use
-monomorphic recursive unions because gpufuck cannot yet instantiate generic
-`List` with a union element type.
+Key and command sequences use monomorphic recursive unions because gpufuck
+cannot yet instantiate generic `List` with a union element type.
 
 Run it with:
 

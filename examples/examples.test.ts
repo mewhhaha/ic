@@ -8,7 +8,7 @@ import {
   trap_examples,
 } from "./manifest.ts";
 import { corpus_feature_examples } from "./corpus_coverage.ts";
-import { DuckCompiler } from "../experiments/gpufuck/compiler.ts";
+import { DuckCompiler } from "../src/compiler.ts";
 
 Deno.test("examples use the gpufuck target", async (test) => {
   const compiler = await DuckCompiler.create();
@@ -95,7 +95,7 @@ Deno.test("example manifest accounts for every .duck file", () => {
   const actual = new Set(collect_duck_files("examples"));
   assert_equals([...actual].sort(), [...expected].sort());
   assert_equals(success_examples.length, 102);
-  assert_equals(compile_failure_examples.length, 13);
+  assert_equals(compile_failure_examples.length, 9);
   assert_equals(trap_examples.length, 4);
   assert_equals(test_example_paths.length, 1);
 });

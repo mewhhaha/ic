@@ -1,5 +1,5 @@
 import { expect } from "./expect.ts";
-import { Callable, type CallableType, Emit, Format } from "./trait.ts";
+import { Callable, type CallableType, Format } from "./trait.ts";
 
 export type NumType = "i32" | "i64" | "f32" | "f64";
 export type ValType = NumType | "v128";
@@ -118,11 +118,6 @@ export type F32x4BuiltinName =
   | "@f32x4_div"
   | "@f32x4_extract_lane"
   | "@f32x4_replace_lane";
-
-export type PrimOperandEmission = {
-  wat: string;
-  i32_literal: number | undefined;
-};
 
 export function Prim() {}
 
@@ -877,75 +872,6 @@ Prim.arity = function arity(prim: Prim): number {
   return Prim.type(prim).args.length;
 };
 
-Prim.emit = function emit(prim: Prim): string {
-  if (prim.endsWith(".trap")) {
-    return "unreachable";
-  }
-
-  if (prim.endsWith(".select")) {
-    return "select";
-  }
-
-  return prim;
-};
-
-export function emit_prim_call(
-  prim: Prim,
-  operands: PrimOperandEmission[],
-): string {
-  const expected = Prim.type(prim).args.length;
-  expect(
-    operands.length === expected,
-    "Primitive " + prim + " expects " + expected + " arguments",
-  );
-
-  if (prim === "f32x4.make") {
-    const first = operands[0];
-    const second = operands[1];
-    const third = operands[2];
-    const fourth = operands[3];
-    expect(first, "Missing f32x4 argument 0");
-    expect(second, "Missing f32x4 argument 1");
-    expect(third, "Missing f32x4 argument 2");
-    expect(fourth, "Missing f32x4 argument 3");
-    return [
-      first.wat,
-      "f32x4.splat",
-      second.wat,
-      "f32x4.replace_lane 1",
-      third.wat,
-      "f32x4.replace_lane 2",
-      fourth.wat,
-      "f32x4.replace_lane 3",
-    ].join("\n");
-  }
-
-  if (prim === "f32x4.extract_lane") {
-    const vector = operands[0];
-    const lane = operands[1];
-    expect(vector, "Missing f32x4_extract_lane vector");
-    expect(lane, "Missing f32x4_extract_lane lane");
-    const lane_index = f32x4_lane_index(prim, lane.i32_literal);
-    return vector.wat + "\nf32x4.extract_lane " + lane_index;
-  }
-
-  if (prim === "f32x4.replace_lane") {
-    const vector = operands[0];
-    const lane = operands[1];
-    const value = operands[2];
-    expect(vector, "Missing f32x4_replace_lane vector");
-    expect(lane, "Missing f32x4_replace_lane lane");
-    expect(value, "Missing f32x4_replace_lane value");
-    const lane_index = f32x4_lane_index(prim, lane.i32_literal);
-    return vector.wat + "\n" + value.wat + "\nf32x4.replace_lane " +
-      lane_index;
-  }
-
-  const lines = operands.map((operand) => operand.wat);
-  lines.push(Prim.emit(prim));
-  return lines.join("\n");
-}
-
 export function f32x4_lane_index(
   prim: "f32x4.extract_lane" | "f32x4.replace_lane",
   value: number | undefined,
@@ -963,4 +889,3 @@ export function f32x4_lane_index(
 
 Format.register<Prim>(Prim);
 Callable.register<Prim, ValType>(Prim);
-Emit.register<Prim, string>(Prim);

@@ -30,7 +30,7 @@ export function analyze_core_demand(core: Core): Core {
   );
   const context: DemandContext = {
     called_lambdas: collect_called_lambdas(statements),
-    effectful_functions: new Set(Object.keys(core.host_imports || {})),
+    effectful_functions: new Set(core.host_imports || []),
     external_type_metadata: [core.host_imports, core.recFunctions],
     next_shared_name: 0,
     specialized_branch_bindings,
@@ -415,7 +415,6 @@ function rewrite_branch_call_expr(
           func: target.branch.else_branch,
           args: else_args,
         },
-        implicit_else: target.branch.implicit_else,
       };
     }
 

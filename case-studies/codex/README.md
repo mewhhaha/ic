@@ -25,7 +25,9 @@ source-defined as well. Skill frontmatter and optional `agents/openai.yaml`
 policy are parsed in Duck from immutable snapshots. Duck also owns product
 gating, hidden-path and traversal limits, explicit `$name` selection, scope
 ordering, context budgets, description truncation, omission reports, and the
-model-visible skill catalog.
+model-visible skill catalog. Injected user-context classification and
+hook-prompt recovery are source-defined too, so runtime context stays hidden
+while hook prompts remain visible as typed items.
 
 The wire protocol is source-defined. `duck:prelude/json` provides the recursive
 JSON parser, Unicode escape handling, and encoder, while the focused
@@ -34,13 +36,13 @@ larger gpufuck programs without linking the parser. The focused
 `duck:prelude/json/string` module escapes JSON strings without linking recursive
 JSON values. `duck:prelude/numeric/parse` similarly keeps named decimal parse
 results out of scalar-only numeric programs while remaining compatible with the
-managed gpufuck ABI. `duck:prelude/base64` validates canonical standard Base64,
-reports exact failure evidence, and computes decoded length without allocating
-decoded bytes. The text prelude's curried `append_text` keeps host-returned text
-composable without constructing an anonymous product at the effect boundary.
-`protocol.duck` maps Responses API JSON to typed `ModelEvent` values and
-serializes user messages and function-call outputs. `app_server.duck` owns JSONL
-message envelopes, initialization gating, client capabilities, exact
+gpufuck host interface. `duck:prelude/base64` validates canonical standard
+Base64, reports exact failure evidence, and computes decoded length without
+allocating decoded bytes. The text prelude's curried `append_text` keeps
+host-returned text composable without constructing an anonymous product at the
+effect boundary. `protocol.duck` maps Responses API JSON to typed `ModelEvent`
+values and serializes user messages and function-call outputs. `app_server.duck`
+owns JSONL message envelopes, initialization gating, client capabilities, exact
 notification opt-outs, and the initialize response. Initialized requests become
 typed route plans before `app_server_routes.duck` performs known-method
 decoding; this keeps the recursive wire codec and the complete method surface
@@ -568,6 +570,9 @@ stay in Wasm; only explicit external capabilities cross the host boundary.
 - `context_types.duck`, `context.duck`, and `context_fragments.duck` own the
   model-visible environment, permission, instruction, budget, and internal
   context fragments.
+- `contextual_user_message_types.duck`, `contextual_user_fragment.duck`,
+  `hook_prompt.duck`, and `contextual_user_message.duck` own injected-context
+  recognition, hook-prompt XML recovery, and mixed-message visibility policy.
 - `rollout_types.duck` and `rollout.duck` own durable-record and memory-record
   selection for legacy and paginated histories.
 - `rollout_budget_types.duck` and `rollout_budget.duck` own one-shot
@@ -629,8 +634,7 @@ stay in Wasm; only explicit external capabilities cross the host boundary.
 - `plugin_install_types.duck`, `list_plugin_install_registration.duck`, and
   `list_plugin_install.duck` own discoverable plugin/connector candidate values,
   list-presentation exposure, exact metadata, sorting, truncation, and output.
-  Registration definitions and specs use separate bounded fixtures so both
-  metadata contracts run through native Core as well as gpufuck.
+  Registration definitions and specs use separate bounded gpufuck fixtures.
   `request_plugin_install_registration.duck`,
   `request_plugin_install_value.duck`, `request_plugin_install_json.duck`,
   `request_plugin_install_policy.duck`, `request_plugin_install_call.duck`, and
@@ -639,14 +643,13 @@ stay in Wasm; only explicit external capabilities cross the host boundary.
   elicitation planning, and completion. `request_plugin_install_host.duck`
   declares the narrow suspending capability. Definition gating, both schema
   presentations, and accepted and declined completion use separate bounded
-  fixtures so those stages run through native Core as well as gpufuck.
+  gpufuck fixtures.
 - `test_sync_registration.duck`, `test_sync_types.duck`, `test_sync_value.duck`,
   `test_sync_json.duck`, `test_sync_policy.duck`, `test_sync_call.duck`, and
   `test_sync_execution.duck` own the internal synchronization tool's exact
   metadata, decoding, validation, ordering, and completion.
   `test_sync_host.duck` declares only timer and barrier mechanics. Registration
-  definitions and specs use separate bounded fixtures so exact metadata and pure
-  synchronization policy run through native Core as well as gpufuck.
+  definitions and specs use separate bounded gpufuck fixtures.
 - `view_image_types.duck`, `view_image_registration.duck`,
   `view_image_value.duck`, `view_image_json.duck`, `view_image_policy.duck`,
   `view_image_call.duck`, `view_image_output.duck`, and
@@ -685,7 +688,7 @@ stay in Wasm; only explicit external capabilities cross the host boundary.
   cancellation, and the final file write. The required, text-option, schema, and
   numeric JSON decoders are separate gpufuck stages because linking four
   complete recursive parser specializations exceeds the backend's 65,536-node
-  per-program bound; the native facade calls those same stages in order.
+  per-program bound; the TypeScript entry point calls those stages in order.
 - `turn_profile_types.duck` and `turn_profile.duck` own phase transitions,
   monotonic duration accounting, request and retry counts, and idempotent turn
   profile completion. Typed monotonic instants and duration arithmetic are
@@ -924,17 +927,21 @@ stay in Wasm; only explicit external capabilities cross the host boundary.
   `proposed_plan_ascii_whitespace_fixture.duck`, `assistant_text_fixture.duck`,
   `history_fixture.duck`, `compaction_fixture.duck`, `truncation_fixture.duck`,
   `instruction_discovery_fixture.duck`, `config_fixture.duck`,
-  `context_fixture.duck`, `rollout_fixture.duck`, `rollout_scan_fixture.duck`,
+  `context_fixture.duck`, `contextual_user_fragment_fixture.duck`,
+  `hook_prompt_fixture.duck`, `contextual_user_message_fixture.duck`,
+  `rollout_fixture.duck`, `rollout_scan_fixture.duck`,
   `rollout_storage_fixture.duck`, `rollout_storage_metadata_fixture.duck`, and
   `rollout_storage_adapter_fixture.duck` verify the larger source policies and
-  live storage boundary through gpufuck. The plan-stream fixtures verify split
-  tag prefixes, line-only recognition, malformed and unterminated blocks,
-  Unicode and CRLF whitespace, ordered segments, last-block extraction, normal
-  mode passthrough, and citation removal inside plan text. The message-history
-  fixtures verify exact JSONL escaping, disabled persistence, soft-cap trimming,
-  identity mismatch, malformed rows, newest-first ordering, and continuation
-  offsets. The compaction-tag and model-fallback fixtures verify canonical
-  telemetry vocabulary, retry eligibility, and success/failure projections.
+  live storage boundary through gpufuck. The contextual-user fixtures verify
+  injected-fragment recognition, XML round trips, and mixed hook-message
+  recovery. The plan-stream fixtures verify split tag prefixes, line-only
+  recognition, malformed and unterminated blocks, Unicode and CRLF whitespace,
+  ordered segments, last-block extraction, normal mode passthrough, and citation
+  removal inside plan text. The message-history fixtures verify exact JSONL
+  escaping, disabled persistence, soft-cap trimming, identity mismatch,
+  malformed rows, newest-first ordering, and continuation offsets. The
+  compaction-tag and model-fallback fixtures verify canonical telemetry
+  vocabulary, retry eligibility, and success/failure projections.
   `tool_registry_fixture.duck`, `tool_dispatch_fixture.duck`,
   `tool_metadata_fixture.duck`, `tool_policy_fixture.duck`, and
   `tool_patch_policy_fixture.duck` verify the source-defined tool and safety
@@ -1057,13 +1064,11 @@ stay in Wasm; only explicit external capabilities cross the host boundary.
   `agent.test.ts` verifies the legacy live typed mechanics boundary, while
   `agent_tool_spawn.test.ts` and `agent_tool_control.test.ts` verify all six V2
   host operations, retained policy and output stages, pre-spawn rejection,
-  successful-spawn telemetry, final client text, and lifecycle ordering, and
-  `agent_tool_native.test.ts` covers the feature and V2 availability gate
-  through native Core. The 17 agent-job fixtures verify exact registration,
-  typed argument decoding, local-environment and concurrency policy, CSV
-  preparation, runner transitions, result aggregation, CSV output, and report
-  validation; the live agent fixtures verify the typed host boundaries through
-  the same backend.
+  successful-spawn telemetry, final client text, and lifecycle ordering. The 17
+  agent-job fixtures verify exact registration, typed argument decoding,
+  local-environment and concurrency policy, CSV preparation, runner transitions,
+  result aggregation, CSV output, and report validation; the live agent fixtures
+  verify the typed host boundaries through the same backend.
 
 ## Port order
 
@@ -1081,173 +1086,18 @@ Codex-specific request and event names stay in this case study. Collections,
 JSON, traversal, async, state, and resource abstractions belong in the prelude
 and must remain useful without Codex.
 
-## Known route boundary
+## Known compiler boundaries
 
-The gpufuck route supports the recursive source modules and resumable host
-effects used here. Audio MIME, payload, and response fixtures use gpufuck's full
-batch compiler because their managed aggregate results are not portable across
-the incremental definition extractor. Image preparation uses the same full batch
-route; decoding and resizing remain an explicit host boundary and no native
-image-processing coverage is claimed. The audio data-URL parser also runs
-through native Core with score `11111`; payload construction and response
-rewriting do not claim native coverage because native ownership proof does not
-yet retain their returned managed text. The five-call citation stream now also
-compiles and runs through native Core in
-`citation_parser_stream_native.test.ts`, returning the same score `474580703` as
-gpufuck. Native Core also runs all three clock-tool registration modes in
-`current_time_tool_registration_native.test.ts`, with the same scores as
-gpufuck. `current_time_provider_native.test.ts` covers system, external, and
-unavailable-external provider selection through the native route.
-`current_time_schedule_native.test.ts` covers initial, early, elapsed, and
-backward-clock reminder decisions through native Core, returning the same score
-`1111` as gpufuck. `current_time_boundary_native.test.ts` covers boundary
-consumption and new-window refresh through native Core, returning the same score
-`111111` as gpufuck. `current_time_format_native.test.ts` covers exact UTC and
-elapsed-time formatting through native Core, returning the same score `11` as
-gpufuck. `rollout_budget_native.test.ts` covers weighted usage, exhaustion,
-per-thread delivery, window changes, and reminder rearming through native Core,
-returning the same scores `11111` and `111111` as gpufuck.
-`turn_profile_native.test.ts` runs the complete turn-phase state-machine fixture
-through native Core, returning the same score `1111111` as gpufuck.
-`turn_timing_native.test.ts` runs the complete timing-milestone fixture through
-native Core, returning the same score `111111` as gpufuck.
-`sandbox_tags_native.test.ts` covers disabled, external, managed-network,
-filesystem, and Windows-elevation sandbox tags through native Core, returning
-the same score `11111111` as gpufuck. `message_history_native.test.ts` covers
-JSONL encoding, persistence, soft-cap trimming, malformed-row tolerance, entry
-lookup, and bounded pagination through native Core; both fixtures return the
-same score `11111` as gpufuck. `responses_retry_native.test.ts` covers requested
-delay precedence, exponential backoff, reconnect visibility, HTTPS fallback, and
-terminal failure through native Core, returning the same score `111111` as
-gpufuck. `auto_compact_window_native.test.ts` covers window restoration and
-advancement, one-shot claims, pending requests, and observed-versus-estimated
-prefill state through native Core, returning the same score `1111111` as
-gpufuck. `context_window_token_budget_native.test.ts` covers total and
-body-after-prefix accounting, saturated fallback buffers, exact tool metadata
-and schemas, text and code-mode output, and one-shot new-window requests through
-native Core; all five fixtures return the same scores as gpufuck.
-`request_user_input_native.test.ts` covers normalization, option validation,
-mode and root-thread policy, exact tool registration, response encoding,
-completion, and cancellation through native Core; all seven fixtures return the
-same scores as gpufuck. `request_permissions_native.test.ts` covers exact tool
-registration, primary and explicit environment selection, request normalization,
-permission intersection and scope policy, and exact response encoding through
-native Core; all five fixtures return the same scores as gpufuck.
-`wait_for_environment_native.test.ts` covers exact registration,
-ready-before-starting precedence, rejection, output encoding, and startup
-failure through native Core; both fixtures return the same scores as gpufuck.
-`update_plan_native.test.ts` covers exact registration, payload and mode
-precedence, ordered multiple-active plan preservation, and completion output
-through native Core; both fixtures return the same scores as gpufuck. Its typed
-JSON-value decoder remains on gpufuck because moving a recursive value out of
-`json_object_get` does not yet have a native ownership proof. Borrowed JSON key
-and length observers do run natively and keep schema validation affine.
-`list_plugin_install_native.test.ts` covers feature, candidate, and presentation
-gating plus exact definition and spec metadata through native Core; its split
-fixtures return the same scores `11` and `100` as gpufuck. Candidate ordering,
-description truncation, and response encoding remain gpufuck-backed because the
-native cleanup emitter does not yet retain the rebuilt-list owner local, while
-fully static projection exceeds the per-program compilation bound.
-`request_plugin_install_native.test.ts` covers definition gating, both exact
-presentation schemas, accepted completion, and declined completion through
-native Core; all five bounded fixtures return the same scores as gpufuck. Its
-multi-scenario candidate policy remains gpufuck-backed because each call
-consumes the candidate list, and typed JSON-value decoding shares the
-`json_object_get` borrow-view boundary described above.
-`test_sync_native.test.ts` covers exact registration metadata and barrier
-validation through native Core; all three bounded fixtures return the same
-scores as gpufuck. Typed synchronization argument decoding remains
-gpufuck-backed because it also moves recursive values out of `json_object_get`.
-`view_image_native.test.ts` covers exact registration and structured output
-encoding through native Core; all five bounded fixtures return the same scores
-as gpufuck. Typed argument decoding remains behind the `json_object_get`
-borrow-view boundary, while recursive environment selection does not yet have
-complete native terminal-cleanup facts. Call composition remains gpufuck-backed
-because it depends on those two stages. `tool_search_native.test.ts` covers the
-exact deferred-search tool name and its fixed-point logarithm primitive through
-native Core. Registration lists and dynamic schema text, blank-query scanning,
-tokenization and BM25 list ranking, namespace coalescing, and full call
-composition remain gpufuck-backed because their compile-time shapes, text
-locals, or recursive owners do not yet have complete native lowering and cleanup
-facts. `mcp_resource_native.test.ts` covers all three exact scalar tool
-definitions, all three exact scalar specs, and typed list/read access policy
-through native Core. Three-node registration lists remain outside native
-aggregate-payload proofs, typed JSON decoding shares the `json_object_get`
-borrow-view boundary, and functional output aggregation still leaks a native
-compile-time shape. Call/output routes run through gpufuck; the output route
-uses concrete runtime text operations so it does not pull polymorphic list
-`append` into lowering. `mcp_resource.test.ts` runs list and read lifecycle
-effects through a small Duck coordinator and delegates response validation and
-encoding to retained list/read Duck stages. TypeScript only forwards the typed
-stage values, and the host ABI uses domain-named `McpResourceTexts` nodes.
-`agent_tool_native.test.ts` covers collaboration feature and V2 availability
-through native Core, returning score `111`. The complete six-tool definition,
-spec, raw decoder, spawn, messaging, interrupt, wait, list, and output route
-runs through bounded gpufuck fixtures because linking every schema and control
-path into one program crosses the backend's 65,536-node limit. Output rendering
-is split by operation so interrupt and wait do not pull in recursive agent-list
-types. `agent_tool_spawn.test.ts` and `agent_tool_control.test.ts` retain those
-Duck plans, spawn-override policy, and output stages across all six live typed
-host operations. Available-model discovery remains a host snapshot; selection
-and rejection are source-owned. `agent_job_native.test.ts` covers the
-worker-source prefix decision through native Core, returning score `11`. The
-complete 17-fixture agent-job route runs through gpufuck. Full tool registration
-and agent-job policies remain outside native Core because managed `ToolSpec`
-transfers and named-function text/union cleanup do not yet retain unambiguous
-owners; typed JSON decoding also shares the `json_object_get` borrow-view
-boundary. The complete tool-source route remains gpufuck-backed because its
-ordered result owns recursive runtime definitions. Source selection and
-finalization remain separate bounded Duck programs; their guardian, shell,
-namespace, searchable-deferred, exposure, and ordering assertions are projected
-inside Duck before crossing each fixture boundary.
+Every executable fixture uses `DuckCompiler` and the gpufuck target. There is no
+second backend or differential native-Core suite.
 
-The code-mode wait declaration and lifecycle decision are bounded gpufuck
-programs. Raw wait decoding remains on gpufuck with the other recursive JSON
-decoders. Native Core does not yet retain an unambiguous cleanup owner for the
-named text-bearing wait unions, so this route does not claim native coverage.
-The execute call and lifecycle fixtures cover payload rejection, pragma-to-
-request transfer, complete tool-definition preservation, trace construction,
-gate readiness, and yielded-versus-terminal initial responses. The live adapter
-fixture checks runtime-start failure and the exact host effect order through the
-typed completion boundary; response formatting stays independently covered by
-the response fixtures. The code-mode response policy is split into text,
-mixed-content, status, error, and image fixtures so every linked program stays
-below gpufuck's 65,536-expression bound. These fixtures cover preservation below
-budget, warning and omission rendering, audio removal, default and sanitized
-image detail, yielded/completed/terminated status, script failures, and
-wall-time rounding. The nested-tool fixtures separately cover function and
-freeform payloads, self-call and shape rejection, dispatch identity, content
-filtering, and every default or structured code-mode result route without
-joining those recursive types into one oversized program. Four dispatch-broker
-fixtures cover queue acceptance and rejection, response-channel completion, both
-readiness paths, cancellation precedence, blank Unicode notifications, and
-active-turn injection failures. They remain gpufuck-backed because native Core
-does not yet prove terminal ownership for the broker's named text-bearing
-unions.
+A few large compositions remain split into smaller source stages because a
+single gpufuck functional surface is currently limited to 65,536 expressions.
+This affects the complete recursive JSON tool decoders, the all-in-one
+collaboration tool registry, and some code-mode response compositions. The
+stages are still Duck programs; TypeScript only coordinates their typed host
+boundaries.
 
-The shared recursive JSON parser, bounded tool policy stages, and typed live
-adapters are each within gpufuck's per-program bound. Linking the parser into a
-complete raw request-user-input, request-permissions, or update-plan decoder
-currently crosses its 65,536-expression device limit. Raw document decoding,
-typed JSON-value decoding, and typed policy therefore stay as explicit source
-stages. `update_plan_stage_composition.test.ts` runs the first two as retained
-programs under a Duck coordinator; live host fixtures start from typed
-normalized values. No JSON, prompt, permission, or plan policy moves into
-TypeScript to work around that backend limit.
-
-Applied generic union fields such as `FieldPatch Text` now elaborate and run
-through both gpufuck and native Core, including stable scratch values and
-runtime payloads. The complete thread-metadata response now also compiles and
-runs through native Core in `app_server_thread_metadata_native.test.ts`. That
-route covers nullary module aliases, generic JSON `List` constructors, named
-timestamp and encoding helpers, and ownership-preserving moves from patched
-thread aggregates; the fixture returns the same score `11` as gpufuck.
-
-Hook command actions use a nominal scalar tag. The source-defined `:>` and `:<`
-operators seal and expose its `I32` representation without a runtime conversion.
-
-The reverse model-context scan remains source-defined in `rollout_scan.duck`.
-When a control-flow match rejects one case of a wide union, gpufuck lowers the
-shared fallback as one continuation rather than copying the remaining scan into
-every constructor arm. This keeps the official nested `RolloutItem` and
-`EventMsg` traversal compact without replacing typed unions with integer tags.
+Image decoding and resizing remain host operations. Audio and image policy,
+payload construction, response shaping, and all other case-study behavior stay
+in Duck source.

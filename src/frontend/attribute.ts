@@ -161,7 +161,7 @@ export function expand_source_attributes(source: Source): Source {
     statements.push({
       ...statement,
       kind: applied.exported ? "let" : statement.kind,
-      managed_export: applied.exported || statement.managed_export,
+      host_export: applied.exported || statement.host_export,
       attribute_groups: undefined,
       value: applied.value,
     });

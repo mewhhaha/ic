@@ -89,7 +89,7 @@ Deno.test("linear closure reuse reports both calls and its declaration", () => {
       span: { start: 41, end: 47 },
     }, {
       message: "Linear closure declared here",
-      span: { start: 11, end: 34 },
+      span: { start: 12, end: 36 },
     }],
   }]);
 });

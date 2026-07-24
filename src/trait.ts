@@ -57,69 +57,6 @@ export const Format = typeclass(format_typeclass, {
   },
 });
 
-export const emit_typeclass = Symbol("ducklang.Emit");
-
-export type Emit<from, to> = {
-  emit: (value: from) => to;
-};
-
-export const Emit = typeclass(emit_typeclass, {
-  register<from, to>(impl: Emit<from, to>): void {
-    install_instance(impl, emit_typeclass, { emit: impl.emit });
-  },
-  emit<from, to>(impl: Emit<from, to>, value: from): to {
-    const instance = instance_on<typeof emit_typeclass, Emit<from, to>>(
-      impl,
-      emit_typeclass,
-      "Emit",
-    );
-    return call_typeclass_method(instance.emit, impl, value);
-  },
-  all<from, to>(impl: Emit<from, to>, values: from[]): to[] {
-    return values.map((value) => this.emit(impl, value));
-  },
-});
-
-export const data_typeclass = Symbol("ducklang.Data");
-
-export type Data<self, item> = {
-  data: (value: self) => item[];
-};
-
-export const Data = typeclass(data_typeclass, {
-  register<self, item>(impl: Data<self, item>): void {
-    install_instance(impl, data_typeclass, { data: impl.data });
-  },
-  data<self, item>(impl: Data<self, item>, value: self): item[] {
-    const instance = instance_on<typeof data_typeclass, Data<self, item>>(
-      impl,
-      data_typeclass,
-      "Data",
-    );
-    return call_typeclass_method(instance.data, impl, value);
-  },
-});
-
-export const typed_typeclass = Symbol("ducklang.Typed");
-
-export type Typed<self, type> = {
-  type: (value: self) => type;
-};
-
-export const Typed = typeclass(typed_typeclass, {
-  register<self, type>(impl: Typed<self, type>): void {
-    install_instance(impl, typed_typeclass, { type: impl.type });
-  },
-  type<self, type>(impl: Typed<self, type>, value: self): type {
-    const instance = instance_on<typeof typed_typeclass, Typed<self, type>>(
-      impl,
-      typed_typeclass,
-      "Typed",
-    );
-    return call_typeclass_method(instance.type, impl, value);
-  },
-});
-
 export const callable_typeclass = Symbol("ducklang.Callable");
 
 export type CallableType<type> = {
@@ -155,35 +92,5 @@ export const Callable = typeclass(callable_typeclass, {
       Callable<self, type>
     >(impl, callable_typeclass, "Callable");
     return call_typeclass_method(instance.type, impl, value);
-  },
-});
-
-export const reduce_typeclass = Symbol("ducklang.Reduce");
-
-export type Reduce<ctx, from, to> = {
-  reduce: (ctx: ctx, value: from) => to;
-};
-
-export const Reduce = typeclass(reduce_typeclass, {
-  register<ctx, from, to>(impl: Reduce<ctx, from, to>): void {
-    install_instance(impl, reduce_typeclass, { reduce: impl.reduce });
-  },
-  reduce<ctx, from, to>(
-    impl: Reduce<ctx, from, to>,
-    ctx: ctx,
-    value: from,
-  ): to {
-    const instance = instance_on<
-      typeof reduce_typeclass,
-      Reduce<ctx, from, to>
-    >(impl, reduce_typeclass, "Reduce");
-    return call_typeclass_method(instance.reduce, impl, ctx, value);
-  },
-  all<ctx, from, to>(
-    impl: Reduce<ctx, from, to>,
-    ctx: ctx,
-    values: from[],
-  ): to[] {
-    return values.map((value) => this.reduce(impl, ctx, value));
   },
 });

@@ -178,13 +178,6 @@ function add_core_assigned_capture_name<ctx extends CoreCaptureStaticCtx>(
   state: CoreCaptureState<ctx>,
 ): void {
   add_core_capture_name(name, state);
-
-  if (state.assigned_seen.has(name)) {
-    return;
-  }
-
-  state.assigned_seen.add(name);
-  state.assigned_names.push(name);
 }
 
 function add_core_assigned_static_capture_name<
@@ -197,19 +190,7 @@ function add_core_assigned_static_capture_name<
     return false;
   }
 
-  const target = state.hooks.static_struct_binding(name, state.ctx);
-
-  if (!target) {
-    return false;
-  }
-
-  if (state.assigned_static_seen.has(name)) {
-    return true;
-  }
-
-  state.assigned_static_seen.add(name);
-  state.assigned_static_names.push(name);
-  return true;
+  return state.hooks.static_struct_binding(name, state.ctx) !== undefined;
 }
 
 function collect_core_block_captures<ctx extends CoreCaptureStaticCtx>(

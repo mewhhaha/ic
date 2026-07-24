@@ -29,6 +29,25 @@ Deno.test("Duck compiler lowers Duck numeric types", () => {
   assert_equals(f64_module.nodeCount, 3);
 });
 
+Deno.test("Duck compiler executes float arithmetic after integer conversion", async () => {
+  const compiler = await DuckCompiler.create();
+
+  try {
+    const execution = await compiler.run(`
+const { .f32_from_i32, .i32_from_f32 } = import "duck:prelude/runtime" ();
+let halve: I32 -> F32 = (value: I32) => {
+  let converted: F32 = f32_from_i32 value;
+  converted / 2.0f32
+};
+i32_from_f32(halve(42))
+`);
+
+    assert_equals(execution.value, { kind: "integer", value: 21 });
+  } finally {
+    compiler.destroy();
+  }
+});
+
 Deno.test("Duck gpufuck lowering represents Char payloads as integers", () => {
   const source_text = `
 type Key = | \`Character Char | \`Escape Unit
@@ -1047,6 +1066,35 @@ Deno.test("Duck compiler renders Codex model context in source", async () => {
       fields: [{ kind: "integer", value: 11_111 }],
     });
     assert_equals(execution.stats.thunkEvaluations, 0);
+  } finally {
+    compiler.destroy();
+  }
+});
+
+Deno.test("Duck compiler recovers contextual Codex hook prompts", async (test) => {
+  const compiler = await DuckCompiler.create();
+  const fixtures = [
+    ["contextual_user_fragment_fixture.duck", 11],
+    ["hook_prompt_fixture.duck", 11],
+    ["contextual_user_message_fixture.duck", 111],
+  ] as const;
+
+  try {
+    for (const [fixture, score] of fixtures) {
+      const passed = await test.step(fixture, async () => {
+        const execution = await compiler.run_file(
+          "case-studies/codex/" + fixture,
+        );
+        assert_equals(execution.value, {
+          kind: "constructor",
+          name: "duck::$DuckStruct:duck_entry_result_type",
+          fields: [{ kind: "integer", value: score }],
+        });
+      });
+      if (!passed) {
+        break;
+      }
+    }
   } finally {
     compiler.destroy();
   }
@@ -2952,7 +3000,7 @@ Deno.test("Duck compiler plans Codex terminal lifecycle events", async () => {
   }
 });
 
-Deno.test("Duck compiler executes native Text append and indexing", async () => {
+Deno.test("Duck compiler executes Text append and indexing", async () => {
   const compiler = await DuckCompiler.create();
   try {
     const execution = await compiler.run_file(
@@ -2964,7 +3012,7 @@ Deno.test("Duck compiler executes native Text append and indexing", async () => 
   }
 });
 
-Deno.test("Duck compiler executes native Bytes conversion and slicing", async () => {
+Deno.test("Duck compiler executes Bytes conversion and slicing", async () => {
   const compiler = await DuckCompiler.create();
   try {
     const execution = await compiler.run(`
@@ -3215,11 +3263,11 @@ Deno.test("Duck compiler executes aggregate effect capabilities", async () => {
   }
 });
 
-Deno.test("Duck compiler emits managed callables as persistent exports", async () => {
+Deno.test("Duck compiler emits host callables as persistent exports", async () => {
   const compiler = await DuckCompiler.create();
   const storage_source = `
 let add: (I32, I32) -> I32 = (left, right) => left + right;
-const sum_to: I32 -> I32 = rec (value: I32) => {
+let sum_to: I32 -> I32 = rec (value: I32) => {
   if value == 0 { 0 } else { value + rec(value - 1) }
 };
 add(sum_to(6), 21)
@@ -3228,7 +3276,7 @@ add(sum_to(6), 21)
 module () where
 
 let add: (I32, I32) -> I32 = (left, right) => left + right;
-const sum_to: I32 -> I32 = rec (value: I32) => {
+let sum_to: I32 -> I32 = rec (value: I32) => {
   if value == 0 { 0 } else { value + rec(value - 1) }
 };
 return { .add = add, .sum_to = sum_to, .answer = 42 };
@@ -3257,7 +3305,7 @@ return { .add = add, .sum_to = sum_to, .answer = 42 };
     const add = instantiated.instance.exports.__duck_abi_call_add;
     const sum_to = instantiated.instance.exports.__duck_abi_call_sum_to;
     if (typeof add !== "function" || typeof sum_to !== "function") {
-      throw new Error("gpufuck managed callable exports are missing");
+      throw new Error("gpufuck host callable exports are missing");
     }
 
     assert_equals(add(tagged_integer(20), tagged_integer(22)), 42);

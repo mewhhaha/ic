@@ -8,11 +8,12 @@ testing, and architecture policy.
 
 - Deno 2.9.2
 - Tree-sitter CLI 0.26.3
-- WABT with `wat2wasm` on `PATH`
 - `just`
+- a WebGPU adapter
+- the sibling `../gpufuck` checkout
 
-No repository dependency install is required. The Deno lockfile pins the single
-JSR dependency.
+No repository dependency install is required. The Deno lockfile pins the JSR
+dependencies.
 
 ## Before a change
 
@@ -20,16 +21,14 @@ Read the implementation you will edit and a neighboring module that performs a
 similar operation. Confirm the established naming, error handling, dependency
 direction, and existing test coverage before writing code.
 
-Keep backend routes accurate:
+Keep the compiler pipeline accurate:
 
 ```txt
-Source -> IC -> Expr -> Mod -> WAT -> Wasm
-Source -> structured Core -> Mod -> WAT -> Wasm
+Source -> frontend -> semantic Core -> gpufuck Functional Core -> Wasm
 ```
 
-Shared frontend stages must not import Core or WAT emitters. Core dependencies
-flow `model -> analysis -> plan -> emit -> backend`, and source syntax enters
-Core through `core/from_source/` adapters.
+Frontend stages must not import Core. Source syntax enters Core through
+`core/from_source/`, and concrete compilation belongs in the gpufuck adapter.
 
 ## Verification
 
@@ -46,7 +45,7 @@ and compiler/LSP performance budgets.
 
 When changing the grammar, regenerate its checked-in artifacts with the pinned
 Tree-sitter CLI and include `grammar.json`, `node-types.json`, and `parser.c` in
-the same change. When changing diagnostics or the product barrel, update the
-registry/API tests and `docs/typescript-api-migration.md`.
+the same change. When changing diagnostics or the public API, update their
+focused tests and the relevant reference documentation.
 
 Report exactly which checks passed and anything that could not be verified.

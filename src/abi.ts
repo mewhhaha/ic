@@ -1,21 +1,10 @@
 import type { FrontExpr, Source, TypeExpr, TypeField } from "./frontend/ast.ts";
-import { analyze_front_effects } from "./frontend/effect_analysis.ts";
 import { resolve_front_type_value } from "./frontend/type_set_elaborate.ts";
 import { tokenize } from "./frontend/tokenize.ts";
 import { format_type_expr, parse_type_expr } from "./frontend/type_expr.ts";
 import { substitute_front_expr } from "./frontend/substitute.ts";
-import { align_to } from "./core/memory.ts";
-import type { Func, Mod } from "./mod.ts";
-import {
-  allocator_free_head,
-  runtime_allocator_funcs,
-} from "./core/runtime_allocator.ts";
-import { closure_heap_global } from "./core/closure_runtime.ts";
 import { fixed_array_length } from "./frontend/fixed_array_type.ts";
 import { integer_type_from_name, integer_val_type } from "./integer.ts";
-
-export const duck_abi_name = "duck-js";
-export const duck_abi_version = "duck-js-1";
 
 export type AbiOwnership =
   | "scalar"
@@ -35,7 +24,7 @@ export type AbiTypeRef =
   | { tag: "i32_slice" }
   | { tag: "text_slice" }
   | { tag: "resource"; effect: string }
-  | { tag: "named"; name: string; indirect?: true };
+  | { tag: "named"; name: string };
 
 export type AbiValueContract = {
   type: AbiTypeRef;
@@ -45,35 +34,24 @@ export type AbiValueContract = {
 export type AbiStructField = {
   name: string;
   type: AbiTypeRef;
-  offset: number;
 };
 
 export type AbiType =
   | {
     tag: "struct";
     name: string;
-    schema_id: number;
-    size: number;
-    align: number;
     fields: AbiStructField[];
   }
   | {
     tag: "union";
     name: string;
-    schema_id: number;
-    size: number;
-    align: 8;
-    cases: { name: string; tag_value: number; payload: AbiTypeRef }[];
+    cases: { name: string; payload: AbiTypeRef }[];
   }
   | {
     tag: "array";
     name: string;
-    schema_id: number;
     element: AbiTypeRef;
     length: number;
-    stride: number;
-    size: number;
-    align: number;
   };
 
 export type AbiImport = {
@@ -106,20 +84,6 @@ export type AbiEffect = {
   operations: Record<string, AbiEffectOperation>;
 };
 
-export type AbiEffectRef = {
-  effect: string;
-  operation: string;
-};
-
-export type AbiEffectFunctionRequirement = {
-  effects: AbiEffectRef[];
-};
-
-export type AbiEffectRequirements = {
-  module: AbiEffectRef[];
-  functions: Record<string, AbiEffectFunctionRequirement>;
-};
-
 export type AbiInitField = {
   name: string;
   type: Extract<AbiTypeRef, { tag: "resource" }>;
@@ -132,7 +96,6 @@ export type AbiInit = {
 };
 
 export type AbiEntry = {
-  params: AbiTypeRef[];
   result: AbiValueContract | undefined;
 };
 
@@ -149,32 +112,12 @@ export type AbiCallable = {
 };
 
 export type AbiManifest = {
-  abi_name: typeof duck_abi_name;
-  abi_version: typeof duck_abi_version;
-  target: {
-    profile: "core-3-nonweb";
-    pointer: "wasm32";
-    endianness: "little";
-    i64_js: "bigint";
-  };
-  frame: {
-    byte_size_offset: 0;
-    schema_id_offset: 4;
-    root_offset: 8;
-  };
   types: Record<string, AbiType>;
   imports: Record<string, AbiImport>;
   effects: Record<string, AbiEffect>;
-  requirements: AbiEffectRequirements;
   init: AbiInit | undefined;
   entry: AbiEntry | undefined;
   callables?: Record<string, AbiCallable>;
-  exports: {
-    memory: "memory";
-    alloc: "__duck_abi_alloc";
-    free: "__duck_abi_free";
-    main: "__duck_abi_main";
-  };
 };
 
 export function abi_fixed_array_schema_name(
@@ -195,11 +138,7 @@ function abi_type_ref_identity(type: AbiTypeRef): string {
   }
 
   if (type.tag === "named") {
-    let identity = "named_" + encodeURIComponent(type.name);
-    if (type.indirect) {
-      identity += "_indirect";
-    }
-    return identity;
+    return "named_" + encodeURIComponent(type.name);
   }
 
   return type.tag;
@@ -221,8 +160,6 @@ export function build_abi_manifest(
     { element: AbiTypeRef; length: number }
   >();
   const resolving = new Set<string>();
-  const resolving_shapes = new Map<string, "struct" | "union">();
-  let next_schema_id = 1;
 
   function resolve_fixed_array(
     element: AbiTypeRef,
@@ -254,19 +191,12 @@ export function build_abi_manifest(
     const fixed_array = fixed_arrays.get(name);
 
     if (fixed_array) {
-      const layout = abi_type_ref_layout(fixed_array.element, resolve_named);
-      const stride = align_to(layout.size, layout.align);
       const result: AbiType = {
         tag: "array",
         name,
-        schema_id: next_schema_id,
         element: fixed_array.element,
         length: fixed_array.length,
-        stride,
-        size: stride * fixed_array.length,
-        align: layout.align,
       };
-      next_schema_id += 1;
       types[name] = result;
       return result;
     }
@@ -284,9 +214,7 @@ export function build_abi_manifest(
         const alias: AbiType = {
           ...target,
           name,
-          schema_id: next_schema_id,
         };
-        next_schema_id += 1;
         types[name] = alias;
         return alias;
       }
@@ -303,9 +231,6 @@ export function build_abi_manifest(
       }
 
       if (resolved_value.tag === "struct_type") {
-        resolving_shapes.set(name, "struct");
-        let offset = 0;
-        let max_align = 1;
         const fields: AbiStructField[] = [];
 
         for (const field of resolved_value.fields) {
@@ -316,83 +241,32 @@ export function build_abi_manifest(
             resolve_fixed_array,
             resolving,
           );
-          const layout = abi_type_ref_layout(
-            type,
-            resolve_named,
-            (type_name) => abi_named_shape(type_name, values, resolving_shapes),
-          );
-          offset = align_to(offset, layout.align);
-          fields.push({ name: field.name, type, offset });
-          offset += layout.size;
-
-          if (layout.align > max_align) {
-            max_align = layout.align;
-          }
+          fields.push({ name: field.name, type });
         }
 
         const result: AbiType = {
           tag: "struct",
           name,
-          schema_id: next_schema_id,
-          size: align_to(offset, max_align),
-          align: max_align,
           fields,
         };
-        next_schema_id += 1;
         types[name] = result;
         return result;
       }
 
       if (resolved_value.tag === "union_type") {
-        resolving_shapes.set(name, "union");
-        let max_payload = 0;
         const cases = [];
 
-        for (let index = 0; index < resolved_value.cases.length; index += 1) {
-          const union_case = resolved_value.cases[index];
-
-          if (!union_case) {
-            throw new Error("Missing ABI union case " + index.toString());
-          }
-
-          let payload = abi_type_ref(
+        for (const union_case of resolved_value.cases) {
+          const payload = abi_type_ref(
             union_case.type_name,
             values,
             resolve_named,
             resolve_fixed_array,
             resolving,
           );
-          if (payload.tag === "named") {
-            const payload_shape = abi_named_shape(
-              payload.name,
-              values,
-              resolving_shapes,
-            );
-            if (payload_shape === "struct") {
-              payload = { ...payload, indirect: true };
-            } else if (payload_shape === undefined) {
-              const payload_schema = resolve_named(payload.name);
-              if (
-                payload_schema.tag === "struct" ||
-                payload_schema.tag === "array"
-              ) {
-                payload = { ...payload, indirect: true };
-              }
-            }
-          }
-          const layout = abi_type_ref_layout(
-            payload,
-            resolve_named,
-            (type_name) => abi_named_shape(type_name, values, resolving_shapes),
-          );
-
-          if (layout.size > max_payload) {
-            max_payload = layout.size;
-          }
 
           cases.push({
             name: union_case.name,
-            tag_value: index,
             payload,
           });
         }
@@ -400,12 +274,8 @@ export function build_abi_manifest(
         const result: AbiType = {
           tag: "union",
           name,
-          schema_id: next_schema_id,
-          size: align_to(4 + max_payload, 8),
-          align: 8,
           cases,
         };
-        next_schema_id += 1;
         types[name] = result;
         return result;
       }
@@ -413,7 +283,6 @@ export function build_abi_manifest(
       throw new Error("ABI type value must be a struct or union: " + name);
     } finally {
       resolving.delete(name);
-      resolving_shapes.delete(name);
     }
   }
 
@@ -502,7 +371,6 @@ export function build_abi_manifest(
   }
 
   const init = abi_init(source, effects, imports);
-  const requirements = abi_effect_requirements(source, effects);
   const callables = abi_callables(
     source,
     values,
@@ -511,28 +379,12 @@ export function build_abi_manifest(
   );
 
   return {
-    abi_name: duck_abi_name,
-    abi_version: duck_abi_version,
-    target: {
-      profile: "core-3-nonweb",
-      pointer: "wasm32",
-      endianness: "little",
-      i64_js: "bigint",
-    },
-    frame: { byte_size_offset: 0, schema_id_offset: 4, root_offset: 8 },
     types,
     imports,
     effects,
-    requirements,
     init,
     entry: abi_entry(init, values, resolve_named),
     callables,
-    exports: {
-      memory: "memory",
-      alloc: "__duck_abi_alloc",
-      free: "__duck_abi_free",
-      main: "__duck_abi_main",
-    },
   };
 }
 
@@ -545,7 +397,7 @@ function abi_callables(
   const callables: Record<string, AbiCallable> = {};
 
   for (const stmt of source.statements) {
-    if (stmt.tag !== "bind" || !stmt.managed_export) {
+    if (stmt.tag !== "bind" || !stmt.host_export) {
       continue;
     }
 
@@ -554,12 +406,12 @@ function abi_callables(
       (stmt.value.tag !== "lam" && stmt.value.tag !== "rec")
     ) {
       throw new Error(
-        "Managed callable requires an annotated function: " + stmt.name,
+        "Host callable requires an annotated function: " + stmt.name,
       );
     }
 
     if (callables[stmt.name]) {
-      throw new Error("Duplicate managed callable: " + stmt.name);
+      throw new Error("Duplicate host callable: " + stmt.name);
     }
 
     const param_types = abi_callable_param_types(
@@ -602,7 +454,7 @@ function abi_callable_param_types(
     for (const entry of type.entries) {
       if (entry.label !== undefined) {
         throw new Error(
-          "Managed callable named product parameters are not supported: " +
+          "Host callable named product parameters are not supported: " +
             name,
         );
       }
@@ -627,25 +479,25 @@ function abi_callable_contract(
 ): AbiCallableValueContract {
   if (type.tag === "borrow" || type.tag === "frozen") {
     throw new Error(
-      "Managed callable cannot expose borrowed or frozen values: " +
+      "Host callable cannot expose borrowed or frozen values: " +
         location,
     );
   }
 
   if (type.tag === "arrow") {
     throw new Error(
-      "Managed callable cannot expose function values: " + location,
+      "Host callable cannot expose function values: " + location,
     );
   }
 
   if (type.tag !== "name") {
     throw new Error(
-      "Managed callable uses an unsupported type shape: " + location,
+      "Host callable uses an unsupported type shape: " + location,
     );
   }
 
   if (type.name === "F32x4") {
-    throw new Error("Managed callable cannot expose F32x4: " + location);
+    throw new Error("Host callable cannot expose F32x4: " + location);
   }
 
   const ref = abi_type_ref(
@@ -666,41 +518,8 @@ function abi_callable_contract(
   }
 
   throw new Error(
-    "Managed callable uses an unsupported pointer type: " + location,
+    "Host callable uses an unsupported pointer type: " + location,
   );
-}
-
-function abi_effect_requirements(
-  source: Source,
-  effects: Record<string, AbiEffect>,
-): AbiEffectRequirements {
-  const analysis = analyze_front_effects(source);
-  const functions: Record<string, AbiEffectFunctionRequirement> = {};
-
-  for (const name in analysis.functions) {
-    const requirement = analysis.functions[name];
-
-    if (!requirement) {
-      throw new Error("Missing effect analysis for function: " + name);
-    }
-
-    const host_effects = requirement.effects.filter((effect) => {
-      return effects[effect.effect] !== undefined;
-    });
-
-    if (host_effects.length > 0) {
-      const item: AbiEffectFunctionRequirement = {
-        effects: host_effects,
-      };
-
-      functions[name] = item;
-    }
-  }
-
-  const module_effects = analysis.module_effects.filter((effect) => {
-    return effects[effect.effect] !== undefined;
-  });
-  return { module: module_effects, functions };
 }
 
 function effect_import_name(effect: string, operation: string): string {
@@ -867,229 +686,8 @@ function abi_entry(
   }
 
   return {
-    params: [],
     result,
   };
-}
-
-export function managed_abi_mod(mod: Mod, manifest: AbiManifest): Mod {
-  const funcs: Record<string, Func> = { ...mod.funcs };
-  const allocator = runtime_allocator_funcs(0);
-  Object.assign(funcs, allocator);
-
-  funcs[manifest.exports.alloc] = {
-    name: manifest.exports.alloc,
-    params: [
-      { name: "size", type: "i32" },
-      { name: "alignment", type: "i32" },
-    ],
-    result: "i32",
-    body: "local.get $size\nlocal.get $alignment\ncall $__alloc",
-  };
-  funcs[manifest.exports.free] = {
-    name: manifest.exports.free,
-    params: [{ name: "ptr", type: "i32" }],
-    result: "i32",
-    body: "local.get $ptr\ncall $__free",
-  };
-
-  const source_main = mod.exports[0];
-
-  if (!source_main) {
-    throw new Error("Managed ABI module requires an exported main function");
-  }
-
-  const main_func = funcs[source_main];
-
-  if (!main_func) {
-    throw new Error(
-      "Managed ABI module is missing main function: " + source_main,
-    );
-  }
-
-  funcs[manifest.exports.main] = {
-    name: manifest.exports.main,
-    params: main_func.params,
-    result: main_func.result,
-    body: managed_main_body(source_main, main_func),
-  };
-
-  const callable_exports: string[] = [];
-
-  if (manifest.callables) {
-    for (const name in manifest.callables) {
-      const callable = manifest.callables[name];
-
-      if (!callable) {
-        throw new Error("Missing managed callable manifest entry: " + name);
-      }
-
-      const source_func = funcs[callable.name];
-
-      if (!source_func) {
-        throw new Error(
-          "Managed callable is missing source function: " + callable.name,
-        );
-      }
-
-      const params = callable.params.map((contract, index) => {
-        return {
-          name: "arg_" + index.toString(),
-          type: abi_wasm_type(contract.type),
-        };
-      });
-      const result = abi_wasm_type(callable.result.type);
-      const source_params = source_func.params || [];
-
-      if (source_params.length !== params.length) {
-        throw new Error(
-          "Managed callable parameter count does not match source function: " +
-            callable.name,
-        );
-      }
-
-      for (let index = 0; index < params.length; index += 1) {
-        const param = params[index];
-        const source_param = source_params[index];
-
-        if (!param || !source_param || param.type !== source_param.type) {
-          throw new Error(
-            "Managed callable parameter type does not match source function: " +
-              callable.name + " argument " + index.toString(),
-          );
-        }
-      }
-
-      if (source_func.result !== result) {
-        throw new Error(
-          "Managed callable result type does not match source function: " +
-            callable.name,
-        );
-      }
-
-      const lines: string[] = [];
-
-      for (const param of params) {
-        lines.push("local.get $" + param.name);
-      }
-
-      lines.push("call $" + callable.name);
-      funcs[callable.export] = {
-        name: callable.export,
-        params,
-        result,
-        body: lines.join("\n"),
-      };
-      callable_exports.push(callable.export);
-    }
-  }
-
-  const globals = { ...mod.globals };
-
-  if (!globals[closure_heap_global]) {
-    globals[closure_heap_global] = {
-      name: closure_heap_global,
-      type: "i32",
-      mutable: true,
-      value: abi_heap_start(mod),
-    };
-  }
-
-  if (!globals[allocator_free_head]) {
-    globals[allocator_free_head] = {
-      name: allocator_free_head,
-      type: "i32",
-      mutable: true,
-      value: 0,
-    };
-  }
-
-  return {
-    ...mod,
-    funcs,
-    globals,
-    memory: {
-      name: "memory",
-      pages: abi_initial_pages(mod),
-      export_name: manifest.exports.memory,
-    },
-    exports: [
-      source_main,
-      manifest.exports.main,
-      manifest.exports.alloc,
-      manifest.exports.free,
-      ...callable_exports,
-    ],
-  };
-}
-
-function abi_wasm_type(type: AbiTypeRef): import("./op.ts").ValType {
-  if (type.tag === "i64") {
-    return "i64";
-  }
-
-  if (type.tag === "f32") {
-    return "f32";
-  }
-
-  if (type.tag === "f64") {
-    return "f64";
-  }
-
-  return "i32";
-}
-
-function managed_main_body(source_main: string, main_func: Func): string {
-  const lines = [];
-  const params = main_func.params || [];
-
-  for (let index = 0; index < params.length; index += 1) {
-    const param = params[index];
-
-    if (!param) {
-      throw new Error("Missing managed main parameter " + index.toString());
-    }
-
-    if (param.name) {
-      lines.push("local.get $" + param.name);
-    } else {
-      lines.push("local.get " + index.toString());
-    }
-  }
-
-  lines.push("call $" + source_main);
-  return lines.join("\n");
-}
-
-function abi_initial_pages(mod: Mod): number {
-  const required = Math.ceil(abi_heap_start(mod) / 65536);
-  let pages = required;
-
-  if (pages < 1) {
-    pages = 1;
-  }
-
-  if (mod.memory && mod.memory.pages > pages) {
-    pages = mod.memory.pages;
-  }
-
-  return pages;
-}
-
-function abi_heap_start(mod: Mod): number {
-  let end = 8;
-
-  if (mod.data) {
-    for (const segment of mod.data) {
-      const segment_end = segment.offset + segment.bytes.length;
-
-      if (segment_end > end) {
-        end = segment_end;
-      }
-    }
-  }
-
-  return align_to(end, 8);
 }
 
 function collect_type_values(source: Source): Map<string, FrontExpr> {
@@ -1215,52 +813,6 @@ function materialize_applied_abi_type_value(
   values.set(name, substitute_front_expr(constructor.body, replacements));
 }
 
-function abi_named_shape(
-  name: string,
-  values: Map<string, FrontExpr>,
-  resolving_shapes: ReadonlyMap<string, "struct" | "union">,
-): "struct" | "union" | undefined {
-  const resolving = resolving_shapes.get(name);
-
-  if (resolving) {
-    return resolving;
-  }
-
-  materialize_applied_abi_type_value(name, values);
-  const seen = new Set<string>();
-  let current = name;
-
-  while (!seen.has(current)) {
-    seen.add(current);
-    const value = values.get(current);
-
-    if (!value) {
-      return undefined;
-    }
-
-    if (value.tag === "struct_type") {
-      return "struct";
-    }
-
-    if (value.tag === "union_type") {
-      return "union";
-    }
-
-    if (value.tag !== "var") {
-      return undefined;
-    }
-
-    current = value.name;
-    const current_resolving = resolving_shapes.get(current);
-
-    if (current_resolving) {
-      return current_resolving;
-    }
-  }
-
-  return undefined;
-}
-
 function abi_fixed_array_type_ref(
   array: Extract<TypeExpr, { tag: "array" }>,
   values: Map<string, FrontExpr>,
@@ -1351,12 +903,12 @@ function primitive_abi_type_ref(name: string): AbiTypeRef | undefined {
     }
 
     throw new Error(
-      "Managed ABI cannot expose wide integer values directly: " + name,
+      "Gpufuck ABI cannot expose wide integer values directly: " + name,
     );
   }
 
   if (name === "F32x4") {
-    throw new Error("Managed ABI cannot expose F32x4 values");
+    throw new Error("Gpufuck ABI cannot expose F32x4 values");
   }
 
   if (
@@ -1403,42 +955,6 @@ function primitive_abi_type_ref(name: string): AbiTypeRef | undefined {
 
 function reject_resume_abi_type(name: string): void {
   if (name === "Resume") {
-    throw new Error("Managed ABI cannot expose Resume values");
+    throw new Error("Gpufuck ABI cannot expose Resume values");
   }
-}
-
-function abi_type_ref_layout(
-  type: AbiTypeRef,
-  resolve_named: (name: string) => AbiType,
-  named_shape?: (name: string) => "struct" | "union" | undefined,
-): { size: number; align: number } {
-  if (type.tag === "i64" || type.tag === "f64") {
-    return { size: 8, align: 8 };
-  }
-
-  if (type.tag === "unit") {
-    return { size: 0, align: 1 };
-  }
-
-  if (type.tag === "resource") {
-    return { size: 4, align: 4 };
-  }
-
-  if (type.tag === "named") {
-    if (type.indirect) {
-      return { size: 4, align: 4 };
-    }
-    if (named_shape?.(type.name) === "union") {
-      return { size: 4, align: 4 };
-    }
-    const named = resolve_named(type.name);
-
-    if (named.tag === "struct" || named.tag === "array") {
-      return { size: named.size, align: named.align };
-    }
-
-    return { size: 4, align: 4 };
-  }
-
-  return { size: 4, align: 4 };
 }

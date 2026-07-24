@@ -29,7 +29,6 @@ import { parse_type_expr } from "./type_expr.ts";
 export class ParserStmt extends ParserTypeDeclaration {
   constructor(
     tokens: Token[],
-    private readonly allow_host_imports_for_test = false,
     fixities?: FixityTable,
   ) {
     super(tokens);
@@ -871,14 +870,10 @@ export class ParserStmt extends ParserTypeDeclaration {
     }
 
     if (this.peek().kind === "name" && this.peek().text === "host_import") {
-      if (!this.allow_host_imports_for_test) {
-        throw new Error(
-          "`host_import` is not source syntax; use `declare effect` " +
-            "and provide its resource through `Init`",
-        );
-      }
-
-      return this.parse_host_import_stmt();
+      throw new Error(
+        "`host_import` is not source syntax; use `declare effect` " +
+          "and provide its resource through `Init`",
+      );
     }
 
     if (this.match_name("return")) {

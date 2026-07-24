@@ -1,5 +1,4 @@
 import type { FrontExpr, Param, Pattern, Stmt } from "../../frontend/ast.ts";
-import { contains_reserved_linear_effect } from "../../frontend/linear.ts";
 import type { CoreExpr, CoreField, CoreParam, CoreTypeField } from "../ast.ts";
 import {
   type CoreFromSourceCtx,
@@ -9,7 +8,6 @@ import {
   resolve_core_name,
 } from "./context.ts";
 import { atom_i32 } from "../../frontend/atom.ts";
-import { record_optional_core_source_origin } from "../source_origin.ts";
 import {
   elaborate_array_repeat_expr,
   elaborate_fixed_array_expr,
@@ -44,16 +42,6 @@ import { tokenize } from "../../frontend/tokenize.ts";
 import { val_type_from_type_name } from "../../frontend/types.ts";
 
 export function core_expr(expr: FrontExpr, ctx: CoreFromSourceCtx): CoreExpr {
-  return record_optional_core_source_origin(
-    core_expr_untracked(expr, ctx),
-    expr,
-  );
-}
-
-function core_expr_untracked(
-  expr: FrontExpr,
-  ctx: CoreFromSourceCtx,
-): CoreExpr {
   switch (expr.tag) {
     case "bool": {
       let value = 0;
@@ -70,7 +58,6 @@ function core_expr_untracked(
         tag: "num",
         type: "i32",
         value: atom_i32(expr.name),
-        atom_name: expr.name,
       };
 
     case "num": {
@@ -86,21 +73,11 @@ function core_expr_untracked(
         return wide_integer_literal(expr.integer, value, ctx);
       }
 
-      const lowered: CoreExpr = {
+      return {
         tag: "num",
         type: expr.type,
         value: expr.value,
       };
-
-      if (expr.character !== undefined) {
-        lowered.character = expr.character;
-      }
-
-      if (expr.integer) {
-        lowered.integer = expr.integer;
-      }
-
-      return lowered;
     }
 
     case "unit":
@@ -149,27 +126,11 @@ function core_expr_untracked(
         };
       }
 
-      if (expr.resume_signature) {
-        return {
-          tag: "var",
-          name: resolved,
-          resume_signature: expr.resume_signature,
-        };
-      }
-
       return { tag: "var", name: resolved };
     }
 
     case "linear": {
       const name = resolve_core_name(ctx, expr.name);
-
-      if (expr.resume_signature) {
-        return {
-          tag: "linear",
-          name,
-          resume_signature: expr.resume_signature,
-        };
-      }
 
       return { tag: "linear", name };
     }
@@ -212,15 +173,11 @@ function core_expr_untracked(
         }
       }
 
-      const value: CoreExpr = {
+      return {
         tag: "lam",
         params: params.map((param) => core_param(param, ctx)),
         body: core_expr(body, body_ctx),
       };
-      if (contains_reserved_linear_effect(body, body_ctx.linear_names)) {
-        value.is_linear_closure = true;
-      }
-      return value;
     }
 
     case "rec": {
@@ -320,11 +277,6 @@ function core_expr_untracked(
         expect(value, "Missing " + cast_name + " value argument");
         expect(target, "Missing " + cast_name + " target argument");
         const lowered = core_expr(value, ctx);
-
-        if (target.tag === "var" || target.tag === "type_name") {
-          return { ...lowered, ascribed_type: target.name };
-        }
-
         return lowered;
       }
 
@@ -365,7 +317,6 @@ function core_expr_untracked(
             tag: "prim",
             prim: numeric_call.prim,
             args: numeric_call.args.map((arg) => core_expr(arg, ctx)),
-            integer,
           };
           return lower_core_integer_prim(prim, integer, ctx);
         }
@@ -450,30 +401,14 @@ function core_expr_untracked(
           }
         }
 
-        if (
-          func.tag === "rec_ref" && target_param &&
-          !target_param.is_const &&
-          !target_param.annotation?.startsWith("&") &&
-          !target_param.annotation?.startsWith("^") &&
-          (lowered_arg.tag === "field" || lowered_arg.tag === "index")
-        ) {
-          lowered_arg = { ...lowered_arg, move: true };
-        }
-
         lowered_args.push(lowered_arg);
       }
 
-      const app: Extract<CoreExpr, { tag: "app" }> = {
+      return {
         tag: "app",
         func,
         args: lowered_args,
       };
-
-      if (expr.resume_payload) {
-        app.resume_payload = true;
-      }
-
-      return app;
     }
 
     case "product":
@@ -576,13 +511,7 @@ function core_expr_untracked(
       return {
         tag: "struct_value",
         type_expr: core_expr(expr.type_expr, ctx),
-        fields: expr.fields.map((field) => {
-          let value = core_expr(field.value, ctx);
-          if (value.tag === "field" || value.tag === "index") {
-            value = { ...value, move: true };
-          }
-          return { name: field.name, value };
-        }),
+        fields: expr.fields.map((field) => core_field(field, ctx)),
       };
 
     case "struct_update":
@@ -615,7 +544,6 @@ function core_expr_untracked(
           expr.else_branch,
           fork_core_from_source_ctx(ctx),
         ),
-        implicit_else: expr.implicit_else,
       };
 
     case "if_let": {
@@ -635,7 +563,6 @@ function core_expr_untracked(
           expr.else_branch,
           fork_core_from_source_ctx(ctx),
         ),
-        implicit_else: expr.implicit_else,
       };
     }
 
@@ -646,17 +573,7 @@ function core_expr_untracked(
         object = { tag: "var", name: object.name };
       }
 
-      if (expr.resume_signature) {
-        return {
-          tag: "field",
-          object,
-          name: expr.name,
-          move: expr.move,
-          resume_signature: expr.resume_signature,
-        };
-      }
-
-      return { tag: "field", object, name: expr.name, move: expr.move };
+      return { tag: "field", object, name: expr.name };
     }
 
     case "index":
@@ -664,7 +581,6 @@ function core_expr_untracked(
         tag: "index",
         object: core_expr(expr.object, ctx),
         index: core_expr(expr.index, ctx),
-        move: expr.move,
       };
 
     case "union_case": {
@@ -679,18 +595,12 @@ function core_expr_untracked(
         type_expr = core_expr(expr.type_expr, ctx);
       }
 
-      const value: Extract<CoreExpr, { tag: "union_case" }> = {
+      return {
         tag: "union_case",
         name: expr.name,
         value: payload,
         type_expr,
       };
-
-      if (expr.resume_payload) {
-        value.resume_payload = true;
-      }
-
-      return value;
     }
 
     case "unsupported":
@@ -803,7 +713,14 @@ export function front_expr_integer_type(
       }
     }
 
-    let preserves_integer_type = numeric_builtin_call(expr) !== undefined;
+    const numeric_builtin = numeric_builtin_call(expr);
+    let preserves_integer_type = numeric_builtin !== undefined;
+    if (numeric_builtin !== undefined) {
+      const result = Callable.type(Prim, numeric_builtin.prim).result;
+      if (result === "f32" || result === "f64") {
+        preserves_integer_type = false;
+      }
+    }
     const operator_intrinsic = compiler_intrinsic_for_operator_target(
       expr.operator_syntax?.target,
     );
@@ -1149,7 +1066,6 @@ function core_wrap_wide_to_native_integer(
         kind: "let",
         name: value_name,
         is_linear: false,
-        force_materialized: true,
         annotation: integer_type_name(source),
         value,
       },
@@ -1484,7 +1400,6 @@ function bind_wide_integer_operand(
     kind: "let",
     name,
     is_linear: true,
-    force_materialized: true,
     annotation,
     value,
   });
@@ -2009,7 +1924,6 @@ function wide_signed_division_result(
     kind: "let",
     name: dividend_magnitude,
     is_linear: false,
-    force_materialized: true,
     annotation: unsigned_annotation,
     value: wide_conditional_negate_local_result(
       dividend_limbs,
@@ -2023,7 +1937,6 @@ function wide_signed_division_result(
     kind: "let",
     name: divisor_magnitude,
     is_linear: false,
-    force_materialized: true,
     annotation: unsigned_annotation,
     value: wide_conditional_negate_local_result(
       divisor_limbs,
@@ -2053,7 +1966,6 @@ function wide_signed_division_result(
     kind: "let",
     name: result_name,
     is_linear: false,
-    force_materialized: true,
     annotation: unsigned_annotation,
     value: unsigned_result,
   });
@@ -2081,7 +1993,6 @@ function wide_signed_division_result(
     kind: "let",
     name: signed_result,
     is_linear: false,
-    force_materialized: true,
     annotation: integer_type_name(integer),
     value: wide_conditional_negate_local_result(
       result_limbs,
@@ -2942,16 +2853,10 @@ function core_type_field(
     set_member?: import("../../frontend/ast.ts").TypeExpr;
   },
 ): CoreTypeField {
-  const result: CoreTypeField = {
+  return {
     name: field.name,
     type_name: field.type_name,
   };
-
-  if (field.set_member) {
-    result.set_member = field.set_member;
-  }
-
-  return result;
 }
 
 export function block_body(expr: FrontExpr): Stmt[] | undefined {

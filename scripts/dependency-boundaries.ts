@@ -299,21 +299,9 @@ function forbidden_import_reason(
 ): string | undefined {
   if (
     importer.startsWith("src/frontend/") &&
-    (imported.startsWith("src/core/") || imported === "src/core.ts" ||
-      imported === "src/mod.ts" || imported === "src/wat.ts") &&
-    importer !== "src/frontend/source.ts" &&
-    importer !== "src/frontend/test_source.ts"
+    imported.startsWith("src/core/")
   ) {
-    return "shared frontend stages cannot import the Core/Wasm backend";
-  }
-
-  if (
-    importer.startsWith("src/core/") &&
-    importer !== "src/core/backend.ts" &&
-    !importer.startsWith("src/core/backend/") &&
-    imported.startsWith("src/core/backend/")
-  ) {
-    return "Core model, analysis, and plan modules cannot import backend code";
+    return "frontend stages cannot import semantic Core";
   }
 
   if (
@@ -322,7 +310,7 @@ function forbidden_import_reason(
     importer !== "src/core/from_source.ts" &&
     !importer.startsWith("src/core/from_source/")
   ) {
-    return "Core can depend on frontend syntax only through from_source adapters";
+    return "semantic Core can depend on frontend syntax only through from_source adapters";
   }
 
   const importer_layer = core_layer(importer);
@@ -332,14 +320,14 @@ function forbidden_import_reason(
     importer_layer !== undefined && imported_layer !== undefined &&
     imported_layer > importer_layer
   ) {
-    return "Core layers must flow model -> analysis -> plan -> emit -> backend";
+    return "semantic Core layers must flow model -> analysis -> plan -> emit";
   }
 
   return undefined;
 }
 
 function core_layer(path: string): number | undefined {
-  const layers = ["model", "analysis", "plan", "emit", "backend"];
+  const layers = ["model", "analysis", "plan", "emit"];
 
   for (let index = 0; index < layers.length; index += 1) {
     const layer = layers[index];

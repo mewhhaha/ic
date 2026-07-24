@@ -54,13 +54,18 @@ let square_wave = (sample: I32, period: I32) => {
 };
 
 let sample_value = (sample: I32) => {
-  square_wave(
-    sample,
-    if sample % (note_samples * 4) < note_samples { 31 } else if sample % (note_samples *
-      4) < note_samples * 2 { 28 } else if sample % (
-        note_samples * 4
-      ) < note_samples * 3 { 24 } else { 21 },
-  ) * 0x2328 + square_wave(sample + 7, 17) * 0x0fa0
+  let phrase_position = sample % (note_samples * 4);
+  let note =
+    if phrase_position < note_samples {
+      31
+    } else if phrase_position < note_samples * 2 {
+      28
+    } else if phrase_position < note_samples * 3 {
+      24
+    } else {
+      21
+    };
+  square_wave(sample, note) * 0x2328 + square_wave(sample + 7, 17) * 0x0fa0
 };
 
 let wav_byte = (index: I32) => {

@@ -2,6 +2,6 @@ const { .apply, .compose } = import "duck:prelude/functional" ();
 
 const inc = x => x + 1;
 const double = x => x * 2;
-const inc_after_double = comptime compose(inc, double);
+const inc_after_double = comptime compose [inc, double];
 
 inc_after_double $ 20

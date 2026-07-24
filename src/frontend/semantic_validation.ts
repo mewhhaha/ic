@@ -31,13 +31,12 @@ import type {
 import { elaborate_product_expr } from "./aggregate.ts";
 import { call_message } from "./call_message.ts";
 import { compiler_builtin_args } from "./compiler_builtin_args.ts";
-import { lookup_type_field } from "./fields.ts";
+import { lookup_type_field, require_struct_field } from "./fields.ts";
 import { validate_const_expr } from "./constness.ts";
 import { collect_linear_closure_names } from "./linear_closure_names.ts";
 import { parameter_arguments } from "./call_args.ts";
 import { clone_env, create_env, push_binding } from "./env.ts";
 import { is_no_demand_name } from "./names.ts";
-import { require_struct_field } from "./struct_access.ts";
 import {
   source_diagnostic,
   type SourceDiagnostic,
@@ -47,7 +46,7 @@ import {
   prim_result_type,
   prim_returns_bool,
 } from "./numeric.ts";
-import { dynamic_index_type_from_fields } from "./runtime_struct.ts";
+import { dynamic_index_type_from_fields } from "./runtime_struct_type.ts";
 import {
   format_type_expr,
   function_type_expr,
@@ -105,13 +104,12 @@ type SemanticHandler = {
 };
 
 export type SemanticValidationOptions = {
-  scope?: "all" | "bool-representation" | "core-representation";
+  scope?: "all" | "gpufuck-representation";
   warnings?: boolean;
   allow_intrinsics?: boolean;
 };
 
-const bool_route_diagnostics = new WeakSet<SourceDiagnostic>();
-const core_route_diagnostics = new WeakSet<SourceDiagnostic>();
+const gpufuck_representation_diagnostics = new WeakSet<SourceDiagnostic>();
 const semantic_unit_atom_name = "()";
 
 export function validate_frontend_semantics(
@@ -163,39 +161,22 @@ export function validate_frontend_semantics(
     append_unused_binding_warnings(env.all_bindings, diagnostics);
   }
 
-  if (options.scope === "bool-representation") {
+  if (options.scope === "gpufuck-representation") {
     return diagnostics.filter((diagnostic) =>
-      bool_route_diagnostics.has(diagnostic)
-    );
-  }
-
-  if (options.scope === "core-representation") {
-    return diagnostics.filter((diagnostic) =>
-      core_route_diagnostics.has(diagnostic)
+      gpufuck_representation_diagnostics.has(diagnostic)
     );
   }
 
   return diagnostics;
 }
 
-function bool_route_diagnostic(
+function gpufuck_representation_diagnostic(
   code: DiagnosticCode,
   message: string,
   subject: object,
 ): SourceDiagnostic {
   const diagnostic = source_diagnostic(code, message, subject);
-  bool_route_diagnostics.add(diagnostic);
-  core_route_diagnostics.add(diagnostic);
-  return diagnostic;
-}
-
-function core_route_diagnostic(
-  code: DiagnosticCode,
-  message: string,
-  subject: object,
-): SourceDiagnostic {
-  const diagnostic = source_diagnostic(code, message, subject);
-  core_route_diagnostics.add(diagnostic);
+  gpufuck_representation_diagnostics.add(diagnostic);
   return diagnostic;
 }
 
@@ -208,13 +189,13 @@ function value_representation_diagnostic(
   env: SemanticEnv,
 ): SourceDiagnostic | undefined {
   if (bool_value_representation_mismatch(expected, value, env)) {
-    return bool_route_diagnostic(code, message, subject);
+    return gpufuck_representation_diagnostic(code, message, subject);
   }
 
   const actual = infer_type(value, env);
 
   if (text_encoding_mismatch(expected, actual)) {
-    return core_route_diagnostic(code, message, subject);
+    return gpufuck_representation_diagnostic(code, message, subject);
   }
 
   return undefined;
@@ -566,11 +547,15 @@ function validate_statement(
       if (
         previous.type.tag === "bool" || value_type.tag === "bool"
       ) {
-        diagnostics.push(bool_route_diagnostic("DUCK2301", message, stmt));
+        diagnostics.push(
+          gpufuck_representation_diagnostic("DUCK2301", message, stmt),
+        );
       } else if (text_encoding_mismatch(previous.type, value_type)) {
-        diagnostics.push(core_route_diagnostic("DUCK2301", message, stmt));
+        diagnostics.push(
+          gpufuck_representation_diagnostic("DUCK2301", message, stmt),
+        );
       } else {
-        diagnostics.push(core_route_diagnostic(
+        diagnostics.push(gpufuck_representation_diagnostic(
           "DUCK2301",
           message,
           stmt,
@@ -655,7 +640,7 @@ function validate_statement(
       } catch (error) {
         if (error instanceof Error) {
           if (struct_fields_include_bool(collection_type.field_types, env)) {
-            diagnostics.push(bool_route_diagnostic(
+            diagnostics.push(gpufuck_representation_diagnostic(
               "DUCK2304",
               error.message,
               stmt.collection,
@@ -707,7 +692,7 @@ function validate_statement(
 
     if (binding && binding.type.tag === "text") {
       if (binding.type.encoding !== "bytes") {
-        diagnostics.push(core_route_diagnostic(
+        diagnostics.push(gpufuck_representation_diagnostic(
           "DUCK2306",
           "Cannot index-assign Text; convert it with Utf8.encode first",
           stmt,
@@ -721,7 +706,7 @@ function validate_statement(
         value_type.tag !== "unknown" &&
         (value_type.tag !== "int" || value_type.type !== "i32")
       ) {
-        diagnostics.push(core_route_diagnostic(
+        diagnostics.push(gpufuck_representation_diagnostic(
           "DUCK2306",
           "Bytes index assignment expects I32, got " + type_name(value_type),
           stmt.value,
@@ -755,7 +740,7 @@ function validate_statement(
     } catch (error) {
       if (error instanceof Error) {
         if (struct_fields_include_bool(binding.type.field_types, env)) {
-          diagnostics.push(bool_route_diagnostic(
+          diagnostics.push(gpufuck_representation_diagnostic(
             "DUCK2304",
             error.message,
             stmt,
@@ -1059,7 +1044,7 @@ function validate_expr(
           " operands";
       }
 
-      diagnostics.push(bool_route_diagnostic(
+      diagnostics.push(gpufuck_representation_diagnostic(
         "DUCK2302",
         message,
         expr,
@@ -1165,8 +1150,14 @@ function validate_expr(
   }
 
   if (expr.tag === "match") {
-    validate_expr(expr.target, env, diagnostics, check_comptime);
+    validate_expr(expr.target, env, diagnostics, check_comptime, true);
     const target_type = infer_type(expr.target, env);
+    let has_catch_all = false;
+    let covers_false = false;
+    let covers_true = false;
+    let covers_unit = false;
+    const covered_atoms = new Set<string>();
+    const covered_union_cases = new Set<string>();
 
     for (const arm of expr.arms) {
       const arm_env = child_env(env);
@@ -1180,9 +1171,62 @@ function validate_expr(
       const used_names = new Set<string>();
 
       if (arm.guard !== undefined) {
+        const before_guard = diagnostics.length;
+        validate_expr(arm.guard, arm_env, diagnostics, check_comptime);
+
+        if (diagnostics.length === before_guard) {
+          const guard_type = infer_type(arm.guard, arm_env);
+
+          if (guard_type.tag !== "unknown" && guard_type.tag !== "bool") {
+            diagnostics.push(source_diagnostic(
+              "DUCK2303",
+              "Match guard expects Bool, got " + type_name(guard_type),
+              arm.guard,
+            ));
+          }
+        }
+
         collect_linear_closure_names(arm.guard, used_names);
+      } else {
+        const patterns = [arm.pattern];
+
+        while (patterns.length > 0) {
+          const pattern = patterns.pop();
+          expect(pattern, "Missing match coverage pattern");
+
+          if (pattern.tag === "or") {
+            patterns.push(...pattern.alternatives);
+          } else if (
+            pattern.tag === "binding" || pattern.tag === "wildcard"
+          ) {
+            has_catch_all = true;
+          } else if (
+            pattern.tag === "literal" && pattern.value.tag === "bool"
+          ) {
+            if (pattern.value.value) {
+              covers_true = true;
+            } else {
+              covers_false = true;
+            }
+          } else if (
+            pattern.tag === "literal" && pattern.value.tag === "atom"
+          ) {
+            covered_atoms.add(pattern.value.name);
+          } else if (pattern.tag === "unit") {
+            covers_unit = true;
+          } else if (pattern.tag === "union_case") {
+            covered_union_cases.add(pattern.name);
+          }
+        }
       }
 
+      validate_expr(
+        arm.body,
+        arm_env,
+        diagnostics,
+        check_comptime,
+        accepts_value_pack,
+      );
       collect_linear_closure_names(arm.body, used_names);
 
       for (const name of used_names) {
@@ -1195,6 +1239,51 @@ function validate_expr(
           outer_binding.used = true;
         }
       }
+    }
+
+    const union_is_covered = target_type.tag === "union_value" &&
+      target_type.cases.every((union_case) =>
+        covered_union_cases.has(union_case.name)
+      );
+    const single_union_is_covered = target_type.tag === "union" &&
+      covered_union_cases.has(target_type.case_name);
+    const atom_is_covered = target_type.tag === "atom" &&
+      (covered_atoms.has(target_type.name) ||
+        (target_type.name === semantic_unit_atom_name && covers_unit));
+    const coverage_is_known = target_type.tag === "bool" ||
+      target_type.tag === "char" || target_type.tag === "int" ||
+      target_type.tag === "wide_int" || target_type.tag === "f32x4" ||
+      target_type.tag === "text" || target_type.tag === "atom" ||
+      target_type.tag === "union" || target_type.tag === "union_value";
+
+    if (
+      coverage_is_known && !has_catch_all &&
+      !(covers_false && covers_true) && !atom_is_covered &&
+      !single_union_is_covered && !union_is_covered
+    ) {
+      let subject: object = expr;
+      const final_arm = expr.arms.at(-1);
+
+      if (final_arm !== undefined) {
+        subject = final_arm;
+      }
+
+      let message = "Non-exhaustive match requires a wildcard or binding arm";
+
+      if (target_type.tag === "union_value") {
+        const missing = target_type.cases.filter((union_case) =>
+          !covered_union_cases.has(union_case.name)
+        ).map((union_case) => {
+          if (union_case.type_name === "Unit") {
+            return "`" + union_case.name + " ()";
+          }
+
+          return "`" + union_case.name + " _";
+        });
+        message = "Non-exhaustive match, missing " + missing.join(", ");
+      }
+
+      diagnostics.push(source_diagnostic("DUCK2314", message, subject));
     }
 
     return;
@@ -1557,7 +1646,7 @@ function validate_expr(
           env,
         )
       ) {
-        diagnostics.push(bool_route_diagnostic(
+        diagnostics.push(gpufuck_representation_diagnostic(
           "DUCK2306",
           "Handler return parameter " + param.name + " expects " +
             type_name(annotated_type) + ", got " + type_name(input_type),
@@ -1690,7 +1779,7 @@ function validate_expr(
           object_type.tag === "struct" && object_type.field_types &&
           struct_fields_include_bool(object_type.field_types, env)
         ) {
-          diagnostics.push(bool_route_diagnostic(
+          diagnostics.push(gpufuck_representation_diagnostic(
             "DUCK2304",
             error.message,
             expr,
@@ -1916,7 +2005,7 @@ function validate_runtime_buffer_builtin_call(
   }
 
   if (expr.args.length !== expected_args) {
-    diagnostics.push(core_route_diagnostic(
+    diagnostics.push(gpufuck_representation_diagnostic(
       "DUCK2307",
       name + " expects " + expected_args.toString() + " arguments, got " +
         expr.args.length.toString(),
@@ -1943,7 +2032,7 @@ function validate_runtime_buffer_builtin_call(
   }
 
   if (actual.tag !== "unknown" && !same_type(expected, actual)) {
-    diagnostics.push(core_route_diagnostic(
+    diagnostics.push(gpufuck_representation_diagnostic(
       "DUCK2307",
       name + " expects " + type_name(expected) + ", got " + type_name(actual),
       arg,
@@ -1965,7 +2054,7 @@ function validate_runtime_buffer_builtin_call(
     return;
   }
 
-  diagnostics.push(core_route_diagnostic(
+  diagnostics.push(gpufuck_representation_diagnostic(
     "DUCK2307",
     "format_f32 precision expects I32, got " + type_name(precision_type),
     precision,
@@ -1990,7 +2079,7 @@ function validate_append_buffer_call(
     expr.operator_syntax !== undefined &&
     (left.tag === "shape" || right.tag === "shape")
   ) {
-    diagnostics.push(core_route_diagnostic(
+    diagnostics.push(gpufuck_representation_diagnostic(
       "DUCK2307",
       "Concatenation operators do not update structs; use `<&` or `&>`",
       expr,
@@ -2012,7 +2101,7 @@ function validate_append_buffer_call(
     return;
   }
 
-  diagnostics.push(core_route_diagnostic(
+  diagnostics.push(gpufuck_representation_diagnostic(
     "DUCK2307",
     "append arguments must both be Text or both be Bytes",
     expr,
@@ -2484,7 +2573,9 @@ function validate_callable_argument(
       format_type_expr(expected) + ", got " + callable_type_name(actual);
 
     if (has_bool_mismatch) {
-      diagnostics.push(bool_route_diagnostic("DUCK2307", message, arg));
+      diagnostics.push(
+        gpufuck_representation_diagnostic("DUCK2307", message, arg),
+      );
     } else {
       diagnostics.push(source_diagnostic(
         "DUCK2307",
@@ -2531,7 +2622,7 @@ function validate_callable_argument(
     parameter_label = " for parameter " + param.name;
   }
 
-  diagnostics.push(bool_route_diagnostic(
+  diagnostics.push(gpufuck_representation_diagnostic(
     "DUCK2307",
     "Call to " + target_name + " argument " + (index + 1).toString() +
       parameter_label + " expects " + format_type_expr(expected) +
@@ -2805,9 +2896,13 @@ function validate_branch_types(
         type_name(then_param) + " and " + type_name(else_param);
 
       if (bool_mismatch) {
-        diagnostics.push(bool_route_diagnostic("DUCK2306", message, expr));
+        diagnostics.push(
+          gpufuck_representation_diagnostic("DUCK2306", message, expr),
+        );
       } else {
-        diagnostics.push(core_route_diagnostic("DUCK2306", message, expr));
+        diagnostics.push(
+          gpufuck_representation_diagnostic("DUCK2306", message, expr),
+        );
       }
 
       return;
@@ -2830,9 +2925,13 @@ function validate_branch_types(
         type_name(then_result) + " and " + type_name(else_result);
 
       if (bool_mismatch) {
-        diagnostics.push(bool_route_diagnostic("DUCK2306", message, expr));
+        diagnostics.push(
+          gpufuck_representation_diagnostic("DUCK2306", message, expr),
+        );
       } else {
-        diagnostics.push(core_route_diagnostic("DUCK2306", message, expr));
+        diagnostics.push(
+          gpufuck_representation_diagnostic("DUCK2306", message, expr),
+        );
       }
 
       return;
@@ -2878,7 +2977,7 @@ function validate_numeric_boundary(
     name = "Char";
   }
 
-  diagnostics.push(bool_route_diagnostic(
+  diagnostics.push(gpufuck_representation_diagnostic(
     "DUCK2302",
     label + " expects numeric value, got " + name,
     expr,
@@ -3922,7 +4021,7 @@ function validate_loop_break_types(
       continue;
     }
 
-    diagnostics.push(bool_route_diagnostic(
+    diagnostics.push(gpufuck_representation_diagnostic(
       "DUCK2306",
       "Loop break values have incompatible types " + type_name(result) +
         " and " + type_name(loop_break.type),
@@ -5515,7 +5614,7 @@ function validate_annotated_lambda(
     if (expected.tag === "unknown") {
       param_type = declared;
     } else if (bool_representation_mismatch(expected, declared, body_env)) {
-      diagnostics.push(bool_route_diagnostic(
+      diagnostics.push(gpufuck_representation_diagnostic(
         "DUCK2306",
         "Function parameter " + param.name + " expects " +
           type_name(expected) + ", got " + type_name(declared),
@@ -5797,7 +5896,7 @@ function append_unused_binding_warnings(
 
     if (
       declaration === undefined || binding.used || declaration.is_linear ||
-      declaration.managed_export === true ||
+      declaration.host_export === true ||
       is_no_demand_name(declaration.name)
     ) {
       continue;
@@ -6099,7 +6198,7 @@ function validate_basic_annotation(
   }
 
   if (bool_value_representation_mismatch(expected, stmt.value, env)) {
-    diagnostics.push(bool_route_diagnostic(
+    diagnostics.push(gpufuck_representation_diagnostic(
       "DUCK2306",
       "Binding annotation expects " + annotation + ", got " +
         type_name(type),
@@ -6134,7 +6233,9 @@ function validate_basic_annotation(
     type_name(type);
 
   if (expected.tag === "text") {
-    diagnostics.push(core_route_diagnostic("DUCK2306", message, stmt.value));
+    diagnostics.push(
+      gpufuck_representation_diagnostic("DUCK2306", message, stmt.value),
+    );
     return;
   }
 

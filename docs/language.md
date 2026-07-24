@@ -1,7 +1,7 @@
 # Source Language
 
 This document is the normalized project specification for the source frontend
-that lowers into the Interaction Calculus IR.
+that lowers through semantic Core into gpufuck Functional Core.
 
 The language is a small effect-oriented value language. Runtime code and
 compile-time code use the same expression syntax. Values are immutable, while
@@ -11,10 +11,10 @@ operation-level effect rows. Types are compile-time values, and protocol-like
 abstractions are ordinary const fact checkers.
 
 This file describes the language contract: syntax and the semantics a program
-can rely on. Which source shapes each backend route currently accepts is
-implementation status and lives in [coverage.md](coverage.md). Where a feature
-below is marked reserved or rejected, the rejection is deterministic and carries
-a diagnostic; it is part of the contract until the feature lands.
+can rely on. Executable compiler coverage lives in [coverage.md](coverage.md).
+Where a feature below is marked reserved or rejected, the rejection is
+deterministic and carries a diagnostic; it is part of the contract until the
+feature lands.
 
 ## Naming
 
@@ -116,10 +116,10 @@ const { .write = write } = logger { .io = !init.io };
 Module invocation is compiler-time wiring and specialization. Its result is the
 imported file's export product, so labeled product destructuring selects
 exports. An `_` entry in that pattern selects no field and ignores the remaining
-export shape. The entry module's final product is returned by the managed
-JavaScript `DuckRunner(init).run(program)` call. A runner captures one explicit
-handler set; selecting another runner swaps host or mock effects without
-recompiling the module.
+export shape. The entry module's final product is returned by
+`DuckCompiler.run_file`. The supplied `DuckInit` value selects one explicit host
+capability set, so a different value can swap live and mock effects without
+changing source.
 
 Imports and module invocation are always compile-time operations, so they do not
 take an additional `comptime` prefix. `const open` introduces every export that
@@ -189,10 +189,10 @@ current binding value or type value, then interprets the returned union case:
 ```
 
 Entries and stacked groups execute from top to bottom. `Replace` passes its
-replacement to the next handler, `Export` marks a callable binding as a managed
-export, and `Drop` stops processing and removes the target. `Keep`, `Drop`, and
-`Export` require a `Unit` payload. Executable attributes currently apply to
-`const` bindings and type declarations; exporting a type is an error.
+replacement to the next handler, `Export` marks a binding as a host callable,
+and `Drop` stops processing and removes the target. `Keep`, `Drop`, and `Export`
+require a `Unit` payload. Executable attributes currently apply to `const`
+bindings and type declarations; exporting a type is an error.
 
 The bundled attribute module defines `test` as ordinary Duck source:
 
@@ -327,13 +327,13 @@ const user_type: has_name = struct {
 let user: user_type = [input, 0];
 ```
 
-Numeric literals carry value types in Ic. Unsuffixed source integers are the
-`Int`/`i32` convention. `I<N>` and `U<N>` name signed and unsigned integers of
-any positive bit width; their literal suffixes are `i<N>` and `u<N>`. A literal
-must fit its declared type, including the signed minimum such as `-16i5`.
-Decimal fractions and exponents require an `f32` or `f64` suffix. Hexadecimal
-integer literals use `0x` or `0X` and may carry the same integer suffixes.
-Mixed-width operands are rejected instead of converted implicitly.
+Numeric literals carry value types in semantic Core. Unsuffixed source integers
+are the `Int`/`i32` convention. `I<N>` and `U<N>` name signed and unsigned
+integers of any positive bit width; their literal suffixes are `i<N>` and
+`u<N>`. A literal must fit its declared type, including the signed minimum such
+as `-16i5`. Decimal fractions and exponents require an `f32` or `f64` suffix.
+Hexadecimal integer literals use `0x` or `0X` and may carry the same integer
+suffixes. Mixed-width operands are rejected instead of converted implicitly.
 
 ```txt
 let small = 42i32;
@@ -434,11 +434,11 @@ if (let "dry-run" = argument) {
 Union patterns remain structural and can bind their payload, as in
 ``if let `Ok value = result { ... }``.
 
-`Bytes` is the raw, non-UTF-8 buffer type used by managed host effects. Runtime
-`Bytes` values support `@len`, `@get`, byte iteration, `@slice`, and `@append`,
-and bounded borrows can cross effect calls. `Bytes.empty` is the canonical
-static empty buffer. Arbitrary raw byte literals and borrowed slice views are
-not supported yet.
+`Bytes` is the raw, non-UTF-8 buffer type used by host effects. Runtime `Bytes`
+values support `@len`, `@get`, byte iteration, `@slice`, and `@append`, and
+bounded borrows can cross effect calls. `Bytes.empty` is the canonical static
+empty buffer. Arbitrary raw byte literals and borrowed slice views are not
+supported yet.
 
 `Text` and `Bytes` are distinct source types even though both use the same
 runtime layout: an `i32` byte length followed by the bytes. They are never
@@ -485,8 +485,8 @@ Text values are UTF-8. The contract for text operations:
   operand. Other known non-numeric values, such as structs, unions, functions,
   and type-values, are also rejected before primitive lowering.
 
-Which text expressions fold at compile time versus allocate at runtime depends
-on the backend route; see [coverage.md](coverage.md).
+Which text expressions fold at compile time versus remain in semantic Core is
+tracked by the executable coverage in [coverage.md](coverage.md).
 
 ## Compile-Time Execution
 
@@ -543,7 +543,7 @@ const first = (const ...values) => comptime match values {
 entry and binds `remaining` as another value pack.
 
 Const values can be reified when passed to ordinary runtime parameters if the
-target value can lower to the current scalar Ic subset.
+target value has a gpufuck runtime representation.
 
 Compile-time type values support structural `match` arms. These arms use the
 same open struct and union patterns as fact checkers, and a const function that
@@ -768,7 +768,7 @@ non-escaping local closure calls can consume outer linear values when linear use
 is valid along each enclosing control-flow path. A reusable stored closure may
 capture only scalar or frozen/shareable slots. An unfrozen unique owner must
 move into a supported one-shot closure environment or the program rejects before
-WAT emission.
+gpufuck lowering.
 
 `if` is an expression when both branches are present.
 
@@ -882,8 +882,8 @@ Runtime union matching where the case is not statically known requires a typed
 union target: a direct typed union annotation, a typed constructor, or a dynamic
 `if` whose branches construct cases of an inferable union. Dynamic `if let`
 expressions that produce unannotated union results carry their inferred
-union-case table into later `=` shadowing checks. The exact set of dynamic union
-shapes each route accepts is tracked in [coverage.md](coverage.md).
+union-case table into later `=` shadowing checks. Executable dynamic union
+coverage is tracked in [coverage.md](coverage.md).
 
 ## Types, Structs, Unions, And Facts
 
@@ -1088,7 +1088,7 @@ It exports:
   `shift_right_unsigned`;
 - scalar conversion and formatting: `sqrt_f32`, `f32_from_i32`, `i32_from_f32`,
   `f64_from_i32`, `i32_from_f64`, `format_i32`, `format_i64`, and `format_f32`;
-- managed buffers: `generate_bytes`, `encode_utf8`, and `decode_utf8`;
+- owned buffers: `generate_bytes`, `encode_utf8`, and `decode_utf8`;
 - the explicit runtime failure boundary `panic`;
 - SIMD construction and arithmetic under the `f32x4_` prefix.
 
@@ -1281,7 +1281,7 @@ unwrap(42)
 
 The specialization may also be used directly as an annotation, as in
 `let value: Maybe Int = 42`. Named specializations are materialized before Core
-and retain the same tagged schema when exposed through the managed ABI.
+and retain the same tagged schema at the gpufuck host boundary.
 
 `value is T` is an ordinary `Bool` expression, represented as `i32` after
 frontend lowering. In an `if` condition, it also narrows a named value in both
@@ -1382,8 +1382,8 @@ expression statements proven to be compile-time-only, including type-values and
 `:+` extension expressions, are validated as const expressions and then elided.
 
 Runtime struct parameters can use fact-checker annotations when the argument is
-a frontend-known struct value. The call specializes at the call site so scalar
-field reads can still lower to Ic.
+a frontend-known struct value. The call specializes at the call site before
+semantic Core construction.
 
 ```txt
 let inc = (x: Int) => {
@@ -1481,8 +1481,8 @@ let bind_add = (const m_type: monad, value, const f) => {
 };
 ```
 
-Protocol-constrained calls specialize before Ic lowering. There is no runtime
-typeclass or instance search.
+Protocol-constrained calls specialize before semantic Core construction. There
+is no runtime typeclass or instance search.
 
 An extension can also hold a closed family of type-values. Selecting a field
 specializes the family to an ordinary struct or union before Core emission:
@@ -1518,8 +1518,8 @@ let keep = (!x) => {
 };
 ```
 
-Pure linear `let` and `const` bindings are also supported when the value can
-lower to Ic.
+Pure linear `let` and `const` bindings are also supported when the value has a
+gpufuck runtime representation.
 
 ```txt
 let !token = 41
@@ -1550,9 +1550,9 @@ return {};
 
 `declare effect Io` creates a nominal effect family, the operations `Io.read`
 and `Io.print`, and an opaque host-handler type that may appear in a context
-record. Duck cannot construct or inspect an `Io`; JavaScript supplies an
-instance through the entry `Init`. `declare` means the operations are
-host-implemented. Only declared effects appear in the managed JavaScript ABI.
+record. Duck cannot construct or inspect an `Io`; the host supplies an instance
+through the entry `Init`. `declare` means the operations are host-implemented.
+Only declared effects appear at the gpufuck host boundary.
 
 An unannotated function receives its minimal inferred operation row:
 
@@ -1921,15 +1921,14 @@ resumptions reject duplication. Once a clause consumes or duplicates its
 resumption, that clause can post-process the resumed output but cannot access
 the transferred handler state.
 
-Handlers require the structured Core route; see [coverage.md](coverage.md).
+Handler support is exercised through the gpufuck pipeline; see
+[coverage.md](coverage.md).
 
 ## Ownership, Borrows, Freezing, And Scratchpads
 
-The baseline backend targets ordinary structured Wasm plus linear memory. It
-does not use GC, Wasm-GC, or managed fallback storage to repair uncertain
-lifetimes. The compiler must prove ownership, borrow, scratch escape, promotion,
-and cleanup facts before WAT emission; if a required fact is missing, the
-baseline target rejects deterministically.
+The compiler must establish ownership, borrow, scratch escape, promotion, and
+cleanup facts before gpufuck lowering. Missing facts reject deterministically;
+there is no fallback backend that repairs uncertain lifetimes.
 
 Runtime storage is classified with explicit facts:
 
@@ -2234,8 +2233,8 @@ const has_len = t => {
 };
 ```
 
-`@panic` is a runtime trap. It lowers to an Ic trap primitive in the scalar
-backend and to WAT `unreachable` in the structured Core backend.
+`@panic` is a runtime trap represented explicitly through semantic Core and the
+gpufuck target.
 
 ```txt
 @panic("index out of bounds")
@@ -2250,27 +2249,19 @@ type Result error value = | `Ok value | `Err error
 ## Lowering
 
 The frontend performs parsing, semantic validation, fact inference, linearity
-checking, compile-time evaluation, and specialization. Compilation then selects
-one of two backend routes:
+checking, compile-time evaluation, and specialization. Compilation has one
+pipeline:
 
 ```txt
-                         -> Ic -> Expr --------->
-Source -> Frontend -----|                        Mod -> WAT -> Wasm
-                         -> structured Core ---->
-                                              |
-                                              -> managed JavaScript ABI
+Source -> frontend -> semantic Core -> gpufuck Functional Core -> Wasm
 ```
 
-The pure Ic route is the theory-facing route for scalar, affine, and
-frontend-visible computation. It performs explicit sharing and erasure,
-Interaction Calculus graph reduction, a no-GC proof, and lowering to `Expr`.
+Duck owns parsing, elaboration, semantic checks, and Core construction. The
+adapter lowers semantic Core to gpufuck's typed functional representation.
+Gpufuck owns semantic compilation and binary Wasm emission. Host interfaces add
+source declarations, while `DuckInit` values provide runtime capabilities.
 
-The structured Core route owns statements, loops, runtime memory, closures,
-handlers, and ownership/lifetime/cleanup proofs. It emits `Mod` directly; it
-does not currently pass through Ic or Expr. The managed JavaScript ABI wraps the
-Core module with marshaling and host-effect imports.
-
-The route contracts and permitted dependencies are documented in
-[architecture.md](architecture.md). Per-feature route coverage lives in
+The stage contracts and permitted dependencies are documented in
+[architecture.md](architecture.md). Executable feature coverage lives in
 [coverage.md](coverage.md), and larger reserved capabilities are prioritized in
 [roadmap.md](roadmap.md).

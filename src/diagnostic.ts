@@ -6,9 +6,7 @@ export type DiagnosticCategory =
   | "compile_time_restriction"
   | "affine_use"
   | "types_and_effects"
-  | "ownership_and_proof"
-  | "modules_and_imports"
-  | "backend_route";
+  | "modules_and_imports";
 
 export const diagnostic_registry = {
   syntax_error: diagnostic_definition(
@@ -141,26 +139,6 @@ export const diagnostic_registry = {
     "types_and_effects",
     "error",
   ),
-  borrow_proof_rejected: diagnostic_definition(
-    "DUCK2401",
-    "ownership_and_proof",
-    "error",
-  ),
-  freeze_proof_rejected: diagnostic_definition(
-    "DUCK2402",
-    "ownership_and_proof",
-    "error",
-  ),
-  scratch_escape_rejected: diagnostic_definition(
-    "DUCK2403",
-    "ownership_and_proof",
-    "error",
-  ),
-  frozen_mutation_rejected: diagnostic_definition(
-    "DUCK2404",
-    "ownership_and_proof",
-    "error",
-  ),
   import_context_missing: diagnostic_definition(
     "DUCK2500",
     "modules_and_imports",
@@ -189,11 +167,6 @@ export const diagnostic_registry = {
   import_uri_invalid: diagnostic_definition(
     "DUCK2505",
     "modules_and_imports",
-    "error",
-  ),
-  backend_route_unsupported: diagnostic_definition(
-    "DUCK2901",
-    "backend_route",
     "error",
   ),
 } as const;

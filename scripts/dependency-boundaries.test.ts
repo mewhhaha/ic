@@ -25,18 +25,18 @@ Deno.test("dependency analysis reports multi-file cycles deterministically", () 
   ]);
 });
 
-Deno.test("dependency boundaries reject backend imports from lower layers", () => {
+Deno.test("dependency boundaries keep the frontend independent from Core", () => {
   const graph = new Map([
     [
-      "src/core/analysis/types.ts",
-      new Set(["src/core/backend/core.ts"]),
+      "src/frontend/analyze.ts",
+      new Set(["src/core/ast.ts"]),
     ],
-    ["src/core/backend/core.ts", new Set<string>()],
+    ["src/core/ast.ts", new Set<string>()],
   ]);
 
   assert_equals(dependency_violations(graph), [{
-    importer: "src/core/analysis/types.ts",
-    imported: "src/core/backend/core.ts",
-    reason: "Core model, analysis, and plan modules cannot import backend code",
+    importer: "src/frontend/analyze.ts",
+    imported: "src/core/ast.ts",
+    reason: "frontend stages cannot import semantic Core",
   }]);
 });

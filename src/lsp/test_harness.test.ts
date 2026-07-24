@@ -100,6 +100,7 @@ Deno.test("multi-file fixtures drive workspace navigation", async () => {
   const root = await Deno.makeTempDir({ prefix: "duck-harness-workspace-" });
 
   try {
+    await Deno.writeTextFile(root + "/AGENTS.md", "workspace\n");
     const uris = await materialize_workspace_fixture(fixture, root);
     const root_uri = new URL("file://" + root + "/").href;
     const model = new WorkspaceModel([root_uri]);

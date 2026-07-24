@@ -7,7 +7,7 @@ import {
   Prim,
   specialize_prim_for_operands,
 } from "./op.ts";
-import { Callable, Emit, Format } from "./trait.ts";
+import { Callable, Format } from "./trait.ts";
 
 Deno.test("Prim.fmt formats typed primitives", () => {
   assert_equals(Format.fmt(Prim, "i32.add"), "+");
@@ -96,22 +96,6 @@ Deno.test("Prim specializes parse-time defaults from operand types", () => {
   );
 });
 
-Deno.test("Prim.emit returns the typed primitive instruction", () => {
-  assert_equals(Emit.emit(Prim, "i32.sub"), "i32.sub");
-  assert_equals(Emit.emit(Prim, "i64.mul"), "i64.mul");
-  assert_equals(Emit.emit(Prim, "i32.div_s"), "i32.div_s");
-  assert_equals(Emit.emit(Prim, "i32.eq"), "i32.eq");
-  assert_equals(Emit.emit(Prim, "i32.select"), "select");
-  assert_equals(Emit.emit(Prim, "i32.load"), "i32.load");
-  assert_equals(Emit.emit(Prim, "i32.load8_u"), "i32.load8_u");
-  assert_equals(Emit.emit(Prim, "i32.trap"), "unreachable");
-  assert_equals(Emit.all(Prim, ["i32.sub", "i64.mul", "i32.eq"]), [
-    "i32.sub",
-    "i64.mul",
-    "i32.eq",
-  ]);
-});
-
 Deno.test("Prim exposes f32 arithmetic and explicit conversions", () => {
   assert_equals(Callable.type(Prim, "f32.add"), {
     args: ["f32", "f32"],
@@ -129,8 +113,6 @@ Deno.test("Prim exposes f32 arithmetic and explicit conversions", () => {
     args: ["f32"],
     result: "i32",
   });
-  assert_equals(Emit.emit(Prim, "f32.sqrt"), "f32.sqrt");
-  assert_equals(Emit.emit(Prim, "i32.trunc_f32_s"), "i32.trunc_f32_s");
 });
 
 Deno.test("Prim exposes f64 arithmetic and i32 conversion", () => {
@@ -146,13 +128,10 @@ Deno.test("Prim exposes f64 arithmetic and i32 conversion", () => {
     args: ["i32"],
     result: "f64",
   });
-  assert_equals(Emit.emit(Prim, "f64.add"), "f64.add");
-  assert_equals(Emit.emit(Prim, "f64.convert_i32_s"), "f64.convert_i32_s");
   assert_equals(Callable.type(Prim, "i32.trunc_f64_s"), {
     args: ["f64"],
     result: "i32",
   });
-  assert_equals(Emit.emit(Prim, "i32.trunc_f64_s"), "i32.trunc_f64_s");
 });
 
 Deno.test("Prim maps public integer and f32 builtins", () => {

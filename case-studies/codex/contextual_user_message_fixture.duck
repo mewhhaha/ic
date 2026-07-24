@@ -1,0 +1,76 @@
+module () where
+
+const { .list } = import "duck:prelude/list" ();
+const {} = import "./contextual_user_message_types.duck" ();
+const {
+  .is_contextual_user_fragment,
+  .parse_visible_hook_prompt_message,
+} = import "./contextual_user_message.duck" ();
+
+type FixtureContent = ContextualUserContent
+type FixtureContents = ContextualUserContents
+type FixturePrompt = ContextualHookPrompt
+
+const contents = comptime list FixtureContent;
+let score = 0;
+
+let mixed: FixtureContents = contents.empty();
+mixed = contents.prepend(
+  `InputText "<hook_prompt hook_run_id=\"hook-run-2\">Then summarize cleanly.</hook_prompt>",
+  mixed,
+)
+mixed = contents.prepend(
+  `InputText "# AGENTS.md instructions for /repo\n\n<INSTRUCTIONS>\nBe precise.\n</INSTRUCTIONS>",
+  mixed,
+)
+mixed = contents.prepend(
+  `InputText "<hook_prompt hook_run_id=\"hook-run-1\">Retry with care &amp; joy.</hook_prompt>",
+  mixed,
+)
+mixed = contents.prepend(
+  `InputText "<environment_context>\n<cwd>/repo</cwd>\n</environment_context>",
+  mixed,
+)
+
+if let `Some prompt = parse_visible_hook_prompt_message("msg_1", mixed) {
+  let typed_prompt: FixturePrompt = prompt;
+  let [id, fragments] = typed_prompt;
+  if id == "msg_1" {
+    if let `Cons first_node = fragments {
+      let [first, remaining] = first_node;
+      if first.text == "Retry with care & joy." && first.hook_run_id == "hook-run-1" {
+        if let `Cons second_node = remaining {
+          let [second, tail] = second_node;
+          if second.text == "Then summarize cleanly." && second.hook_run_id == "hook-run-2" {
+            if let `Nil () = tail {
+              score = score + 1
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+let invalid: FixtureContents = contents.empty();
+invalid = contents.prepend(`InputText "visible user text", invalid)
+invalid = contents.prepend(
+  `InputText "<hook_prompt hook_run_id=\"hook-run-1\">retry</hook_prompt>",
+  invalid,
+)
+if let `None () = parse_visible_hook_prompt_message("msg_2", invalid) {
+  let context_only = contents.singleton(`InputText "<environment_context>ctx</environment_context>");
+  if let `None () = parse_visible_hook_prompt_message("msg_3", context_only) {
+    score = score + 10
+  }
+}
+
+if is_contextual_user_fragment(
+  `InputText "<hook_prompt hook_run_id=\"hook-run-1\">retry</hook_prompt>",
+) {
+  if !(is_contextual_user_fragment(`InputImage "https://example.com/image.png")) {
+    score = score + 100
+  }
+}
+
+return { .score = score };

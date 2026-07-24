@@ -66,6 +66,15 @@ export function lookup_type_field(
   return undefined;
 }
 
+export function require_struct_field(
+  field: Field | undefined,
+  name: string,
+): asserts field is Field {
+  if (!field) {
+    throw new Error("Missing struct field: " + name);
+  }
+}
+
 export function check_object_fields(fields: Field[]): void {
   const seen = new Set<string>();
 

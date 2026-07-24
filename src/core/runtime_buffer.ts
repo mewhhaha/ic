@@ -1,10 +1,6 @@
 import { expect } from "../expect.ts";
 import type { ValType } from "../op.ts";
 import type { CoreExpr } from "./ast.ts";
-import type {
-  CoreAllocationLayout,
-  CoreAllocationReason,
-} from "./model/allocation.ts";
 
 export type CoreRuntimeBufferBuiltinName =
   | "@Utf8.encode"
@@ -83,35 +79,5 @@ export function core_runtime_buffer_builtin(
     arg_type,
     precision,
     result,
-  };
-}
-
-export function runtime_buffer_allocation(
-  builtin: CoreRuntimeBufferBuiltin,
-): {
-  reason: CoreAllocationReason;
-  layout: CoreAllocationLayout;
-  emission_site: string;
-} {
-  if (builtin.result === "bytes") {
-    return {
-      reason: "runtime_bytes",
-      layout: "runtime_bytes.length_prefixed_u8",
-      emission_site: "runtime_bytes.utf8_encode",
-    };
-  }
-
-  if (builtin.name === "@Utf8.decode") {
-    return {
-      reason: "runtime_text",
-      layout: "runtime_text.length_prefixed_utf8",
-      emission_site: "runtime_text.utf8_decode",
-    };
-  }
-
-  return {
-    reason: "runtime_text",
-    layout: "runtime_text.length_prefixed_utf8",
-    emission_site: "runtime_text." + builtin.name,
   };
 }

@@ -28,7 +28,7 @@ architecture-baseline:
   deno run --allow-read --allow-write scripts/dependency-boundaries.ts --write-baseline
 
 source-test:
-  deno test --allow-read --allow-write --allow-run src examples scripts
+  deno test --allow-read --allow-write --allow-run src scripts
 
 case-studies:
   deno test --allow-read --allow-write --allow-run case-studies
@@ -36,7 +36,7 @@ case-studies:
 case-study study:
   deno test --allow-read --allow-write --allow-run case-studies/{{study}}
 
-test: source-test case-studies
+test: source-test examples case-studies
 
 examples:
   deno test --allow-read --allow-write --allow-run examples/examples.test.ts
@@ -65,4 +65,4 @@ helix-register: helix-grammar
 
 install: helix-register
 
-check: quality grammar-check source-test case-studies
+check: quality grammar-check source-test examples case-studies

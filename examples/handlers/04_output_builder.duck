@@ -26,7 +26,7 @@ let collect = capacity => {
       output = append(output, value)
       !resume(())
     },
-    return: _ => slice(&output.buffer, 0, output.length),
+    return: _ => slice [&output.buffer, 0, output.length],
   }
 };
 

@@ -53,10 +53,9 @@ import {
   PositionIndex,
 } from "./position.ts";
 import {
+  execute_powertools_command,
   type ExecuteCommandRequest,
-  expand_comptime,
   powertools_code_lenses,
-  route_execute_command,
 } from "./powertools.ts";
 import { document_symbols } from "./symbols.ts";
 import {
@@ -289,10 +288,7 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
         inlayHintProvider: { resolveProvider: true },
         codeLensProvider: { resolveProvider: false },
         executeCommandProvider: {
-          commands: [
-            "duck.expandComptime",
-            "duck.runExample",
-          ],
+          commands: ["duck.runExample"],
         },
         semanticTokensProvider: {
           legend: {
@@ -301,11 +297,6 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
           },
           range: true,
           full: { delta: true },
-        },
-      },
-      experimental: {
-        duck: {
-          expandComptime: true,
         },
       },
       serverInfo: { name: "duck-lsp", version: "0.1.0" },
@@ -641,42 +632,6 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
     )];
   }
 
-  if (message.method === "duck/expandComptime") {
-    const uri = uri_from_text_document(message.params);
-    const params = as_record(message.params);
-    let position: unknown;
-
-    if (params !== undefined) {
-      position = params.position;
-    }
-
-    if (
-      uri === undefined || !is_lsp_position(position) ||
-      state.documents.get(uri) === undefined
-    ) {
-      return [respond(message, {
-        ok: false,
-        code: "no_comptime_target",
-        message: "duck/expandComptime requires an open document and position",
-      })];
-    }
-
-    const document = state.documents.get(uri);
-
-    if (document === undefined) {
-      throw new Error("Missing open powertools document");
-    }
-
-    return [respond(
-      message,
-      expand_comptime(
-        document.text,
-        position,
-        state.documents.position_encoding,
-      ),
-    )];
-  }
-
   if (message.method === "textDocument/codeLens") {
     const uri = uri_from_text_document(message.params);
 
@@ -692,11 +647,7 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
 
     return [respond(
       message,
-      powertools_code_lenses(
-        uri,
-        document.text,
-        state.documents.position_encoding,
-      ).map((lens) => ({
+      powertools_code_lenses(uri).map((lens) => ({
         range: lens.range,
         command: {
           title: lens.title,
@@ -718,7 +669,7 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
       })];
     }
 
-    return [respond(message, route_execute_command(request))];
+    return [respond(message, execute_powertools_command(request))];
   }
 
   if (message.method === "codeAction/resolve") {
@@ -739,7 +690,6 @@ function handle_request(state: ServerState, message: RpcMessage): unknown[] {
       analyze: (text) =>
         Source.analyze(text, {
           import_meta: lsp_source_import_meta,
-          route: analysis_route(),
           uri: action.data.uri,
           resolve_import: (dependency_uri) =>
             resolve_document_import(state, dependency_uri),
@@ -1373,7 +1323,6 @@ function semantic_document(
           },
         ),
         import_meta: lsp_source_import_meta,
-        route: analysis_route(),
         uri,
         resolve_import: (dependency_uri) => {
           dependencies.add(dependency_uri);
@@ -1419,7 +1368,6 @@ function workspace_semantic_document(
       (dependency_uri) => resolve_document_import(state, dependency_uri),
     ),
     import_meta: lsp_source_import_meta,
-    route: analysis_route(),
     uri,
     resolve_import: (dependency_uri) =>
       resolve_document_import(state, dependency_uri),
@@ -1483,10 +1431,6 @@ function sibling_host_interface(
   }
 
   return parsed.source;
-}
-
-function analysis_route(): "core" {
-  return "core";
 }
 
 function document_semantic_tokens(
@@ -1863,17 +1807,7 @@ function execute_command_from_params(
   const result: ExecuteCommandRequest = {
     command: request.command,
     uri,
-    text: document.text,
-    encoding: state.documents.position_encoding,
   };
-
-  if (request.command === "duck.expandComptime") {
-    const position = request.arguments[1];
-
-    if (is_lsp_position(position)) {
-      result.position = position;
-    }
-  }
 
   return result;
 }

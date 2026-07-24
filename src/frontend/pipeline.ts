@@ -4,12 +4,10 @@ import {
   diagnostic_codes,
 } from "../diagnostic.ts";
 import type { Source } from "./ast.ts";
-import { validate_atom_identities } from "./atom.ts";
 import {
   analyze_front_effects,
   type FrontEffectAnalysis,
 } from "./effect_analysis.ts";
-import { elaborate_front_effects } from "./effect_elaborate.ts";
 import {
   instantiate_named_effects,
   specialize_front_effects,
@@ -21,15 +19,12 @@ import {
   validate_source_import_context,
   validate_source_imports,
 } from "./import_diagnostic.ts";
-import { validate_ic_route } from "./ic_route.ts";
 import { validate_source_linear } from "./linear.ts";
 import { elaborate_front_let_else } from "./let_else.ts";
-import { apply_front_inferred_nominal_bindings } from "./nominal_elaborate.ts";
 import {
-  elaborate_front_loops,
-  elaborate_front_ranges,
-} from "./loop_elaborate.ts";
-import { resolve_bundled_source_imports } from "./load.ts";
+  resolve_bundled_source_imports,
+  resolve_source_imports,
+} from "./load.ts";
 import { specialize_const_module_imports } from "./module_specialize.ts";
 import type { ParseSourceResult } from "./parser.ts";
 import { validate_frontend_semantics } from "./semantic_validation.ts";
@@ -43,19 +38,12 @@ import {
   type SourceFacts,
 } from "./source_facts.ts";
 import { derive_missing_source_spans } from "./syntax.ts";
-import { elaborate_front_type_sets } from "./type_set_elaborate.ts";
 import {
   infer_default_effect_handlers,
   source_has_implicit_try,
 } from "./default_handler.ts";
 import type { SourceImportMeta } from "./import_meta.ts";
-import { source_with_expanded_attributes } from "./core_pipeline.ts";
-
-export {
-  expanded_source_for_core_route,
-  source_for_core_route,
-  source_with_expanded_attributes,
-} from "./core_pipeline.ts";
+import { source_with_expanded_attributes } from "./attribute_expand.ts";
 
 export type FrontendAnalysisOptions = {
   import_meta?: SourceImportMeta;
@@ -81,8 +69,19 @@ export function analyze_frontend(
   let analyzed_source = source;
 
   try {
+    if (
+      !contains_error(diagnostics) && options.uri !== undefined &&
+      options.resolve_import !== undefined
+    ) {
+      analyzed_source = resolve_source_imports(
+        analyzed_source,
+        options.uri,
+        options.resolve_import,
+      );
+    }
+
     analyzed_source = source_with_expanded_attributes(
-      source,
+      analyzed_source,
       options.import_meta,
     );
     derive_missing_source_spans(analyzed_source, { start: 0, end: 0 });
@@ -157,18 +156,6 @@ function source_uri_allows_intrinsics(uri: string | undefined): boolean {
   return name === "prelude.duck" || name.startsWith("prelude_");
 }
 
-export function source_for_ic_route(source: Source): Source {
-  source = source_with_expanded_attributes(source);
-  derive_missing_source_spans(source, { start: 0, end: 0 });
-  source = specialize_front_effects(source);
-  source = infer_default_effect_handlers(source);
-  require_rank_n_types(source);
-  require_condition_types(source);
-  validate_atom_identities(source);
-  validate_ic_route(source);
-  return elaborate_source(source);
-}
-
 export function source_effects(source: Source): FrontEffectAnalysis {
   source = source_with_expanded_attributes(source);
   source = specialize_front_effects(source);
@@ -216,56 +203,6 @@ function append_affine_diagnostics(
     }
 
     throw error;
-  }
-}
-
-function elaborate_source(source: Source): Source {
-  source = elaborate_front_let_else(source);
-  source = infer_front_function_signatures(source);
-  source = elaborate_front_ducks(source);
-  source = infer_front_function_signatures(source);
-  source = elaborate_front_ducks(source);
-  const effects = analyze_front_effects(source);
-  const has_effects = effects.module_effects.length > 0 ||
-    Object.values(effects.functions).some((func) => func.effects.length > 0);
-
-  if (!has_effects) {
-    source = elaborate_front_ranges(source);
-    source = elaborate_front_loops(source);
-  }
-
-  source = apply_front_inferred_nominal_bindings(source);
-  source = elaborate_front_effects(source);
-  return elaborate_front_type_sets(source);
-}
-
-function require_rank_n_types(source: Source): void {
-  const diagnostics = source_inference_diagnostics(
-    source,
-    source_facts(source),
-  );
-
-  for (const diagnostic of diagnostics) {
-    if (
-      diagnostic.severity === "error" &&
-      diagnostic.code === diagnostic_codes.rank_n_type_mismatch
-    ) {
-      throw new SourceDiagnosticError(diagnostic);
-    }
-  }
-}
-
-function require_condition_types(source: Source): void {
-  const diagnostics = validate_frontend_semantics(source);
-
-  for (const diagnostic of diagnostics) {
-    if (
-      diagnostic.severity === "error" &&
-      diagnostic.code === diagnostic_codes.condition_type_mismatch &&
-      diagnostic.message.startsWith("If condition expects Bool")
-    ) {
-      throw new SourceDiagnosticError(diagnostic);
-    }
   }
 }
 

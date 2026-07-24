@@ -1,0 +1,81 @@
+module () where
+
+const { .list } = import "duck:prelude/list" ();
+const {
+  .is_standard_contextual_user_text,
+} = import "./contextual_user_fragment.duck" ();
+const { .parse_hook_prompt_fragment } = import "./hook_prompt.duck" ();
+const {} = import "./contextual_user_message_types.duck" ();
+
+type UserContent = ContextualUserContent
+type UserContents = ContextualUserContents
+type HookPromptFragments = ContextualHookPromptFragments
+type HookPrompt = ContextualHookPrompt
+type HookPromptOption = ContextualHookPromptOption
+
+const hook_prompt_fragments = comptime list ContextualHookPromptFragment;
+
+const is_contextual_user_fragment = (content: UserContent) => {
+  if let `InputText text = content {
+    if let `Some _ = parse_hook_prompt_fragment text {
+      true
+    } else {
+      is_standard_contextual_user_text text
+    }
+  } else {
+    false
+  }
+};
+
+const parse_visible_hook_prompt_message = (
+  id: Text,
+  contents: UserContents,
+) => {
+  let result: HookPromptOption = `None ();
+  let current = contents;
+  let reversed: HookPromptFragments = hook_prompt_fragments.empty();
+  let valid = true;
+
+  loop {
+    if let `Cons node = current {
+      let [content, tail] = node;
+
+      if let `InputText text = content {
+        let parsed = parse_hook_prompt_fragment text;
+        if let `Some fragment = parsed {
+          reversed = hook_prompt_fragments.prepend(fragment, reversed)
+        } else if !(is_standard_contextual_user_text text) {
+          valid = false
+        }
+      } else {
+        valid = false
+      }
+
+      if !(valid) {
+        break;
+      }
+      current = tail
+    } else {
+      break;
+    }
+  }
+
+  if valid {
+    if let `Nil () = reversed {
+      ()
+    } else {
+      let prompt: HookPrompt = [
+        .id = id,
+        .fragments = hook_prompt_fragments.reverse(reversed),
+      ];
+      result = `Some prompt
+    }
+  }
+
+  result
+};
+
+return {
+  .is_contextual_user_fragment,
+  .parse_visible_hook_prompt_message,
+};

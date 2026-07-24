@@ -16,6 +16,7 @@ import {
   type SourceFacts,
   type SourceTypeFact,
 } from "./source_facts.ts";
+import { has_source_span, inherit_source_span } from "./syntax.ts";
 import { format_type_expr, parse_type_expr } from "./type_expr.ts";
 import { tokenize } from "./tokenize.ts";
 
@@ -627,13 +628,43 @@ function apply_inferred_signatures(
       let rewritten = statement;
 
       if (signature !== undefined) {
+        let value = signature.value;
+
+        if (
+          (statement.value.tag === "lam" || statement.value.tag === "rec") &&
+          (value.tag === "lam" || value.tag === "rec")
+        ) {
+          const source_value = statement.value;
+          const params = value.params.map((param, index) => {
+            const source_param = source_value.params[index];
+
+            if (
+              source_param === undefined || param === source_param ||
+              !has_source_span(source_param)
+            ) {
+              return param;
+            }
+
+            return inherit_source_span(param, source_param);
+          });
+          value = { ...value, params };
+
+          if (has_source_span(source_value)) {
+            value = inherit_source_span(value, source_value);
+          }
+        }
+
         rewritten = {
           ...statement,
           annotation: signature.annotation,
           pattern: signature.pattern,
           type_annotation: signature.type_annotation,
-          value: signature.value,
+          value,
         };
+
+        if (has_source_span(statement)) {
+          rewritten = inherit_source_span(rewritten, statement);
+        }
       }
 
       if (statement.mutual === undefined) {

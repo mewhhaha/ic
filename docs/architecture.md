@@ -1,105 +1,55 @@
 # Compiler Architecture
 
-Ducklang has one frontend and two backend routes. The split is explicit because
-the current Interaction Calculus IR models affine computation and local graph
-rewrites, while the structured Core IR also carries control-flow, storage,
-ownership, host-boundary, and cleanup evidence.
+Ducklang has one compilation pipeline:
 
 ```txt
-                                  reduce       lower
-                              -> Ic graph ------------> Expr --+
-                             /                              |
-Source -> parse/analyze ----+                               +-> Mod -> WAT -> Wasm
-                             \                              |
-                              -> structured Core ----------+
-                                      |
-                                      +-> proof and cleanup
-                                      |
-                                      +-> managed ABI wrapper
+Source -> frontend -> semantic Core -> gpufuck Functional Core -> Wasm
 ```
 
-## Shared frontend
+Duck owns source-language behavior. Gpufuck owns compilation of the lowered
+functional module and binary Wasm emission. There is no Duck-native Wasm,
+Interaction Calculus, WAT, or separate host-ABI route.
 
-The frontend owns source syntax, diagnostics, binding and canonical type facts,
-linearity, compile-time evaluation, effect specialization, and import
-resolution. Its implemented stages are explicit:
+## Frontend
 
-```txt
-syntax -> names/scopes -> canonical types/facts
-       -> const/affine/effect validation -> elaboration
-       -> route validation -> lowering
-```
+`src/frontend/` owns parsing, imports, source metadata, diagnostics, binding and
+type facts, linearity, effects, compile-time evaluation, specialization, and
+tooling analysis. `Source` is the tooling facade for parsing, analysis,
+formatting, effects, and source loading. It does not compile programs.
 
-`src/frontend/pipeline.ts` owns those backend-free stages. `source.ts` is the
-route facade: it selects IC, Core, or managed lowering after the shared language
-contract succeeds. Shared frontend modules do not import Core or WAT emitters.
+The frontend remains independent of semantic Core. This lets `duck check`, the
+formatter, and the language server operate without initializing WebGPU or
+gpufuck.
 
-`duck check` intentionally runs this shared analysis without forcing every
-program through one backend. `duck build` selects a concrete route and reports
-route-specific rejection during compilation.
+## Semantic Core
 
-## IC route
+`src/core/ast.ts` defines the target-independent semantic representation.
+`src/core/from_source/` constructs it from elaborated source and is the only
+Core layer allowed to depend on frontend syntax. The other retained Core modules
+provide demand, capture, ownership, storage, substitution, and source origin
+facts needed by lowering.
 
-Entry points: `Source.compile`, `Source.ic_mod`, and `Source.ic_wat`.
+Semantic Core describes behavior, not concrete Wasm instructions or module
+layout.
 
-The IC route owns explicit duplication, superposition, erasure, lambda
-interaction, primitive propagation/folding, recursive scalar fixpoints, graph
-reduction, and the pure no-GC proof. Reduced terms lower to `Expr`, whose only
-job is to compute one Wasm value. `Expr` then enters the shared `Mod` layer.
+## Gpufuck adapter
 
-This route is the place to test alignment with Interaction Calculus theory. New
-structured runtime features do not belong here unless their IC representation
-and rewrite behavior are designed first.
+`experiments/gpufuck/core_lowering.ts` is the single compiler boundary. It loads
+and elaborates source, builds semantic Core, and lowers Core to gpufuck's typed
+Functional Core. `experiments/gpufuck/compiler.ts` owns compiler caching, WebGPU
+setup, comptime execution, host capability binding, and gpufuck calls.
 
-## Core route
+`src/compiler.ts` is the supported TypeScript compiler API. `DuckCompiler`
+compiles binary Wasm, prepares programs, runs programs, and executes source
+tests. Host interfaces contribute source declarations; `DuckInit` values grant
+runtime capabilities.
 
-Entry points: `Source.core`, `Source.mod`, and `Source.wat`.
+## Dependency policy
 
-Core owns structured statements and control flow, runtime aggregates and text,
-closures, handlers, allocation, ownership, borrows, freezing, scratch lifetimes,
-host boundaries, and cleanup. Its proof and emission graph produces a `Mod`
-directly.
+- Frontend modules do not import semantic Core.
+- Core imports frontend syntax only through `core/from_source/`.
+- Semantic operations do not contain concrete Wasm emission.
+- Compilation and execution enter through `DuckCompiler`.
+- A target rejection is reported as an error; there is no fallback route.
 
-Core source adapters may depend on frontend source types, and Core emission may
-depend on the shared Wasm module layer. Frontend semantic code must not depend
-on concrete Core emission instructions.
-
-Core dependencies flow in one direction:
-
-```txt
-model -> analysis -> plan -> emit -> backend
-```
-
-`core/model/` owns immutable allocation, ownership, union, and static-value
-contracts. `core/analysis/` owns pure field and static-value queries.
-Allocation, drop, cleanup, closure, and ownership modules build plans from those
-contracts. `core/emit/` owns WAT formatting, local declarations, and generated
-names, while `core/backend/` composes the public route. Source-language type
-syntax enters Core only through `core/from_source/` adapters.
-
-The dependency check rejects reverse layer imports, shared-frontend backend
-imports, Core imports that bypass `from_source`, and every multi-file strongly
-connected component. The checked baseline is empty, so any new finding fails CI.
-
-## Managed route
-
-Entry points: `Source.artifact` and `Source.artifact_file`.
-
-The managed route wraps a Core module with the `duck-js-1` ABI. It emits an ABI
-manifest, marshaling exports, allocation hooks, and typed effect imports.
-`DuckHost` validates and instantiates that contract.
-
-## Shared module boundary
-
-`Mod` owns Wasm functions, imports, exports, memory, globals, tables, and data
-segments. `Expr` and Core emit function bodies or module artifacts without
-moving module structure into their semantic IRs.
-
-## Change policy
-
-- Every feature states which route accepts it.
-- Shared semantic rules are checked before route lowering.
-- A route rejection is a diagnostic, not a silent fallback to another route.
-- Generated names and artifact ordering are deterministic.
-- Documentation must not describe an aspirational stage as an implemented
-  pipeline edge.
+The dependency check rejects violations and multi-file cycles.

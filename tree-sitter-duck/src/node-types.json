@@ -1872,6 +1872,21 @@
     }
   },
   {
+    "type": "condition_positional_product",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "condition_expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "condition_unary_expression",
     "named": true,
     "fields": {
@@ -4123,6 +4138,10 @@
         "types": [
           {
             "type": "condition_expression",
+            "named": true
+          },
+          {
+            "type": "condition_positional_product",
             "named": true
           }
         ]

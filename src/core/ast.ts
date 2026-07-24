@@ -1,103 +1,18 @@
-import type { ResumeSignature, TypeExpr, TypePattern } from "../type_syntax.ts";
-import type { NumType, Prim, ValType } from "../op.ts";
+import type { TypePattern } from "../type_syntax.ts";
+import type { NumType, Prim } from "../op.ts";
 import type { IntegerType } from "../integer.ts";
 
 export type Core = {
   tag: "program";
-  function_params?: CoreParam[];
-  cleanup_emission?: CoreCleanupEmission[];
-  capability_methods?: CoreCapabilityMethodFact[];
-  host_imports?: Record<string, CoreHostImport>;
+  host_imports?: string[];
   statements: CoreStmt[];
   recFunctions?: Record<string, CoreRecFunction>;
-  allocation_permit_plan?: import("./model/allocation.ts").CoreAllocationPlan;
-};
-
-export type CoreCleanupEmission = {
-  step_id: string;
-  allocation_ids: string[];
-  edge:
-    | "scope_exit"
-    | "assignment_replace"
-    | "discarded_expr"
-    | "return_exit"
-    | "break_exit"
-    | "continue_exit"
-    | "conditional_cleanup"
-    | "loop_zero_iteration_cleanup";
-  scope: string;
-  owner: string | undefined;
-  pointer_local: string | undefined;
-  replacement_value_local: string | undefined;
-  replacement_old_local: string | undefined;
-  statement_index: number | undefined;
-  statement_path: number[] | undefined;
-  byte_size: import("./model/allocation.ts").CoreAllocationByteSize;
-  alignment: 4 | 8 | 16;
-  layout: import("./model/allocation.ts").CoreAllocationLayout;
-  owned_children: import("./model/allocation.ts").CoreAllocationOwnedChild[];
-  destructor_type_expr?: CoreExpr;
-  destructor?: string;
-};
-
-export type CoreCapabilityMethodFact = {
-  table: string;
-  method: string;
-  host_import: string;
-  representation?: "runtime_aggregate";
 };
 
 export type CoreRecFunction = {
   params: CoreParam[];
   body: CoreExpr;
   result_annotation?: string;
-  body_stmt?: Extract<CoreStmt, { tag: "expr" }>;
-  allocation_permit_plan?: import("./model/allocation.ts").CoreAllocationPlan;
-};
-
-export type CoreHostImportArgContract =
-  | { tag: "scalar" }
-  | { tag: "bounded_borrow" }
-  | { tag: "frozen_shareable" }
-  | { tag: "ownership_transfer" };
-
-export type CoreHostImportOwnerReason =
-  | "text"
-  | "closure"
-  | "runtime_union"
-  | "runtime_aggregate";
-
-export type CoreHostImportResultContract =
-  | { tag: "scalar" }
-  | { tag: "unique_heap"; reason: CoreHostImportOwnerReason }
-  | {
-    tag: "frozen_shareable";
-    reason: CoreHostImportOwnerReason | "freeze";
-  };
-
-export type CoreHostImport = {
-  name: string;
-  module: string;
-  field: string;
-  params: ValType[];
-  result: ValType;
-  result_type_expr?: CoreExpr;
-  args: CoreHostImportArgContract[];
-  result_owner?: CoreHostImportResultContract;
-};
-
-export type CoreFnType = {
-  tag: "fn";
-  params: ValType[];
-  param_texts: boolean[];
-  param_constraints?: (string | undefined)[];
-  param_structs?: (CoreExpr | undefined)[];
-  param_unions?: (CoreExpr | undefined)[];
-  param_fns?: (CoreFnType | undefined)[];
-  result: ValType;
-  result_text: boolean;
-  result_struct: CoreExpr | undefined;
-  result_union: CoreExpr | undefined;
 };
 
 export type CoreStmt =
@@ -106,7 +21,6 @@ export type CoreStmt =
     kind: "let" | "const";
     name: string;
     is_linear: boolean;
-    force_materialized?: true;
     annotation: string | undefined;
     value: CoreExpr;
   }
@@ -151,29 +65,24 @@ export type CoreStmt =
   | { tag: "expr"; expr: CoreExpr }
   | { tag: "unsupported"; feature: string; text: string };
 
-export type CoreExpr = CoreExprNode & {
-  ascribed_type?: string;
-};
+export type CoreExpr = CoreExprNode;
 
 type CoreExprNode =
   | {
     tag: "num";
     type: NumType;
     value: number | bigint;
-    atom_name?: string;
-    character?: string;
     integer?: IntegerType;
   }
   | { tag: "text"; value: string }
   | { tag: "type_name"; name: string }
-  | { tag: "var"; name: string; resume_signature?: ResumeSignature }
-  | { tag: "linear"; name: string; resume_signature?: ResumeSignature }
+  | { tag: "var"; name: string }
+  | { tag: "linear"; name: string }
   | { tag: "prim"; prim: Prim; args: CoreExpr[]; integer?: IntegerType }
   | {
     tag: "lam";
     params: CoreParam[];
     body: CoreExpr;
-    is_linear_closure?: boolean;
   }
   | {
     tag: "rec";
@@ -191,7 +100,6 @@ type CoreExprNode =
     tag: "app";
     func: CoreExpr;
     args: CoreExpr[];
-    resume_payload?: boolean;
   }
   | { tag: "block"; statements: CoreStmt[] }
   | { tag: "loop"; body: CoreStmt[] }
@@ -209,7 +117,6 @@ type CoreExprNode =
     cond: CoreExpr;
     then_branch: CoreExpr;
     else_branch: CoreExpr;
-    implicit_else?: boolean;
   }
   | {
     tag: "if_let";
@@ -218,22 +125,18 @@ type CoreExprNode =
     target: CoreExpr;
     then_branch: CoreExpr;
     else_branch: CoreExpr;
-    implicit_else?: boolean;
   }
   | {
     tag: "field";
     object: CoreExpr;
     name: string;
-    move?: true;
-    resume_signature?: ResumeSignature;
   }
-  | { tag: "index"; object: CoreExpr; index: CoreExpr; move?: true }
+  | { tag: "index"; object: CoreExpr; index: CoreExpr }
   | {
     tag: "union_case";
     name: string;
     value: CoreExpr | undefined;
     type_expr: CoreExpr | undefined;
-    resume_payload?: boolean;
   }
   | { tag: "unsupported"; feature: string; text: string };
 
@@ -252,5 +155,4 @@ export type CoreParam = {
 export type CoreTypeField = {
   name: string;
   type_name: string;
-  set_member?: TypeExpr;
 };

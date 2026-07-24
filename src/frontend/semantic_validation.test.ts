@@ -1,4 +1,5 @@
 import { assert_equals } from "../assert.ts";
+import { source_with_expanded_attributes } from "./attribute_expand.ts";
 import { parse_source } from "./parser.ts";
 import {
   ducklang_attributes_prelude_text,
@@ -130,6 +131,50 @@ Deno.test("semantic validation reuses constness checks with source spans", () =>
   }]);
 });
 
+Deno.test("semantic validation reports non-exhaustive matches", () => {
+  const source = parse_source("match 1 { | 1 => 10 }\n");
+
+  assert_equals(validate_frontend_semantics(source), [{
+    code: "DUCK2314",
+    severity: "error",
+    message: "Non-exhaustive match requires a wildcard or binding arm",
+    span: { start: 0, end: 21 },
+  }]);
+});
+
+Deno.test("semantic validation defers match coverage without a target type", () => {
+  const source = parse_source(
+    "let inspect = value => match value { | `Present payload => payload };\n",
+  );
+
+  assert_equals(validate_frontend_semantics(source), []);
+});
+
+Deno.test("semantic validation recognizes exact atom match coverage", () => {
+  const source = parse_source(`
+let unit = match () { | () => 1 };
+let atom = match #ready { | #ready => 2 };
+unit + atom
+`);
+
+  assert_equals(validate_frontend_semantics(source), []);
+});
+
+Deno.test("semantic validation checks match guards and arm bodies", () => {
+  const source = parse_source(
+    'match true { | value if 1 => if "bad" { 1 } else { 0 } }\n',
+  );
+
+  assert_equals(
+    validate_frontend_semantics(source).map((diagnostic) => diagnostic.message),
+    [
+      "Match guard expects Bool, got I32",
+      "If condition expects Bool, got Text",
+      "Non-exhaustive match requires a wildcard or binding arm",
+    ],
+  );
+});
+
 Deno.test("semantic validation preserves compile-time locals in generated functions", () => {
   const source = parse_source(`
 const cast = (value, const target) => @cast(value, target);
@@ -155,7 +200,8 @@ Deno.test("semantic validation accepts every bundled source prelude", () => {
       ducklang_testing_prelude_text,
     ]
   ) {
-    assert_equals(validate_frontend_semantics(parse_source(text)), []);
+    const source = source_with_expanded_attributes(parse_source(text));
+    assert_equals(validate_frontend_semantics(source), []);
   }
 });
 
@@ -186,11 +232,11 @@ integer
   ]);
 });
 
-Deno.test("semantic validation scopes the Core gate to Bool representation errors", () => {
+Deno.test("semantic validation scopes gpufuck representation errors", () => {
   const integer_source = parse_source("let value: Int = 1i64;\nvalue");
   assert_equals(
     validate_frontend_semantics(integer_source, {
-      scope: "bool-representation",
+      scope: "gpufuck-representation",
     }),
     [],
   );
@@ -198,7 +244,7 @@ Deno.test("semantic validation scopes the Core gate to Bool representation error
   const bool_source = parse_source("let value: Bool = 1;\nvalue");
   assert_equals(
     validate_frontend_semantics(bool_source, {
-      scope: "bool-representation",
+      scope: "gpufuck-representation",
     }),
     [{
       code: "DUCK2306",

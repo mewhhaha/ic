@@ -1,0 +1,41 @@
+module () where
+
+const {} = import "./contextual_user_message_types.duck" ();
+const {
+  .parse_hook_prompt_fragment,
+  .render_hook_prompt_fragment,
+} = import "./hook_prompt.duck" ();
+
+type FixtureFragment = ContextualHookPromptFragment
+
+let score = 0;
+let original: FixtureFragment = [
+  .text = "Retry with \"waves\" & <tides> 'now'.",
+  .hook_run_id = "hook&\"1",
+];
+
+if let `Some rendered = render_hook_prompt_fragment original {
+  if let `Some parsed = parse_hook_prompt_fragment rendered {
+    if parsed.text == "Retry with \"waves\" & <tides> 'now'." {
+      if parsed.hook_run_id == "hook&\"1" {
+        score = score + 1
+      }
+    }
+  }
+}
+
+if let `None () = parse_hook_prompt_fragment(
+  "<hook_prompt hook_run_id=\"hook-run-1\">bad &unknown; entity</hook_prompt>",
+) {
+  if let `None () = parse_hook_prompt_fragment(
+    "<hook_prompt hook_run_id=\"   \">blank id</hook_prompt>",
+  ) {
+    if let `None () = parse_hook_prompt_fragment(
+      "<hook_prompt hook_run_id=\"hook-run-1\"><raw>xml</raw></hook_prompt>",
+    ) {
+      score = score + 10
+    }
+  }
+}
+
+return { .score = score };

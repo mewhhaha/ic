@@ -180,7 +180,7 @@ Deno.test("document formatting canonicalizes atomic unary calls", () => {
 
 Deno.test("server keeps externally supplied host modules responsive", async () => {
   const source_url = new URL(
-    "../../case-studies/grep/grep.duck",
+    "../../case-studies/editor/editor.duck",
     import.meta.url,
   );
   const uri = source_url.href;
@@ -195,41 +195,34 @@ Deno.test("server keeps externally supplied host modules responsive", async () =
 
   assert_equals(opened[0]?.params.diagnostics, []);
 
-  const formatting = handle_message(state, {
-    id: 1,
-    method: "textDocument/formatting",
-    params: { textDocument: { uri } },
-  });
-  assert_equals(formatting, [{ jsonrpc: "2.0", id: 1, result: [] }]);
-
-  const effect_offset = text.indexOf("Process.arg_count");
+  const effect_offset = text.indexOf("Terminal.columns");
   const effect_prefix = text.slice(0, effect_offset);
   const effect_line = effect_prefix.split("\n").length - 1;
   const effect_line_start = effect_prefix.lastIndexOf("\n") + 1;
   const hovered = handle_message(state, {
-    id: 2,
+    id: 1,
     method: "textDocument/hover",
     params: {
       textDocument: { uri },
       position: {
         line: effect_line,
-        character: effect_offset - effect_line_start + 9,
+        character: effect_offset - effect_line_start + 10,
       },
     },
   }) as [{ result: { contents: { value: string } } }];
 
   assert_equals(
     hovered[0]?.result.contents.value,
-    "**operation** `arg_count`\n\ntype: `() -> I32`\n\n" +
-      "signature: `Process.arg_count() => I32`",
+    "**operation** `columns`\n\ntype: `() -> I32`\n\n" +
+      "signature: `Terminal.columns() => I32`",
   );
 
-  const result_offset = text.indexOf("write_result <-");
+  const result_offset = text.indexOf("read_result <-");
   const result_prefix = text.slice(0, result_offset);
   const result_line = result_prefix.split("\n").length - 1;
   const result_line_start = result_prefix.lastIndexOf("\n") + 1;
   const result_hover = handle_message(state, {
-    id: 3,
+    id: 2,
     method: "textDocument/hover",
     params: {
       textDocument: { uri },
@@ -242,66 +235,11 @@ Deno.test("server keeps externally supplied host modules responsive", async () =
 
   assert_equals(
     result_hover[0]?.result.contents.value,
-    "```duck\nlet write_result: WriteResult\n```",
+    "```duck\nlet read_result: ReadResult\n```",
   );
 
-  for (
-    const expected of [
-      { name: "pending", offset: text.indexOf("pending[index]") },
-      { name: "line", offset: text.indexOf("&line") + 1 },
-    ]
-  ) {
-    const prefix = text.slice(0, expected.offset);
-    const line = prefix.split("\n").length - 1;
-    const line_start = prefix.lastIndexOf("\n") + 1;
-    const nested_hover = handle_message(state, {
-      id: 4,
-      method: "textDocument/hover",
-      params: {
-        textDocument: { uri },
-        position: {
-          line,
-          character: expected.offset - line_start + 1,
-        },
-      },
-    }) as [{ result: { contents: { value: string } } }];
-
-    assert_equals(
-      nested_hover[0]?.result.contents.value,
-      "```duck\nlet " + expected.name + ": Bytes\n```",
-    );
-  }
-
-  for (
-    const expected of [{ name: "first_bytes", type: "Bytes" }, {
-      name: "pattern",
-      type: "Text",
-    }]
-  ) {
-    const offset = text.indexOf(expected.name);
-    const prefix = text.slice(0, offset);
-    const line = prefix.split("\n").length - 1;
-    const line_start = prefix.lastIndexOf("\n") + 1;
-    const parameter_hover = handle_message(state, {
-      id: 5,
-      method: "textDocument/hover",
-      params: {
-        textDocument: { uri },
-        position: {
-          line,
-          character: offset - line_start + 1,
-        },
-      },
-    }) as [{ result: { contents: { value: string } } }];
-
-    assert_equals(
-      parameter_hover[0]?.result.contents.value,
-      "```duck\n" + expected.name + ": " + expected.type + "\n```",
-    );
-  }
-
   const inlays = handle_message(state, {
-    id: 6,
+    id: 3,
     method: "textDocument/inlayHint",
     params: {
       textDocument: { uri },
@@ -314,7 +252,7 @@ Deno.test("server keeps externally supplied host modules responsive", async () =
 
   assert_equals(
     inlays[0]?.result.some((hint) =>
-      hint.label === ": WriteResult" && hint.position.line === result_line
+      hint.label === ": ReadResult" && hint.position.line === result_line
     ),
     true,
   );
@@ -385,10 +323,7 @@ Deno.test("server defaults to UTF-16 and advertises incremental sync", () => {
         inlayHintProvider: { resolveProvider: true },
         codeLensProvider: { resolveProvider: false },
         executeCommandProvider: {
-          commands: [
-            "duck.expandComptime",
-            "duck.runExample",
-          ],
+          commands: ["duck.runExample"],
         },
         semanticTokensProvider: {
           legend: {
@@ -413,11 +348,6 @@ Deno.test("server defaults to UTF-16 and advertises incremental sync", () => {
           },
           range: true,
           full: { delta: true },
-        },
-      },
-      experimental: {
-        duck: {
-          expandComptime: true,
         },
       },
       serverInfo: { name: "duck-lsp", version: "0.1.0" },
@@ -479,10 +409,7 @@ Deno.test("server selects the first client-supported position encoding", () => {
         inlayHintProvider: { resolveProvider: true },
         codeLensProvider: { resolveProvider: false },
         executeCommandProvider: {
-          commands: [
-            "duck.expandComptime",
-            "duck.runExample",
-          ],
+          commands: ["duck.runExample"],
         },
         semanticTokensProvider: {
           legend: {
@@ -507,11 +434,6 @@ Deno.test("server selects the first client-supported position encoding", () => {
           },
           range: true,
           full: { delta: true },
-        },
-      },
-      experimental: {
-        duck: {
-          expandComptime: true,
         },
       },
       serverInfo: { name: "duck-lsp", version: "0.1.0" },
@@ -1532,55 +1454,6 @@ Deno.test("server enumerates and lazily resolves code actions", () => {
   assert_equals(stale[0]?.result.edit, undefined);
 });
 
-Deno.test("server resolves proof quick fixes in the manifest route", async () => {
-  const url = new URL(
-    "../../examples/failures/compile/11_frozen_mutation.duck",
-    import.meta.url,
-  );
-  const uri = url.href;
-  const text = await Deno.readTextFile(url);
-  const state = create_state();
-  handle_message(state, { id: 1, method: "initialize" });
-  const opened = handle_message(state, {
-    method: "textDocument/didOpen",
-    params: { textDocument: { uri, version: 1, text } },
-  }) as [{ params: { diagnostics: Array<Record<string, unknown>> } }];
-  const diagnostic = opened[0]?.params.diagnostics.find((candidate) =>
-    candidate.code === "DUCK2404"
-  );
-
-  if (diagnostic === undefined) {
-    throw new Error("Missing frozen-mutation proof diagnostic");
-  }
-
-  const response = handle_message(state, {
-    id: 2,
-    method: "textDocument/codeAction",
-    params: {
-      textDocument: { uri },
-      range: {
-        start: { line: 0, character: 0 },
-        end: { line: 2, character: 12 },
-      },
-      context: { diagnostics: [diagnostic] },
-    },
-  }) as [{ result: Array<Record<string, unknown>> }];
-  const action = response[0]?.result.find((candidate) =>
-    candidate.title === "Rebuild and shadow frozen message"
-  );
-
-  if (action === undefined) {
-    throw new Error("Missing frozen-mutation code action");
-  }
-
-  const resolved = handle_message(state, {
-    id: 3,
-    method: "codeAction/resolve",
-    params: action,
-  }) as [{ result: { edit?: unknown } }];
-  assert_equals(resolved[0]?.result.edit === undefined, false);
-});
-
 Deno.test("server suppresses assists that fail workspace resolution", () => {
   const state = create_state();
   handle_message(state, { id: 1, method: "initialize" });
@@ -1610,52 +1483,27 @@ Deno.test("server suppresses assists that fail workspace resolution", () => {
   assert_equals(action, undefined);
 });
 
-Deno.test("server exposes comptime powertools", () => {
+Deno.test("server exposes runnable example powertools", async () => {
   const state = create_state();
   handle_message(state, { id: 1, method: "initialize" });
-  const uri = "file:///scratch/comptime.duck";
-  const text = "const make_adder = n => { x => x + n };\n" +
-    "const add_three = comptime make_adder(3);\n" +
-    "add_three(39)\n";
+  const source_url = new URL(
+    "../../examples/compile_time/01_comptime_adder.duck",
+    import.meta.url,
+  );
+  const uri = source_url.href;
+  const text = await Deno.readTextFile(source_url);
   handle_message(state, {
     method: "textDocument/didOpen",
     params: { textDocument: { uri, version: 1, text } },
   });
-  const expanded = handle_message(state, {
-    id: 2,
-    method: "duck/expandComptime",
-    params: {
-      textDocument: { uri },
-      position: { line: 1, character: 35 },
-    },
-  }) as [{ result: { ok: boolean; value: { facts: unknown[] } } }];
-  assert_equals(expanded[0]?.result.ok, true);
-  assert_equals(expanded[0]?.result.value.facts, [{
-    kind: "capture",
-    name: "n",
-    value: "3",
-  }]);
-  const invalid_position = handle_message(state, {
-    id: 7,
-    method: "duck/expandComptime",
-    params: {
-      textDocument: { uri },
-      position: { line: 99, character: 0 },
-    },
-  }) as [{ result: { ok: boolean; code: string } }];
-  assert_equals(invalid_position[0]?.result, {
-    ok: false,
-    code: "invalid_position",
-    message: "position line is outside the document",
-  });
 
   const lenses = handle_message(state, {
-    id: 3,
+    id: 2,
     method: "textDocument/codeLens",
     params: { textDocument: { uri } },
   }) as [{ result: Array<{ command: { title: string } }> }];
   assert_equals(lenses[0]?.result.map((lens) => lens.command.title), [
-    "▸ expand",
+    "▸ run example",
   ]);
 });
 

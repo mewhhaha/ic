@@ -20,7 +20,7 @@ capture shapes. The design must make invocation count, moved captures, branch
 selection, disposal after traps, and returned ownership explicit.
 
 Success requires closure values crossing bindings, branches, aggregate fields,
-and managed callable boundaries without copying or leaking moved values.
+and host callable boundaries without copying or leaking moved values.
 
 ## 3. Portable asynchronous effects
 
@@ -40,12 +40,9 @@ introducing a second aggregate representation.
 Success requires nested arrays, closures or owned buffers in payloads, complete
 drop behavior, ABI round trips, and dynamic matching.
 
-## 5. Broader IC lowering
+## 5. Broader semantic lowering
 
-Only pursue structured features on the IC route after defining their calculus
-representation and interactions. Lowering Core to IC is not a mechanical
-refactor: control-flow joins, storage effects, host calls, and ownership proofs
-must have explicit semantics.
-
-Until then, the IC and Core routes remain separate and share the frontend and
-module boundary.
+Extend the semantic Core and gpufuck adapter together. Control-flow joins,
+storage effects, host calls, and ownership facts must have explicit semantic
+representations before they reach gpufuck Functional Core. Do not add a fallback
+backend to cover unsupported source shapes.

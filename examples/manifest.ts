@@ -1,6 +1,15 @@
-import type { DuckRunOptions } from "../experiments/gpufuck/compiler.ts";
+type ExampleHostValue =
+  | { kind: "integer"; value: number }
+  | { kind: "resource"; id: number };
 
-type ExampleInit = NonNullable<DuckRunOptions["init"]>;
+type ExampleCapability = {
+  $resource: Extract<ExampleHostValue, { kind: "resource" }>;
+  [operation: string]:
+    | Extract<ExampleHostValue, { kind: "resource" }>
+    | (() => ExampleHostValue);
+};
+
+type ExampleInit = Record<string, ExampleCapability>;
 
 export type ExampleRun = {
   name?: string;
@@ -532,22 +541,6 @@ export const compile_failure_examples: CompileFailureExample[] = [
   {
     path: "examples/failures/compile/07_invalid_union_payload.duck",
     message: "type mismatch: expected Int, received $FunctionalText",
-  },
-  {
-    path: "examples/failures/compile/08_escaping_borrow.duck",
-    message: "borrow",
-  },
-  {
-    path: "examples/failures/compile/09_freeze_while_borrowed.duck",
-    message: "Cannot freeze borrowed owner",
-  },
-  {
-    path: "examples/failures/compile/10_scratch_heap_escape.duck",
-    message: "cannot leave scratch",
-  },
-  {
-    path: "examples/failures/compile/11_frozen_mutation.duck",
-    message: "frozen",
   },
   {
     path: "examples/failures/compile/12_missing_imported_export.duck",

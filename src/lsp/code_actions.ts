@@ -208,54 +208,6 @@ export function code_actions(
     }
   }
 
-  if (active_diagnostic_codes.has(diagnostic_codes.frozen_mutation_rejected)) {
-    for (const diagnostic of diagnostics) {
-      if (diagnostic.code !== diagnostic_codes.frozen_mutation_rejected) {
-        continue;
-      }
-
-      const statement = source.statements.find((candidate) =>
-        candidate.tag === "index_assign" &&
-        overlaps(
-          source_span(candidate),
-          positions.offsets_from_range(diagnostic.range),
-        )
-      );
-
-      if (statement === undefined || statement.tag !== "index_assign") {
-        continue;
-      }
-
-      const span = source_span(statement);
-      const mutation = syntax.text.slice(span.start, span.end);
-      const binding = source.statements.find((candidate) =>
-        candidate.tag === "bind" && candidate.name === statement.name
-      );
-      let empty_value = '""';
-
-      if (
-        binding !== undefined && binding.tag === "bind" &&
-        binding.annotation === "Bytes"
-      ) {
-        empty_value = "Bytes.empty";
-      }
-
-      add_action(
-        actions,
-        syntax.text,
-        uri,
-        version,
-        "Rebuild and shadow frozen " + statement.name,
-        "quickfix",
-        span.start,
-        span.end,
-        "let " + statement.name + " = @append(" + statement.name + ", " +
-          empty_value + ");\n" + mutation,
-        diagnostics,
-      );
-    }
-  }
-
   for (const diagnostic of diagnostics) {
     if (
       diagnostic.code === diagnostic_codes.annotation_type_mismatch &&
@@ -467,41 +419,6 @@ export function code_actions(
         span.start + open + 1,
         span.start + close,
         value,
-        diagnostics,
-      );
-    }
-
-    if (diagnostic.code === diagnostic_codes.scratch_escape_rejected) {
-      const diagnostic_span = positions.offsets_from_range(diagnostic.range);
-      const scratch = source.statements.map(statement_expression).find((expr) =>
-        expr !== undefined && expr.tag === "scratch" &&
-        overlaps(source_span(expr), diagnostic_span)
-      );
-
-      if (
-        scratch === undefined || scratch.tag !== "scratch" ||
-        scratch.body.tag !== "block" || scratch.body.statements.length !== 1
-      ) {
-        continue;
-      }
-
-      const inner = scratch.body.statements[0];
-
-      if (inner === undefined || inner.tag !== "expr") {
-        continue;
-      }
-
-      const scratch_span = source_span(scratch);
-      add_action(
-        actions,
-        syntax.text,
-        uri,
-        version,
-        "Move scratch result to owned storage",
-        "quickfix",
-        scratch_span.start,
-        scratch_span.end,
-        format_expr(inner.expr),
         diagnostics,
       );
     }

@@ -1,13 +1,16 @@
 import { expect } from "../expect.ts";
-import type { Env, FrontExpr, TypeField } from "./ast.ts";
+import type { Env, FrontExpr, FrontType, TypeField } from "./ast.ts";
 import { is_object_type_expr, lookup_type_field } from "./fields.ts";
 import { front_type_name, type_name_from_front_type } from "./types.ts";
-import type { UnionValueHooks } from "./union_value_types.ts";
+
+type UnionPayloadHooks = {
+  infer_expr: (expr: FrontExpr, env: Env) => FrontType;
+};
 
 export function infer_untyped_union_case(
   expr: Extract<FrontExpr, { tag: "union_case" }>,
   env: Env,
-  hooks: UnionValueHooks,
+  hooks: UnionPayloadHooks,
 ): TypeField {
   if (!expr.value || expr.value.tag === "unit") {
     return { name: expr.name, type_name: "Unit" };
@@ -72,7 +75,7 @@ export function validate_union_payload_type(
   expected: string,
   value: FrontExpr,
   env: Env,
-  hooks: Pick<UnionValueHooks, "infer_expr">,
+  hooks: UnionPayloadHooks,
 ): void {
   const actual = hooks.infer_expr(value, env);
 
@@ -181,7 +184,7 @@ export function check_union_case_value(
   union_type: Extract<FrontExpr, { tag: "union_type" }>,
   value: Extract<FrontExpr, { tag: "union_case" }>,
   env: Env,
-  hooks: UnionValueHooks,
+  hooks: UnionPayloadHooks,
 ): void {
   const declared = lookup_type_field(union_type.cases, value.name);
 

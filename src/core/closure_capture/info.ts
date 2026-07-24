@@ -32,10 +32,6 @@ export function core_lam_capture_info<ctx extends CoreCaptureStaticCtx>(
     bound: new Set(),
     names: [],
     seen: new Set(),
-    assigned_names: [],
-    assigned_seen: new Set(),
-    assigned_static_names: [],
-    assigned_static_seen: new Set(),
     static_seen: new Set(),
     invalid_assignment: false,
     hooks,
@@ -48,8 +44,6 @@ export function core_lam_capture_info<ctx extends CoreCaptureStaticCtx>(
   collect_core_expr_captures(expr.body, state);
   return {
     names: state.names,
-    assigned_names: state.assigned_names,
-    assigned_static_names: state.assigned_static_names,
     invalid_assignment: state.invalid_assignment,
   };
 }

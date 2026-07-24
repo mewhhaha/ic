@@ -1,8 +1,6 @@
 import { format_text } from "../fmt/format.ts";
 import { run_lsp } from "../lsp/server.ts";
 import { Source, type SourceDiagnostic } from "../frontend.ts";
-import { run_build, run_source } from "./compile.ts";
-import { run_tests } from "./test.ts";
 
 const usage = `Usage: duck <command>
 
@@ -40,14 +38,17 @@ async function dispatch_command(
   args: string[],
 ): Promise<number> {
   if (command === "build") {
+    const { run_build } = await import("./compile.ts");
     return await run_build(args);
   }
 
   if (command === "run") {
+    const { run_source } = await import("./compile.ts");
     return await run_source(args);
   }
 
   if (command === "test") {
+    const { run_tests } = await import("./test.ts");
     return await run_tests(args);
   }
 

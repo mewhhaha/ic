@@ -10,4 +10,4 @@ let calculate = () => {
 };
 
 let result: IntOption = try calculate();
-option_unwrap_or(0, result)
+option_unwrap_or [0, result]

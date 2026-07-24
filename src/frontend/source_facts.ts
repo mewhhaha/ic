@@ -10,6 +10,7 @@ import type {
   Source,
   Stmt,
   TypeExpr,
+  TypeLiteral,
 } from "./ast.ts";
 import { prim_returns_bool } from "./numeric.ts";
 import {
@@ -365,6 +366,18 @@ export function source_inference_diagnostics(
         statement.value.tag === "union_type" || aggregate_type !== undefined)
     ) {
       known_names.add(statement.name);
+      continue;
+    }
+
+    if (statement.tag === "bind" && statement.kind === "const") {
+      const definition = facts.definition_type_of.get(statement)?.get("name");
+
+      if (
+        definition?.resolved_name === "Type" &&
+        definition.constructed !== undefined
+      ) {
+        known_names.add(statement.name);
+      }
     }
   }
 
@@ -1167,6 +1180,25 @@ class SourceFactRecorder {
       let scope_type = inferred;
 
       if (declared !== undefined) {
+        const declared_literal = source_type_literal(declared);
+        let literal_matches: boolean | undefined;
+
+        if (
+          declared_literal?.tag === "bool" && statement.value.tag === "bool"
+        ) {
+          literal_matches = declared_literal.value === statement.value.value;
+        } else if (
+          declared_literal?.tag === "num" && statement.value.tag === "num"
+        ) {
+          literal_matches = declared_literal.type === statement.value.type &&
+            declared_literal.value === statement.value.value &&
+            declared_literal.character === statement.value.character;
+        } else if (
+          declared_literal?.tag === "text" && statement.value.tag === "text"
+        ) {
+          literal_matches = declared_literal.value === statement.value.value;
+        }
+
         if (
           declared.quantified_variables !== undefined &&
           (inferred === undefined ||
@@ -1182,7 +1214,9 @@ class SourceFactRecorder {
 
         if (
           inferred !== undefined &&
-          source_types_compatible(declared, inferred)
+          (literal_matches === true ||
+            (literal_matches === undefined &&
+              source_types_compatible(declared, inferred)))
         ) {
           definition_type = declared;
           scope_type = declared;
@@ -1212,6 +1246,13 @@ class SourceFactRecorder {
       ) {
         scope_type.constructed = this.type_from_name(statement.name);
         this.namespaces.set(statement.name, scope_type);
+      }
+
+      if (
+        statement.kind === "const" && scope_type?.resolved_name === "Type" &&
+        scope_type.constructed !== undefined
+      ) {
+        this.declaration_types.set(statement.name, scope_type.constructed);
       }
 
       this.record_definition(statement, "name", definition_type);
@@ -3879,6 +3920,7 @@ class SourceFactRecorder {
         "new",
         callable_type("(Shape) -> " + instance.name, [shape_type()], instance),
       );
+      members.set("shape", this.struct_shape_namespace(instance));
     } else if (declaration.tag === "type" && declaration.body.tag === "sum") {
       for (const union_case of declaration.body.cases) {
         const payload = this.type_from_name(union_case.type_name);
@@ -3984,6 +4026,7 @@ class SourceFactRecorder {
         "new",
         callable_type("(Shape) -> " + instance.name, [shape_type()], instance),
       );
+      members.set("shape", this.struct_shape_namespace(instance));
     } else {
       for (const union_case of value.cases) {
         const payload = this.type_from_name(union_case.type_name);
@@ -4010,6 +4053,25 @@ class SourceFactRecorder {
     namespace.constructed = instance;
     this.namespaces.set(name, namespace);
     return namespace;
+  }
+
+  struct_shape_namespace(instance: SourceTypeFact): SourceTypeFact {
+    const shape = named_type("Shape");
+    const fields = source_fields(instance);
+    expect(fields, "Struct shape requires fields for " + instance.name);
+    shape.members = new Map();
+
+    for (const field of fields) {
+      if (field.type === undefined) {
+        continue;
+      }
+
+      const field_namespace = named_type("Type");
+      field_namespace.constructed = field.type;
+      shape.members.set(field.name, field_namespace);
+    }
+
+    return shape;
   }
 
   type_value_instance(
@@ -5806,6 +5868,36 @@ function canonical_type_from_source_fact(
     return { tag: "scalar", name: scalar };
   }
 
+  const literal = source_type_literal(source);
+
+  if (literal?.tag === "bool") {
+    return { tag: "scalar", name: "Bool" };
+  }
+
+  if (literal?.tag === "num") {
+    if (literal.character !== undefined) {
+      return { tag: "scalar", name: "Char" };
+    }
+
+    if (literal.type === "i64") {
+      return { tag: "scalar", name: "I64" };
+    }
+
+    if (literal.type === "f32") {
+      return { tag: "scalar", name: "F32" };
+    }
+
+    if (literal.type === "f64") {
+      return { tag: "scalar", name: "F64" };
+    }
+
+    return { tag: "scalar", name: "I32" };
+  }
+
+  if (literal?.tag === "text") {
+    return { tag: "scalar", name: "Text" };
+  }
+
   const integer = integer_type_from_name(source.resolved_name);
 
   if (integer !== undefined) {
@@ -5990,6 +6082,24 @@ function canonical_scalar_from_source_name(
     name === "Bytes" || name === "Resume"
   ) {
     return name;
+  }
+
+  return undefined;
+}
+
+function source_type_literal(
+  type: SourceTypeFact,
+): TypeLiteral | undefined {
+  try {
+    const type_expr = parse_type_expr(tokenize(type.resolved_name));
+
+    if (type_expr.tag === "literal") {
+      return type_expr.value;
+    }
+  } catch (error) {
+    if (!(error instanceof Error)) {
+      throw error;
+    }
   }
 
   return undefined;

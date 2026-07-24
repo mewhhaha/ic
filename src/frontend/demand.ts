@@ -12,7 +12,7 @@ export function erase_undemanded_front_bindings(source: Source): Source {
 
     if (
       statement.tag === "bind" && statement.kind === "let" &&
-      !statement.is_linear && statement.managed_export !== true &&
+      !statement.is_linear && statement.host_export !== true &&
       statement.annotation === undefined &&
       statement.type_annotation === undefined &&
       can_erase_before_core_lowering(statement.value) &&

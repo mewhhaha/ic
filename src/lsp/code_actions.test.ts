@@ -10,9 +10,8 @@ function actions(
   text: string,
   start = 0,
   end = text.length,
-  route: "core" | undefined = undefined,
 ) {
-  const analysis = Source.analyze(text, { route });
+  const analysis = Source.analyze(text);
   const parsed = Source.parse_with_diagnostics(text);
   const index = build_binding_index(parsed, 1);
   const positions = new PositionIndex(text, "utf-16");
@@ -150,7 +149,7 @@ Deno.test("code actions make reused scalar linear values shareable", () => {
 
 Deno.test("code actions widen mixed integer operands", () => {
   const before = "40i64 + 2i32\n";
-  const result = actions(before, 0, before.length, "core");
+  const result = actions(before, 0, before.length);
   const widen = result.actions.find((candidate) =>
     candidate.title === "Widen i32 operand to I64"
   );
@@ -212,38 +211,6 @@ Deno.test("code actions use false for a missing Bool union payload", () => {
       "let result = `Ok (false);\n",
   );
   assert_equals(Source.analyze(after).diagnostics, []);
-});
-
-Deno.test("code actions encode Text before byte mutation", () => {
-  const before = 'let message: Text = freeze @append("a", "b");\n' +
-    "message[0] = 65\n@len(message)\n";
-  const result = actions(before, 0, before.length, "core");
-  const rebuild = result.actions.find((candidate) =>
-    candidate.title === "Encode message before byte mutation"
-  );
-  expect(rebuild !== undefined, "Expected Text encoding quick fix");
-  assert_equals(
-    apply(before, rebuild),
-    'let message: Text = freeze @append("a", "b");\n' +
-      "let message = @Utf8.encode(message);\n" +
-      "message[0] = 65\n@len(message)\n",
-  );
-  assert_equals(
-    Source.analyze(apply(before, rebuild), { route: "core" }).diagnostics,
-    [],
-  );
-});
-
-Deno.test("code actions lift an escaping scratch result to owned storage", () => {
-  const before = 'scratch {\n  @append("a", "b")\n}\n';
-  const result = actions(before, 0, before.length, "core");
-  const lift = result.actions.find((candidate) =>
-    candidate.title === "Move scratch result to owned storage"
-  );
-  expect(lift !== undefined, "Expected scratch escape quick fix");
-  const after = apply(before, lift);
-  assert_equals(after, '@append ("a", "b")\n');
-  assert_equals(Source.analyze(after, { route: "core" }).diagnostics, []);
 });
 
 Deno.test("code actions inline immediately consumed single-use bindings", () => {

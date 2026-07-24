@@ -11,15 +11,15 @@ otherwise receives a vertical sky gradient. The program returns the PPM as owned
 byte, so there is no public mutable reference or host effect in the renderer.
 
 The PPM header is `P6\n32 20\n255\n`, followed by 1,920 RGB bytes. The
-TypeScript host is deliberately thin: it compiles the Duck source, instantiates
-the managed artifact, and writes or returns the resulting bytes.
+TypeScript host is deliberately thin: it runs the Duck source through
+`DuckCompiler` and writes or returns the resulting bytes.
 
 ## Run
 
 Write the deterministic image to a file:
 
 ```sh
-deno run --allow-read --allow-run=wat2wasm \
+deno run --allow-read \
   case-studies/raytracer/raytracer.ts > raytracer.ppm
 ```
 

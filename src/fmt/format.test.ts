@@ -248,7 +248,7 @@ Deno.test("format_text preserves every bundled prelude", async () => {
   }
 });
 
-Deno.test("format_text preserves the examples and grep case study", async () => {
+Deno.test("format_text preserves the examples and editor case study", async () => {
   const roots = ["examples"];
   const files: string[] = [];
 
@@ -271,7 +271,7 @@ Deno.test("format_text preserves the examples and grep case study", async () => 
   }
 
   files.sort();
-  files.push("case-studies/grep/grep.duck");
+  files.push("case-studies/editor/editor.duck");
   assert_equals(files.length > 0, true);
 
   for (const path of files) {

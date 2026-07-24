@@ -1,9 +1,9 @@
 import { expect } from "../../expect.ts";
 import type { FrontExpr, Pattern, Stmt } from "../ast.ts";
 import { expect_snake_case, is_no_demand_name } from "../names.ts";
-import { ParserHostImport } from "../parser_host_import.ts";
+import { ParserExpr } from "../parser_expr.ts";
 
-export abstract class ParserStmtControl extends ParserHostImport {
+export abstract class ParserStmtControl extends ParserExpr {
   protected parse_if_stmt(): Stmt {
     this.expect_name("Expected if");
 

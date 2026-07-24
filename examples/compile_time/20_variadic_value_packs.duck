@@ -8,8 +8,7 @@ const sum = (const ...values) => comptime {
   total
 };
 
-const values = (2, 99);
-let first = match values {
+let first = match (2, 99) {
   | (value, ...remaining) => value
   | _ => 0
 };

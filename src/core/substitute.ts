@@ -1,6 +1,5 @@
 import { expect } from "../expect.ts";
 import type { CoreExpr, CoreField, CoreParam, CoreStmt } from "./ast.ts";
-import { record_core_expr_provenance } from "./subject_provenance.ts";
 
 export function substitute_core_call_expr(
   expr: CoreExpr,
@@ -20,15 +19,8 @@ export function substitute_core_call_expr(
       const replacement = replacements.get(expr.name);
 
       if (replacement) {
-        if (expr.ascribed_type !== undefined) {
-          return record_core_expr_provenance({
-            ...replacement,
-            ascribed_type: expr.ascribed_type,
-          }, expr);
-        }
-
         if (replacement.tag === "var" || replacement.tag === "linear") {
-          return record_core_expr_provenance({ ...replacement }, replacement);
+          return { ...replacement };
         }
 
         return replacement;
@@ -38,111 +30,108 @@ export function substitute_core_call_expr(
     }
 
     case "prim":
-      return record_core_expr_provenance({
+      return {
         tag: "prim",
         prim: expr.prim,
         args: expr.args.map((arg) =>
           substitute_core_call_expr(arg, replacements)
         ),
-      }, expr);
+      };
 
     case "lam": {
       const local = shadow_core_params(replacements, expr.params);
-      return record_core_expr_provenance({
+      return {
         tag: "lam",
         params: expr.params,
         body: substitute_core_call_expr(expr.body, local),
-        is_linear_closure: expr.is_linear_closure,
-      }, expr);
+      };
     }
 
     case "rec": {
       const local = shadow_core_params(replacements, expr.params);
-      return record_core_expr_provenance({
+      return {
         tag: "rec",
         params: expr.params,
         body: substitute_core_call_expr(expr.body, local),
-      }, expr);
+      };
     }
 
     case "rec_ref":
       return expr;
 
     case "app":
-      return record_core_expr_provenance({
+      return {
         tag: "app",
         func: substitute_core_call_expr(expr.func, replacements),
         args: expr.args.map((arg) =>
           substitute_core_call_expr(arg, replacements)
         ),
-        resume_payload: expr.resume_payload,
-      }, expr);
+      };
 
     case "block":
-      return record_core_expr_provenance({
+      return {
         tag: "block",
         statements: substitute_core_call_block(expr.statements, replacements),
-      }, expr);
+      };
 
     case "loop":
-      return record_core_expr_provenance({
+      return {
         tag: "loop",
         body: substitute_core_call_block(expr.body, new Map(replacements)),
-      }, expr);
+      };
 
     case "comptime":
-      return record_core_expr_provenance({
+      return {
         tag: "comptime",
         expr: substitute_core_call_expr(expr.expr, replacements),
-      }, expr);
+      };
 
     case "borrow":
-      return record_core_expr_provenance({
+      return {
         tag: "borrow",
         value: substitute_core_call_expr(expr.value, replacements),
-      }, expr);
+      };
 
     case "freeze":
-      return record_core_expr_provenance({
+      return {
         tag: "freeze",
         value: substitute_core_call_expr(expr.value, replacements),
-      }, expr);
+      };
 
     case "scratch":
-      return record_core_expr_provenance({
+      return {
         tag: "scratch",
         body: substitute_core_call_expr(expr.body, replacements),
-      }, expr);
+      };
 
     case "with":
-      return record_core_expr_provenance({
+      return {
         tag: "with",
         base: substitute_core_call_expr(expr.base, replacements),
         fields: substitute_core_call_fields(expr.fields, replacements),
-      }, expr);
+      };
 
     case "struct_value":
-      return record_core_expr_provenance({
+      return {
         tag: "struct_value",
         type_expr: substitute_core_call_expr(expr.type_expr, replacements),
         fields: substitute_core_call_fields(expr.fields, replacements),
-      }, expr);
+      };
 
     case "struct_update":
-      return record_core_expr_provenance({
+      return {
         tag: "struct_update",
         base: substitute_core_call_expr(expr.base, replacements),
         fields: substitute_core_call_fields(expr.fields, replacements),
-      }, expr);
+      };
 
     case "if":
-      return record_core_expr_provenance({
+      return {
         tag: "if",
         cond: substitute_core_call_expr(expr.cond, replacements),
         then_branch: substitute_core_call_expr(expr.then_branch, replacements),
         else_branch: substitute_core_call_expr(expr.else_branch, replacements),
-        implicit_else: expr.implicit_else,
-      }, expr);
+      };
 
     case "if_let": {
       let then_replacements = replacements;
@@ -151,7 +140,7 @@ export function substitute_core_call_expr(
         then_replacements = shadow_core_name(replacements, expr.value_name);
       }
 
-      return record_core_expr_provenance({
+      return {
         tag: "if_let",
         case_name: expr.case_name,
         value_name: expr.value_name,
@@ -161,23 +150,22 @@ export function substitute_core_call_expr(
           then_replacements,
         ),
         else_branch: substitute_core_call_expr(expr.else_branch, replacements),
-        implicit_else: expr.implicit_else,
-      }, expr);
+      };
     }
 
     case "field":
-      return record_core_expr_provenance({
+      return {
         tag: "field",
         object: substitute_core_call_expr(expr.object, replacements),
         name: expr.name,
-      }, expr);
+      };
 
     case "index":
-      return record_core_expr_provenance({
+      return {
         tag: "index",
         object: substitute_core_call_expr(expr.object, replacements),
         index: substitute_core_call_expr(expr.index, replacements),
-      }, expr);
+      };
 
     case "union_case": {
       let value: CoreExpr | undefined;
@@ -191,13 +179,12 @@ export function substitute_core_call_expr(
         type_expr = substitute_core_call_expr(expr.type_expr, replacements);
       }
 
-      return record_core_expr_provenance({
+      return {
         tag: "union_case",
         name: expr.name,
         value,
         type_expr,
-        resume_payload: expr.resume_payload,
-      }, expr);
+      };
     }
   }
 }
